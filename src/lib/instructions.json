@@ -1,0 +1,2614 @@
+[
+  {
+    "opcode": 0,
+    "mnemonics": [
+      "BRK"
+    ],
+    "addressingMode": "implied",
+    "cycles": 7,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 1,
+    "mnemonics": [
+      "ORA"
+    ],
+    "addressingMode": "indirectX",
+    "cycles": 6,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 2,
+    "mnemonics": [
+      "JAM",
+      "KIL",
+      "HLT"
+    ],
+    "illegal": true
+  },
+  {
+    "opcode": 3,
+    "mnemonics": [
+      "SLO",
+      "ASO"
+    ],
+    "addressingMode": "indirectX",
+    "cycles": 8,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 4,
+    "mnemonics": [
+      "NOP"
+    ],
+    "addressingMode": "zeropage",
+    "cycles": 3,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 5,
+    "mnemonics": [
+      "ORA"
+    ],
+    "addressingMode": "zeropage",
+    "cycles": 3,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 6,
+    "mnemonics": [
+      "ASL"
+    ],
+    "addressingMode": "zeropage",
+    "cycles": 5,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 7,
+    "mnemonics": [
+      "SLO",
+      "ASO"
+    ],
+    "addressingMode": "zeropage",
+    "cycles": 5,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 8,
+    "mnemonics": [
+      "PHP"
+    ],
+    "addressingMode": "implied",
+    "cycles": 3,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 9,
+    "mnemonics": [
+      "ORA"
+    ],
+    "addressingMode": "immediate",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 10,
+    "mnemonics": [
+      "ASL"
+    ],
+    "addressingMode": "accumulator",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 11,
+    "mnemonics": [
+      "ANC"
+    ],
+    "addressingMode": "immediate",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 12,
+    "mnemonics": [
+      "NOP"
+    ],
+    "addressingMode": "absolute",
+    "cycles": 4,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 13,
+    "mnemonics": [
+      "ORA"
+    ],
+    "addressingMode": "absolute",
+    "cycles": 4,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 14,
+    "mnemonics": [
+      "ASL"
+    ],
+    "addressingMode": "absolute",
+    "cycles": 6,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 15,
+    "mnemonics": [
+      "SLO",
+      "ASO"
+    ],
+    "addressingMode": "absolute",
+    "cycles": 6,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 16,
+    "mnemonics": [
+      "BPL"
+    ],
+    "addressingMode": "relative",
+    "cycles": 2,
+    "pageBoundaryCycle": true,
+    "illegal": false
+  },
+  {
+    "opcode": 17,
+    "mnemonics": [
+      "ORA"
+    ],
+    "addressingMode": "indirectY",
+    "cycles": 5,
+    "pageBoundaryCycle": true,
+    "illegal": false
+  },
+  {
+    "opcode": 18,
+    "mnemonics": [
+      "JAM",
+      "KIL",
+      "HLT"
+    ],
+    "illegal": true
+  },
+  {
+    "opcode": 19,
+    "mnemonics": [
+      "SLO",
+      "ASO"
+    ],
+    "addressingMode": "indirectY",
+    "cycles": 8,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 20,
+    "mnemonics": [
+      "NOP"
+    ],
+    "addressingMode": "zeropageX",
+    "cycles": 4,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 21,
+    "mnemonics": [
+      "ORA"
+    ],
+    "addressingMode": "zeropageX",
+    "cycles": 4,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 22,
+    "mnemonics": [
+      "ASL"
+    ],
+    "addressingMode": "zeropageX",
+    "cycles": 6,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 23,
+    "mnemonics": [
+      "SLO",
+      "ASO"
+    ],
+    "addressingMode": "zeropageX",
+    "cycles": 6,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 24,
+    "mnemonics": [
+      "CLC"
+    ],
+    "addressingMode": "implied",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 25,
+    "mnemonics": [
+      "ORA"
+    ],
+    "addressingMode": "absoluteY",
+    "cycles": 4,
+    "pageBoundaryCycle": true,
+    "illegal": false
+  },
+  {
+    "opcode": 26,
+    "mnemonics": [
+      "NOP"
+    ],
+    "addressingMode": "implied",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 27,
+    "mnemonics": [
+      "SLO",
+      "ASO"
+    ],
+    "addressingMode": "absoluteY",
+    "cycles": 7,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 28,
+    "mnemonics": [
+      "NOP"
+    ],
+    "addressingMode": "absoluteX",
+    "cycles": 4,
+    "pageBoundaryCycle": true,
+    "illegal": true
+  },
+  {
+    "opcode": 29,
+    "mnemonics": [
+      "ORA"
+    ],
+    "addressingMode": "absoluteX",
+    "cycles": 4,
+    "pageBoundaryCycle": true,
+    "illegal": false
+  },
+  {
+    "opcode": 30,
+    "mnemonics": [
+      "ASL"
+    ],
+    "addressingMode": "absoluteX",
+    "cycles": 7,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 31,
+    "mnemonics": [
+      "SLO",
+      "ASO"
+    ],
+    "addressingMode": "absoluteX",
+    "cycles": 7,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 32,
+    "mnemonics": [
+      "JSR"
+    ],
+    "addressingMode": "absolute",
+    "cycles": 6,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 33,
+    "mnemonics": [
+      "AND"
+    ],
+    "addressingMode": "indirectX",
+    "cycles": 6,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 34,
+    "mnemonics": [
+      "JAM",
+      "KIL",
+      "HLT"
+    ],
+    "illegal": true
+  },
+  {
+    "opcode": 35,
+    "mnemonics": [
+      "RLA"
+    ],
+    "addressingMode": "indirectX",
+    "cycles": 8,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 36,
+    "mnemonics": [
+      "BIT"
+    ],
+    "addressingMode": "zeropage",
+    "cycles": 3,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 37,
+    "mnemonics": [
+      "AND"
+    ],
+    "addressingMode": "zeropage",
+    "cycles": 3,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 38,
+    "mnemonics": [
+      "ROL"
+    ],
+    "addressingMode": "zeropage",
+    "cycles": 5,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 39,
+    "mnemonics": [
+      "RLA"
+    ],
+    "addressingMode": "zeropage",
+    "cycles": 5,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 40,
+    "mnemonics": [
+      "PLP"
+    ],
+    "addressingMode": "implied",
+    "cycles": 4,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 41,
+    "mnemonics": [
+      "AND"
+    ],
+    "addressingMode": "immediate",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 42,
+    "mnemonics": [
+      "ROL"
+    ],
+    "addressingMode": "accumulator",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 43,
+    "mnemonics": [
+      "ANC",
+      "ANC2"
+    ],
+    "addressingMode": "immediate",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 44,
+    "mnemonics": [
+      "BIT"
+    ],
+    "addressingMode": "absolute",
+    "cycles": 4,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 45,
+    "mnemonics": [
+      "AND"
+    ],
+    "addressingMode": "absolute",
+    "cycles": 4,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 46,
+    "mnemonics": [
+      "ROL"
+    ],
+    "addressingMode": "absolute",
+    "cycles": 6,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 47,
+    "mnemonics": [
+      "RLA"
+    ],
+    "addressingMode": "absolute",
+    "cycles": 6,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 48,
+    "mnemonics": [
+      "BMI"
+    ],
+    "addressingMode": "relative",
+    "cycles": 2,
+    "pageBoundaryCycle": true,
+    "illegal": false
+  },
+  {
+    "opcode": 49,
+    "mnemonics": [
+      "AND"
+    ],
+    "addressingMode": "indirectY",
+    "cycles": 5,
+    "pageBoundaryCycle": true,
+    "illegal": false
+  },
+  {
+    "opcode": 50,
+    "mnemonics": [
+      "JAM",
+      "KIL",
+      "HLT"
+    ],
+    "illegal": true
+  },
+  {
+    "opcode": 51,
+    "mnemonics": [
+      "RLA"
+    ],
+    "addressingMode": "indirectY",
+    "cycles": 8,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 52,
+    "mnemonics": [
+      "NOP"
+    ],
+    "addressingMode": "zeropageX",
+    "cycles": 4,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 53,
+    "mnemonics": [
+      "AND"
+    ],
+    "addressingMode": "zeropageX",
+    "cycles": 4,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 54,
+    "mnemonics": [
+      "ROL"
+    ],
+    "addressingMode": "zeropageX",
+    "cycles": 6,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 55,
+    "mnemonics": [
+      "RLA"
+    ],
+    "addressingMode": "zeropageX",
+    "cycles": 6,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 56,
+    "mnemonics": [
+      "SEC"
+    ],
+    "addressingMode": "implied",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 57,
+    "mnemonics": [
+      "AND"
+    ],
+    "addressingMode": "absoluteY",
+    "cycles": 4,
+    "pageBoundaryCycle": true,
+    "illegal": false
+  },
+  {
+    "opcode": 58,
+    "mnemonics": [
+      "NOP"
+    ],
+    "addressingMode": "implied",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 59,
+    "mnemonics": [
+      "RLA"
+    ],
+    "addressingMode": "absoluteY",
+    "cycles": 7,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 60,
+    "mnemonics": [
+      "NOP"
+    ],
+    "addressingMode": "absoluteX",
+    "cycles": 4,
+    "pageBoundaryCycle": true,
+    "illegal": true
+  },
+  {
+    "opcode": 61,
+    "mnemonics": [
+      "AND"
+    ],
+    "addressingMode": "absoluteX",
+    "cycles": 4,
+    "pageBoundaryCycle": true,
+    "illegal": false
+  },
+  {
+    "opcode": 62,
+    "mnemonics": [
+      "ROL"
+    ],
+    "addressingMode": "absoluteX",
+    "cycles": 7,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 63,
+    "mnemonics": [
+      "RLA"
+    ],
+    "addressingMode": "absoluteX",
+    "cycles": 7,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 64,
+    "mnemonics": [
+      "RTI"
+    ],
+    "addressingMode": "implied",
+    "cycles": 6,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 65,
+    "mnemonics": [
+      "EOR"
+    ],
+    "addressingMode": "indirectX",
+    "cycles": 6,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 66,
+    "mnemonics": [
+      "JAM",
+      "KIL",
+      "HLT"
+    ],
+    "illegal": true
+  },
+  {
+    "opcode": 67,
+    "mnemonics": [
+      "SRE",
+      "LSE"
+    ],
+    "addressingMode": "indirectX",
+    "cycles": 8,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 68,
+    "mnemonics": [
+      "NOP"
+    ],
+    "addressingMode": "zeropage",
+    "cycles": 3,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 69,
+    "mnemonics": [
+      "EOR"
+    ],
+    "addressingMode": "zeropage",
+    "cycles": 3,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 70,
+    "mnemonics": [
+      "LSR"
+    ],
+    "addressingMode": "zeropage",
+    "cycles": 5,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 71,
+    "mnemonics": [
+      "SRE",
+      "LSE"
+    ],
+    "addressingMode": "zeropage",
+    "cycles": 5,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 72,
+    "mnemonics": [
+      "PHA"
+    ],
+    "addressingMode": "implied",
+    "cycles": 3,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 73,
+    "mnemonics": [
+      "EOR"
+    ],
+    "addressingMode": "immediate",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 74,
+    "mnemonics": [
+      "LSR"
+    ],
+    "addressingMode": "accumulator",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 75,
+    "mnemonics": [
+      "ALR",
+      "ASR"
+    ],
+    "addressingMode": "immediate",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 76,
+    "mnemonics": [
+      "JMP"
+    ],
+    "addressingMode": "absolute",
+    "cycles": 3,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 77,
+    "mnemonics": [
+      "EOR"
+    ],
+    "addressingMode": "absolute",
+    "cycles": 4,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 78,
+    "mnemonics": [
+      "LSR"
+    ],
+    "addressingMode": "absolute",
+    "cycles": 6,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 79,
+    "mnemonics": [
+      "SRE",
+      "LSE"
+    ],
+    "addressingMode": "absolute",
+    "cycles": 6,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 80,
+    "mnemonics": [
+      "BVC"
+    ],
+    "addressingMode": "relative",
+    "cycles": 2,
+    "pageBoundaryCycle": true,
+    "illegal": false
+  },
+  {
+    "opcode": 81,
+    "mnemonics": [
+      "EOR"
+    ],
+    "addressingMode": "indirectY",
+    "cycles": 5,
+    "pageBoundaryCycle": true,
+    "illegal": false
+  },
+  {
+    "opcode": 82,
+    "mnemonics": [
+      "JAM",
+      "KIL",
+      "HLT"
+    ],
+    "illegal": true
+  },
+  {
+    "opcode": 83,
+    "mnemonics": [
+      "SRE",
+      "LSE"
+    ],
+    "addressingMode": "indirectY",
+    "cycles": 8,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 84,
+    "mnemonics": [
+      "NOP"
+    ],
+    "addressingMode": "zeropageX",
+    "cycles": 4,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 85,
+    "mnemonics": [
+      "EOR"
+    ],
+    "addressingMode": "zeropageX",
+    "cycles": 4,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 86,
+    "mnemonics": [
+      "LSR"
+    ],
+    "addressingMode": "zeropageX",
+    "cycles": 6,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 87,
+    "mnemonics": [
+      "SRE",
+      "LSE"
+    ],
+    "addressingMode": "zeropageX",
+    "cycles": 6,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 88,
+    "mnemonics": [
+      "CLI"
+    ],
+    "addressingMode": "implied",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 89,
+    "mnemonics": [
+      "EOR"
+    ],
+    "addressingMode": "absoluteY",
+    "cycles": 4,
+    "pageBoundaryCycle": true,
+    "illegal": false
+  },
+  {
+    "opcode": 90,
+    "mnemonics": [
+      "NOP"
+    ],
+    "addressingMode": "implied",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 91,
+    "mnemonics": [
+      "SRE",
+      "LSE"
+    ],
+    "addressingMode": "absoluteY",
+    "cycles": 7,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 92,
+    "mnemonics": [
+      "NOP"
+    ],
+    "addressingMode": "absoluteX",
+    "cycles": 4,
+    "pageBoundaryCycle": true,
+    "illegal": true
+  },
+  {
+    "opcode": 93,
+    "mnemonics": [
+      "EOR"
+    ],
+    "addressingMode": "absoluteX",
+    "cycles": 4,
+    "pageBoundaryCycle": true,
+    "illegal": false
+  },
+  {
+    "opcode": 94,
+    "mnemonics": [
+      "LSR"
+    ],
+    "addressingMode": "absoluteX",
+    "cycles": 7,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 95,
+    "mnemonics": [
+      "SRE",
+      "LSE"
+    ],
+    "addressingMode": "absoluteX",
+    "cycles": 7,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 96,
+    "mnemonics": [
+      "RTS"
+    ],
+    "addressingMode": "implied",
+    "cycles": 6,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 97,
+    "mnemonics": [
+      "ADC"
+    ],
+    "addressingMode": "indirectX",
+    "cycles": 6,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 98,
+    "mnemonics": [
+      "JAM",
+      "KIL",
+      "HLT"
+    ],
+    "illegal": true
+  },
+  {
+    "opcode": 99,
+    "mnemonics": [
+      "RRA"
+    ],
+    "addressingMode": "indirectX",
+    "cycles": 8,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 100,
+    "mnemonics": [
+      "NOP"
+    ],
+    "addressingMode": "zeropage",
+    "cycles": 3,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 101,
+    "mnemonics": [
+      "ADC"
+    ],
+    "addressingMode": "zeropage",
+    "cycles": 3,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 102,
+    "mnemonics": [
+      "ROR"
+    ],
+    "addressingMode": "zeropage",
+    "cycles": 5,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 103,
+    "mnemonics": [
+      "RRA"
+    ],
+    "addressingMode": "zeropage",
+    "cycles": 5,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 104,
+    "mnemonics": [
+      "PLA"
+    ],
+    "addressingMode": "implied",
+    "cycles": 4,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 105,
+    "mnemonics": [
+      "ADC"
+    ],
+    "addressingMode": "immediate",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 106,
+    "mnemonics": [
+      "ROR"
+    ],
+    "addressingMode": "accumulator",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 107,
+    "mnemonics": [
+      "ARR"
+    ],
+    "addressingMode": "immediate",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 108,
+    "mnemonics": [
+      "JMP"
+    ],
+    "addressingMode": "indirect",
+    "cycles": 5,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 109,
+    "mnemonics": [
+      "ADC"
+    ],
+    "addressingMode": "absolute",
+    "cycles": 4,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 110,
+    "mnemonics": [
+      "ROR"
+    ],
+    "addressingMode": "absolute",
+    "cycles": 6,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 111,
+    "mnemonics": [
+      "RRA"
+    ],
+    "addressingMode": "absolute",
+    "cycles": 6,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 112,
+    "mnemonics": [
+      "BVS"
+    ],
+    "addressingMode": "relative",
+    "cycles": 2,
+    "pageBoundaryCycle": true,
+    "illegal": false
+  },
+  {
+    "opcode": 113,
+    "mnemonics": [
+      "ADC"
+    ],
+    "addressingMode": "indirectY",
+    "cycles": 5,
+    "pageBoundaryCycle": true,
+    "illegal": false
+  },
+  {
+    "opcode": 114,
+    "mnemonics": [
+      "JAM",
+      "KIL",
+      "HLT"
+    ],
+    "illegal": true
+  },
+  {
+    "opcode": 115,
+    "mnemonics": [
+      "RRA"
+    ],
+    "addressingMode": "indirectY",
+    "cycles": 8,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 116,
+    "mnemonics": [
+      "NOP"
+    ],
+    "addressingMode": "zeropageX",
+    "cycles": 4,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 117,
+    "mnemonics": [
+      "ADC"
+    ],
+    "addressingMode": "zeropageX",
+    "cycles": 4,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 118,
+    "mnemonics": [
+      "ROR"
+    ],
+    "addressingMode": "zeropageX",
+    "cycles": 6,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 119,
+    "mnemonics": [
+      "RRA"
+    ],
+    "addressingMode": "zeropageX",
+    "cycles": 6,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 120,
+    "mnemonics": [
+      "SEI"
+    ],
+    "addressingMode": "implied",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 121,
+    "mnemonics": [
+      "ADC"
+    ],
+    "addressingMode": "absoluteY",
+    "cycles": 4,
+    "pageBoundaryCycle": true,
+    "illegal": false
+  },
+  {
+    "opcode": 122,
+    "mnemonics": [
+      "NOP"
+    ],
+    "addressingMode": "implied",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 123,
+    "mnemonics": [
+      "RRA"
+    ],
+    "addressingMode": "absoluteY",
+    "cycles": 7,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 124,
+    "mnemonics": [
+      "NOP"
+    ],
+    "addressingMode": "absoluteX",
+    "cycles": 4,
+    "pageBoundaryCycle": true,
+    "illegal": true
+  },
+  {
+    "opcode": 125,
+    "mnemonics": [
+      "ADC"
+    ],
+    "addressingMode": "absoluteX",
+    "cycles": 4,
+    "pageBoundaryCycle": true,
+    "illegal": false
+  },
+  {
+    "opcode": 126,
+    "mnemonics": [
+      "ROR"
+    ],
+    "addressingMode": "absoluteX",
+    "cycles": 7,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 127,
+    "mnemonics": [
+      "RRA"
+    ],
+    "addressingMode": "absoluteX",
+    "cycles": 7,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 128,
+    "mnemonics": [
+      "NOP"
+    ],
+    "addressingMode": "immediate",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 129,
+    "mnemonics": [
+      "STA"
+    ],
+    "addressingMode": "indirectX",
+    "cycles": 6,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 130,
+    "mnemonics": [
+      "NOP"
+    ],
+    "addressingMode": "immediate",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 131,
+    "mnemonics": [
+      "SAX",
+      "AXS",
+      "AAX"
+    ],
+    "addressingMode": "indirectX",
+    "cycles": 6,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 132,
+    "mnemonics": [
+      "STY"
+    ],
+    "addressingMode": "zeropage",
+    "cycles": 3,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 133,
+    "mnemonics": [
+      "STA"
+    ],
+    "addressingMode": "zeropage",
+    "cycles": 3,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 134,
+    "mnemonics": [
+      "STX"
+    ],
+    "addressingMode": "zeropage",
+    "cycles": 3,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 135,
+    "mnemonics": [
+      "SAX",
+      "AXS",
+      "AAX"
+    ],
+    "addressingMode": "zeropage",
+    "cycles": 3,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 136,
+    "mnemonics": [
+      "DEY"
+    ],
+    "addressingMode": "implied",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 137,
+    "mnemonics": [
+      "NOP"
+    ],
+    "addressingMode": "immediate",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 138,
+    "mnemonics": [
+      "TXA"
+    ],
+    "addressingMode": "implied",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 139,
+    "mnemonics": [
+      "ANE",
+      "XAA"
+    ],
+    "addressingMode": "immediate",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 140,
+    "mnemonics": [
+      "STY"
+    ],
+    "addressingMode": "absolute",
+    "cycles": 4,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 141,
+    "mnemonics": [
+      "STA"
+    ],
+    "addressingMode": "absolute",
+    "cycles": 4,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 142,
+    "mnemonics": [
+      "STX"
+    ],
+    "addressingMode": "absolute",
+    "cycles": 4,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 143,
+    "mnemonics": [
+      "SAX",
+      "AXS",
+      "AAX"
+    ],
+    "addressingMode": "absolute",
+    "cycles": 4,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 144,
+    "mnemonics": [
+      "BCC"
+    ],
+    "addressingMode": "relative",
+    "cycles": 2,
+    "pageBoundaryCycle": true,
+    "illegal": false
+  },
+  {
+    "opcode": 145,
+    "mnemonics": [
+      "STA"
+    ],
+    "addressingMode": "indirectY",
+    "cycles": 6,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 146,
+    "mnemonics": [
+      "JAM",
+      "KIL",
+      "HLT"
+    ],
+    "illegal": true
+  },
+  {
+    "opcode": 147,
+    "mnemonics": [
+      "SHA",
+      "AHX",
+      "AXA"
+    ],
+    "addressingMode": "indirectY",
+    "cycles": 6,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 148,
+    "mnemonics": [
+      "STY"
+    ],
+    "addressingMode": "zeropageX",
+    "cycles": 4,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 149,
+    "mnemonics": [
+      "STA"
+    ],
+    "addressingMode": "zeropageX",
+    "cycles": 4,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 150,
+    "mnemonics": [
+      "STX"
+    ],
+    "addressingMode": "zeropageY",
+    "cycles": 4,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 151,
+    "mnemonics": [
+      "SAX",
+      "AXS",
+      "AAX"
+    ],
+    "addressingMode": "zeropageY",
+    "cycles": 4,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 152,
+    "mnemonics": [
+      "TYA"
+    ],
+    "addressingMode": "implied",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 153,
+    "mnemonics": [
+      "STA"
+    ],
+    "addressingMode": "absoluteY",
+    "cycles": 5,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 154,
+    "mnemonics": [
+      "TXS"
+    ],
+    "addressingMode": "implied",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 155,
+    "mnemonics": [
+      "TAS",
+      "XAS",
+      "SHS"
+    ],
+    "addressingMode": "absoluteY",
+    "cycles": 5,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 156,
+    "mnemonics": [
+      "SHY",
+      "A11",
+      "SYA",
+      "SAY"
+    ],
+    "addressingMode": "absoluteX",
+    "cycles": 5,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 157,
+    "mnemonics": [
+      "STA"
+    ],
+    "addressingMode": "absoluteX",
+    "cycles": 5,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 158,
+    "mnemonics": [
+      "SHX",
+      "A11",
+      "SXA",
+      "XAS"
+    ],
+    "addressingMode": "absoluteY",
+    "cycles": 5,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 159,
+    "mnemonics": [
+      "SHA",
+      "AHX",
+      "AXA"
+    ],
+    "addressingMode": "absoluteY",
+    "cycles": 5,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 160,
+    "mnemonics": [
+      "LDY"
+    ],
+    "addressingMode": "immediate",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 161,
+    "mnemonics": [
+      "LDA"
+    ],
+    "addressingMode": "indirectX",
+    "cycles": 6,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 162,
+    "mnemonics": [
+      "LDX"
+    ],
+    "addressingMode": "immediate",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 163,
+    "mnemonics": [
+      "LAX"
+    ],
+    "addressingMode": "indirectX",
+    "cycles": 6,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 164,
+    "mnemonics": [
+      "LDY"
+    ],
+    "addressingMode": "zeropage",
+    "cycles": 3,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 165,
+    "mnemonics": [
+      "LDA"
+    ],
+    "addressingMode": "zeropage",
+    "cycles": 3,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 166,
+    "mnemonics": [
+      "LDX"
+    ],
+    "addressingMode": "zeropage",
+    "cycles": 3,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 167,
+    "mnemonics": [
+      "LAX"
+    ],
+    "addressingMode": "zeropage",
+    "cycles": 3,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 168,
+    "mnemonics": [
+      "TAY"
+    ],
+    "addressingMode": "implied",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 169,
+    "mnemonics": [
+      "LDA"
+    ],
+    "addressingMode": "immediate",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 170,
+    "mnemonics": [
+      "TAX"
+    ],
+    "addressingMode": "implied",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 171,
+    "mnemonics": [
+      "LXA",
+      "LAX",
+      "immediate"
+    ],
+    "addressingMode": "immediate",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 172,
+    "mnemonics": [
+      "LDY"
+    ],
+    "addressingMode": "absolute",
+    "cycles": 4,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 173,
+    "mnemonics": [
+      "LDA"
+    ],
+    "addressingMode": "absolute",
+    "cycles": 4,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 174,
+    "mnemonics": [
+      "LDX"
+    ],
+    "addressingMode": "absolute",
+    "cycles": 4,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 175,
+    "mnemonics": [
+      "LAX"
+    ],
+    "addressingMode": "absolute",
+    "cycles": 4,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 176,
+    "mnemonics": [
+      "BCS"
+    ],
+    "addressingMode": "relative",
+    "cycles": 2,
+    "pageBoundaryCycle": true,
+    "illegal": false
+  },
+  {
+    "opcode": 177,
+    "mnemonics": [
+      "LDA"
+    ],
+    "addressingMode": "indirectY",
+    "cycles": 5,
+    "pageBoundaryCycle": true,
+    "illegal": false
+  },
+  {
+    "opcode": 178,
+    "mnemonics": [
+      "JAM",
+      "KIL",
+      "HLT"
+    ],
+    "illegal": true
+  },
+  {
+    "opcode": 179,
+    "mnemonics": [
+      "LAX"
+    ],
+    "addressingMode": "indirectY",
+    "cycles": 5,
+    "pageBoundaryCycle": true,
+    "illegal": true
+  },
+  {
+    "opcode": 180,
+    "mnemonics": [
+      "LDY"
+    ],
+    "addressingMode": "zeropageX",
+    "cycles": 4,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 181,
+    "mnemonics": [
+      "LDA"
+    ],
+    "addressingMode": "zeropageX",
+    "cycles": 4,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 182,
+    "mnemonics": [
+      "LDX"
+    ],
+    "addressingMode": "zeropageY",
+    "cycles": 4,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 183,
+    "mnemonics": [
+      "LAX"
+    ],
+    "addressingMode": "zeropageY",
+    "cycles": 4,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 184,
+    "mnemonics": [
+      "CLV"
+    ],
+    "addressingMode": "implied",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 185,
+    "mnemonics": [
+      "LDA"
+    ],
+    "addressingMode": "absoluteY",
+    "cycles": 4,
+    "pageBoundaryCycle": true,
+    "illegal": false
+  },
+  {
+    "opcode": 186,
+    "mnemonics": [
+      "TSX"
+    ],
+    "addressingMode": "implied",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 187,
+    "mnemonics": [
+      "LAS",
+      "LAR"
+    ],
+    "addressingMode": "absoluteY",
+    "cycles": 4,
+    "pageBoundaryCycle": true,
+    "illegal": true
+  },
+  {
+    "opcode": 188,
+    "mnemonics": [
+      "LDY"
+    ],
+    "addressingMode": "absoluteX",
+    "cycles": 4,
+    "pageBoundaryCycle": true,
+    "illegal": false
+  },
+  {
+    "opcode": 189,
+    "mnemonics": [
+      "LDA"
+    ],
+    "addressingMode": "absoluteX",
+    "cycles": 4,
+    "pageBoundaryCycle": true,
+    "illegal": false
+  },
+  {
+    "opcode": 190,
+    "mnemonics": [
+      "LDX"
+    ],
+    "addressingMode": "absoluteY",
+    "cycles": 4,
+    "pageBoundaryCycle": true,
+    "illegal": false
+  },
+  {
+    "opcode": 191,
+    "mnemonics": [
+      "LAX"
+    ],
+    "addressingMode": "absoluteY",
+    "cycles": 4,
+    "pageBoundaryCycle": true,
+    "illegal": true
+  },
+  {
+    "opcode": 192,
+    "mnemonics": [
+      "CPY"
+    ],
+    "addressingMode": "immediate",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 193,
+    "mnemonics": [
+      "CMP"
+    ],
+    "addressingMode": "indirectX",
+    "cycles": 6,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 194,
+    "mnemonics": [
+      "NOP"
+    ],
+    "addressingMode": "immediate",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 195,
+    "mnemonics": [
+      "DCP",
+      "DCM"
+    ],
+    "addressingMode": "indirectX",
+    "cycles": 8,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 196,
+    "mnemonics": [
+      "CPY"
+    ],
+    "addressingMode": "zeropage",
+    "cycles": 3,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 197,
+    "mnemonics": [
+      "CMP"
+    ],
+    "addressingMode": "zeropage",
+    "cycles": 3,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 198,
+    "mnemonics": [
+      "DEC"
+    ],
+    "addressingMode": "zeropage",
+    "cycles": 5,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 199,
+    "mnemonics": [
+      "DCP",
+      "DCM"
+    ],
+    "addressingMode": "zeropage",
+    "cycles": 5,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 200,
+    "mnemonics": [
+      "INY"
+    ],
+    "addressingMode": "implied",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 201,
+    "mnemonics": [
+      "CMP"
+    ],
+    "addressingMode": "immediate",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 202,
+    "mnemonics": [
+      "DEX"
+    ],
+    "addressingMode": "implied",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 203,
+    "mnemonics": [
+      "SBX",
+      "AXS",
+      "SAX"
+    ],
+    "addressingMode": "immediate",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 204,
+    "mnemonics": [
+      "CPY"
+    ],
+    "addressingMode": "absolute",
+    "cycles": 4,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 205,
+    "mnemonics": [
+      "CMP"
+    ],
+    "addressingMode": "absolute",
+    "cycles": 4,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 206,
+    "mnemonics": [
+      "DEC"
+    ],
+    "addressingMode": "absolute",
+    "cycles": 6,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 207,
+    "mnemonics": [
+      "DCP",
+      "DCM"
+    ],
+    "addressingMode": "absolute",
+    "cycles": 6,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 208,
+    "mnemonics": [
+      "BNE"
+    ],
+    "addressingMode": "relative",
+    "cycles": 2,
+    "pageBoundaryCycle": true,
+    "illegal": false
+  },
+  {
+    "opcode": 209,
+    "mnemonics": [
+      "CMP"
+    ],
+    "addressingMode": "indirectY",
+    "cycles": 5,
+    "pageBoundaryCycle": true,
+    "illegal": false
+  },
+  {
+    "opcode": 210,
+    "mnemonics": [
+      "JAM",
+      "KIL",
+      "HLT"
+    ],
+    "illegal": true
+  },
+  {
+    "opcode": 211,
+    "mnemonics": [
+      "DCP",
+      "DCM"
+    ],
+    "addressingMode": "indirectY",
+    "cycles": 8,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 212,
+    "mnemonics": [
+      "NOP"
+    ],
+    "addressingMode": "zeropageX",
+    "cycles": 4,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 213,
+    "mnemonics": [
+      "CMP"
+    ],
+    "addressingMode": "zeropageX",
+    "cycles": 4,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 214,
+    "mnemonics": [
+      "DEC"
+    ],
+    "addressingMode": "zeropageX",
+    "cycles": 6,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 215,
+    "mnemonics": [
+      "DCP",
+      "DCM"
+    ],
+    "addressingMode": "zeropageX",
+    "cycles": 6,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 216,
+    "mnemonics": [
+      "CLD"
+    ],
+    "addressingMode": "implied",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 217,
+    "mnemonics": [
+      "CMP"
+    ],
+    "addressingMode": "absoluteY",
+    "cycles": 4,
+    "pageBoundaryCycle": true,
+    "illegal": false
+  },
+  {
+    "opcode": 218,
+    "mnemonics": [
+      "NOP"
+    ],
+    "addressingMode": "implied",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 219,
+    "mnemonics": [
+      "DCP",
+      "DCM"
+    ],
+    "addressingMode": "absoluteY",
+    "cycles": 7,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 220,
+    "mnemonics": [
+      "NOP"
+    ],
+    "addressingMode": "absoluteX",
+    "cycles": 4,
+    "pageBoundaryCycle": true,
+    "illegal": true
+  },
+  {
+    "opcode": 221,
+    "mnemonics": [
+      "CMP"
+    ],
+    "addressingMode": "absoluteX",
+    "cycles": 4,
+    "pageBoundaryCycle": true,
+    "illegal": false
+  },
+  {
+    "opcode": 222,
+    "mnemonics": [
+      "DEC"
+    ],
+    "addressingMode": "absoluteX",
+    "cycles": 7,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 223,
+    "mnemonics": [
+      "DCP",
+      "DCM"
+    ],
+    "addressingMode": "absoluteX",
+    "cycles": 7,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 224,
+    "mnemonics": [
+      "CPX"
+    ],
+    "addressingMode": "immediate",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 225,
+    "mnemonics": [
+      "SBC"
+    ],
+    "addressingMode": "indirectX",
+    "cycles": 6,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 226,
+    "mnemonics": [
+      "NOP"
+    ],
+    "addressingMode": "immediate",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 227,
+    "mnemonics": [
+      "ISC",
+      "ISB",
+      "INS"
+    ],
+    "addressingMode": "indirectX",
+    "cycles": 8,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 228,
+    "mnemonics": [
+      "CPX"
+    ],
+    "addressingMode": "zeropage",
+    "cycles": 3,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 229,
+    "mnemonics": [
+      "SBC"
+    ],
+    "addressingMode": "zeropage",
+    "cycles": 3,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 230,
+    "mnemonics": [
+      "INC"
+    ],
+    "addressingMode": "zeropage",
+    "cycles": 5,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 231,
+    "mnemonics": [
+      "ISC",
+      "ISB",
+      "INS"
+    ],
+    "addressingMode": "zeropage",
+    "cycles": 5,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 232,
+    "mnemonics": [
+      "INX"
+    ],
+    "addressingMode": "implied",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 233,
+    "mnemonics": [
+      "SBC"
+    ],
+    "addressingMode": "immediate",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 234,
+    "mnemonics": [
+      "NOP"
+    ],
+    "addressingMode": "implied",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 235,
+    "mnemonics": [
+      "USBC",
+      "SBC"
+    ],
+    "addressingMode": "immediate",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 236,
+    "mnemonics": [
+      "CPX"
+    ],
+    "addressingMode": "absolute",
+    "cycles": 4,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 237,
+    "mnemonics": [
+      "SBC"
+    ],
+    "addressingMode": "absolute",
+    "cycles": 4,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 238,
+    "mnemonics": [
+      "INC"
+    ],
+    "addressingMode": "absolute",
+    "cycles": 6,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 239,
+    "mnemonics": [
+      "ISC",
+      "ISB",
+      "INS"
+    ],
+    "addressingMode": "absolute",
+    "cycles": 6,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 240,
+    "mnemonics": [
+      "BEQ"
+    ],
+    "addressingMode": "relative",
+    "cycles": 2,
+    "pageBoundaryCycle": true,
+    "illegal": false
+  },
+  {
+    "opcode": 241,
+    "mnemonics": [
+      "SBC"
+    ],
+    "addressingMode": "indirectY",
+    "cycles": 5,
+    "pageBoundaryCycle": true,
+    "illegal": false
+  },
+  {
+    "opcode": 242,
+    "mnemonics": [
+      "JAM",
+      "KIL",
+      "HLT"
+    ],
+    "illegal": true
+  },
+  {
+    "opcode": 243,
+    "mnemonics": [
+      "ISC",
+      "ISB",
+      "INS"
+    ],
+    "addressingMode": "indirectY",
+    "cycles": 8,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 244,
+    "mnemonics": [
+      "NOP"
+    ],
+    "addressingMode": "zeropageX",
+    "cycles": 4,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 245,
+    "mnemonics": [
+      "SBC"
+    ],
+    "addressingMode": "zeropageX",
+    "cycles": 4,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 246,
+    "mnemonics": [
+      "INC"
+    ],
+    "addressingMode": "zeropageX",
+    "cycles": 6,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 247,
+    "mnemonics": [
+      "ISC",
+      "ISB",
+      "INS"
+    ],
+    "addressingMode": "zeropageX",
+    "cycles": 6,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 248,
+    "mnemonics": [
+      "SED"
+    ],
+    "addressingMode": "implied",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 249,
+    "mnemonics": [
+      "SBC"
+    ],
+    "addressingMode": "absoluteY",
+    "cycles": 4,
+    "pageBoundaryCycle": true,
+    "illegal": false
+  },
+  {
+    "opcode": 250,
+    "mnemonics": [
+      "NOP"
+    ],
+    "addressingMode": "implied",
+    "cycles": 2,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 251,
+    "mnemonics": [
+      "ISC",
+      "ISB",
+      "INS"
+    ],
+    "addressingMode": "absoluteY",
+    "cycles": 7,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  },
+  {
+    "opcode": 252,
+    "mnemonics": [
+      "NOP"
+    ],
+    "addressingMode": "absoluteX",
+    "cycles": 4,
+    "pageBoundaryCycle": true,
+    "illegal": true
+  },
+  {
+    "opcode": 253,
+    "mnemonics": [
+      "SBC"
+    ],
+    "addressingMode": "absoluteX",
+    "cycles": 4,
+    "pageBoundaryCycle": true,
+    "illegal": false
+  },
+  {
+    "opcode": 254,
+    "mnemonics": [
+      "INC"
+    ],
+    "addressingMode": "absoluteX",
+    "cycles": 7,
+    "pageBoundaryCycle": false,
+    "illegal": false
+  },
+  {
+    "opcode": 255,
+    "mnemonics": [
+      "ISC",
+      "ISB",
+      "INS"
+    ],
+    "addressingMode": "absoluteX",
+    "cycles": 7,
+    "pageBoundaryCycle": false,
+    "illegal": true
+  }
+]
