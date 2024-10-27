@@ -49,9 +49,12 @@ name = "nen-emulator"
 version = "0.1.0"
 dependencies = [
  "bitflags 2.6.0",
+ "quote",
  "sdl2",
  "serde",
  "serde_json",
+ "str_to_opcodefn",
+ "syn",
 ]
 
 [[package]]
@@ -131,6 +134,14 @@ dependencies = [
  "memchr",
  "ryu",
  "serde",
+]
+
+[[package]]
+name = "str_to_opcodefn"
+version = "0.1.0"
+dependencies = [
+ "quote",
+ "syn",
 ]
 
 [[package]]
