@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::sync::LazyLock;
 
 use serde::{de::Visitor, Deserialize, Deserializer, Serialize};
@@ -56,6 +58,7 @@ fn get_instructions() -> [Instruction; 256] {
   deserialized.try_into().unwrap()
 }
 
+// https://www.reddit.com/r/learnrust/comments/15cq66f/can_you_partial_deserialize_a_vec/
 fn get_instr_first_name<'de, D>(deserializer: D) -> Result<String, D::Error> where D: Deserializer<'de> {
   struct FirstElement;
 

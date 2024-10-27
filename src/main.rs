@@ -1,5 +1,5 @@
-mod lib;
+mod emu;
 
 fn main() {
-  // lib::ui::show();
+  emu::ui::show();
 }

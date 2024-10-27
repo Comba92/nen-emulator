@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use sdl2::event::Event;
 
 pub fn show() {
