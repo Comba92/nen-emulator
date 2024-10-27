@@ -1,22 +1,23 @@
+use std::sync::LazyLock;
+
 use serde::{Serialize, Deserialize};
 
-#[derive(Serialize, Deserialize, Debug, Default)]
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Instruction {
-  opcode: u8,
+  pub opcode: u8,
   #[serde(alias = "addressingMode")]
-  addressing: Addressing,
+  pub addressing: AddressingMode,
   #[serde(alias = "mnemonics")]
-  names: Vec<String>,
-  cycles: usize,
-  //TODO: check wtf is this
-  page_boundary_cycle: bool,
-  illegal: bool,
+  pub names: Vec<String>,
+  pub cycles: usize,
+  pub page_boundary_cycle: bool,
+  pub illegal: bool,
 }
 
-#[derive(Serialize, Deserialize, Debug, Default)]
+#[derive(Serialize, Deserialize, Debug, Default, Clone, Copy)]
 #[serde(rename_all = "camelCase")]
-pub enum Addressing {
+pub enum AddressingMode {
   #[default]
   #[serde(alias = "implied")]
   Implicit,
@@ -37,10 +38,13 @@ pub enum Addressing {
   IndirectY,
 }
 
-pub fn get_instructions() -> Vec<Instruction> {
+pub static INSTRUCTIONS: LazyLock<[Instruction; 256]> = LazyLock::new(|| {
   let json = include_str!("instructions.json");
-  serde_json::from_str::<Vec<Instruction>>(json).unwrap()
-}
+  let mut deserialized = serde_json::from_str::<Vec<Instruction>>(json).unwrap();
+
+  deserialized.sort_by(|a, b| a.opcode.cmp(&b.opcode));
+  deserialized.try_into().unwrap()
+});
 
 #[cfg(test)]
 mod tests {

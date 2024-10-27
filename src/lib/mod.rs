@@ -1,3 +1,3 @@
-mod cpu;
-mod instructions;
-mod ui;
+pub mod cpu;
+pub mod instructions;
+pub mod ui;

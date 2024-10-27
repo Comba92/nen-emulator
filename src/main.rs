@@ -1,5 +1,5 @@
 mod lib;
 
 fn main() {
-  println!("Hey!");
+  lib::ui::show();
 }
