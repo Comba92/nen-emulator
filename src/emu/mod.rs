@@ -1,4 +1,7 @@
 pub mod cpu;
 pub mod mem;
-pub mod instructions;
+
+pub mod instr;
+pub mod cart;
+
 pub mod ui;

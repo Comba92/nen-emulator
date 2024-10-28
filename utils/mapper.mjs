@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 
-let jsonFile = fs.readFileSync('./src/emu/instructions.json', 'utf8')
+let jsonFile = fs.readFileSync('./utils/instructions.json', 'utf8')
 let json = JSON.parse(jsonFile)
 
 let names = json
