@@ -98,8 +98,8 @@ fn get_instructions() -> [Instruction; 256] {
 
 
 pub static INSTRUCTIONS: LazyLock<[Instruction; 256]> = LazyLock::new(get_instructions);
-pub static OPCODES_MAP: LazyLock<HashMap<&'static str, InstructionFn>> = LazyLock::new(|| {
-  let mut map: HashMap<&'static str, InstructionFn> = HashMap::new();
+pub static INSTR_TO_FN: LazyLock<HashMap<&'static str, InstrFn>> = LazyLock::new(|| {
+  let mut map: HashMap<&'static str, InstrFn> = HashMap::new();
   
   map.insert("BRK", brk);
   map.insert("ORA", ora);

@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use std::{cell::RefCell, fs, path::Path, rc::Rc};
-    use nen_emulator::emu::{cart::Cart, cpu::{interpret, interpret_with_callback, Cpu, StatusReg}, instr::{INSTRUCTIONS, OPCODES_MAP}};
+    use std::{cell::RefCell, fmt::format, fs, path::Path, rc::Rc};
+    use nen_emulator::emu::{cart::Cart, cpu::{interpret, interpret_with_callback, Cpu, StatusReg}, instr::{AddressingMode, INSTRUCTIONS, INSTR_TO_FN}};
 
   struct CpuMock {
     ip: u16,
@@ -28,10 +28,22 @@ mod tests {
   fn debug_line(cpu: CpuMock, mem: &[u8]) {
     let opcode = &INSTRUCTIONS[mem[cpu.ip as usize] as usize]; 
     
+    let operand8 = mem[cpu.ip as usize+1];
+    let operand16 = u16::from_le_bytes([operand8, mem[cpu.ip as usize+2]]);
+
+    use AddressingMode::*;
+    let desc = match opcode.addressing {
+      Implicit | Accumulator => String::new(),
+      Immediate | Relative => format!("#${operand8:02X}"),
+      ZeroPage | ZeroPageX | ZeroPageY => format!("${operand8:02X} = ${:02X}", mem[operand8 as usize]),
+      Absolute | AbsoluteX | AbsoluteY => format!("${operand16:04X} = ${:02X}", mem[operand16 as usize]),
+      Indirect | IndirectX | IndirectY => format!("${operand16:04X} = {:04X}", mem[operand16 as usize]),
+    };
+
     println!(
-      "{:04X}  {:02X} {:02X} {:02X}  {opcode}\t\t \
+      "{:04X}  {:02X} {:02X} {:02X}  {opcode} {desc:20} \
       A:{a:02X} X:{x:02X} Y:{y:02X} P:{sp:02X} SP:{sr:02X} CYC:{cyc}",
-      cpu.ip, mem[cpu.ip as usize], mem[cpu.ip as usize+1], mem[cpu.ip as usize+2],
+      cpu.ip, mem[cpu.ip as usize], operand8, mem[cpu.ip as usize+2],
       opcode=opcode.name,
       a=cpu.a, x=cpu.x, y=cpu.y, sp=cpu.sp, sr=cpu.sr, cyc=cpu.cycles
     );
