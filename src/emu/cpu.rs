@@ -19,6 +19,7 @@ bitflags! {
 const STACK_START: usize = 0x0100;
 const STACK_RESET: usize = 0x24;
 const IP_RESET: usize = 0xFFFC;
+const MEM_SIZE: usize = 0x10000;
 
 #[derive(Clone)]
 pub struct Cpu {
@@ -29,7 +30,7 @@ pub struct Cpu {
   pub x: u8,
   pub y: u8,
   pub cycles: usize,
-  pub mem: Rc<RefCell<[u8; 0xFFFF]>>,
+  pub mem: Rc<RefCell<[u8; MEM_SIZE]>>,
 }
 
 impl Debug for Cpu {
@@ -47,7 +48,7 @@ impl Cpu {
       //TODO: find starting value
       sr: StatusReg::default(),
       cycles: 7,
-      mem: Rc::new(RefCell::new([0; 0xFFFF])),
+      mem: Rc::new(RefCell::new([0; MEM_SIZE])),
     }
   }
 

@@ -67,7 +67,7 @@ mod tests {
 
     cpu.ip = 0xC000;
     cpu.write_data(0x8000, &prg_rom[16..16+0x4000]);
-    cpu.write_data(0xC000, &prg_rom[16..16+0x3FFF]);
+    cpu.write_data(0xC000, &prg_rom[16..16+0x4000]);
     
     println!("Starting interpreter...");
     interpret_with_callback(&mut cpu, move |cpu| {
