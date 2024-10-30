@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use std::{cell::RefCell, fmt::Debug, rc::Rc};
 
-use bitflags::{bitflags, Flags};
+use bitflags::bitflags;
 use log::{debug, info};
 use super::instr::{AddressingMode, Instruction, INSTRUCTIONS, INSTR_TO_FN};
 
@@ -382,8 +382,8 @@ pub fn ora(cpu: &mut Cpu, operand: &Operand) {
 pub fn bit(cpu: &mut Cpu, operand: &Operand) {
   let res = cpu.a & operand.val;
   cpu.set_zero(res);
-  cpu.set_neg(res);
-  cpu.p.set(CpuFlags::overflow, res & 0b0100_0000 != 0);
+  cpu.p.set(CpuFlags::overflow, operand.val & 0b0100_0000 != 0);
+  cpu.p.set(CpuFlags::negative, operand.val & 0b1000_0000 != 0);
 }
 
 // TODO: check if correct
@@ -555,6 +555,10 @@ pub fn beq(cpu: &mut Cpu, operand: &Operand) {
 
 pub fn bne(cpu: &mut Cpu, operand: &Operand) {
   branch(cpu, operand.val, !cpu.p.contains(CpuFlags::zero))
+}
+
+pub fn bmi(cpu: &mut Cpu, operand: &Operand) {
+  branch(cpu, operand.val, cpu.p.contains(CpuFlags::negative))
 }
 
 pub fn bpl(cpu: &mut Cpu, operand: &Operand) {

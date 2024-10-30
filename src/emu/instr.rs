@@ -113,6 +113,7 @@ pub static INSTR_TO_FN: LazyLock<HashMap<&'static str, InstrFn>> = LazyLock::new
   map.insert("BIT", bit);
   map.insert("ROL", rol);
   map.insert("PLP", plp);
+  map.insert("BMI", bmi);
   map.insert("SEC", sec);
   map.insert("RTI", rti);
   map.insert("EOR", eor);
