@@ -63,14 +63,14 @@ impl Cpu {
     if res > u8::MAX as u16 { self.p.insert(Status::carry); }
   }
 
-  pub fn set_neg(&mut self, res: u16) {
-    self.p.set(Status::negative, res & 0b1000_0000 == 1);
-  }
-
   pub fn set_zero(&mut self, res: u16) {
     self.p.set(Status::zero, res == 0);
   }
 
+  pub fn set_neg(&mut self, res: u16) {
+    self.p.set(Status::negative, res & 0b1000_0000 != 0);
+  }
+  
   pub fn set_czn(&mut self, res: u16) {
     self.set_carry(res);
     self.set_zero(res);
