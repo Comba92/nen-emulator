@@ -11,6 +11,7 @@ bitflags! {
     const zero      = 0b0000_0010;
     const interrupt = 0b0000_0100;
     const decimal   = 0b0000_1000;
+    //const unused    = 0b0010_0000;
     const r#break   = 0b0001_0000;
     const overflow  = 0b0100_0000;
     const negative  = 0b1000_0000;
@@ -58,10 +59,22 @@ impl Cpu {
     }
   }
 
+  pub fn set_carry(&mut self, res: u16) {
+    if res > u8::MAX as u16 { self.p.insert(Status::carry); }
+  }
+
+  pub fn set_neg(&mut self, res: u16) {
+    self.p.set(Status::negative, res & 0b1000_0000 == 1);
+  }
+
+  pub fn set_zero(&mut self, res: u16) {
+    self.p.set(Status::zero, res == 0);
+  }
+
   pub fn set_czn(&mut self, res: u16) {
-    if res > u8::MAX as u16 { self.p.insert(Status::carry); } 
-    if res == 0 { self.p.insert(Status::zero); }
-    if res & 0b1000_0000 == 1 { self.p.insert(Status::negative); }
+    self.set_carry(res);
+    self.set_zero(res);
+    self.set_neg(res);
   }
 
   // https://forums.nesdev.org/viewtopic.php?t=6331
@@ -103,11 +116,15 @@ impl Cpu {
   }
 
   pub fn fetch_at_pc(&mut self) -> u8 {
-    self.mem_fetch(self.pc)
+    let res = self.mem_fetch(self.pc);
+    self.pc+=1;
+    res
   }
 
   pub fn fetch16_at_pc(&mut self) -> u16 {
-    self.mem_fetch16(self.pc)
+    let res = self.mem_fetch16(self.pc);
+    self.pc+=2;
+    res
   }
 
   pub fn stack_push(&mut self, val: u8) {
@@ -141,22 +158,16 @@ pub fn interpret_with_callback<F: FnMut(&mut Cpu)>(mut cpu: &mut Cpu, mut callba
     callback(&mut cpu);
 
     let opcode = cpu.fetch_at_pc();
-    cpu.pc += 1;
-    let old_pc = cpu.pc;
-
+    
     let inst = &INSTRUCTIONS[opcode as usize];
     let operand = get_operand_with_addressing(&mut cpu, &inst);
-
+    
     let opname = inst.name.as_str();
+
     let (_, inst_fn) = INSTR_TO_FN
       .get_key_value(opname).expect("Op should be in map");
     
     inst_fn(&mut cpu, &operand);
-
-    // Branch check
-    if cpu.pc == old_pc {
-      cpu.pc += inst.bytes as u16 - 1;
-    }
 
     cpu.cycles += inst.cycles;
   }
@@ -170,7 +181,7 @@ pub struct Operand {
   val: u8,
 }
 pub enum InstrDst {
-  None, Acc(u8), X(u8), Y(u8), Mem(u16, u8) 
+  Acc(u8), X(u8), Y(u8), Mem(u16, u8) 
 }
 
 pub type InstrFn = fn(&mut Cpu, &Operand);
@@ -248,7 +259,6 @@ pub fn get_operand_with_addressing(cpu: &mut Cpu, inst: &Instruction) -> Operand
 
 pub fn set_instr_result(cpu: &mut Cpu, dst: InstrDst) {
   match dst {
-    InstrDst::None => {}
     InstrDst::Acc(res) => cpu.a = res,
     InstrDst::X(res) => cpu.x = res,
     InstrDst::Y(res) => cpu.y = res,
@@ -504,15 +514,17 @@ pub fn branch(cpu: &mut Cpu, offset: u8, cond: bool) {
   if cond {
     let offset = offset as i8;
     let new_pc = cpu.pc.wrapping_add_signed(offset as i16);
-
+    
     // page boundary cross check
     if cpu.pc & 0xFF00 != new_pc & 0xFF00 {
+      // page cross branch costs 2
+      cpu.cycles = cpu.cycles.wrapping_add(2);
+    } else {
+      // same page branch costs 1
       cpu.cycles = cpu.cycles.wrapping_add(1);
     }
 
-    // we add one because it's the branch cost
-    cpu.pc = new_pc + 1;
-    cpu.cycles = cpu.cycles.wrapping_add(1);
+    cpu.pc = new_pc;
   }
 }
 

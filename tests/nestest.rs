@@ -59,7 +59,7 @@ mod tests {
     let desc = match opcode.addressing {
       Implicit | Accumulator => String::new(),
       Immediate => format!("#${operand8:02X}"),
-      Relative => format!("${:04X}", cpu.ip.wrapping_add_signed((operand8 as i8) as i16)),
+      Relative => format!("${:04X}", (cpu.ip+opcode.bytes as u16).wrapping_add_signed((operand8 as i8) as i16)),
       ZeroPage | ZeroPageX | ZeroPageY => format!("${operand8:02X} = ${:02X}", mem[operand8 as usize]),
       Absolute | AbsoluteX | AbsoluteY => format!("${operand16:04X} = ${:02X}", mem[operand16 as usize]),
       Indirect | IndirectX | IndirectY => format!("${operand16:04X} = {:04X}", mem[operand16 as usize]),
@@ -72,6 +72,15 @@ mod tests {
       opcode=opcode.name,
       a=cpu.a, x=cpu.x, y=cpu.y, p=cpu.p, sp=cpu.sp, cyc=cpu.cycles
     )
+  }
+
+  fn debug_flags(cpu: CpuMock) {
+    println!("Flags set:");
+    let flags = Status::from_bits_retain(cpu.p);
+    for (name, _) in flags.iter_names() {
+      println!("{name}");
+    }
+    println!()
   }
 
   #[test]
@@ -90,20 +99,24 @@ mod tests {
     
     println!("Starting interpreter...");
     interpret_with_callback(&mut cpu, move |cpu| {
-      let (line_count, line) = test_log.next().unwrap();
+      let (mut line_count, line) = test_log.next().unwrap();
+      line_count+=1;
+      
       let my_cpu = CpuMock::from_cpu(cpu);
       let log_cpu = CpuMock::from_log(line);
       
       let my_line = debug_line(&my_cpu, cpu.mem.borrow().as_slice());
       let log_line = debug_line(&log_cpu, cpu.mem.borrow().as_slice());
 
-      println!("Mine -> {my_line}"); 
-      println!("Log  -> {log_line}");
+      println!("{line_count}|Mine -> {my_line}"); 
+      println!("{line_count}|Log  -> {log_line}");
       println!();
 
       if my_cpu != log_cpu {
         println!("{}", "-".repeat(50));
         println!("Incosistency at line {line_count}:\n{}", diff_words(&my_line, &log_line));
+        debug_flags(my_cpu);
+        debug_flags(log_cpu);
         println!("{}", "-".repeat(50));
         panic!()
       }
