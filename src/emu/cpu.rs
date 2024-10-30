@@ -6,13 +6,12 @@ use super::instr::{AddressingMode, Instruction, INSTRUCTIONS, INSTR_TO_FN};
 
 bitflags! {
   #[derive(Debug, Clone, Copy)]
-  pub struct Status: u8 {
+  pub struct CpuFlags: u8 {
     const carry     = 0b0000_0001;
     const zero      = 0b0000_0010;
     const interrupt = 0b0000_0100;
     const decimal   = 0b0000_1000;
-    //const unused    = 0b0010_0000;
-    const r#break   = 0b0001_0000;
+    const brk       = 0b0011_0000;
     const overflow  = 0b0100_0000;
     const negative  = 0b1000_0000;
   }
@@ -32,7 +31,7 @@ const INTERRUPT_TABLE: usize = 0xFFFA;
 pub struct Cpu {
   pub pc: u16,
   pub sp: u8,
-  pub p: Status,
+  pub p: CpuFlags,
   pub a: u8,
   pub x: u8,
   pub y: u8,
@@ -53,38 +52,38 @@ impl Cpu {
       sp: STACK_RESET,
       a: 0, x: 0, y: 0,
       // At boot, only interrupt flag is enabled
-      p: Status::from(Status::interrupt),
+      p: CpuFlags::from(CpuFlags::interrupt),
       cycles: 7,
       mem: Rc::new(RefCell::new([0; MEM_SIZE])),
     }
   }
 
   pub fn set_carry(&mut self, res: u16) {
-    if res > u8::MAX as u16 { self.p.insert(Status::carry); }
+    if res > u8::MAX as u16 { self.p.insert(CpuFlags::carry); }
   }
 
-  pub fn set_zero(&mut self, res: u16) {
-    self.p.set(Status::zero, res == 0);
+  pub fn set_zero(&mut self, res: u8) {
+    self.p.set(CpuFlags::zero, res == 0);
   }
 
-  pub fn set_neg(&mut self, res: u16) {
-    self.p.set(Status::negative, res & 0b1000_0000 != 0);
+  pub fn set_neg(&mut self, res: u8) {
+    self.p.set(CpuFlags::negative, res & 0b1000_0000 != 0);
   }
   
   pub fn set_czn(&mut self, res: u16) {
     self.set_carry(res);
-    self.set_zero(res);
-    self.set_neg(res);
+    self.set_zero(res as u8);
+    self.set_neg(res as u8);
   }
 
   // https://forums.nesdev.org/viewtopic.php?t=6331
   fn set_overflow(&mut self, a: u16, v: u16, s: u16) {
     let overflow = (a ^ s) & (v ^ s) & 0b1000_0000 != 0;
-    if overflow { self.p.insert(Status::overflow); }
+    if overflow { self.p.insert(CpuFlags::overflow); }
   }
 
   pub fn carry(&self) -> u8 {
-    self.p.contains(Status::carry).into()
+    self.p.contains(CpuFlags::carry).into()
   }
 
   pub fn write_data(&mut self, addr: usize, data: &[u8]) {
@@ -336,7 +335,8 @@ pub fn pha(cpu: &mut Cpu, _: &Operand) {
 }
 
 pub fn php(cpu: &mut Cpu, _: &Operand) {
-  cpu.stack_push(cpu.p.bits());
+  let pushable = cpu.p.union(CpuFlags::brk);
+  cpu.stack_push(pushable.bits());
 }
 
 pub fn pla(cpu: &mut Cpu, _: &Operand) {
@@ -347,11 +347,12 @@ pub fn pla(cpu: &mut Cpu, _: &Operand) {
 
 pub fn plp(cpu: &mut Cpu, _: &Operand) {
   let res = cpu.stack_pop();
-  cpu.p = Status::from_bits_retain(res)
+  cpu.p = CpuFlags::from_bits_retain(res)
 }
 
 pub fn logic(cpu: &mut Cpu, res: u8) {
   cpu.set_czn(res as u16);
+  cpu.a = res;
 }
 
 pub fn and(cpu: &mut Cpu, operand: &Operand) {
@@ -368,9 +369,9 @@ pub fn ora(cpu: &mut Cpu, operand: &Operand) {
 
 pub fn bit(cpu: &mut Cpu, operand: &Operand) {
   let res = cpu.a & operand.val;
-  if res == 0 { cpu.p.insert(Status::zero); }
-  if res & 0b0100_0000 != 0 { cpu.p.insert(Status::overflow); }
-  if res & 0b1000_0000 != 0 { cpu.p.insert(Status::negative); }
+  cpu.set_zero(res);
+  cpu.set_neg(res);
+  cpu.p.set(CpuFlags::overflow, res & 0b0100_0000 != 0);
 }
 
 // TODO: check if correct
@@ -393,7 +394,7 @@ pub fn sbc(cpu: &mut Cpu, operand: &Operand) {
 pub fn compare(cpu: &mut Cpu, a: u8, b: u8) {
   let res = a.wrapping_sub(b);
   cpu.set_czn(res as u16);
-  cpu.p.set(Status::carry, a >= b);
+  cpu.p.set(CpuFlags::carry, a >= b);
 }
 
 pub fn cmp(cpu: &mut Cpu, operand: &Operand) {
@@ -458,9 +459,9 @@ pub fn asl(cpu: &mut Cpu, operand: &Operand) {
 pub fn lsr(cpu: &mut Cpu, operand: &Operand) {
   let first = operand.val & 1 != 0;
   let res = operand.val >> 1;
-  cpu.p.set(Status::carry, first);
-  cpu.p.set(Status::zero, res != 0);
-  cpu.p.set(Status::negative, res & 0b1000_0000 != 0);
+  cpu.p.set(CpuFlags::carry, first);
+  cpu.p.set(CpuFlags::zero, res != 0);
+  cpu.p.set(CpuFlags::negative, res & 0b1000_0000 != 0);
 
   match operand.src {
     OperandSrc::Acc => cpu.a = res as u8,
@@ -474,7 +475,7 @@ pub fn rol(cpu: &mut Cpu, operand: &Operand) {
   let carry = operand.val & 0b1000_0000 != 0;
   let res = operand.val.rotate_left(1) & cpu.carry();
   cpu.set_czn(res as u16);
-  cpu.p.set(Status::carry, carry);
+  cpu.p.set(CpuFlags::carry, carry);
 
   match operand.src {
     OperandSrc::Acc => cpu.a = res as u8,
@@ -486,7 +487,7 @@ pub fn ror(cpu: &mut Cpu, operand: &Operand) {
   let carry = operand.val & 1 != 0;
   let res = operand.val.rotate_left(1) & cpu.carry() << 7;
   cpu.set_czn(res as u16);
-  cpu.p.set(Status::carry, carry);
+  cpu.p.set(CpuFlags::carry, carry);
 
   match operand.src {
     OperandSrc::Acc => cpu.a = res as u8,
@@ -537,59 +538,59 @@ pub fn bcs(cpu: &mut Cpu, operand: &Operand) {
 }
 
 pub fn beq(cpu: &mut Cpu, operand: &Operand) {
-  branch(cpu, operand.val, cpu.p.contains(Status::zero))
+  branch(cpu, operand.val, cpu.p.contains(CpuFlags::zero))
 }
 
 pub fn bne(cpu: &mut Cpu, operand: &Operand) {
-  branch(cpu, operand.val, !cpu.p.contains(Status::zero))
+  branch(cpu, operand.val, !cpu.p.contains(CpuFlags::zero))
 }
 
 pub fn bpl(cpu: &mut Cpu, operand: &Operand) {
-  branch(cpu, operand.val, !cpu.p.contains(Status::negative))
+  branch(cpu, operand.val, !cpu.p.contains(CpuFlags::negative))
 }
 
 pub fn bvc(cpu: &mut Cpu, operand: &Operand) {
-  branch(cpu, operand.val, !cpu.p.contains(Status::overflow))
+  branch(cpu, operand.val, !cpu.p.contains(CpuFlags::overflow))
 }
 
 pub fn bvs(cpu: &mut Cpu, operand: &Operand) {
-  branch(cpu, operand.val, cpu.p.contains(Status::overflow))
+  branch(cpu, operand.val, cpu.p.contains(CpuFlags::overflow))
 }
 
-pub fn clear_stat(cpu: &mut Cpu, s: Status) {
+pub fn clear_stat(cpu: &mut Cpu, s: CpuFlags) {
   cpu.p.remove(s);
 }
 
 pub fn clc(cpu: &mut Cpu, _: &Operand) {
-  clear_stat(cpu, Status::carry)
+  clear_stat(cpu, CpuFlags::carry)
 }
 
 pub fn cld(cpu: &mut Cpu, _: &Operand) {
-  clear_stat(cpu, Status::decimal)
+  clear_stat(cpu, CpuFlags::decimal)
 }
 
 pub fn cli(cpu: &mut Cpu, _: &Operand) {
-  clear_stat(cpu, Status::interrupt)
+  clear_stat(cpu, CpuFlags::interrupt)
 }
 
 pub fn clv(cpu: &mut Cpu, _: &Operand) {
-  clear_stat(cpu, Status::overflow)
+  clear_stat(cpu, CpuFlags::overflow)
 }
 
-pub fn set_stat(cpu: &mut Cpu, s: Status) {
+pub fn set_stat(cpu: &mut Cpu, s: CpuFlags) {
   cpu.p.insert(s);
 }
 
 pub fn sec(cpu: &mut Cpu, _: &Operand) {
-  set_stat(cpu, Status::carry)
+  set_stat(cpu, CpuFlags::carry)
 }
 
 pub fn sed(cpu: &mut Cpu, _: &Operand) {
-  set_stat(cpu, Status::decimal)
+  set_stat(cpu, CpuFlags::decimal)
 }
 
 pub fn sei(cpu: &mut Cpu, _: &Operand) {
-  set_stat(cpu, Status::interrupt)
+  set_stat(cpu, CpuFlags::interrupt)
 }
 
 // TODO
