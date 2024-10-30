@@ -4,7 +4,7 @@ use sdl2::event::Event;
 pub fn show() {
     let ctx = sdl2::init().expect("Couldn't initialize SDL2");
     let video= ctx.video().expect("Couldn't initialize video subsystem");
-    let mut canvas = video.window("Nen-Emulator", 800, 600)
+    let mut _canvas = video.window("Nen-Emulator", 800, 600)
         .position_centered()
         .build().expect("Couldn't initialize window")
         .into_canvas()

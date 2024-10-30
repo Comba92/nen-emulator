@@ -1,6 +1,4 @@
 use core::fmt;
-use std::fmt::{Display, Write};
-
 use super::cart::Cart;
 
 //  _______________ $10000  _______________

@@ -1,8 +1,11 @@
 #[cfg(test)]
 mod tests {
+    use core::panic;
     use std::{cell::RefCell, fmt::format, fs, path::Path, rc::Rc};
     use nen_emulator::emu::{cart::Cart, cpu::{interpret, interpret_with_callback, Cpu, StatusReg}, instr::{AddressingMode, INSTRUCTIONS, INSTR_TO_FN}};
+    use prettydiff::{diff_chars, diff_lines};
 
+  #[derive(PartialEq, Eq)]
   struct CpuMock {
     ip: u16,
     sp: u8,
@@ -25,7 +28,7 @@ mod tests {
     println!("{:?}", cart.header);
   }
 
-  fn debug_line(cpu: CpuMock, mem: &[u8]) {
+  fn debug_line(cpu: &CpuMock, mem: &[u8]) -> String {
     let opcode = &INSTRUCTIONS[mem[cpu.ip as usize] as usize]; 
     
     let operand8 = mem[cpu.ip as usize+1];
@@ -40,13 +43,13 @@ mod tests {
       Indirect | IndirectX | IndirectY => format!("${operand16:04X} = {:04X}", mem[operand16 as usize]),
     };
 
-    println!(
+    format!(
       "{:04X}  {:02X} {:02X} {:02X}  {opcode} {desc:20} \
       A:{a:02X} X:{x:02X} Y:{y:02X} P:{sp:02X} SP:{sr:02X} CYC:{cyc}",
       cpu.ip, mem[cpu.ip as usize], operand8, mem[cpu.ip as usize+2],
       opcode=opcode.name,
       a=cpu.a, x=cpu.x, y=cpu.y, sp=cpu.sp, sr=cpu.sr, cyc=cpu.cycles
-    );
+    )
   }
 
   fn parse_log_line(line: &str) -> CpuMock {
@@ -71,7 +74,8 @@ mod tests {
 
   #[test]
   fn nes_test() {
-    let mut test_log = include_str!("nestest.log").lines();
+    let mut test_log = include_str!("nestest.log")
+      .lines().enumerate();
 
     let rom_path = Path::new("tests/nestest.nes");
     let prg_rom = fs::read(rom_path).unwrap();
@@ -83,9 +87,23 @@ mod tests {
     
     println!("Starting interpreter...");
     interpret_with_callback(&mut cpu, move |cpu| {
-      print!("Mine -> "); debug_line(CpuMock::from_cpu(cpu), cpu.mem.borrow().as_slice());
-      let log_cpu = parse_log_line(test_log.next().unwrap());
-      print!("Log  -> "); debug_line(log_cpu, cpu.mem.borrow().as_slice());
+      let (line_count, line) = test_log.next().unwrap();
+      let my_cpu = CpuMock::from_cpu(cpu);
+      let log_cpu = parse_log_line(line);
+      
+      let my_line = debug_line(&my_cpu, cpu.mem.borrow().as_slice());
+      let log_line = debug_line(&log_cpu, cpu.mem.borrow().as_slice());
+      
+      if my_cpu != log_cpu {
+        println!("{}", "-".repeat(50));
+        println!("Incosistency at {line_count}:\n{}", diff_chars(&my_line, &log_line));
+        println!("{}", "-".repeat(50));
+        panic!()
+      }
+
+      print!("Mine -> {my_line}"); 
+      print!("Log  -> {log_line}"); 
+      
       println!();
     });
   }
