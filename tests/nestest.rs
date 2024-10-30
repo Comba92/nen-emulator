@@ -1,9 +1,9 @@
 #[cfg(test)]
 mod tests {
     use core::panic;
-    use std::{cell::RefCell, fmt::format, fs, path::Path, rc::Rc};
-    use nen_emulator::emu::{cart::Cart, cpu::{interpret, interpret_with_callback, Cpu, StatusReg}, instr::{AddressingMode, INSTRUCTIONS, INSTR_TO_FN}};
-    use prettydiff::{diff_chars, diff_lines};
+    use std::{fs, path::Path};
+    use nen_emulator::emu::{cart::Cart, cpu::{interpret_with_callback, Cpu, Status}, instr::{AddressingMode, INSTRUCTIONS}};
+    use prettydiff::{diff_chars, diff_words};
 
   #[derive(PartialEq, Eq)]
   struct CpuMock {
@@ -12,12 +12,12 @@ mod tests {
     a: u8,
     x: u8,
     y: u8,
-    sr: u8,
+    p: u8,
     cycles: usize
   }
   impl CpuMock {
     fn from_cpu(cpu: &Cpu) -> Self {
-      CpuMock {ip: cpu.ip, sp: cpu.sp, a: cpu.a, x: cpu.x, y: cpu.y, sr: cpu.sr.bits(), cycles: cpu.cycles }
+      CpuMock {ip: cpu.pc, sp: cpu.sp, a: cpu.a, x: cpu.x, y: cpu.y, p: cpu.p.bits(), cycles: cpu.cycles }
     }
   }
 
@@ -45,10 +45,10 @@ mod tests {
 
     format!(
       "{:04X}  {:02X} {:02X} {:02X}  {opcode} {desc:20} \
-      A:{a:02X} X:{x:02X} Y:{y:02X} P:{sp:02X} SP:{sr:02X} CYC:{cyc}",
+      A:{a:02X} X:{x:02X} Y:{y:02X} P:{p:02X} SP:{sp:02X} CYC:{cyc}",
       cpu.ip, mem[cpu.ip as usize], operand8, mem[cpu.ip as usize+2],
       opcode=opcode.name,
-      a=cpu.a, x=cpu.x, y=cpu.y, sp=cpu.sp, sr=cpu.sr, cyc=cpu.cycles
+      a=cpu.a, x=cpu.x, y=cpu.y, p=cpu.p, sp=cpu.sp, cyc=cpu.cycles
     )
   }
 
@@ -61,14 +61,14 @@ mod tests {
     let cycles = usize::from_str_radix(tokens.next().unwrap().split(':').last().unwrap(), 10).unwrap();
     let mut tokens = tokens.skip_while(|tok| !tok.contains("SP"));
 
-    let sr = u8::from_str_radix(tokens.next().unwrap().split(':').last().unwrap(), 16).unwrap();
     let sp = u8::from_str_radix(tokens.next().unwrap().split(':').last().unwrap(), 16).unwrap();
+    let p = u8::from_str_radix(tokens.next().unwrap().split(':').last().unwrap(), 16).unwrap();
     let y = u8::from_str_radix(tokens.next().unwrap().split(':').last().unwrap(), 16).unwrap();
     let x = u8::from_str_radix(tokens.next().unwrap().split(':').last().unwrap(), 16).unwrap();
     let a = u8::from_str_radix(tokens.next().unwrap().split(':').last().unwrap(), 16).unwrap();
 
     CpuMock {
-      ip, a, x, y, sp, sr, cycles,
+      ip, a, x, y, sp, p, cycles,
     }
   }
 
@@ -81,7 +81,8 @@ mod tests {
     let prg_rom = fs::read(rom_path).unwrap();
     let mut cpu = Cpu::new();
 
-    cpu.ip = 0xC000;
+    cpu.pc = 0xC000;
+    cpu.p = Status::from_bits_retain(0x24);
     cpu.write_data(0x8000, &prg_rom[16..16+0x4000]);
     cpu.write_data(0xC000, &prg_rom[16..16+0x4000]);
     
@@ -93,18 +94,18 @@ mod tests {
       
       let my_line = debug_line(&my_cpu, cpu.mem.borrow().as_slice());
       let log_line = debug_line(&log_cpu, cpu.mem.borrow().as_slice());
-      
+
+      println!("Mine -> {my_line}"); 
+      println!("Log  -> {log_line}");
+      println!();
+
       if my_cpu != log_cpu {
         println!("{}", "-".repeat(50));
-        println!("Incosistency at {line_count}:\n{}", diff_chars(&my_line, &log_line));
+        println!("Incosistency at {line_count}:\n{}", diff_words(&my_line, &log_line));
         println!("{}", "-".repeat(50));
         panic!()
       }
-
-      print!("Mine -> {my_line}"); 
-      print!("Log  -> {log_line}"); 
       
-      println!();
     });
   }
 }
