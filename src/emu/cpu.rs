@@ -153,9 +153,11 @@ pub fn interpret_with_callback<F: FnMut(&mut Cpu)>(mut cpu: &mut Cpu, mut callba
     
     inst_fn(&mut cpu, &operand);
 
+    // Branch check
     if cpu.pc == old_pc {
       cpu.pc += inst.bytes as u16 - 1;
     }
+
     cpu.cycles += inst.cycles;
   }
 }
@@ -203,6 +205,11 @@ pub fn get_operand_with_addressing(cpu: &mut Cpu, inst: &Instruction) -> Operand
       let zero_addr = cpu.fetch_at_pc() as u16;
       let addr_effective = cpu.mem_fetch16(zero_addr)
       .wrapping_add(cpu.y as u16).wrapping_add(cpu.carry() as u16);
+      // page crossing check
+      if addr_effective & 0xFF00 != cpu.pc & 0xFF00 {
+        cpu.cycles = cpu.cycles.wrapping_add(1);
+      }
+
       Operand { src: Addr(addr_effective), val: cpu.mem_fetch(addr_effective) }
     }
     Absolute => {
@@ -503,7 +510,9 @@ pub fn branch(cpu: &mut Cpu, offset: u8, cond: bool) {
       cpu.cycles = cpu.cycles.wrapping_add(1);
     }
 
-    cpu.pc = new_pc;
+    // we add one because it's the branch cost
+    cpu.pc = new_pc + 1;
+    cpu.cycles = cpu.cycles.wrapping_add(1);
   }
 }
 
@@ -576,9 +585,7 @@ pub fn brk(_cpu: &mut Cpu, _: &Operand) {
   todo!()
 }
 
-pub fn nop(_cpu: &mut Cpu, _: &Operand) {
-  todo!()
-}
+pub fn nop(_cpu: &mut Cpu, _: &Operand) {}
 
 pub fn rti(_cpu: &mut Cpu, _: &Operand) {
   todo!()
@@ -592,8 +599,10 @@ use super::*;
   fn signed_test() {
     let unsigned = 130u8;
     let signed = unsigned as i8;
+    let signed16 = (unsigned as i8) as i16;
 
-    assert_eq!(signed as i16, -126);
+    assert_eq!(signed, -126);
+    assert_eq!(signed16, -126);
   }
 
   #[test]

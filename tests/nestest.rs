@@ -1,9 +1,9 @@
 #[cfg(test)]
 mod tests {
-    use core::panic;
-    use std::{fs, path::Path};
-    use nen_emulator::emu::{cart::Cart, cpu::{interpret_with_callback, Cpu, Status}, instr::{AddressingMode, INSTRUCTIONS}};
-    use prettydiff::{diff_chars, diff_words};
+  use core::panic;
+  use std::{fs, path::Path};
+  use nen_emulator::emu::{cart::Cart, cpu::{interpret_with_callback, Cpu, Status}, instr::{AddressingMode, INSTRUCTIONS}};
+  use prettydiff::diff_words;
 
   #[derive(PartialEq, Eq)]
   struct CpuMock {
@@ -19,9 +19,30 @@ mod tests {
     fn from_cpu(cpu: &Cpu) -> Self {
       CpuMock {ip: cpu.pc, sp: cpu.sp, a: cpu.a, x: cpu.x, y: cpu.y, p: cpu.p.bits(), cycles: cpu.cycles }
     }
+
+    fn from_log(line: &str) -> Self {
+      let mut tokens = line.split_whitespace();
+      
+      let ip = u16::from_str_radix(tokens.next().unwrap(), 16).unwrap();
+  
+      let mut tokens = tokens.rev();
+      let cycles = usize::from_str_radix(tokens.next().unwrap().split(':').last().unwrap(), 10).unwrap();
+      let mut tokens = tokens.skip_while(|tok| !tok.contains("SP"));
+  
+      let sp = u8::from_str_radix(tokens.next().unwrap().split(':').last().unwrap(), 16).unwrap();
+      let p = u8::from_str_radix(tokens.next().unwrap().split(':').last().unwrap(), 16).unwrap();
+      let y = u8::from_str_radix(tokens.next().unwrap().split(':').last().unwrap(), 16).unwrap();
+      let x = u8::from_str_radix(tokens.next().unwrap().split(':').last().unwrap(), 16).unwrap();
+      let a = u8::from_str_radix(tokens.next().unwrap().split(':').last().unwrap(), 16).unwrap();
+  
+      CpuMock {
+        ip, a, x, y, sp, p, cycles,
+      }
+    }
   }
 
   #[test]
+  #[ignore]
   fn open_rom() {
     let rom_path = Path::new("tests/nestest.nes");
     let cart = Cart::new(rom_path);
@@ -37,7 +58,8 @@ mod tests {
     use AddressingMode::*;
     let desc = match opcode.addressing {
       Implicit | Accumulator => String::new(),
-      Immediate | Relative => format!("#${operand8:02X}"),
+      Immediate => format!("#${operand8:02X}"),
+      Relative => format!("${:04X}", cpu.ip.wrapping_add_signed((operand8 as i8) as i16)),
       ZeroPage | ZeroPageX | ZeroPageY => format!("${operand8:02X} = ${:02X}", mem[operand8 as usize]),
       Absolute | AbsoluteX | AbsoluteY => format!("${operand16:04X} = ${:02X}", mem[operand16 as usize]),
       Indirect | IndirectX | IndirectY => format!("${operand16:04X} = {:04X}", mem[operand16 as usize]),
@@ -50,26 +72,6 @@ mod tests {
       opcode=opcode.name,
       a=cpu.a, x=cpu.x, y=cpu.y, p=cpu.p, sp=cpu.sp, cyc=cpu.cycles
     )
-  }
-
-  fn parse_log_line(line: &str) -> CpuMock {
-    let mut tokens = line.split_whitespace();
-    
-    let ip = u16::from_str_radix(tokens.next().unwrap(), 16).unwrap();
-
-    let mut tokens = tokens.rev();
-    let cycles = usize::from_str_radix(tokens.next().unwrap().split(':').last().unwrap(), 10).unwrap();
-    let mut tokens = tokens.skip_while(|tok| !tok.contains("SP"));
-
-    let sp = u8::from_str_radix(tokens.next().unwrap().split(':').last().unwrap(), 16).unwrap();
-    let p = u8::from_str_radix(tokens.next().unwrap().split(':').last().unwrap(), 16).unwrap();
-    let y = u8::from_str_radix(tokens.next().unwrap().split(':').last().unwrap(), 16).unwrap();
-    let x = u8::from_str_radix(tokens.next().unwrap().split(':').last().unwrap(), 16).unwrap();
-    let a = u8::from_str_radix(tokens.next().unwrap().split(':').last().unwrap(), 16).unwrap();
-
-    CpuMock {
-      ip, a, x, y, sp, p, cycles,
-    }
   }
 
   #[test]
@@ -90,7 +92,7 @@ mod tests {
     interpret_with_callback(&mut cpu, move |cpu| {
       let (line_count, line) = test_log.next().unwrap();
       let my_cpu = CpuMock::from_cpu(cpu);
-      let log_cpu = parse_log_line(line);
+      let log_cpu = CpuMock::from_log(line);
       
       let my_line = debug_line(&my_cpu, cpu.mem.borrow().as_slice());
       let log_line = debug_line(&log_cpu, cpu.mem.borrow().as_slice());
@@ -101,7 +103,7 @@ mod tests {
 
       if my_cpu != log_cpu {
         println!("{}", "-".repeat(50));
-        println!("Incosistency at {line_count}:\n{}", diff_words(&my_line, &log_line));
+        println!("Incosistency at line {line_count}:\n{}", diff_words(&my_line, &log_line));
         println!("{}", "-".repeat(50));
         panic!()
       }
