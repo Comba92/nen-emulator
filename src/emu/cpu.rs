@@ -1,7 +1,8 @@
 #![allow(dead_code)]
 use std::{cell::RefCell, fmt::Debug, rc::Rc};
 
-use bitflags::bitflags;
+use bitflags::{bitflags, Flags};
+use log::{debug, info};
 use super::instr::{AddressingMode, Instruction, INSTRUCTIONS, INSTR_TO_FN};
 
 bitflags! {
@@ -11,7 +12,9 @@ bitflags! {
     const zero      = 0b0000_0010;
     const interrupt = 0b0000_0100;
     const decimal   = 0b0000_1000;
-    const brk       = 0b0011_0000;
+    const brk       = 0b0001_0000;
+    const unused    = 0b0010_0000;
+    const brkpush   = 0b0011_0000;
     const overflow  = 0b0100_0000;
     const negative  = 0b1000_0000;
   }
@@ -158,17 +161,18 @@ pub fn interpret_with_callback<F: FnMut(&mut Cpu)>(mut cpu: &mut Cpu, mut callba
 
     let opcode = cpu.fetch_at_pc();
     
-    let inst = &INSTRUCTIONS[opcode as usize];
-    let operand = get_operand_with_addressing(&mut cpu, &inst);
+    let instr = &INSTRUCTIONS[opcode as usize];
+    let operand = get_operand_with_addressing(&mut cpu, &instr);
     
-    let opname = inst.name.as_str();
+    let opname = instr.name.as_str();
 
     let (_, inst_fn) = INSTR_TO_FN
-      .get_key_value(opname).expect("Op should be in map");
+      .get_key_value(opname)
+      .expect(&format!("Op {opcode}({}) should be in map", instr.name));
     
     inst_fn(&mut cpu, &operand);
 
-    cpu.cycles += inst.cycles;
+    cpu.cycles += instr.cycles;
   }
 }
 
@@ -331,23 +335,31 @@ pub fn tya(cpu: &mut Cpu, _: &Operand) {
 }
 
 pub fn pha(cpu: &mut Cpu, _: &Operand) {
+  info!("[PHA] Pushing {:?} to stack", cpu.a);
   cpu.stack_push(cpu.a);
-}
-
-pub fn php(cpu: &mut Cpu, _: &Operand) {
-  let pushable = cpu.p.union(CpuFlags::brk);
-  cpu.stack_push(pushable.bits());
 }
 
 pub fn pla(cpu: &mut Cpu, _: &Operand) {
   let res = cpu.stack_pop();
   cpu.set_czn(res as u16);
   cpu.a = res;
+  info!("[PLA] Pulled {:?} from stack", cpu.a);
+}
+
+pub fn php(cpu: &mut Cpu, _: &Operand) {
+  // Brk is always 1 on pushes
+  let pushable = cpu.p.union(CpuFlags::brkpush);
+  debug!("[PHP] Pushing {pushable:?} to stack");
+  cpu.stack_push(pushable.bits());
 }
 
 pub fn plp(cpu: &mut Cpu, _: &Operand) {
   let res = cpu.stack_pop();
+  // Brk is always 0 on pulls, but unused is always 1
   cpu.p = CpuFlags::from_bits_retain(res)
+    .difference(CpuFlags::brk)
+    .union(CpuFlags::unused);
+  info!("[PLP] Pulled {:?} from stack", cpu.p);
 }
 
 pub fn logic(cpu: &mut Cpu, res: u8) {

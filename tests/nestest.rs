@@ -2,7 +2,8 @@
 mod tests {
   use core::panic;
   use std::{fs, path::Path};
-  use nen_emulator::emu::{cart::Cart, cpu::{interpret_with_callback, Cpu, CpuFlags}, instr::{AddressingMode, INSTRUCTIONS}};
+  use log::info;
+use nen_emulator::emu::{cart::Cart, cpu::{interpret_with_callback, Cpu, CpuFlags}, instr::{AddressingMode, INSTRUCTIONS}};
   use prettydiff::diff_words;
 
   #[derive(PartialEq, Eq)]
@@ -76,6 +77,8 @@ mod tests {
 
   #[test]
   fn nes_test() {
+    colog::init();
+
     let mut test_log = include_str!("nestest.log")
       .lines().enumerate();
 
@@ -88,7 +91,7 @@ mod tests {
     cpu.write_data(0x8000, &prg_rom[16..16+0x4000]);
     cpu.write_data(0xC000, &prg_rom[16..16+0x4000]);
     
-    println!("Starting interpreter...");
+    info!("Starting interpreter...");
     interpret_with_callback(&mut cpu, move |cpu| {
       let (mut line_count, line) = test_log.next().unwrap();
       line_count+=1;
@@ -99,16 +102,16 @@ mod tests {
       let my_line = debug_line(&my_cpu, cpu.mem.borrow().as_slice());
       let log_line = debug_line(&log_cpu, cpu.mem.borrow().as_slice());
 
-      println!("{line_count}|Mine -> {my_line}"); 
-      println!("{line_count}|Log  -> {log_line}");
-      println!();
+      info!("{line_count}|Mine -> {my_line}"); 
+      info!("{line_count}|Log  -> {log_line}");
+      info!("");
 
       if my_cpu != log_cpu {
-        println!("{}", "-".repeat(50));
-        println!("Incosistency at line {line_count}:\n{}", diff_words(&my_line, &log_line));
-        println!("MyFlags: {:?}\t LogFlags: {:?}", 
+        info!("{}", "-".repeat(50));
+        info!("Incosistency at line {line_count}:\n{}", diff_words(&my_line, &log_line));
+        info!("MyFlags:\t{:?}\nLogFlags\t{:?}", 
                 CpuFlags::from_bits_retain(my_cpu.p), CpuFlags::from_bits_retain(log_cpu.p));
-        println!("{}", "-".repeat(50));
+        info!("{}", "-".repeat(50));
         panic!()
       }
       
