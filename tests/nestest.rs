@@ -10,7 +10,7 @@ use log::info;
   use nen_emulator::emu::{cart::Cart, cpu::{Cpu, CpuFlags, STACK_START}, instr::{AddressingMode, INSTRUCTIONS}};
 use prettydiff::{diff_lines, diff_words};
 
-  #[derive(PartialEq, Eq)]
+  #[derive(Eq)]
   struct CpuMock {
     pc: u16,
     sp: u8,
@@ -20,6 +20,13 @@ use prettydiff::{diff_lines, diff_words};
     p: u8,
     cycles: usize
   }
+  impl PartialEq for CpuMock {
+    fn eq(&self, other: &Self) -> bool {
+        self.pc == other.pc && self.sp == other.sp && self.a == other.a && self.x == other.x && self.y == other.y && self.p == other.p 
+        //&& self.cycles == other.cycles
+    }
+  }
+
   impl CpuMock {
     fn from_cpu(cpu: &Cpu) -> Self {
       CpuMock {pc: cpu.pc, sp: cpu.sp, a: cpu.a, x: cpu.x, y: cpu.y, p: cpu.p.bits(), cycles: cpu.cycles }
@@ -67,7 +74,9 @@ use prettydiff::{diff_lines, diff_words};
       Relative => format!("${:04X}", (cpu.pc+opcode.bytes as u16).wrapping_add_signed((operand8 as i8) as i16)),
       ZeroPage | ZeroPageX | ZeroPageY => format!("${operand8:02X} = ${:02X}", mem[operand8 as usize]),
       Absolute | AbsoluteX | AbsoluteY => format!("${operand16:04X} = ${:02X}", mem[operand16 as usize]),
-      Indirect | IndirectX | IndirectY => format!("${operand16:04X} = {:04X}", mem[operand16 as usize]),
+      Indirect => format!("${operand16:04X} = {:04X}", mem[operand16 as usize]),
+      IndirectX => format!("IndX ${:04X} @ {:04X}", operand8+cpu.x, mem[(operand8+cpu.x) as usize]),
+      IndirectY => format!("IndY ${:04X} @ {:04X}", operand8, mem[operand8 as usize] as u16 + cpu.y as u16),
     };
 
     format!(

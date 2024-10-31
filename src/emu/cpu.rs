@@ -112,10 +112,11 @@ impl Cpu {
     u16::from_le_bytes([self.mem_fetch(addr), self.mem_fetch(addr+1)])
   }
 
-  pub fn zero_fetch16(&mut self, addr: u16) -> u16 {
-    if addr == 0xFF {
-      let low = self.mem_fetch(0xFF);
-      let high = self.mem_fetch(0x00);
+  pub fn wrapping_fetch16(&mut self, addr: u16) -> u16 {
+    if addr & 0x00FF == 0x00FF {
+      let page = addr & 0xFF00;
+      let low = self.mem_fetch(page & 0xFF);
+      let high = self.mem_fetch(page & 0x00);
       u16::from_le_bytes([low, high])
     } else { self.mem_fetch16(addr) }
   }
@@ -245,23 +246,26 @@ impl Cpu {
         let zero_addr = (self.fetch_at_pc().wrapping_add(self.x)) as u16;
         Operand { src: Addr(zero_addr), val: self.mem_fetch(zero_addr) }
       }
-      IndirectX => {
-        let zero_addr = (self.fetch_at_pc().wrapping_add(self.x)) as u16;
-        let addr_effective = self.zero_fetch16(zero_addr);
-        info!("[IndirectX] ZeroAddr: {zero_addr:02X}, Effective: {addr_effective:04X}");
-        Operand { src: Addr(addr_effective), val: self.mem_fetch(addr_effective) }
-      }
       ZeroPageY => {
         let zero_addr = (self.fetch_at_pc().wrapping_add(self.y)) as u16;
         Operand { src: Addr(zero_addr), val: self.mem_fetch(zero_addr) }
       }
+      IndirectX => {
+        let zero_addr = (self.fetch_at_pc().wrapping_add(self.x)) as u16;
+        let addr_effective = self.wrapping_fetch16(zero_addr);
+        info!("[IndirectX] ZeroAddr: {zero_addr:02X}, Effective: {addr_effective:04X}");
+        Operand { src: Addr(addr_effective), val: self.mem_fetch(addr_effective) }
+      }
       IndirectY => {
         let zero_addr = self.fetch_at_pc() as u16;
-        let addr_effective = self.zero_fetch16(zero_addr)
-        .wrapping_add(self.y as u16).wrapping_add(self.carry() as u16);
-        info!("[IndirectY] ZeroAddr: {zero_addr:02X}, Effective: {addr_effective:04X}");
+        let addr_effective = self.wrapping_fetch16(zero_addr)
+          .wrapping_add(self.y as u16);
+        info!("[IndirectY] ZeroAddr: {zero_addr:04X}, Effective: {addr_effective:04X}");
+        info!("Has crossed boundaries? {}", addr_effective & 0xFF00 != zero_addr & 0xFF00);
+        
+        //TODO: find solution to cycle counting
         // page crossing check
-        if addr_effective & 0xFF00 != self.pc & 0xFF00 {
+        if addr_effective & 0xFF00 == zero_addr & 0xFF00 {
           self.cycles = self.cycles.wrapping_add(1);
         }
 
@@ -293,7 +297,7 @@ impl Cpu {
       }
       Indirect => {
         let addr = self.fetch16_at_pc();
-        let addr_effective = self.mem_fetch16(addr);
+        let addr_effective = self.wrapping_fetch16(addr);
         Operand { src: Addr(addr_effective), val: 0 }
       }
     };
@@ -311,7 +315,7 @@ impl Cpu {
   }
 
   pub fn load (&mut self, operand: &Operand, dst: InstrDst) {
-    info!("[LOAD] {operand:?} at cycle {}", self.cycles);
+    trace!("[LOAD] {operand:?} at cycle {}", self.cycles);
     self.set_zn(operand.val);
     self.set_instr_result(dst);
   }
