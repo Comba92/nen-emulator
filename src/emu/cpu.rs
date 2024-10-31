@@ -109,8 +109,15 @@ impl Cpu {
   }
 
   pub fn mem_fetch16(&mut self, addr: u16) -> u16 {
-    //self.cycles = self.cycles.wrapping_add(2);
     u16::from_le_bytes([self.mem_fetch(addr), self.mem_fetch(addr+1)])
+  }
+
+  pub fn zero_fetch16(&mut self, addr: u16) -> u16 {
+    if addr == 0xFF {
+      let low = self.mem_fetch(0xFF);
+      let high = self.mem_fetch(0x00);
+      u16::from_le_bytes([low, high])
+    } else { self.mem_fetch16(addr) }
   }
 
   pub fn mem_set(&mut self, addr: u16, val: u8) {
@@ -119,8 +126,6 @@ impl Cpu {
   }
 
   pub fn mem_set16(&mut self, addr: u16, val: u16) {
-    //self.cycles = self.cycles.wrapping_add(2);
-
     let [low, high] = val.to_le_bytes();
     self.mem.borrow_mut()[addr as usize] = low;
     self.mem.borrow_mut()[(addr + 1) as usize] = high;
@@ -182,10 +187,11 @@ impl Cpu {
   }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 enum OperandSrc {
   Acc, Addr(u16), None
 }
+#[derive(Debug)]
 pub struct Operand {
   src: OperandSrc,
   val: u8,
@@ -241,7 +247,8 @@ impl Cpu {
       }
       IndirectX => {
         let zero_addr = (self.fetch_at_pc().wrapping_add(self.x)) as u16;
-        let addr_effective = self.mem_fetch16(zero_addr);
+        let addr_effective = self.zero_fetch16(zero_addr);
+        info!("[IndirectX] ZeroAddr: {zero_addr:02X}, Effective: {addr_effective:04X}");
         Operand { src: Addr(addr_effective), val: self.mem_fetch(addr_effective) }
       }
       ZeroPageY => {
@@ -250,8 +257,9 @@ impl Cpu {
       }
       IndirectY => {
         let zero_addr = self.fetch_at_pc() as u16;
-        let addr_effective = self.mem_fetch16(zero_addr)
+        let addr_effective = self.zero_fetch16(zero_addr)
         .wrapping_add(self.y as u16).wrapping_add(self.carry() as u16);
+        info!("[IndirectY] ZeroAddr: {zero_addr:02X}, Effective: {addr_effective:04X}");
         // page crossing check
         if addr_effective & 0xFF00 != self.pc & 0xFF00 {
           self.cycles = self.cycles.wrapping_add(1);
@@ -303,6 +311,7 @@ impl Cpu {
   }
 
   pub fn load (&mut self, operand: &Operand, dst: InstrDst) {
+    info!("[LOAD] {operand:?} at cycle {}", self.cycles);
     self.set_zn(operand.val);
     self.set_instr_result(dst);
   }
@@ -310,11 +319,9 @@ impl Cpu {
   pub fn lda(&mut self, operand: &Operand) {
     self.load(operand, InstrDst::Acc(operand.val))
   }
-
   pub fn ldx(&mut self, operand: &Operand) {
     self.load(operand, InstrDst::X(operand.val))
   }
-
   pub fn ldy(&mut self, operand: &Operand) {
     self.load(operand, InstrDst::Y(operand.val))
   }
@@ -328,11 +335,9 @@ impl Cpu {
   pub fn sta(&mut self, operand: &Operand) {
     self.store(operand, self.a)
   }
-
   pub fn stx(&mut self, operand: &Operand) {
     self.store(operand, self.x)
   }
-
   pub fn sty(&mut self, operand: &Operand) {
     self.store(operand, self.y)
   }
@@ -345,24 +350,19 @@ impl Cpu {
   pub fn tax(&mut self, _: &Operand) {
     self.transfer(self.a, InstrDst::X(self.a))
   }
-
   pub fn tay(&mut self, _: &Operand) {
     self.transfer(self.a, InstrDst::Y(self.a))
   }
-
   pub fn tsx(&mut self, _: &Operand) {
     self.transfer(self.sp, InstrDst::X(self.sp))
   }
-
   pub fn txa(&mut self, _: &Operand) {
     self.transfer(self.x, InstrDst::Acc(self.x))
   }
-
   pub fn txs(&mut self, _: &Operand) {
     debug!("SP changed from ${:02X} to ${:02X}", self.sp, self.x);
     self.sp = self.x;
   }
-
   pub fn tya(&mut self, _: &Operand) {
     self.transfer(self.y, InstrDst::Acc(self.y))
   }
@@ -371,21 +371,18 @@ impl Cpu {
     trace!("[PHA] Pushing ${:02X} to stack at cycle {}", self.a, self.cycles);
     self.stack_push(self.a);
   }
-
   pub fn pla(&mut self, _: &Operand) {
     let res = self.stack_pull();
     self.set_zn(res);
     self.a = res;
     trace!("[PLA] Pulled ${:02X} from stack at cycle {}", self.a, self.cycles);
   }
-
   pub fn php(&mut self, _: &Operand) {
     // Brk is always 1 on pushes
     let pushable = self.p.union(CpuFlags::brkpush);
     trace!("[PHP] Pushing {pushable:?} (${:02X}) to stack at cycle {}", pushable.bits(), self.cycles);
     self.stack_push(pushable.bits());
   }
-
   pub fn plp(&mut self, _: &Operand) {
     let res = self.stack_pull();
     // Brk is always 0 on pulls, but unused is always 1
@@ -400,19 +397,15 @@ impl Cpu {
     self.set_neg(res);
     self.a = res;
   }
-
   pub fn and(&mut self, operand: &Operand) {
     self.logical(self.a & operand.val)
   }
-
   pub fn eor(&mut self, operand: &Operand) {
     self.logical(self.a ^ operand.val)
   }
-
   pub fn ora(&mut self, operand: &Operand) {
     self.logical(self.a | operand.val)
   }
-
   pub fn bit(&mut self, operand: &Operand) {
     let res = self.a & operand.val;
     self.set_zero(res);
@@ -426,7 +419,6 @@ impl Cpu {
     self.set_czn(res);
     self.a = res as u8;
   }
-
   pub fn sbc(&mut self, operand: &Operand) {
     self.adc(&Operand { val: !operand.val, src: operand.src });
   }
@@ -440,11 +432,9 @@ impl Cpu {
   pub fn cmp(&mut self, operand: &Operand) {
     self.compare(self.a, operand.val)
   }
-
   pub fn cpx(&mut self, operand: &Operand) {
     self.compare(self.x, operand.val)
   }
-
   pub fn cpy(&mut self, operand: &Operand) {
     self.compare(self.y, operand.val)
   }
@@ -454,33 +444,27 @@ impl Cpu {
     self.set_zn(res);
     res
   }
-
   pub fn inc(&mut self, operand: &Operand) {
     if let OperandSrc::Addr(src) = operand.src {
       let res = self.increase(operand.val, u8::wrapping_add);
       self.mem_set(src, res);
     } else { unreachable!() }
   }
-
   pub fn inx(&mut self, _: &Operand) {
     self.x = self.increase(self.x, u8::wrapping_add);
   }
-
   pub fn iny(&mut self, _: &Operand) {
     self.y = self.increase(self.y, u8::wrapping_add)
   }
-
   pub fn dec(&mut self, operand: &Operand) {
     if let OperandSrc::Addr(src) = operand.src {
       let res = self.increase(operand.val, u8::wrapping_sub);
       self.mem_set(src, res);
     } else { unreachable!() }
   }
-
   pub fn dex(&mut self, _: &Operand) {
     self.x = self.increase(self.x, u8::wrapping_sub);
   }
-
   pub fn dey(&mut self, _: &Operand) {
     self.y = self.increase(self.y, u8::wrapping_sub);
   }
@@ -496,7 +480,6 @@ impl Cpu {
       OperandSrc::None => { unreachable!() }
     }
   }
-
   pub fn asl(&mut self, operand: &Operand) {
     self.shift(operand, operand.val & 0b1000_0000 != 0, |v| v.shl(1));
   }
@@ -517,12 +500,10 @@ impl Cpu {
       self.pc = src;
     } else { unreachable!() }
   }
-
   pub fn jsr(&mut self, operand: &Operand) {
     self.stack_push16(self.pc - 1);
     self.jmp(operand);
   }
-
   pub fn rts(&mut self, _: &Operand) {
     self.pc = self.stack_pull16() + 1;
   }
@@ -544,35 +525,27 @@ impl Cpu {
       self.pc = new_pc;
     }
   }
-
   pub fn bcc(&mut self, operand: &Operand) {
     self.branch(operand.val, self.carry() == 0)
   }
-
   pub fn bcs(&mut self, operand: &Operand) {
     self.branch(operand.val, self.carry() == 1)
   }
-
   pub fn beq(&mut self, operand: &Operand) {
     self.branch(operand.val, self.p.contains(CpuFlags::zero))
   }
-
   pub fn bne(&mut self, operand: &Operand) {
     self.branch(operand.val, !self.p.contains(CpuFlags::zero))
   }
-
   pub fn bmi(&mut self, operand: &Operand) {
     self.branch(operand.val, self.p.contains(CpuFlags::negative))
   }
-
   pub fn bpl(&mut self, operand: &Operand) {
     self.branch(operand.val, !self.p.contains(CpuFlags::negative))
   }
-
   pub fn bvc(&mut self, operand: &Operand) {
     self.branch(operand.val, !self.p.contains(CpuFlags::overflow))
   }
-
   pub fn bvs(&mut self, operand: &Operand) {
     self.branch(operand.val, self.p.contains(CpuFlags::overflow))
   }
@@ -580,35 +553,27 @@ impl Cpu {
   pub fn clear_stat(&mut self, s: CpuFlags) {
     self.p.remove(s);
   }
-
   pub fn clc(&mut self, _: &Operand) {
     self.clear_stat(CpuFlags::carry)
   }
-
   pub fn cld(&mut self, _: &Operand) {
     self.clear_stat(CpuFlags::decimal)
   }
-
   pub fn cli(&mut self, _: &Operand) {
     self.clear_stat(CpuFlags::interrupt)
   }
-
   pub fn clv(&mut self, _: &Operand) {
     self.clear_stat(CpuFlags::overflow)
   }
-
   pub fn set_stat(&mut self, s: CpuFlags) {
     self.p.insert(s);
   }
-
   pub fn sec(&mut self, _: &Operand) {
     self.set_stat(CpuFlags::carry)
   }
-
   pub fn sed(&mut self, _: &Operand) {
     self.set_stat(CpuFlags::decimal)
   }
-
   pub fn sei(&mut self, _: &Operand) {
     self.set_stat(CpuFlags::interrupt)
   }
@@ -617,13 +582,11 @@ impl Cpu {
     self.stack_push16(self.pc);
     self.php(operand);
   }
-
-  pub fn nop(&mut self, _: &Operand) {}
-
   pub fn rti(&mut self, operand: &Operand) {
     self.plp(operand);
     self.pc = self.stack_pull16();
   }
+  pub fn nop(&mut self, _: &Operand) {}
 }
 
 #[cfg(test)]
