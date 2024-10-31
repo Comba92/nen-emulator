@@ -29,7 +29,7 @@ use super::cart::Cart;
 // | Zero Page     |       |               |
 // |_______________| $0000 |_______________|
 
-const RAM_SIZE: usize = 0x08000;
+const RAM_SIZE: usize = 0x8000;
 
 pub struct Mem {
     pub ram: [u8; RAM_SIZE],

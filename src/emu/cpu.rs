@@ -135,13 +135,13 @@ impl Cpu {
 
   pub fn fetch_at_pc(&mut self) -> u8 {
     let res = self.mem_fetch(self.pc);
-    self.pc+=1;
+    self.pc = self.pc.wrapping_add(1);
     res
   }
 
   pub fn fetch16_at_pc(&mut self) -> u16 {
     let res = self.mem_fetch16(self.pc);
-    self.pc+=2;
+    self.pc = self.pc.wrapping_add(2);
     res
   }
 
@@ -230,26 +230,42 @@ impl Cpu {
     }
   }
 
+  fn get_zeropage_operand(&mut self, offset: u8) -> Operand {
+    let zero_addr = (self.fetch_at_pc().wrapping_add(offset)) as u16;
+    Operand { src: OperandSrc::Addr(zero_addr), val: self.mem_fetch(zero_addr) }
+  }
+
+  fn get_absolute_operand(&mut self, offset: u8, instr: &Instruction) -> Operand {
+    let addr_base = self.fetch16_at_pc();
+    let addr_effective = addr_base.wrapping_add(offset as u16);
+
+    // page crossing check
+    if instr.page_boundary_cycle && addr_effective & 0xFF00 != addr_base & 0xFF00 {
+      self.cycles = self.cycles.wrapping_add(1);
+    }
+
+    Operand { src: OperandSrc::Addr(addr_effective), val: self.mem_fetch(addr_effective) }
+  }
+
   pub fn get_operand_with_addressing(&mut self, instr: &Instruction) -> Operand {
     let mode = instr.addressing;
     use AddressingMode::*;
     use OperandSrc::*;
-
+    
     let res = match mode {
       Implicit => Operand {src: None, val: 0},
       Accumulator => Operand {src: Acc, val: self.a},
       Immediate | Relative => Operand {src: None, val: self.fetch_at_pc()},
-      ZeroPage => {
-        let zero_addr = self.fetch_at_pc() as u16;
-        Operand { src: Addr(zero_addr), val: self.mem_fetch(zero_addr) }
-      }
-      ZeroPageX => {
-        let zero_addr = (self.fetch_at_pc().wrapping_add(self.x)) as u16;
-        Operand { src: Addr(zero_addr), val: self.mem_fetch(zero_addr) }
-      }
-      ZeroPageY => {
-        let zero_addr = (self.fetch_at_pc().wrapping_add(self.y)) as u16;
-        Operand { src: Addr(zero_addr), val: self.mem_fetch(zero_addr) }
+      ZeroPage => self.get_zeropage_operand(0),
+      ZeroPageX => self.get_zeropage_operand(self.x),
+      ZeroPageY => self.get_zeropage_operand(self.y),
+      Absolute => self.get_absolute_operand(0, instr),
+      AbsoluteX => self.get_absolute_operand(self.x, instr),
+      AbsoluteY => self.get_absolute_operand(self.y, instr),
+      Indirect => {
+        let addr = self.fetch16_at_pc();
+        let addr_effective = self.wrapping_fetch16(addr);
+        Operand { src: Addr(addr_effective), val: 0 }
       }
       IndirectX => {
         let zero_addr = (self.fetch_at_pc().wrapping_add(self.x)) as u16;
@@ -265,46 +281,12 @@ impl Cpu {
         info!("[IndirectY] ZeroAddr: {zero_addr:04X}, BaseAddr: {addr_base:04X}, Effective: {addr_effective:04X}");
         info!(" | Has crossed boundaries? {}", addr_effective & 0xFF00 != addr_base & 0xFF00);
         
-        //TODO: find solution to cycle counting
         // page crossing check
         if instr.page_boundary_cycle && addr_effective & 0xFF00 != addr_base & 0xFF00 {
           info!(" | Boundary crossed at cycle {}", self.cycles);
           self.cycles = self.cycles.wrapping_add(1);
         }
-
-
         Operand { src: Addr(addr_effective), val: self.mem_fetch(addr_effective) }
-      }
-      Absolute => {
-        let addr = self.fetch16_at_pc();
-        Operand { src: Addr(addr), val: self.mem_fetch(addr) }
-      }
-      AbsoluteX => { 
-        let addr_base = self.fetch16_at_pc();
-        let addr_effective = addr_base.wrapping_add(self.x as u16);
-
-        // page crossing check
-        if instr.page_boundary_cycle && addr_effective & 0xFF00 != addr_base & 0xFF00 {
-          self.cycles = self.cycles.wrapping_add(1);
-        }
-
-        Operand { src: Addr(addr_effective), val: self.mem_fetch(addr_effective) }
-      }
-      AbsoluteY => {
-        let addr_base = self.fetch16_at_pc();
-        let addr_effective = addr_base.wrapping_add(self.y as u16);
-
-        // page crossing check
-        if instr.page_boundary_cycle && addr_effective & 0xFF00 != addr_base & 0xFF00 {
-          self.cycles = self.cycles.wrapping_add(1);
-        }
-
-        Operand { src: Addr(addr_effective), val: self.mem_fetch(addr_effective) }
-      }
-      Indirect => {
-        let addr = self.fetch16_at_pc();
-        let addr_effective = self.wrapping_fetch16(addr);
-        Operand { src: Addr(addr_effective), val: 0 }
       }
     };
 

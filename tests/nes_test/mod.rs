@@ -1,11 +1,11 @@
 #[cfg(test)]
-mod tests {
-  use core::panic;
-  use std::{fs, path::Path};
-  use circular_buffer::CircularBuffer;
+pub mod nes_test {
+use core::panic;
+use std::{fs, path::Path};
+use circular_buffer::CircularBuffer;
 use log::info;
 
-  use nen_emulator::emu::{cart::Cart, cpu::{Cpu, CpuFlags}, instr::{AddressingMode, INSTRUCTIONS}};
+use nen_emulator::emu::{cart::Cart, cpu::{Cpu, CpuFlags}, instr::{AddressingMode, INSTRUCTIONS}};
 use prettydiff::{diff_lines, diff_words};
 
   #[derive(Eq)]
@@ -98,7 +98,7 @@ use prettydiff::{diff_lines, diff_words};
     let mut test_log = log_str
       .lines().enumerate();
 
-    let rom_path = Path::new("tests/nestest.nes");
+    let rom_path = Path::new("tests/nes_test/nestest.nes");
     let prg_rom = fs::read(rom_path).unwrap();
     let mut cpu = Cpu::new();
 
