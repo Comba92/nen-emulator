@@ -81,7 +81,9 @@ use prettydiff::{diff_lines, diff_words};
 
   #[test]
   fn nes_test() {
-    colog::init();
+    let mut builder = colog::basic_builder();
+    builder.filter_level(log::LevelFilter::Info);
+    builder.init();
 
     let mut test_log = include_str!("nestest.log")
       .lines().enumerate();
@@ -132,6 +134,10 @@ use prettydiff::{diff_lines, diff_words};
         let log_p = format!("{:?}", CpuFlags::from_bits_retain(log_cpu.p));
         info!("Stack: {}", cpu.stack_trace());
         info!("Flags: {}", diff_lines(&my_p, &log_p));
+
+        info!("Wrong:\t{:?}", CpuFlags::from_bits_retain(0x69));
+        info!("Correct:\t{:?}", CpuFlags::from_bits_retain(0x39));
+
         info!("Results: ${:04X}", cpu.mem_fetch16(0x2));
 
         info!("{}", "-".repeat(50));

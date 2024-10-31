@@ -21,7 +21,7 @@ bitflags! {
 }
 
 // https://www.nesdev.org/wiki/CPU_ALL
-pub const STACK_START: usize = 0x0100;
+pub const STACK_START: usize = 0x01FF;
 // SP is always initialized at itself minus 3
 // At boot, it is 0x00 - 0x03 = 0xFD
 // After every successive restart, it will be SP - 0x03
@@ -134,43 +134,42 @@ impl Cpu {
   }
 
   pub fn sp_addr(&self) -> u16 {
-    STACK_START as u16 + self.sp as u16
+    STACK_START as u16 - self.sp as u16
   }
 
   pub fn stack_push(&mut self, val: u8) {
-    info!("Pushing ${:02X} to stack at cycle {}", val, self.cycles);
+    info!("-> Pushing ${:02X} to stack at cycle {}", val, self.cycles);
     self.mem_set(self.sp_addr(), val);
+    info!("\t{}", self.stack_trace());
     self.sp -= 1;
   }
 
   pub fn stack_push16(&mut self, val: u16) {
-    info!("Pushing ${:04X} to stack at cycle {}", val, self.cycles);
+    info!("-> Pushing ${:04X} to stack at cycle {}", val, self.cycles);
     self.mem_set16(self.sp_addr(), val);
+    info!("\t{}", self.stack_trace());
     self.sp -= 2;
-  }
-
-  pub fn stack_peek(&mut self) -> u8 {
-    info!("Pulling ${:02X} from stack at cycle {}", self.mem_fetch(self.sp_addr()), self.cycles);
-    self.mem_fetch(self.sp_addr())
   }
 
   pub fn stack_pop(&mut self) -> u8 {
     self.sp += 1;
-    info!("Pulling ${:02X} from stack at cycle {}", self.mem_fetch(self.sp_addr()), self.cycles);
+    info!("<- Pulling ${:02X} from stack at cycle {}", self.mem_fetch(self.sp_addr()), self.cycles);
+    info!("\t{}", self.stack_trace());
     self.mem_fetch(self.sp_addr())
   }
 
   pub fn stack_pop16(&mut self) -> u16 {
     self.sp += 2;
-    info!("Pulling ${:04X} from stack at cycle {}", self.mem_fetch(self.sp_addr()), self.cycles);
+    info!("<- Pulling ${:04X} from stack at cycle {}", self.mem_fetch16(self.sp_addr()), self.cycles);
+    info!("\t{}", self.stack_trace());
     self.mem_fetch16(self.sp_addr())
   }
 
   pub fn stack_trace(self: &mut Cpu) -> String {
     let mut s = String::new();
-    const RANGE: i8 = 3;
+    const RANGE: i16 = 6;
     for i in -RANGE..=RANGE {
-      let addr = STACK_START as u16 + self.sp.wrapping_add_signed(i) as u16;
+      let addr = self.sp_addr().wrapping_add_signed(i);
       s.push_str(&format!("${:02X}, ", self.mem_fetch(addr)));
     }
 
@@ -355,6 +354,7 @@ impl Cpu {
   }
 
   pub fn txs(&mut self, _: &Operand) {
+    info!("SP changed from ${:02X} to ${:02X}", self.sp, self.x);
     self.sp = self.x;
   }
 
@@ -363,7 +363,7 @@ impl Cpu {
   }
 
   pub fn pha(&mut self, _: &Operand) {
-    info!("[PHA] Pushing ${:02X} to stack at cycle {}", self.a, self.cycles);
+    debug!("[PHA] Pushing ${:02X} to stack at cycle {}", self.a, self.cycles);
     self.stack_push(self.a);
   }
 
@@ -371,13 +371,13 @@ impl Cpu {
     let res = self.stack_pop();
     self.set_zn(res);
     self.a = res;
-    info!("[PLA] Pulled ${:02X} from stack at cycle {}", self.a, self.cycles);
+    debug!("[PLA] Pulled ${:02X} from stack at cycle {}", self.a, self.cycles);
   }
 
   pub fn php(&mut self, _: &Operand) {
     // Brk is always 1 on pushes
     let pushable = self.p.union(CpuFlags::brkpush);
-    info!("[PHP] Pushing {pushable:?} (${:02X}) to stack at cycle {}", pushable.bits(), self.cycles);
+    debug!("[PHP] Pushing {pushable:?} (${:02X}) to stack at cycle {}", pushable.bits(), self.cycles);
     self.stack_push(pushable.bits());
   }
 
@@ -387,7 +387,7 @@ impl Cpu {
     self.p = CpuFlags::from_bits_retain(res)
       .difference(CpuFlags::brk)
       .union(CpuFlags::unused);
-    info!("[PLP] Pulled {:?} (${:02X}) from stack at cycle {}", self.p, self.p.bits(), self.cycles);
+    debug!("[PLP] Pulled {:?} (${:02X}) from stack at cycle {}", self.p, self.p.bits(), self.cycles);
   }
 
   pub fn logical(&mut self, res: u8) {
