@@ -1,4 +1,4 @@
-#![allow(dead_code)]
+#![allow(unused_imports)]
 use std::{cell::RefCell, fmt::Debug, rc::Rc};
 
 use bitflags::bitflags;
@@ -21,14 +21,14 @@ bitflags! {
 }
 
 // https://www.nesdev.org/wiki/CPU_ALL
-const STACK_START: usize = 0x0100;
+pub const STACK_START: usize = 0x0100;
 // SP is always initialized at itself minus 3
 // At boot, it is 0x00 - 0x03 = 0xFD
 // After every successive restart, it will be SP - 0x03
 const STACK_RESET: u8 = 0xFD;
 const PC_RESET: u16 = 0xFFFC;
-const MEM_SIZE: usize = 0x10000;
-const INTERRUPT_TABLE: usize = 0xFFFA;
+pub const MEM_SIZE: usize = 0x10000;
+pub const INTERRUPT_TABLE_START: usize = 0xFFFA;
 
 #[derive(Clone)]
 pub struct Cpu {
@@ -62,7 +62,7 @@ impl Cpu {
   }
 
   pub fn set_carry(&mut self, res: u16) {
-    if res > u8::MAX as u16 { self.p.insert(CpuFlags::carry); }
+    self.p.set(CpuFlags::carry, res > u8::MAX as u16);
   }
 
   pub fn set_zero(&mut self, res: u8) {
@@ -72,17 +72,21 @@ impl Cpu {
   pub fn set_neg(&mut self, res: u8) {
     self.p.set(CpuFlags::negative, res & 0b1000_0000 != 0);
   }
+
+  pub fn set_zn(&mut self, res: u8) {
+    self.set_zero(res);
+    self.set_neg(res);
+  }
   
   pub fn set_czn(&mut self, res: u16) {
     self.set_carry(res);
-    self.set_zero(res as u8);
-    self.set_neg(res as u8);
+    self.set_zn(res as u8);
   }
 
   // https://forums.nesdev.org/viewtopic.php?t=6331
   fn set_overflow(&mut self, a: u16, v: u16, s: u16) {
     let overflow = (a ^ s) & (v ^ s) & 0b1000_0000 != 0;
-    if overflow { self.p.insert(CpuFlags::overflow); }
+    self.p.set(CpuFlags::overflow, overflow);
   }
 
   pub fn carry(&self) -> u8 {
@@ -129,53 +133,52 @@ impl Cpu {
     res
   }
 
+  pub fn sp_addr(&self) -> u16 {
+    STACK_START as u16 + self.sp as u16
+  }
+
   pub fn stack_push(&mut self, val: u8) {
-    self.mem_set(STACK_START as u16 + self.sp as u16, val);
+    info!("Pushing ${:02X} to stack at cycle {}", val, self.cycles);
+    self.mem_set(self.sp_addr(), val);
     self.sp -= 1;
   }
 
   pub fn stack_push16(&mut self, val: u16) {
-    self.mem_set16(STACK_START as u16 + self.sp as u16, val);
+    info!("Pushing ${:04X} to stack at cycle {}", val, self.cycles);
+    self.mem_set16(self.sp_addr(), val);
     self.sp -= 2;
+  }
+
+  pub fn stack_peek(&mut self) -> u8 {
+    info!("Pulling ${:02X} from stack at cycle {}", self.mem_fetch(self.sp_addr()), self.cycles);
+    self.mem_fetch(self.sp_addr())
   }
 
   pub fn stack_pop(&mut self) -> u8 {
     self.sp += 1;
-    self.mem_fetch(STACK_START as u16 + self.sp as u16)
+    info!("Pulling ${:02X} from stack at cycle {}", self.mem_fetch(self.sp_addr()), self.cycles);
+    self.mem_fetch(self.sp_addr())
   }
 
   pub fn stack_pop16(&mut self) -> u16 {
     self.sp += 2;
-    self.mem_fetch16(STACK_START as u16 + self.sp as u16)
+    info!("Pulling ${:04X} from stack at cycle {}", self.mem_fetch(self.sp_addr()), self.cycles);
+    self.mem_fetch16(self.sp_addr())
+  }
+
+  pub fn stack_trace(self: &mut Cpu) -> String {
+    let mut s = String::new();
+    const RANGE: i8 = 3;
+    for i in -RANGE..=RANGE {
+      let addr = STACK_START as u16 + self.sp.wrapping_add_signed(i) as u16;
+      s.push_str(&format!("${:02X}, ", self.mem_fetch(addr)));
+    }
+
+    s
   }
 }
 
-
-pub fn interpret(cpu: &mut Cpu) {
-  interpret_with_callback(cpu, |_| {});
-}
-
-pub fn interpret_with_callback<F: FnMut(&mut Cpu)>(mut cpu: &mut Cpu, mut callback: F) {
-  for _ in 0..200 {
-    callback(&mut cpu);
-
-    let opcode = cpu.fetch_at_pc();
-    
-    let instr = &INSTRUCTIONS[opcode as usize];
-    let operand = get_operand_with_addressing(&mut cpu, &instr);
-    
-    let opname = instr.name.as_str();
-
-    let (_, inst_fn) = INSTR_TO_FN
-      .get_key_value(opname)
-      .expect(&format!("Op {opcode}({}) should be in map", instr.name));
-    
-    inst_fn(&mut cpu, &operand);
-
-    cpu.cycles += instr.cycles;
-  }
-}
-
+#[derive(Clone, Copy)]
 enum OperandSrc {
   Acc, Addr(u16), None
 }
@@ -189,436 +192,457 @@ pub enum InstrDst {
 
 pub type InstrFn = fn(&mut Cpu, &Operand);
 
-pub fn get_operand_with_addressing(cpu: &mut Cpu, inst: &Instruction) -> Operand {
-  let mode = inst.addressing;
-  use AddressingMode::*;
-  use OperandSrc::*;
+impl Cpu {
+  pub fn interpret(&mut self) {
+    self.interpret_with_callback(|_| {});
+  }
 
-  let res = match mode {
-    Implicit => Operand {src: None, val: 0},
-    Accumulator => Operand {src: Acc, val: cpu.a},
-    Immediate | Relative => Operand {src: None, val: cpu.fetch_at_pc()},
-    ZeroPage => {
-      let zero_addr = cpu.fetch_at_pc() as u16;
-      Operand { src: Addr(zero_addr), val: cpu.mem_fetch(zero_addr) }
-    }
-    ZeroPageX => {
-      let zero_addr = (cpu.fetch_at_pc().wrapping_add(cpu.x)) as u16;
-      Operand { src: Addr(zero_addr), val: cpu.mem_fetch(zero_addr) }
-    }
-    IndirectX => {
-      let zero_addr = (cpu.fetch_at_pc().wrapping_add(cpu.x)) as u16;
-      let addr_effective = cpu.mem_fetch16(zero_addr);
-      Operand { src: Addr(addr_effective), val: cpu.mem_fetch(addr_effective) }
-    }
-    ZeroPageY => {
-      let zero_addr = (cpu.fetch_at_pc().wrapping_add(cpu.y)) as u16;
-      Operand { src: Addr(zero_addr), val: cpu.mem_fetch(zero_addr) }
-    }
-    IndirectY => {
-      let zero_addr = cpu.fetch_at_pc() as u16;
-      let addr_effective = cpu.mem_fetch16(zero_addr)
-      .wrapping_add(cpu.y as u16).wrapping_add(cpu.carry() as u16);
-      // page crossing check
-      if addr_effective & 0xFF00 != cpu.pc & 0xFF00 {
-        cpu.cycles = cpu.cycles.wrapping_add(1);
-      }
+  pub fn interpret_with_callback<F: FnMut(&mut Cpu)>(&mut self, mut callback: F) {
+    loop {
+      callback(self);
 
-      Operand { src: Addr(addr_effective), val: cpu.mem_fetch(addr_effective) }
-    }
-    Absolute => {
-      let addr = cpu.fetch16_at_pc();
-      Operand { src: Addr(addr), val: cpu.mem_fetch(addr) }
-    }
-    //TODO: should be done wrapping add?
-    AbsoluteX => { 
-      let addr = cpu.fetch16_at_pc() + cpu.x as u16 + cpu.carry() as u16;
-      // page crossing check
-      if addr & 0xFF00 != cpu.pc & 0xFF00 {
-        cpu.cycles = cpu.cycles.wrapping_add(1);
-      }
-
-      Operand { src: Addr(addr), val: cpu.mem_fetch(addr) }
-    }
-    //TODO: should be done wrapping add?
-    AbsoluteY => {
-      let addr = cpu.fetch16_at_pc() + cpu.y as u16 + cpu.carry() as u16;
-      // page crossing check
-      if addr & 0xFF00 != cpu.pc & 0xFF00 {
-        cpu.cycles = cpu.cycles.wrapping_add(1);
-      }
+      let opcode = self.fetch_at_pc();
       
-      Operand { src: Addr(addr), val: cpu.mem_fetch(addr) }
+      let instr = &INSTRUCTIONS[opcode as usize];
+      let operand = self.get_operand_with_addressing(&instr);
+      
+      let opname = instr.name.as_str();
+
+      let (_, inst_fn) = INSTR_TO_FN
+        .get_key_value(opname)
+        .expect(&format!("Op {opcode}({}) should be in map", instr.name));
+      
+      inst_fn(self, &operand);
+
+      self.cycles += instr.cycles;
     }
-    Indirect => {
-      let addr = cpu.fetch16_at_pc();
-      let addr_effective = cpu.mem_fetch16(addr);
-      Operand { src: Addr(addr_effective), val: 0 }
+  }
+
+  pub fn get_operand_with_addressing(&mut self, inst: &Instruction) -> Operand {
+    let mode = inst.addressing;
+    use AddressingMode::*;
+    use OperandSrc::*;
+
+    let res = match mode {
+      Implicit => Operand {src: None, val: 0},
+      Accumulator => Operand {src: Acc, val: self.a},
+      Immediate | Relative => Operand {src: None, val: self.fetch_at_pc()},
+      ZeroPage => {
+        let zero_addr = self.fetch_at_pc() as u16;
+        Operand { src: Addr(zero_addr), val: self.mem_fetch(zero_addr) }
+      }
+      ZeroPageX => {
+        let zero_addr = (self.fetch_at_pc().wrapping_add(self.x)) as u16;
+        Operand { src: Addr(zero_addr), val: self.mem_fetch(zero_addr) }
+      }
+      IndirectX => {
+        let zero_addr = (self.fetch_at_pc().wrapping_add(self.x)) as u16;
+        let addr_effective = self.mem_fetch16(zero_addr);
+        Operand { src: Addr(addr_effective), val: self.mem_fetch(addr_effective) }
+      }
+      ZeroPageY => {
+        let zero_addr = (self.fetch_at_pc().wrapping_add(self.y)) as u16;
+        Operand { src: Addr(zero_addr), val: self.mem_fetch(zero_addr) }
+      }
+      IndirectY => {
+        let zero_addr = self.fetch_at_pc() as u16;
+        let addr_effective = self.mem_fetch16(zero_addr)
+        .wrapping_add(self.y as u16).wrapping_add(self.carry() as u16);
+        // page crossing check
+        if addr_effective & 0xFF00 != self.pc & 0xFF00 {
+          self.cycles = self.cycles.wrapping_add(1);
+        }
+
+        Operand { src: Addr(addr_effective), val: self.mem_fetch(addr_effective) }
+      }
+      Absolute => {
+        let addr = self.fetch16_at_pc();
+        Operand { src: Addr(addr), val: self.mem_fetch(addr) }
+      }
+      //TODO: should be done wrapping add?
+      AbsoluteX => { 
+        let addr = self.fetch16_at_pc() + self.x as u16 + self.carry() as u16;
+        // page crossing check
+        if addr & 0xFF00 != self.pc & 0xFF00 {
+          self.cycles = self.cycles.wrapping_add(1);
+        }
+
+        Operand { src: Addr(addr), val: self.mem_fetch(addr) }
+      }
+      //TODO: should be done wrapping add?
+      AbsoluteY => {
+        let addr = self.fetch16_at_pc() + self.y as u16 + self.carry() as u16;
+        // page crossing check
+        if addr & 0xFF00 != self.pc & 0xFF00 {
+          self.cycles = self.cycles.wrapping_add(1);
+        }
+        
+        Operand { src: Addr(addr), val: self.mem_fetch(addr) }
+      }
+      Indirect => {
+        let addr = self.fetch16_at_pc();
+        let addr_effective = self.mem_fetch16(addr);
+        Operand { src: Addr(addr_effective), val: 0 }
+      }
+    };
+
+    res
+  }
+
+  pub fn set_instr_result(&mut self, dst: InstrDst) {
+    match dst {
+      InstrDst::Acc(res) => self.a = res,
+      InstrDst::X(res) => self.x = res,
+      InstrDst::Y(res) => self.y = res,
+      InstrDst::Mem(addr, res) => self.mem_set(addr, res),
     }
-  };
-
-  res
-}
-
-pub fn set_instr_result(cpu: &mut Cpu, dst: InstrDst) {
-  match dst {
-    InstrDst::Acc(res) => cpu.a = res,
-    InstrDst::X(res) => cpu.x = res,
-    InstrDst::Y(res) => cpu.y = res,
-    InstrDst::Mem(addr, res) => cpu.mem_set(addr, res),
   }
-}
 
-pub fn load (cpu: &mut Cpu, operand: &Operand, dst: InstrDst) {
-  cpu.set_czn(operand.val as u16);
-  set_instr_result(cpu, dst);
-}
-
-pub fn lda(cpu: &mut Cpu, operand: &Operand) {
-  load(cpu, operand, InstrDst::Acc(operand.val))
-}
-
-pub fn ldx(cpu: &mut Cpu, operand: &Operand) {
-  load(cpu, operand, InstrDst::X(operand.val))
-}
-
-pub fn ldy(cpu: &mut Cpu, operand: &Operand) {
-  load(cpu, operand, InstrDst::Y(operand.val))
-}
-
-pub fn store(cpu: &mut Cpu, operand: &Operand, val: u8) {
-  if let OperandSrc::Addr(src) = operand.src {
-    set_instr_result(cpu, InstrDst::Mem(src, val))
-  } else { unreachable!() }  
-}
-
-pub fn sta(cpu: &mut Cpu, operand: &Operand) {
-  store(cpu, operand, cpu.a)
-}
-
-pub fn stx(cpu: &mut Cpu, operand: &Operand) {
-  store(cpu, operand, cpu.x)
-}
-
-pub fn sty(cpu: &mut Cpu, operand: &Operand) {
-  store(cpu, operand, cpu.y)
-}
-
-pub fn transfer(cpu: &mut Cpu, src: u8, dst: InstrDst) {
-  cpu.set_czn(src as u16);
-  set_instr_result(cpu, dst);
-}
-
-pub fn tax(cpu: &mut Cpu, _: &Operand) {
-  transfer(cpu, cpu.a, InstrDst::X(cpu.a))
-}
-
-pub fn tay(cpu: &mut Cpu, _: &Operand) {
-  transfer(cpu, cpu.a, InstrDst::Y(cpu.a))
-}
-
-pub fn tsx(cpu: &mut Cpu, _: &Operand) {
-  let res = cpu.stack_pop(); 
-  transfer(cpu, res, InstrDst::X(res))
-}
-
-pub fn txa(cpu: &mut Cpu, _: &Operand) {
-  transfer(cpu, cpu.x, InstrDst::Acc(cpu.x))
-}
-
-pub fn txs(cpu: &mut Cpu, _: &Operand) {
-  cpu.stack_push(cpu.x);
-}
-
-pub fn tya(cpu: &mut Cpu, _: &Operand) {
-  transfer(cpu, cpu.y, InstrDst::Acc(cpu.y))
-}
-
-pub fn pha(cpu: &mut Cpu, _: &Operand) {
-  info!("[PHA] Pushing {:?} to stack", cpu.a);
-  cpu.stack_push(cpu.a);
-}
-
-pub fn pla(cpu: &mut Cpu, _: &Operand) {
-  let res = cpu.stack_pop();
-  cpu.set_czn(res as u16);
-  cpu.a = res;
-  info!("[PLA] Pulled {:?} from stack", cpu.a);
-}
-
-pub fn php(cpu: &mut Cpu, _: &Operand) {
-  // Brk is always 1 on pushes
-  let pushable = cpu.p.union(CpuFlags::brkpush);
-  debug!("[PHP] Pushing {pushable:?} to stack");
-  cpu.stack_push(pushable.bits());
-}
-
-pub fn plp(cpu: &mut Cpu, _: &Operand) {
-  let res = cpu.stack_pop();
-  // Brk is always 0 on pulls, but unused is always 1
-  cpu.p = CpuFlags::from_bits_retain(res)
-    .difference(CpuFlags::brk)
-    .union(CpuFlags::unused);
-  info!("[PLP] Pulled {:?} from stack", cpu.p);
-}
-
-pub fn logic(cpu: &mut Cpu, res: u8) {
-  cpu.set_czn(res as u16);
-  cpu.a = res;
-}
-
-pub fn and(cpu: &mut Cpu, operand: &Operand) {
-  logic(cpu, cpu.a & operand.val)
-}
-
-pub fn eor(cpu: &mut Cpu, operand: &Operand) {
-  logic(cpu, cpu.a ^ operand.val)
-}
-
-pub fn ora(cpu: &mut Cpu, operand: &Operand) {
-  logic(cpu, cpu.a | operand.val)
-}
-
-pub fn bit(cpu: &mut Cpu, operand: &Operand) {
-  let res = cpu.a & operand.val;
-  cpu.set_zero(res);
-  cpu.p.set(CpuFlags::overflow, operand.val & 0b0100_0000 != 0);
-  cpu.p.set(CpuFlags::negative, operand.val & 0b1000_0000 != 0);
-}
-
-// TODO: check if correct
-pub fn adc(cpu: &mut Cpu, operand: &Operand) {
-  let res = cpu.a as u16 + operand.val as u16 + cpu.carry() as u16;
-  cpu.set_overflow(cpu.a as u16, operand.val as u16, res);
-  cpu.set_czn(res);
-  cpu.a = res as u8;
-}
-
-pub fn sbc(cpu: &mut Cpu, operand: &Operand) {
-  let res = cpu.a as u16 +
-                !operand.val as u16 + 
-                (1 - cpu.carry()) as u16;
-  cpu.set_overflow(cpu.a as u16, !operand.val as u16, res);
-  cpu.set_czn(res);
-  cpu.a = res as u8;
-}
-
-pub fn compare(cpu: &mut Cpu, a: u8, b: u8) {
-  let res = a.wrapping_sub(b);
-  cpu.set_czn(res as u16);
-  cpu.p.set(CpuFlags::carry, a >= b);
-}
-
-pub fn cmp(cpu: &mut Cpu, operand: &Operand) {
-  compare(cpu, cpu.a, operand.val)
-}
-
-pub fn cpx(cpu: &mut Cpu, operand: &Operand) {
-  compare(cpu, cpu.x, operand.val)
-}
-
-pub fn cpy(cpu: &mut Cpu, operand: &Operand) {
-  compare(cpu, cpu.y, operand.val)
-}
-
-pub fn increase(cpu: &mut Cpu, val: u8, f: fn(u8, u8) -> u8) -> u8 {
-  let res = f(val, 1);
-  cpu.set_czn(res as u16);
-  res
-}
-
-pub fn inc(cpu: &mut Cpu, operand: &Operand) {
-  if let OperandSrc::Addr(src) = operand.src {
-    let res = increase(cpu, operand.val, u8::wrapping_add);
-    cpu.mem_set(src, res);
-  } else { unreachable!() }
-}
-
-pub fn inx(cpu: &mut Cpu, _: &Operand) {
-  cpu.x = increase(cpu, cpu.x, u8::wrapping_add);
-}
-
-pub fn iny(cpu: &mut Cpu, _: &Operand) {
-  cpu.y = increase(cpu, cpu.y, u8::wrapping_add)
-}
-
-pub fn dec(cpu: &mut Cpu, operand: &Operand) {
-  if let OperandSrc::Addr(src) = operand.src {
-    let res = increase(cpu, operand.val, u8::wrapping_sub);
-    cpu.mem_set(src, res);
-  } else { unreachable!() }
-}
-
-pub fn dex(cpu: &mut Cpu, _: &Operand) {
-  cpu.x = increase(cpu, cpu.x, u8::wrapping_sub);
-}
-
-pub fn dey(cpu: &mut Cpu, _: &Operand) {
-  cpu.y = increase(cpu, cpu.y, u8::wrapping_sub);
-}
-
-//TODO: factor out shifts
-pub fn asl(cpu: &mut Cpu, operand: &Operand) {
-  let res = (operand.val as u16) << 1;
-  cpu.set_czn(res);
-
-  match operand.src {
-    OperandSrc::Acc => cpu.a = res as u8,
-    OperandSrc::Addr(src) => cpu.mem_set(src, res as u8),
-    OperandSrc::None => { unreachable!() }
+  pub fn load (&mut self, operand: &Operand, dst: InstrDst) {
+    self.set_zn(operand.val);
+    self.set_instr_result(dst);
   }
-}
-pub fn lsr(cpu: &mut Cpu, operand: &Operand) {
-  let first = operand.val & 1 != 0;
-  let res = operand.val >> 1;
-  cpu.p.set(CpuFlags::carry, first);
-  cpu.p.set(CpuFlags::zero, res != 0);
-  cpu.p.set(CpuFlags::negative, res & 0b1000_0000 != 0);
 
-  match operand.src {
-    OperandSrc::Acc => cpu.a = res as u8,
-    OperandSrc::Addr(src) => cpu.mem_set(src, res as u8),
-    OperandSrc::None => { unreachable!() }
+  pub fn lda(&mut self, operand: &Operand) {
+    self.load(operand, InstrDst::Acc(operand.val))
   }
-}
 
-//TODO: factor our rotations
-pub fn rol(cpu: &mut Cpu, operand: &Operand) {
-  let carry = operand.val & 0b1000_0000 != 0;
-  let res = operand.val.rotate_left(1) & cpu.carry();
-  cpu.set_czn(res as u16);
-  cpu.p.set(CpuFlags::carry, carry);
-
-  match operand.src {
-    OperandSrc::Acc => cpu.a = res as u8,
-    OperandSrc::Addr(src) => cpu.mem_set(src, res as u8),
-    OperandSrc::None => { unreachable!() }
+  pub fn ldx(&mut self, operand: &Operand) {
+    self.load(operand, InstrDst::X(operand.val))
   }
-} 
-pub fn ror(cpu: &mut Cpu, operand: &Operand) {
-  let carry = operand.val & 1 != 0;
-  let res = operand.val.rotate_left(1) & cpu.carry() << 7;
-  cpu.set_czn(res as u16);
-  cpu.p.set(CpuFlags::carry, carry);
 
-  match operand.src {
-    OperandSrc::Acc => cpu.a = res as u8,
-    OperandSrc::Addr(src) => cpu.mem_set(src, res as u8),
-    OperandSrc::None => { unreachable!() }
+  pub fn ldy(&mut self, operand: &Operand) {
+    self.load(operand, InstrDst::Y(operand.val))
   }
-}
 
-pub fn jmp(cpu: &mut Cpu, operand: &Operand) {
-  if let OperandSrc::Addr(src) = operand.src {
-    cpu.pc = src;
-  } else { unreachable!() }
-}
+  pub fn store(&mut self, operand: &Operand, val: u8) {
+    if let OperandSrc::Addr(src) = operand.src {
+      self.set_instr_result(InstrDst::Mem(src, val))
+    } else { unreachable!() }  
+  }
 
-pub fn jsr(cpu: &mut Cpu, operand: &Operand) {
-  cpu.stack_push16(cpu.pc);
-  jmp(cpu, operand);
-}
+  pub fn sta(&mut self, operand: &Operand) {
+    self.store(operand, self.a)
+  }
 
-pub fn rts(cpu: &mut Cpu, _: &Operand) {
-  cpu.pc = cpu.stack_pop16();
-}
+  pub fn stx(&mut self, operand: &Operand) {
+    self.store(operand, self.x)
+  }
 
-pub fn branch(cpu: &mut Cpu, offset: u8, cond: bool) {
-  if cond {
-    let offset = offset as i8;
-    let new_pc = cpu.pc.wrapping_add_signed(offset as i16);
-    
-    // page boundary cross check
-    if cpu.pc & 0xFF00 != new_pc & 0xFF00 {
-      // page cross branch costs 2
-      cpu.cycles = cpu.cycles.wrapping_add(2);
-    } else {
-      // same page branch costs 1
-      cpu.cycles = cpu.cycles.wrapping_add(1);
+  pub fn sty(&mut self, operand: &Operand) {
+    self.store(operand, self.y)
+  }
+
+  pub fn transfer(&mut self, src: u8, dst: InstrDst) {
+    self.set_zn(src);
+    self.set_instr_result(dst);
+  }
+
+  pub fn tax(&mut self, _: &Operand) {
+    self.transfer(self.a, InstrDst::X(self.a))
+  }
+
+  pub fn tay(&mut self, _: &Operand) {
+    self.transfer(self.a, InstrDst::Y(self.a))
+  }
+
+  pub fn tsx(&mut self, _: &Operand) {
+    self.transfer(self.sp, InstrDst::X(self.sp))
+  }
+
+  pub fn txa(&mut self, _: &Operand) {
+    self.transfer(self.x, InstrDst::Acc(self.x))
+  }
+
+  pub fn txs(&mut self, _: &Operand) {
+    self.sp = self.x;
+  }
+
+  pub fn tya(&mut self, _: &Operand) {
+    self.transfer(self.y, InstrDst::Acc(self.y))
+  }
+
+  pub fn pha(&mut self, _: &Operand) {
+    info!("[PHA] Pushing ${:02X} to stack at cycle {}", self.a, self.cycles);
+    self.stack_push(self.a);
+  }
+
+  pub fn pla(&mut self, _: &Operand) {
+    let res = self.stack_pop();
+    self.set_zn(res);
+    self.a = res;
+    info!("[PLA] Pulled ${:02X} from stack at cycle {}", self.a, self.cycles);
+  }
+
+  pub fn php(&mut self, _: &Operand) {
+    // Brk is always 1 on pushes
+    let pushable = self.p.union(CpuFlags::brkpush);
+    info!("[PHP] Pushing {pushable:?} (${:02X}) to stack at cycle {}", pushable.bits(), self.cycles);
+    self.stack_push(pushable.bits());
+  }
+
+  pub fn plp(&mut self, _: &Operand) {
+    let res = self.stack_pop();
+    // Brk is always 0 on pulls, but unused is always 1
+    self.p = CpuFlags::from_bits_retain(res)
+      .difference(CpuFlags::brk)
+      .union(CpuFlags::unused);
+    info!("[PLP] Pulled {:?} (${:02X}) from stack at cycle {}", self.p, self.p.bits(), self.cycles);
+  }
+
+  pub fn logical(&mut self, res: u8) {
+    self.set_zero(res);
+    self.set_neg(res);
+    self.a = res;
+  }
+
+  pub fn and(&mut self, operand: &Operand) {
+    self.logical(self.a & operand.val)
+  }
+
+  pub fn eor(&mut self, operand: &Operand) {
+    self.logical(self.a ^ operand.val)
+  }
+
+  pub fn ora(&mut self, operand: &Operand) {
+    self.logical(self.a | operand.val)
+  }
+
+  pub fn bit(&mut self, operand: &Operand) {
+    let res = self.a & operand.val;
+    self.set_zero(res);
+    self.p.set(CpuFlags::overflow, operand.val & 0b0100_0000 != 0);
+    self.p.set(CpuFlags::negative, operand.val & 0b1000_0000 != 0);
+  }
+
+  pub fn adc(&mut self, operand: &Operand) {
+    let res = self.a as u16 + operand.val as u16 + self.carry() as u16;
+    self.set_overflow(self.a as u16, operand.val as u16, res);
+    self.set_czn(res);
+    self.a = res as u8;
+  }
+
+  pub fn sbc(&mut self, operand: &Operand) {
+    self.adc(&Operand { val: !operand.val, src: operand.src });
+  }
+
+  pub fn compare(&mut self, a: u8, b: u8) {
+    let res = a.wrapping_sub(b);
+    self.set_czn(res as u16);
+    self.p.set(CpuFlags::carry, a >= b);
+  }
+
+  pub fn cmp(&mut self, operand: &Operand) {
+    self.compare(self.a, operand.val)
+  }
+
+  pub fn cpx(&mut self, operand: &Operand) {
+    self.compare(self.x, operand.val)
+  }
+
+  pub fn cpy(&mut self, operand: &Operand) {
+    self.compare(self.y, operand.val)
+  }
+
+  pub fn increase(&mut self, val: u8, f: fn(u8, u8) -> u8) -> u8 {
+    let res = f(val, 1);
+    self.set_zn(res);
+    res
+  }
+
+  pub fn inc(&mut self, operand: &Operand) {
+    if let OperandSrc::Addr(src) = operand.src {
+      let res = self.increase(operand.val, u8::wrapping_add);
+      self.mem_set(src, res);
+    } else { unreachable!() }
+  }
+
+  pub fn inx(&mut self, _: &Operand) {
+    self.x = self.increase(self.x, u8::wrapping_add);
+  }
+
+  pub fn iny(&mut self, _: &Operand) {
+    self.y = self.increase(self.y, u8::wrapping_add)
+  }
+
+  pub fn dec(&mut self, operand: &Operand) {
+    if let OperandSrc::Addr(src) = operand.src {
+      let res = self.increase(operand.val, u8::wrapping_sub);
+      self.mem_set(src, res);
+    } else { unreachable!() }
+  }
+
+  pub fn dex(&mut self, _: &Operand) {
+    self.x = self.increase(self.x, u8::wrapping_sub);
+  }
+
+  pub fn dey(&mut self, _: &Operand) {
+    self.y = self.increase(self.y, u8::wrapping_sub);
+  }
+
+  //TODO: factor out shifts
+  pub fn asl(&mut self, operand: &Operand) {
+    let res = (operand.val as u16) << 1;
+    self.set_czn(res);
+
+    match operand.src {
+      OperandSrc::Acc => self.a = res as u8,
+      OperandSrc::Addr(src) => self.mem_set(src, res as u8),
+      OperandSrc::None => { unreachable!() }
     }
+  }
+  pub fn lsr(&mut self, operand: &Operand) {
+    let first = operand.val & 1 != 0;
+    let res = operand.val >> 1;
+    self.p.set(CpuFlags::carry, first);
+    self.p.set(CpuFlags::zero, res != 0);
+    self.p.set(CpuFlags::negative, res & 0b1000_0000 != 0);
 
-    cpu.pc = new_pc;
+    match operand.src {
+      OperandSrc::Acc => self.a = res as u8,
+      OperandSrc::Addr(src) => self.mem_set(src, res as u8),
+      OperandSrc::None => { unreachable!() }
+    }
+  }
+
+  //TODO: factor our rotations
+  pub fn rol(&mut self, operand: &Operand) {
+    let carry = operand.val & 0b1000_0000 != 0;
+    let res = operand.val.rotate_left(1) & self.carry();
+    self.set_czn(res as u16);
+    self.p.set(CpuFlags::carry, carry);
+
+    match operand.src {
+      OperandSrc::Acc => self.a = res as u8,
+      OperandSrc::Addr(src) => self.mem_set(src, res as u8),
+      OperandSrc::None => { unreachable!() }
+    }
+  } 
+  pub fn ror(&mut self, operand: &Operand) {
+    let carry = operand.val & 1 != 0;
+    let res = operand.val.rotate_left(1) & self.carry() << 7;
+    self.set_czn(res as u16);
+    self.p.set(CpuFlags::carry, carry);
+
+    match operand.src {
+      OperandSrc::Acc => self.a = res as u8,
+      OperandSrc::Addr(src) => self.mem_set(src, res as u8),
+      OperandSrc::None => { unreachable!() }
+    }
+  }
+
+  pub fn jmp(&mut self, operand: &Operand) {
+    if let OperandSrc::Addr(src) = operand.src {
+      self.pc = src;
+    } else { unreachable!() }
+  }
+
+  pub fn jsr(&mut self, operand: &Operand) {
+    self.stack_push16(self.pc);
+    self.jmp(operand);
+  }
+
+  pub fn rts(&mut self, _: &Operand) {
+    self.pc = self.stack_pop16();
+  }
+
+  pub fn branch(&mut self, offset: u8, cond: bool) {
+    if cond {
+      let offset = offset as i8;
+      let new_pc = self.pc.wrapping_add_signed(offset as i16);
+      
+      // page boundary cross check
+      if self.pc & 0xFF00 != new_pc & 0xFF00 {
+        // page cross branch costs 2
+        self.cycles = self.cycles.wrapping_add(2);
+      } else {
+        // same page branch costs 1
+        self.cycles = self.cycles.wrapping_add(1);
+      }
+
+      self.pc = new_pc;
+    }
+  }
+
+  pub fn bcc(&mut self, operand: &Operand) {
+    self.branch(operand.val, self.carry() == 0)
+  }
+
+  pub fn bcs(&mut self, operand: &Operand) {
+    self.branch(operand.val, self.carry() == 1)
+  }
+
+  pub fn beq(&mut self, operand: &Operand) {
+    self.branch(operand.val, self.p.contains(CpuFlags::zero))
+  }
+
+  pub fn bne(&mut self, operand: &Operand) {
+    self.branch(operand.val, !self.p.contains(CpuFlags::zero))
+  }
+
+  pub fn bmi(&mut self, operand: &Operand) {
+    self.branch(operand.val, self.p.contains(CpuFlags::negative))
+  }
+
+  pub fn bpl(&mut self, operand: &Operand) {
+    self.branch(operand.val, !self.p.contains(CpuFlags::negative))
+  }
+
+  pub fn bvc(&mut self, operand: &Operand) {
+    self.branch(operand.val, !self.p.contains(CpuFlags::overflow))
+  }
+
+  pub fn bvs(&mut self, operand: &Operand) {
+    self.branch(operand.val, self.p.contains(CpuFlags::overflow))
+  }
+
+  pub fn clear_stat(&mut self, s: CpuFlags) {
+    self.p.remove(s);
+  }
+
+  pub fn clc(&mut self, _: &Operand) {
+    self.clear_stat(CpuFlags::carry)
+  }
+
+  pub fn cld(&mut self, _: &Operand) {
+    self.clear_stat(CpuFlags::decimal)
+  }
+
+  pub fn cli(&mut self, _: &Operand) {
+    self.clear_stat(CpuFlags::interrupt)
+  }
+
+  pub fn clv(&mut self, _: &Operand) {
+    self.clear_stat(CpuFlags::overflow)
+  }
+
+  pub fn set_stat(&mut self, s: CpuFlags) {
+    self.p.insert(s);
+  }
+
+  pub fn sec(&mut self, _: &Operand) {
+    self.set_stat(CpuFlags::carry)
+  }
+
+  pub fn sed(&mut self, _: &Operand) {
+    self.set_stat(CpuFlags::decimal)
+  }
+
+  pub fn sei(&mut self, _: &Operand) {
+    self.set_stat(CpuFlags::interrupt)
+  }
+
+  // TODO
+  pub fn brk(&mut self, _: &Operand) {
+    todo!()
+  }
+
+  pub fn nop(&mut self, _: &Operand) {}
+
+  pub fn rti(&mut self, _: &Operand) {
+    todo!()
   }
 }
-
-pub fn bcc(cpu: &mut Cpu, operand: &Operand) {
-  branch(cpu, operand.val, cpu.carry() == 0)
-}
-
-pub fn bcs(cpu: &mut Cpu, operand: &Operand) {
-  branch(cpu, operand.val, cpu.carry() == 1)
-}
-
-pub fn beq(cpu: &mut Cpu, operand: &Operand) {
-  branch(cpu, operand.val, cpu.p.contains(CpuFlags::zero))
-}
-
-pub fn bne(cpu: &mut Cpu, operand: &Operand) {
-  branch(cpu, operand.val, !cpu.p.contains(CpuFlags::zero))
-}
-
-pub fn bmi(cpu: &mut Cpu, operand: &Operand) {
-  branch(cpu, operand.val, cpu.p.contains(CpuFlags::negative))
-}
-
-pub fn bpl(cpu: &mut Cpu, operand: &Operand) {
-  branch(cpu, operand.val, !cpu.p.contains(CpuFlags::negative))
-}
-
-pub fn bvc(cpu: &mut Cpu, operand: &Operand) {
-  branch(cpu, operand.val, !cpu.p.contains(CpuFlags::overflow))
-}
-
-pub fn bvs(cpu: &mut Cpu, operand: &Operand) {
-  branch(cpu, operand.val, cpu.p.contains(CpuFlags::overflow))
-}
-
-pub fn clear_stat(cpu: &mut Cpu, s: CpuFlags) {
-  cpu.p.remove(s);
-}
-
-pub fn clc(cpu: &mut Cpu, _: &Operand) {
-  clear_stat(cpu, CpuFlags::carry)
-}
-
-pub fn cld(cpu: &mut Cpu, _: &Operand) {
-  clear_stat(cpu, CpuFlags::decimal)
-}
-
-pub fn cli(cpu: &mut Cpu, _: &Operand) {
-  clear_stat(cpu, CpuFlags::interrupt)
-}
-
-pub fn clv(cpu: &mut Cpu, _: &Operand) {
-  clear_stat(cpu, CpuFlags::overflow)
-}
-
-pub fn set_stat(cpu: &mut Cpu, s: CpuFlags) {
-  cpu.p.insert(s);
-}
-
-pub fn sec(cpu: &mut Cpu, _: &Operand) {
-  set_stat(cpu, CpuFlags::carry)
-}
-
-pub fn sed(cpu: &mut Cpu, _: &Operand) {
-  set_stat(cpu, CpuFlags::decimal)
-}
-
-pub fn sei(cpu: &mut Cpu, _: &Operand) {
-  set_stat(cpu, CpuFlags::interrupt)
-}
-
-// TODO
-pub fn brk(_cpu: &mut Cpu, _: &Operand) {
-  todo!()
-}
-
-pub fn nop(_cpu: &mut Cpu, _: &Operand) {}
-
-pub fn rti(_cpu: &mut Cpu, _: &Operand) {
-  todo!()
-} 
 
 #[cfg(test)]
 mod tests {
@@ -640,7 +664,7 @@ use super::*;
     let codes = vec![0x69, 0x01, 0x69, 0x05];
     cpu.write_data(0, &codes);
 
-    interpret(&mut cpu);
+    cpu.interpret();
 
     assert_eq!(cpu.a, 6);
   }

@@ -2,7 +2,8 @@
 
 use std::{collections::HashMap, sync::LazyLock};
 use serde::{de::Visitor, Deserialize, Deserializer, Serialize};
-use super::cpu::*;
+
+use super::cpu::{Cpu, InstrFn};
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone)]
 #[serde(default, rename_all = "camelCase")]
@@ -16,8 +17,8 @@ pub struct Instruction {
   #[serde(skip_deserializing)]
   pub bytes: usize, 
   pub cycles: usize,
-  pub page_boundary_cycle: bool,
-  pub illegal: bool,
+  // pub page_boundary_cycle: bool,
+  // pub illegal: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone, Copy)]
@@ -101,62 +102,62 @@ pub static INSTRUCTIONS: LazyLock<[Instruction; 256]> = LazyLock::new(get_instru
 pub static INSTR_TO_FN: LazyLock<HashMap<&'static str, InstrFn>> = LazyLock::new(|| {
   let mut map: HashMap<&'static str, InstrFn> = HashMap::new();
   
-  map.insert("BRK", brk);
-  map.insert("ORA", ora);
-  map.insert("NOP", nop);
-  map.insert("ASL", asl);
-  map.insert("PHP", php);
-  map.insert("BPL", bpl);
-  map.insert("CLC", clc);
-  map.insert("JSR", jsr);
-  map.insert("AND", and);
-  map.insert("BIT", bit);
-  map.insert("ROL", rol);
-  map.insert("PLP", plp);
-  map.insert("BMI", bmi);
-  map.insert("SEC", sec);
-  map.insert("RTI", rti);
-  map.insert("EOR", eor);
-  map.insert("LSR", lsr);
-  map.insert("PHA", pha);
-  map.insert("JMP", jmp);
-  map.insert("BVC", bvc);
-  map.insert("CLI", cli);
-  map.insert("RTS", rts);
-  map.insert("ADC", adc);
-  map.insert("ROR", ror);
-  map.insert("PLA", pla);
-  map.insert("BVS", bvs);
-  map.insert("SEI", sei);
-  map.insert("STA", sta);
-  map.insert("STY", sty);
-  map.insert("STX", stx);
-  map.insert("DEY", dey);
-  map.insert("TXA", txa);
-  map.insert("BCC", bcc);
-  map.insert("TYA", tya);
-  map.insert("TXS", txs);
-  map.insert("LDY", ldy);
-  map.insert("LDA", lda);
-  map.insert("LDX", ldx);
-  map.insert("TAY", tay);
-  map.insert("TAX", tax);
-  map.insert("BCS", bcs);
-  map.insert("CLV", clv);
-  map.insert("TSX", tsx);
-  map.insert("CPY", cpy);
-  map.insert("CMP", cmp);
-  map.insert("DEC", dec);
-  map.insert("INY", iny);
-  map.insert("DEX", dex);
-  map.insert("BNE", bne);
-  map.insert("CLD", cld);
-  map.insert("CPX", cpx);
-  map.insert("SBC", sbc);
-  map.insert("INC", inc);
-  map.insert("INX", inx);
-  map.insert("BEQ", beq);
-  map.insert("SED", sed);
+  map.insert("BRK", Cpu::brk);
+  map.insert("ORA", Cpu::ora);
+  map.insert("NOP", Cpu::nop);
+  map.insert("ASL", Cpu::asl);
+  map.insert("PHP", Cpu::php);
+  map.insert("BPL", Cpu::bpl);
+  map.insert("CLC", Cpu::clc);
+  map.insert("JSR", Cpu::jsr);
+  map.insert("AND", Cpu::and);
+  map.insert("BIT", Cpu::bit);
+  map.insert("ROL", Cpu::rol);
+  map.insert("PLP", Cpu::plp);
+  map.insert("BMI", Cpu::bmi);
+  map.insert("SEC", Cpu::sec);
+  map.insert("RTI", Cpu::rti);
+  map.insert("EOR", Cpu::eor);
+  map.insert("LSR", Cpu::lsr);
+  map.insert("PHA", Cpu::pha);
+  map.insert("JMP", Cpu::jmp);
+  map.insert("BVC", Cpu::bvc);
+  map.insert("CLI", Cpu::cli);
+  map.insert("RTS", Cpu::rts);
+  map.insert("ADC", Cpu::adc);
+  map.insert("ROR", Cpu::ror);
+  map.insert("PLA", Cpu::pla);
+  map.insert("BVS", Cpu::bvs);
+  map.insert("SEI", Cpu::sei);
+  map.insert("STA", Cpu::sta);
+  map.insert("STY", Cpu::sty);
+  map.insert("STX", Cpu::stx);
+  map.insert("DEY", Cpu::dey);
+  map.insert("TXA", Cpu::txa);
+  map.insert("BCC", Cpu::bcc);
+  map.insert("TYA", Cpu::tya);
+  map.insert("TXS", Cpu::txs);
+  map.insert("LDY", Cpu::ldy);
+  map.insert("LDA", Cpu::lda);
+  map.insert("LDX", Cpu::ldx);
+  map.insert("TAY", Cpu::tay);
+  map.insert("TAX", Cpu::tax);
+  map.insert("BCS", Cpu::bcs);
+  map.insert("CLV", Cpu::clv);
+  map.insert("TSX", Cpu::tsx);
+  map.insert("CPY", Cpu::cpy);
+  map.insert("CMP", Cpu::cmp);
+  map.insert("DEC", Cpu::dec);
+  map.insert("INY", Cpu::iny);
+  map.insert("DEX", Cpu::dex);
+  map.insert("BNE", Cpu::bne);
+  map.insert("CLD", Cpu::cld);
+  map.insert("CPX", Cpu::cpx);
+  map.insert("SBC", Cpu::sbc);
+  map.insert("INC", Cpu::inc);
+  map.insert("INX", Cpu::inx);
+  map.insert("BEQ", Cpu::beq);
+  map.insert("SED", Cpu::sed);
 
   map
 });

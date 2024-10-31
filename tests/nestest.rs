@@ -1,10 +1,14 @@
+#![allow(unused_imports)]
+
 #[cfg(test)]
 mod tests {
   use core::panic;
-  use std::{fs, path::Path};
-  use log::info;
-use nen_emulator::emu::{cart::Cart, cpu::{interpret_with_callback, Cpu, CpuFlags}, instr::{AddressingMode, INSTRUCTIONS}};
-  use prettydiff::diff_words;
+  use std::{collections::VecDeque, fs, path::Path};
+  use circular_buffer::CircularBuffer;
+use log::info;
+
+  use nen_emulator::emu::{cart::Cart, cpu::{Cpu, CpuFlags}, instr::{AddressingMode, INSTRUCTIONS}};
+use prettydiff::{diff_lines, diff_words};
 
   #[derive(PartialEq, Eq)]
   struct CpuMock {
@@ -91,30 +95,50 @@ use nen_emulator::emu::{cart::Cart, cpu::{interpret_with_callback, Cpu, CpuFlags
     cpu.write_data(0x8000, &prg_rom[16..16+0x4000]);
     cpu.write_data(0xC000, &prg_rom[16..16+0x4000]);
     
-    info!("Starting interpreter...");
-    interpret_with_callback(&mut cpu, move |cpu| {
+    const RANGE: usize = 8;
+    let mut most_recent_instr = CircularBuffer::<RANGE, (CpuMock, CpuMock)>::new();
+
+    cpu.interpret_with_callback(move |cpu| {
       let (mut line_count, line) = test_log.next().unwrap();
       line_count+=1;
       
       let my_cpu = CpuMock::from_cpu(cpu);
       let log_cpu = CpuMock::from_log(line);
-      
-      let my_line = debug_line(&my_cpu, cpu.mem.borrow().as_slice());
-      let log_line = debug_line(&log_cpu, cpu.mem.borrow().as_slice());
-
-      info!("{line_count}|Mine -> {my_line}"); 
-      info!("{line_count}|Log  -> {log_line}");
-      info!("");
 
       if my_cpu != log_cpu {
+        let mut trace = most_recent_instr.iter().enumerate().collect::<Vec<_>>();
+        trace.sort_by(|a, b| a.0.cmp(&b.0));
+
+        for (i, (mine, log)) in trace {
+          let my_line = debug_line(mine, cpu.mem.borrow().as_slice());
+          let log_line = debug_line(log, cpu.mem.borrow().as_slice());
+    
+          let line = line_count - RANGE + i;
+          info!("{}|Mine -> {my_line}", line); 
+          info!("{}|Log  -> {log_line}", line);
+          info!("");
+        }
+
+        let my_line = debug_line(&my_cpu, cpu.mem.borrow().as_slice());
+        let log_line = debug_line(&log_cpu, cpu.mem.borrow().as_slice());
+        info!("{}|Mine -> {my_line}", line_count); 
+        info!("{}|Log  -> {log_line}", line_count);
+        info!("");
+
         info!("{}", "-".repeat(50));
         info!("Incosistency at line {line_count}:\n{}", diff_words(&my_line, &log_line));
-        info!("MyFlags:\t{:?}\nLogFlags\t{:?}", 
-                CpuFlags::from_bits_retain(my_cpu.p), CpuFlags::from_bits_retain(log_cpu.p));
+
+        let my_p = format!("{:?}", CpuFlags::from_bits_retain(my_cpu.p));
+        let log_p = format!("{:?}", CpuFlags::from_bits_retain(log_cpu.p));
+        info!("Stack: {}", cpu.stack_trace());
+        info!("Flags: {}", diff_lines(&my_p, &log_p));
+        info!("Results: ${:04X}", cpu.mem_fetch16(0x2));
+
         info!("{}", "-".repeat(50));
         panic!()
       }
-      
+
+      most_recent_instr.push_back((my_cpu, log_cpu));
     });
   }
 }
