@@ -1,8 +1,8 @@
 #![allow(unused_imports)]
-use std::{cell::RefCell, fmt::Debug, rc::Rc};
+use std::{cell::RefCell, fmt::Debug, ops::{Shl, Shr}, rc::Rc};
 
 use bitflags::bitflags;
-use log::{debug, info};
+use log::{debug, info, trace};
 use super::instr::{AddressingMode, Instruction, INSTRUCTIONS, INSTR_TO_FN};
 
 bitflags! {
@@ -29,7 +29,11 @@ pub const STACK_END: usize = 0x0200;
 const STACK_RESET: u8 = 0xFD;
 const PC_RESET: u16 = 0xFFFC;
 pub const MEM_SIZE: usize = 0x10000;
-pub const INTERRUPT_TABLE_START: usize = 0xFFFA;
+
+pub const INTERRUPT_NON_MASKABLE: u16 = 0xFFFA;
+pub const INTERRUPT_RESET: u16 = 0xFFFC;
+pub const INTERRUPT_REQUEST: u16 = 0xFFFE;
+
 
 #[derive(Clone)]
 pub struct Cpu {
@@ -140,9 +144,9 @@ impl Cpu {
   }
 
   pub fn stack_push(&mut self, val: u8) {
-    info!("-> Pushing ${:02X} to stack at cycle {}", val, self.cycles);
+    debug!("-> Pushing ${:02X} to stack at cycle {}", val, self.cycles);
     self.mem_set(self.sp_addr(), val);
-    info!("\t{}", self.stack_trace());
+    debug!("\t{}", self.stack_trace());
     self.sp = self.sp.wrapping_sub(1);
   }
 
@@ -154,8 +158,8 @@ impl Cpu {
 
   pub fn stack_pull(&mut self) -> u8 {
     self.sp = self.sp.wrapping_add(1);
-    info!("<- Pulling ${:02X} from stack at cycle {}", self.mem_fetch(self.sp_addr()), self.cycles);
-    info!("\t{}", self.stack_trace());
+    debug!("<- Pulling ${:02X} from stack at cycle {}", self.mem_fetch(self.sp_addr()), self.cycles);
+    debug!("\t{}", self.stack_trace());
     self.mem_fetch(self.sp_addr())
   }
 
@@ -355,7 +359,7 @@ impl Cpu {
   }
 
   pub fn txs(&mut self, _: &Operand) {
-    info!("SP changed from ${:02X} to ${:02X}", self.sp, self.x);
+    debug!("SP changed from ${:02X} to ${:02X}", self.sp, self.x);
     self.sp = self.x;
   }
 
@@ -364,7 +368,7 @@ impl Cpu {
   }
 
   pub fn pha(&mut self, _: &Operand) {
-    debug!("[PHA] Pushing ${:02X} to stack at cycle {}", self.a, self.cycles);
+    trace!("[PHA] Pushing ${:02X} to stack at cycle {}", self.a, self.cycles);
     self.stack_push(self.a);
   }
 
@@ -372,13 +376,13 @@ impl Cpu {
     let res = self.stack_pull();
     self.set_zn(res);
     self.a = res;
-    debug!("[PLA] Pulled ${:02X} from stack at cycle {}", self.a, self.cycles);
+    trace!("[PLA] Pulled ${:02X} from stack at cycle {}", self.a, self.cycles);
   }
 
   pub fn php(&mut self, _: &Operand) {
     // Brk is always 1 on pushes
     let pushable = self.p.union(CpuFlags::brkpush);
-    debug!("[PHP] Pushing {pushable:?} (${:02X}) to stack at cycle {}", pushable.bits(), self.cycles);
+    trace!("[PHP] Pushing {pushable:?} (${:02X}) to stack at cycle {}", pushable.bits(), self.cycles);
     self.stack_push(pushable.bits());
   }
 
@@ -388,7 +392,7 @@ impl Cpu {
     self.p = CpuFlags::from_bits_retain(res)
       .difference(CpuFlags::brk)
       .union(CpuFlags::unused);
-    debug!("[PLP] Pulled {:?} (${:02X}) from stack at cycle {}", self.p, self.p.bits(), self.cycles);
+    trace!("[PLP] Pulled {:?} (${:02X}) from stack at cycle {}", self.p, self.p.bits(), self.cycles);
   }
 
   pub fn logical(&mut self, res: u8) {
@@ -481,55 +485,31 @@ impl Cpu {
     self.y = self.increase(self.y, u8::wrapping_sub);
   }
 
-  //TODO: factor out shifts
-  pub fn asl(&mut self, operand: &Operand) {
-    let res = (operand.val as u16) << 1;
-    self.set_czn(res);
+  pub fn shift<F: Fn(u8) -> u8>(&mut self, operand: &Operand, carry: bool, f: F) {
+    self.p.set(CpuFlags::carry, carry);
+    let res = f(operand.val);
+    self.set_zn(res);
 
     match operand.src {
-      OperandSrc::Acc => self.a = res as u8,
-      OperandSrc::Addr(src) => self.mem_set(src, res as u8),
+      OperandSrc::Acc => self.a = res,
+      OperandSrc::Addr(src) => self.mem_set(src, res),
       OperandSrc::None => { unreachable!() }
     }
+  }
+
+  pub fn asl(&mut self, operand: &Operand) {
+    self.shift(operand, operand.val & 0b1000_0000 != 0, |v| v.shl(1));
   }
   pub fn lsr(&mut self, operand: &Operand) {
-    let first = operand.val & 1 != 0;
-    let res = operand.val >> 1;
-    self.p.set(CpuFlags::carry, first);
-    self.p.set(CpuFlags::zero, res != 0);
-    self.p.set(CpuFlags::negative, res & 0b1000_0000 != 0);
-
-    match operand.src {
-      OperandSrc::Acc => self.a = res as u8,
-      OperandSrc::Addr(src) => self.mem_set(src, res as u8),
-      OperandSrc::None => { unreachable!() }
-    }
+    self.shift(operand, operand.val & 1 != 0, |v| v.shr(1));
   }
-
-  //TODO: factor our rotations
   pub fn rol(&mut self, operand: &Operand) {
-    let carry = operand.val & 0b1000_0000 != 0;
-    let res = operand.val.rotate_left(1) & self.carry();
-    self.set_czn(res as u16);
-    self.p.set(CpuFlags::carry, carry);
-
-    match operand.src {
-      OperandSrc::Acc => self.a = res as u8,
-      OperandSrc::Addr(src) => self.mem_set(src, res as u8),
-      OperandSrc::None => { unreachable!() }
-    }
-  } 
+    let carry = self.carry();
+    self.shift(operand, operand.val & 0b1000_0000 != 0, |v| v.shl(1) | carry);
+  }
   pub fn ror(&mut self, operand: &Operand) {
-    let carry = operand.val & 1 != 0;
-    let res = operand.val.rotate_left(1) & self.carry() << 7;
-    self.set_czn(res as u16);
-    self.p.set(CpuFlags::carry, carry);
-
-    match operand.src {
-      OperandSrc::Acc => self.a = res as u8,
-      OperandSrc::Addr(src) => self.mem_set(src, res as u8),
-      OperandSrc::None => { unreachable!() }
-    }
+    let carry = self.carry();
+    self.shift(operand, operand.val & 1 != 0, |v| v.shr(1) | (carry << 7));
   }
 
   pub fn jmp(&mut self, operand: &Operand) {
@@ -633,15 +613,16 @@ impl Cpu {
     self.set_stat(CpuFlags::interrupt)
   }
 
-  // TODO
-  pub fn brk(&mut self, _: &Operand) {
-    todo!()
+  pub fn brk(&mut self, operand: &Operand) {
+    self.stack_push16(self.pc);
+    self.php(operand);
   }
 
   pub fn nop(&mut self, _: &Operand) {}
 
-  pub fn rti(&mut self, _: &Operand) {
-    todo!()
+  pub fn rti(&mut self, operand: &Operand) {
+    self.plp(operand);
+    self.pc = self.stack_pull16();
   }
 }
 
