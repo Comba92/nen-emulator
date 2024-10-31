@@ -3,6 +3,7 @@ use std::{cell::RefCell, fmt::Debug, ops::{Shl, Shr}, rc::Rc};
 
 use bitflags::bitflags;
 use log::{debug, info, trace};
+
 use super::instr::{AddressingMode, Instruction, INSTRUCTIONS, INSTR_TO_FN};
 
 bitflags! {
@@ -229,8 +230,8 @@ impl Cpu {
     }
   }
 
-  pub fn get_operand_with_addressing(&mut self, inst: &Instruction) -> Operand {
-    let mode = inst.addressing;
+  pub fn get_operand_with_addressing(&mut self, instr: &Instruction) -> Operand {
+    let mode = instr.addressing;
     use AddressingMode::*;
     use OperandSrc::*;
 
@@ -262,10 +263,15 @@ impl Cpu {
         let addr_effective = addr_base.wrapping_add(self.y as u16);
 
         info!("[IndirectY] ZeroAddr: {zero_addr:04X}, BaseAddr: {addr_base:04X}, Effective: {addr_effective:04X}");
-        info!("Has crossed boundaries? {}", addr_effective & 0xFF00 != addr_base & 0xFF00);
+        info!(" | Has crossed boundaries? {}", addr_effective & 0xFF00 != addr_base & 0xFF00);
         
         //TODO: find solution to cycle counting
         // page crossing check
+        if instr.page_boundary_cycle && addr_effective & 0xFF00 != addr_base & 0xFF00 {
+          info!(" | Boundary crossed at cycle {}", self.cycles);
+          self.cycles = self.cycles.wrapping_add(1);
+        }
+
 
         Operand { src: Addr(addr_effective), val: self.mem_fetch(addr_effective) }
       }
@@ -274,22 +280,26 @@ impl Cpu {
         Operand { src: Addr(addr), val: self.mem_fetch(addr) }
       }
       AbsoluteX => { 
-        let addr = self.fetch16_at_pc().wrapping_add(self.x as u16);
+        let addr_base = self.fetch16_at_pc();
+        let addr_effective = addr_base.wrapping_add(self.x as u16);
+
         // page crossing check
-        if addr & 0xFF00 != self.pc & 0xFF00 {
+        if instr.page_boundary_cycle && addr_effective & 0xFF00 != addr_base & 0xFF00 {
           self.cycles = self.cycles.wrapping_add(1);
         }
 
-        Operand { src: Addr(addr), val: self.mem_fetch(addr) }
+        Operand { src: Addr(addr_effective), val: self.mem_fetch(addr_effective) }
       }
       AbsoluteY => {
-        let addr = self.fetch16_at_pc().wrapping_add(self.y as u16);
+        let addr_base = self.fetch16_at_pc();
+        let addr_effective = addr_base.wrapping_add(self.y as u16);
+
         // page crossing check
-        if addr & 0xFF00 != self.pc & 0xFF00 {
+        if instr.page_boundary_cycle && addr_effective & 0xFF00 != addr_base & 0xFF00 {
           self.cycles = self.cycles.wrapping_add(1);
         }
-        
-        Operand { src: Addr(addr), val: self.mem_fetch(addr) }
+
+        Operand { src: Addr(addr_effective), val: self.mem_fetch(addr_effective) }
       }
       Indirect => {
         let addr = self.fetch16_at_pc();
@@ -625,10 +635,6 @@ impl Cpu {
     self.sbc(op); 
   }
 
-  pub fn jam(&mut self, _: &mut Operand) {
-    todo!("jam")
-  }
-
   pub fn rla(&mut self, op: &mut Operand) {
     self.rol(op);
     self.and(op);
@@ -691,6 +697,10 @@ impl Cpu {
 
   pub fn usbc(&mut self, op: &mut Operand) {
     self.sbc(op);
+  }
+
+  pub fn jam(&mut self, _: &mut Operand) {
+    todo!("jam")
   }
 }
 

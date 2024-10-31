@@ -17,7 +17,7 @@ pub struct Instruction {
   #[serde(skip_deserializing)]
   pub bytes: usize, 
   pub cycles: usize,
-  // pub page_boundary_cycle: bool,
+  pub page_boundary_cycle: bool,
   // pub illegal: bool,
 }
 
