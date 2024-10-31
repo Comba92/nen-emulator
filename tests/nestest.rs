@@ -7,12 +7,12 @@ mod tests {
   use circular_buffer::CircularBuffer;
 use log::info;
 
-  use nen_emulator::emu::{cart::Cart, cpu::{Cpu, CpuFlags}, instr::{AddressingMode, INSTRUCTIONS}};
+  use nen_emulator::emu::{cart::Cart, cpu::{Cpu, CpuFlags, STACK_START}, instr::{AddressingMode, INSTRUCTIONS}};
 use prettydiff::{diff_lines, diff_words};
 
   #[derive(PartialEq, Eq)]
   struct CpuMock {
-    ip: u16,
+    pc: u16,
     sp: u8,
     a: u8,
     x: u8,
@@ -22,13 +22,13 @@ use prettydiff::{diff_lines, diff_words};
   }
   impl CpuMock {
     fn from_cpu(cpu: &Cpu) -> Self {
-      CpuMock {ip: cpu.pc, sp: cpu.sp, a: cpu.a, x: cpu.x, y: cpu.y, p: cpu.p.bits(), cycles: cpu.cycles }
+      CpuMock {pc: cpu.pc, sp: cpu.sp, a: cpu.a, x: cpu.x, y: cpu.y, p: cpu.p.bits(), cycles: cpu.cycles }
     }
 
     fn from_log(line: &str) -> Self {
       let mut tokens = line.split_whitespace();
       
-      let ip = u16::from_str_radix(tokens.next().unwrap(), 16).unwrap();
+      let pc = u16::from_str_radix(tokens.next().unwrap(), 16).unwrap();
   
       let mut tokens = tokens.rev();
       let cycles = usize::from_str_radix(tokens.next().unwrap().split(':').last().unwrap(), 10).unwrap();
@@ -41,7 +41,7 @@ use prettydiff::{diff_lines, diff_words};
       let a = u8::from_str_radix(tokens.next().unwrap().split(':').last().unwrap(), 16).unwrap();
   
       CpuMock {
-        ip, a, x, y, sp, p, cycles,
+        pc, a, x, y, sp, p, cycles,
       }
     }
   }
@@ -55,16 +55,16 @@ use prettydiff::{diff_lines, diff_words};
   }
 
   fn debug_line(cpu: &CpuMock, mem: &[u8]) -> String {
-    let opcode = &INSTRUCTIONS[mem[cpu.ip as usize] as usize]; 
+    let opcode = &INSTRUCTIONS[mem[cpu.pc as usize] as usize]; 
     
-    let operand8 = mem[cpu.ip as usize+1];
-    let operand16 = u16::from_le_bytes([operand8, mem[cpu.ip as usize+2]]);
+    let operand8 = mem[cpu.pc as usize+1];
+    let operand16 = u16::from_le_bytes([operand8, mem[cpu.pc as usize+2]]);
 
     use AddressingMode::*;
     let desc = match opcode.addressing {
       Implicit | Accumulator => String::new(),
       Immediate => format!("#${operand8:02X}"),
-      Relative => format!("${:04X}", (cpu.ip+opcode.bytes as u16).wrapping_add_signed((operand8 as i8) as i16)),
+      Relative => format!("${:04X}", (cpu.pc+opcode.bytes as u16).wrapping_add_signed((operand8 as i8) as i16)),
       ZeroPage | ZeroPageX | ZeroPageY => format!("${operand8:02X} = ${:02X}", mem[operand8 as usize]),
       Absolute | AbsoluteX | AbsoluteY => format!("${operand16:04X} = ${:02X}", mem[operand16 as usize]),
       Indirect | IndirectX | IndirectY => format!("${operand16:04X} = {:04X}", mem[operand16 as usize]),
@@ -73,7 +73,7 @@ use prettydiff::{diff_lines, diff_words};
     format!(
       "{:04X}  {:02X} {:02X} {:02X}  {opcode} {desc:20} \
       A:{a:02X} X:{x:02X} Y:{y:02X} P:{p:02X} SP:{sp:02X} CYC:{cyc}",
-      cpu.ip, mem[cpu.ip as usize], operand8, mem[cpu.ip as usize+2],
+      cpu.pc, mem[cpu.pc as usize], operand8, mem[cpu.pc as usize+2],
       opcode=opcode.name,
       a=cpu.a, x=cpu.x, y=cpu.y, p=cpu.p, sp=cpu.sp, cyc=cpu.cycles
     )
@@ -128,16 +128,13 @@ use prettydiff::{diff_lines, diff_words};
         info!("");
 
         info!("{}", "-".repeat(50));
-        info!("Incosistency at line {line_count}:\n{}", diff_words(&my_line, &log_line));
+        info!("Incosistency at line {line_count}\n{}", diff_words(&my_line, &log_line));
 
         let my_p = format!("{:?}", CpuFlags::from_bits_retain(my_cpu.p));
         let log_p = format!("{:?}", CpuFlags::from_bits_retain(log_cpu.p));
         info!("Stack: {}", cpu.stack_trace());
+
         info!("Flags: {}", diff_lines(&my_p, &log_p));
-
-        info!("Wrong:\t{:?}", CpuFlags::from_bits_retain(0x69));
-        info!("Correct:\t{:?}", CpuFlags::from_bits_retain(0x39));
-
         info!("Results: ${:04X}", cpu.mem_fetch16(0x2));
 
         info!("{}", "-".repeat(50));

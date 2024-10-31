@@ -21,7 +21,8 @@ bitflags! {
 }
 
 // https://www.nesdev.org/wiki/CPU_ALL
-pub const STACK_START: usize = 0x01FF;
+pub const STACK_START: usize = 0x0100;
+pub const STACK_END: usize = 0x0200;
 // SP is always initialized at itself minus 3
 // At boot, it is 0x00 - 0x03 = 0xFD
 // After every successive restart, it will be SP - 0x03
@@ -116,9 +117,9 @@ impl Cpu {
   pub fn mem_set16(&mut self, addr: u16, val: u16) {
     //self.cycles = self.cycles.wrapping_add(2);
 
-    let [first, second] = val.to_le_bytes();
-    self.mem.borrow_mut()[addr as usize] = first;
-    self.mem.borrow_mut()[(addr + 1) as usize] = second;
+    let [low, high] = val.to_le_bytes();
+    self.mem.borrow_mut()[addr as usize] = low;
+    self.mem.borrow_mut()[(addr + 1) as usize] = high;
   }
 
   pub fn fetch_at_pc(&mut self) -> u8 {
@@ -134,41 +135,41 @@ impl Cpu {
   }
 
   pub fn sp_addr(&self) -> u16 {
-    STACK_START as u16 - self.sp as u16
+    // Stack grows downward
+    STACK_START.wrapping_add(self.sp as usize) as u16
   }
 
   pub fn stack_push(&mut self, val: u8) {
     info!("-> Pushing ${:02X} to stack at cycle {}", val, self.cycles);
     self.mem_set(self.sp_addr(), val);
     info!("\t{}", self.stack_trace());
-    self.sp -= 1;
+    self.sp = self.sp.wrapping_sub(1);
   }
 
   pub fn stack_push16(&mut self, val: u16) {
-    info!("-> Pushing ${:04X} to stack at cycle {}", val, self.cycles);
-    self.mem_set16(self.sp_addr(), val);
-    info!("\t{}", self.stack_trace());
-    self.sp -= 2;
+    let [low, high] = val.to_le_bytes();
+    self.stack_push(high);
+    self.stack_push(low);
   }
 
-  pub fn stack_pop(&mut self) -> u8 {
-    self.sp += 1;
+  pub fn stack_pull(&mut self) -> u8 {
+    self.sp = self.sp.wrapping_add(1);
     info!("<- Pulling ${:02X} from stack at cycle {}", self.mem_fetch(self.sp_addr()), self.cycles);
     info!("\t{}", self.stack_trace());
     self.mem_fetch(self.sp_addr())
   }
 
-  pub fn stack_pop16(&mut self) -> u16 {
-    self.sp += 2;
-    info!("<- Pulling ${:04X} from stack at cycle {}", self.mem_fetch16(self.sp_addr()), self.cycles);
-    info!("\t{}", self.stack_trace());
-    self.mem_fetch16(self.sp_addr())
+  pub fn stack_pull16(&mut self) -> u16 {
+    let low = self.stack_pull();
+    let high = self.stack_pull();
+
+    u16::from_le_bytes([low, high])
   }
 
   pub fn stack_trace(self: &mut Cpu) -> String {
     let mut s = String::new();
-    const RANGE: i16 = 6;
-    for i in -RANGE..=RANGE {
+    const RANGE: i16 = 5;
+    for i in -RANGE..=0 {
       let addr = self.sp_addr().wrapping_add_signed(i);
       s.push_str(&format!("${:02X}, ", self.mem_fetch(addr)));
     }
@@ -368,7 +369,7 @@ impl Cpu {
   }
 
   pub fn pla(&mut self, _: &Operand) {
-    let res = self.stack_pop();
+    let res = self.stack_pull();
     self.set_zn(res);
     self.a = res;
     debug!("[PLA] Pulled ${:02X} from stack at cycle {}", self.a, self.cycles);
@@ -382,7 +383,7 @@ impl Cpu {
   }
 
   pub fn plp(&mut self, _: &Operand) {
-    let res = self.stack_pop();
+    let res = self.stack_pull();
     // Brk is always 0 on pulls, but unused is always 1
     self.p = CpuFlags::from_bits_retain(res)
       .difference(CpuFlags::brk)
@@ -538,12 +539,12 @@ impl Cpu {
   }
 
   pub fn jsr(&mut self, operand: &Operand) {
-    self.stack_push16(self.pc);
+    self.stack_push16(self.pc - 1);
     self.jmp(operand);
   }
 
   pub fn rts(&mut self, _: &Operand) {
-    self.pc = self.stack_pop16();
+    self.pc = self.stack_pull16() + 1;
   }
 
   pub fn branch(&mut self, offset: u8, cond: bool) {
