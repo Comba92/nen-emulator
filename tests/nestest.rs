@@ -1,13 +1,11 @@
-#![allow(unused_imports)]
-
 #[cfg(test)]
 mod tests {
   use core::panic;
-  use std::{collections::VecDeque, fs, path::Path};
+  use std::{fs, path::Path};
   use circular_buffer::CircularBuffer;
 use log::info;
 
-  use nen_emulator::emu::{cart::Cart, cpu::{Cpu, CpuFlags, STACK_START}, instr::{AddressingMode, INSTRUCTIONS}};
+  use nen_emulator::emu::{cart::Cart, cpu::{Cpu, CpuFlags}, instr::{AddressingMode, INSTRUCTIONS}};
 use prettydiff::{diff_lines, diff_words};
 
   #[derive(Eq)]
@@ -23,7 +21,7 @@ use prettydiff::{diff_lines, diff_words};
   impl PartialEq for CpuMock {
     fn eq(&self, other: &Self) -> bool {
         self.pc == other.pc && self.sp == other.sp && self.a == other.a && self.x == other.x && self.y == other.y && self.p == other.p 
-        //&& self.cycles == other.cycles
+        && self.cycles == other.cycles
     }
   }
 
@@ -96,7 +94,8 @@ use prettydiff::{diff_lines, diff_words};
     builder.filter_level(log::LevelFilter::Info);
     builder.init();
 
-    let mut test_log = include_str!("nestest.log")
+    let log_str = include_str!("nestest.log");
+    let mut test_log = log_str
       .lines().enumerate();
 
     let rom_path = Path::new("tests/nestest.nes");
@@ -112,14 +111,33 @@ use prettydiff::{diff_lines, diff_words};
     let mut most_recent_instr = CircularBuffer::<RANGE, (CpuMock, CpuMock)>::new();
 
     cpu.interpret_with_callback(move |cpu| {
-      let (mut line_count, line) = test_log.next().unwrap();
+      let next_line = test_log.next();
+
+      if let None = next_line {
+        info!("Reached end of input!!");
+        let mut trace: Vec<(usize, &(CpuMock, CpuMock))> = most_recent_instr.iter().enumerate().collect::<Vec<_>>();
+        trace.sort_by(|a, b| a.0.cmp(&b.0));
+
+        for (_, (mine, log)) in trace {
+          let my_line = debug_line(mine, cpu.mem.borrow().as_slice());
+          let log_line = debug_line(log, cpu.mem.borrow().as_slice());
+    
+          info!("|Mine -> {my_line}"); 
+          info!("|Log  -> {log_line}");
+          info!("");
+        }
+
+        return true;
+      }
+
+      let (mut line_count, line) = next_line.unwrap();
       line_count+=1;
       
       let my_cpu = CpuMock::from_cpu(cpu);
       let log_cpu = CpuMock::from_log(line);
 
       if my_cpu != log_cpu {
-        let mut trace = most_recent_instr.iter().enumerate().collect::<Vec<_>>();
+        let mut trace: Vec<(usize, &(CpuMock, CpuMock))> = most_recent_instr.iter().enumerate().collect::<Vec<_>>();
         trace.sort_by(|a, b| a.0.cmp(&b.0));
 
         for (i, (mine, log)) in trace {
@@ -153,6 +171,7 @@ use prettydiff::{diff_lines, diff_words};
       }
 
       most_recent_instr.push_back((my_cpu, log_cpu));
+      false
     });
   }
 }

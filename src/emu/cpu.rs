@@ -201,21 +201,21 @@ pub enum InstrDst {
   Acc(u8), X(u8), Y(u8), Mem(u16, u8) 
 }
 
-pub type InstrFn = fn(&mut Cpu, &Operand);
+pub type InstrFn = fn(&mut Cpu, &mut Operand);
 
 impl Cpu {
   pub fn interpret(&mut self) {
-    self.interpret_with_callback(|_| {});
+    self.interpret_with_callback(|_| { false });
   }
 
-  pub fn interpret_with_callback<F: FnMut(&mut Cpu)>(&mut self, mut callback: F) {
+  pub fn interpret_with_callback<F: FnMut(&mut Cpu) -> bool>(&mut self, mut callback: F) {
     loop {
-      callback(self);
+      if callback(self) { break; };
 
       let opcode = self.fetch_at_pc();
       
       let instr = &INSTRUCTIONS[opcode as usize];
-      let operand = self.get_operand_with_addressing(&instr);
+      let mut op = self.get_operand_with_addressing(&instr);
       
       let opname = instr.name.as_str();
 
@@ -223,7 +223,7 @@ impl Cpu {
         .get_key_value(opname)
         .expect(&format!("Op {opcode}({}) should be in map", instr.name));
       
-      inst_fn(self, &operand);
+      inst_fn(self, &mut op);
 
       self.cycles += instr.cycles;
     }
@@ -258,16 +258,14 @@ impl Cpu {
       }
       IndirectY => {
         let zero_addr = self.fetch_at_pc() as u16;
-        let addr_effective = self.wrapping_fetch16(zero_addr)
-          .wrapping_add(self.y as u16);
-        info!("[IndirectY] ZeroAddr: {zero_addr:04X}, Effective: {addr_effective:04X}");
-        info!("Has crossed boundaries? {}", addr_effective & 0xFF00 != zero_addr & 0xFF00);
+        let addr_base = self.wrapping_fetch16(zero_addr);
+        let addr_effective = addr_base.wrapping_add(self.y as u16);
+
+        info!("[IndirectY] ZeroAddr: {zero_addr:04X}, BaseAddr: {addr_base:04X}, Effective: {addr_effective:04X}");
+        info!("Has crossed boundaries? {}", addr_effective & 0xFF00 != addr_base & 0xFF00);
         
         //TODO: find solution to cycle counting
         // page crossing check
-        if addr_effective & 0xFF00 == zero_addr & 0xFF00 {
-          self.cycles = self.cycles.wrapping_add(1);
-        }
 
         Operand { src: Addr(addr_effective), val: self.mem_fetch(addr_effective) }
       }
@@ -312,36 +310,36 @@ impl Cpu {
     }
   }
 
-  pub fn load (&mut self, operand: &Operand, dst: InstrDst) {
-    trace!("[LOAD] {operand:?} at cycle {}", self.cycles);
-    self.set_zn(operand.val);
+  pub fn load (&mut self, op: &mut Operand, dst: InstrDst) {
+    trace!("[LOAD] {op:?} at cycle {}", self.cycles);
+    self.set_zn(op.val);
     self.set_instr_result(dst);
   }
 
-  pub fn lda(&mut self, operand: &Operand) {
-    self.load(operand, InstrDst::Acc(operand.val))
+  pub fn lda(&mut self, op: &mut Operand) {
+    self.load(op, InstrDst::Acc(op.val))
   }
-  pub fn ldx(&mut self, operand: &Operand) {
-    self.load(operand, InstrDst::X(operand.val))
+  pub fn ldx(&mut self, op: &mut Operand) {
+    self.load(op, InstrDst::X(op.val))
   }
-  pub fn ldy(&mut self, operand: &Operand) {
-    self.load(operand, InstrDst::Y(operand.val))
+  pub fn ldy(&mut self, op: &mut Operand) {
+    self.load(op, InstrDst::Y(op.val))
   }
 
-  pub fn store(&mut self, operand: &Operand, val: u8) {
-    if let OperandSrc::Addr(src) = operand.src {
+  pub fn store(&mut self, op: &mut Operand, val: u8) {
+    if let OperandSrc::Addr(src) = op.src {
       self.set_instr_result(InstrDst::Mem(src, val))
     } else { unreachable!() }  
   }
 
-  pub fn sta(&mut self, operand: &Operand) {
-    self.store(operand, self.a)
+  pub fn sta(&mut self, op: &mut Operand) {
+    self.store(op, self.a)
   }
-  pub fn stx(&mut self, operand: &Operand) {
-    self.store(operand, self.x)
+  pub fn stx(&mut self, op: &mut Operand) {
+    self.store(op, self.x)
   }
-  pub fn sty(&mut self, operand: &Operand) {
-    self.store(operand, self.y)
+  pub fn sty(&mut self, op: &mut Operand) {
+    self.store(op, self.y)
   }
 
   pub fn transfer(&mut self, src: u8, dst: InstrDst) {
@@ -349,43 +347,43 @@ impl Cpu {
     self.set_instr_result(dst);
   }
 
-  pub fn tax(&mut self, _: &Operand) {
+  pub fn tax(&mut self, _: &mut Operand) {
     self.transfer(self.a, InstrDst::X(self.a))
   }
-  pub fn tay(&mut self, _: &Operand) {
+  pub fn tay(&mut self, _: &mut Operand) {
     self.transfer(self.a, InstrDst::Y(self.a))
   }
-  pub fn tsx(&mut self, _: &Operand) {
+  pub fn tsx(&mut self, _: &mut Operand) {
     self.transfer(self.sp, InstrDst::X(self.sp))
   }
-  pub fn txa(&mut self, _: &Operand) {
+  pub fn txa(&mut self, _: &mut Operand) {
     self.transfer(self.x, InstrDst::Acc(self.x))
   }
-  pub fn txs(&mut self, _: &Operand) {
+  pub fn txs(&mut self, _: &mut Operand) {
     debug!("SP changed from ${:02X} to ${:02X}", self.sp, self.x);
     self.sp = self.x;
   }
-  pub fn tya(&mut self, _: &Operand) {
+  pub fn tya(&mut self, _: &mut Operand) {
     self.transfer(self.y, InstrDst::Acc(self.y))
   }
 
-  pub fn pha(&mut self, _: &Operand) {
+  pub fn pha(&mut self, _: &mut Operand) {
     trace!("[PHA] Pushing ${:02X} to stack at cycle {}", self.a, self.cycles);
     self.stack_push(self.a);
   }
-  pub fn pla(&mut self, _: &Operand) {
+  pub fn pla(&mut self, _: &mut Operand) {
     let res = self.stack_pull();
     self.set_zn(res);
     self.a = res;
     trace!("[PLA] Pulled ${:02X} from stack at cycle {}", self.a, self.cycles);
   }
-  pub fn php(&mut self, _: &Operand) {
+  pub fn php(&mut self, _: &mut Operand) {
     // Brk is always 1 on pushes
     let pushable = self.p.union(CpuFlags::brkpush);
     trace!("[PHP] Pushing {pushable:?} (${:02X}) to stack at cycle {}", pushable.bits(), self.cycles);
     self.stack_push(pushable.bits());
   }
-  pub fn plp(&mut self, _: &Operand) {
+  pub fn plp(&mut self, _: &mut Operand) {
     let res = self.stack_pull();
     // Brk is always 0 on pulls, but unused is always 1
     self.p = CpuFlags::from_bits_retain(res)
@@ -399,30 +397,30 @@ impl Cpu {
     self.set_neg(res);
     self.a = res;
   }
-  pub fn and(&mut self, operand: &Operand) {
-    self.logical(self.a & operand.val)
+  pub fn and(&mut self, op: &mut Operand) {
+    self.logical(self.a & op.val)
   }
-  pub fn eor(&mut self, operand: &Operand) {
-    self.logical(self.a ^ operand.val)
+  pub fn eor(&mut self, op: &mut Operand) {
+    self.logical(self.a ^ op.val)
   }
-  pub fn ora(&mut self, operand: &Operand) {
-    self.logical(self.a | operand.val)
+  pub fn ora(&mut self, op: &mut Operand) {
+    self.logical(self.a | op.val)
   }
-  pub fn bit(&mut self, operand: &Operand) {
-    let res = self.a & operand.val;
+  pub fn bit(&mut self, op: &mut Operand) {
+    let res = self.a & op.val;
     self.set_zero(res);
-    self.p.set(CpuFlags::overflow, operand.val & 0b0100_0000 != 0);
-    self.p.set(CpuFlags::negative, operand.val & 0b1000_0000 != 0);
+    self.p.set(CpuFlags::overflow, op.val & 0b0100_0000 != 0);
+    self.p.set(CpuFlags::negative, op.val & 0b1000_0000 != 0);
   }
 
-  pub fn adc(&mut self, operand: &Operand) {
-    let res = self.a as u16 + operand.val as u16 + self.carry() as u16;
-    self.set_overflow(self.a as u16, operand.val as u16, res);
+  pub fn adc(&mut self, op: &mut Operand) {
+    let res = self.a as u16 + op.val as u16 + self.carry() as u16;
+    self.set_overflow(self.a as u16, op.val as u16, res);
     self.set_czn(res);
     self.a = res as u8;
   }
-  pub fn sbc(&mut self, operand: &Operand) {
-    self.adc(&Operand { val: !operand.val, src: operand.src });
+  pub fn sbc(&mut self, op: &mut Operand) {
+    self.adc(&mut Operand { val: !op.val, src: op.src });
   }
 
   pub fn compare(&mut self, a: u8, b: u8) {
@@ -431,14 +429,14 @@ impl Cpu {
     self.p.set(CpuFlags::carry, a >= b);
   }
 
-  pub fn cmp(&mut self, operand: &Operand) {
-    self.compare(self.a, operand.val)
+  pub fn cmp(&mut self, op: &mut Operand) {
+    self.compare(self.a, op.val)
   }
-  pub fn cpx(&mut self, operand: &Operand) {
-    self.compare(self.x, operand.val)
+  pub fn cpx(&mut self, op: &mut Operand) {
+    self.compare(self.x, op.val)
   }
-  pub fn cpy(&mut self, operand: &Operand) {
-    self.compare(self.y, operand.val)
+  pub fn cpy(&mut self, op: &mut Operand) {
+    self.compare(self.y, op.val)
   }
 
   pub fn increase(&mut self, val: u8, f: fn(u8, u8) -> u8) -> u8 {
@@ -446,67 +444,67 @@ impl Cpu {
     self.set_zn(res);
     res
   }
-  pub fn inc(&mut self, operand: &Operand) {
-    if let OperandSrc::Addr(src) = operand.src {
-      let res = self.increase(operand.val, u8::wrapping_add);
-      self.mem_set(src, res);
+  pub fn inc(&mut self, op: &mut Operand) {
+    if let OperandSrc::Addr(src) = op.src {
+      op.val = self.increase(op.val, u8::wrapping_add);
+      self.mem_set(src, op.val);
     } else { unreachable!() }
   }
-  pub fn inx(&mut self, _: &Operand) {
+  pub fn inx(&mut self, _: &mut Operand) {
     self.x = self.increase(self.x, u8::wrapping_add);
   }
-  pub fn iny(&mut self, _: &Operand) {
+  pub fn iny(&mut self, _: &mut Operand) {
     self.y = self.increase(self.y, u8::wrapping_add)
   }
-  pub fn dec(&mut self, operand: &Operand) {
-    if let OperandSrc::Addr(src) = operand.src {
-      let res = self.increase(operand.val, u8::wrapping_sub);
-      self.mem_set(src, res);
+  pub fn dec(&mut self, op: &mut Operand) {
+    if let OperandSrc::Addr(src) = op.src {
+      op.val = self.increase(op.val, u8::wrapping_sub);
+      self.mem_set(src, op.val);
     } else { unreachable!() }
   }
-  pub fn dex(&mut self, _: &Operand) {
+  pub fn dex(&mut self, _: &mut Operand) {
     self.x = self.increase(self.x, u8::wrapping_sub);
   }
-  pub fn dey(&mut self, _: &Operand) {
+  pub fn dey(&mut self, _: &mut Operand) {
     self.y = self.increase(self.y, u8::wrapping_sub);
   }
 
-  pub fn shift<F: Fn(u8) -> u8>(&mut self, operand: &Operand, carry: bool, f: F) {
+  pub fn shift<F: Fn(u8) -> u8>(&mut self, op: &mut Operand, carry: bool, f: F) {
     self.p.set(CpuFlags::carry, carry);
-    let res = f(operand.val);
-    self.set_zn(res);
+    op.val = f(op.val);
+    self.set_zn(op.val);
 
-    match operand.src {
-      OperandSrc::Acc => self.a = res,
-      OperandSrc::Addr(src) => self.mem_set(src, res),
+    match op.src {
+      OperandSrc::Acc => self.a = op.val,
+      OperandSrc::Addr(src) => self.mem_set(src, op.val),
       OperandSrc::None => { unreachable!() }
     }
   }
-  pub fn asl(&mut self, operand: &Operand) {
-    self.shift(operand, operand.val & 0b1000_0000 != 0, |v| v.shl(1));
+  pub fn asl(&mut self, op: &mut Operand) {
+    self.shift(op, op.val & 0b1000_0000 != 0, |v| v.shl(1));
   }
-  pub fn lsr(&mut self, operand: &Operand) {
-    self.shift(operand, operand.val & 1 != 0, |v| v.shr(1));
+  pub fn lsr(&mut self, op: &mut Operand) {
+    self.shift(op, op.val & 1 != 0, |v| v.shr(1));
   }
-  pub fn rol(&mut self, operand: &Operand) {
+  pub fn rol(&mut self, op: &mut Operand) {
     let carry = self.carry();
-    self.shift(operand, operand.val & 0b1000_0000 != 0, |v| v.shl(1) | carry);
+    self.shift(op, op.val & 0b1000_0000 != 0, |v| v.shl(1) | carry);
   }
-  pub fn ror(&mut self, operand: &Operand) {
+  pub fn ror(&mut self, op: &mut Operand) {
     let carry = self.carry();
-    self.shift(operand, operand.val & 1 != 0, |v| v.shr(1) | (carry << 7));
+    self.shift(op, op.val & 1 != 0, |v| v.shr(1) | (carry << 7));
   }
 
-  pub fn jmp(&mut self, operand: &Operand) {
-    if let OperandSrc::Addr(src) = operand.src {
+  pub fn jmp(&mut self, op: &mut Operand) {
+    if let OperandSrc::Addr(src) = op.src {
       self.pc = src;
     } else { unreachable!() }
   }
-  pub fn jsr(&mut self, operand: &Operand) {
+  pub fn jsr(&mut self, op: &mut Operand) {
     self.stack_push16(self.pc - 1);
-    self.jmp(operand);
+    self.jmp(op);
   }
-  pub fn rts(&mut self, _: &Operand) {
+  pub fn rts(&mut self, _: &mut Operand) {
     self.pc = self.stack_pull16() + 1;
   }
 
@@ -527,68 +525,173 @@ impl Cpu {
       self.pc = new_pc;
     }
   }
-  pub fn bcc(&mut self, operand: &Operand) {
-    self.branch(operand.val, self.carry() == 0)
+  pub fn bcc(&mut self, op: &mut Operand) {
+    self.branch(op.val, self.carry() == 0)
   }
-  pub fn bcs(&mut self, operand: &Operand) {
-    self.branch(operand.val, self.carry() == 1)
+  pub fn bcs(&mut self, op: &mut Operand) {
+    self.branch(op.val, self.carry() == 1)
   }
-  pub fn beq(&mut self, operand: &Operand) {
-    self.branch(operand.val, self.p.contains(CpuFlags::zero))
+  pub fn beq(&mut self, op: &mut Operand) {
+    self.branch(op.val, self.p.contains(CpuFlags::zero))
   }
-  pub fn bne(&mut self, operand: &Operand) {
-    self.branch(operand.val, !self.p.contains(CpuFlags::zero))
+  pub fn bne(&mut self, op: &mut Operand) {
+    self.branch(op.val, !self.p.contains(CpuFlags::zero))
   }
-  pub fn bmi(&mut self, operand: &Operand) {
-    self.branch(operand.val, self.p.contains(CpuFlags::negative))
+  pub fn bmi(&mut self, op: &mut Operand) {
+    self.branch(op.val, self.p.contains(CpuFlags::negative))
   }
-  pub fn bpl(&mut self, operand: &Operand) {
-    self.branch(operand.val, !self.p.contains(CpuFlags::negative))
+  pub fn bpl(&mut self, op: &mut Operand) {
+    self.branch(op.val, !self.p.contains(CpuFlags::negative))
   }
-  pub fn bvc(&mut self, operand: &Operand) {
-    self.branch(operand.val, !self.p.contains(CpuFlags::overflow))
+  pub fn bvc(&mut self, op: &mut Operand) {
+    self.branch(op.val, !self.p.contains(CpuFlags::overflow))
   }
-  pub fn bvs(&mut self, operand: &Operand) {
-    self.branch(operand.val, self.p.contains(CpuFlags::overflow))
+  pub fn bvs(&mut self, op: &mut Operand) {
+    self.branch(op.val, self.p.contains(CpuFlags::overflow))
   }
 
   pub fn clear_stat(&mut self, s: CpuFlags) {
     self.p.remove(s);
   }
-  pub fn clc(&mut self, _: &Operand) {
+  pub fn clc(&mut self, _: &mut Operand) {
     self.clear_stat(CpuFlags::carry)
   }
-  pub fn cld(&mut self, _: &Operand) {
+  pub fn cld(&mut self, _: &mut Operand) {
     self.clear_stat(CpuFlags::decimal)
   }
-  pub fn cli(&mut self, _: &Operand) {
+  pub fn cli(&mut self, _: &mut Operand) {
     self.clear_stat(CpuFlags::interrupt)
   }
-  pub fn clv(&mut self, _: &Operand) {
+  pub fn clv(&mut self, _: &mut Operand) {
     self.clear_stat(CpuFlags::overflow)
   }
   pub fn set_stat(&mut self, s: CpuFlags) {
     self.p.insert(s);
   }
-  pub fn sec(&mut self, _: &Operand) {
+  pub fn sec(&mut self, _: &mut Operand) {
     self.set_stat(CpuFlags::carry)
   }
-  pub fn sed(&mut self, _: &Operand) {
+  pub fn sed(&mut self, _: &mut Operand) {
     self.set_stat(CpuFlags::decimal)
   }
-  pub fn sei(&mut self, _: &Operand) {
+  pub fn sei(&mut self, _: &mut Operand) {
     self.set_stat(CpuFlags::interrupt)
   }
 
-  pub fn brk(&mut self, operand: &Operand) {
+  pub fn brk(&mut self, op: &mut Operand) {
     self.stack_push16(self.pc);
-    self.php(operand);
+    self.php(op);
   }
-  pub fn rti(&mut self, operand: &Operand) {
-    self.plp(operand);
+  pub fn rti(&mut self, op: &mut Operand) {
+    self.plp(op);
     self.pc = self.stack_pull16();
   }
-  pub fn nop(&mut self, _: &Operand) {}
+  pub fn nop(&mut self, _: &mut Operand) {}
+}
+
+impl Cpu {
+  pub fn asr(&mut self, op: &mut Operand) {
+    self.and(op);
+    self.lsr(op);
+  }
+
+  pub fn slo(&mut self, op: &mut Operand) {
+    self.asl(op);
+    self.ora(op);
+  }
+
+  pub fn sre(&mut self, op: &mut Operand) {
+    self.lsr(op);
+    self.eor(op);
+  }
+
+  pub fn anc(&mut self, op: &mut Operand) {
+    self.and(op);
+    self.p.set(CpuFlags::carry, self.p.contains(CpuFlags::negative));
+  }
+
+  pub fn arr(&mut self, op: &mut Operand) {
+    self.and(op);
+    self.ror(op);
+  }
+
+  pub fn dcp(&mut self, op: &mut Operand) {
+    self.dec(op);
+    self.cmp(op);
+  }
+
+  pub fn isc(&mut self, op: &mut Operand) {
+    self.inc(op);
+    self.sbc(op); 
+  }
+
+  pub fn jam(&mut self, _: &mut Operand) {
+    todo!("jam")
+  }
+
+  pub fn rla(&mut self, op: &mut Operand) {
+    self.rol(op);
+    self.and(op);
+  }
+
+  pub fn rra(&mut self, op: &mut Operand) {
+    self.ror(op);
+    self.adc(op);
+  }
+
+  pub fn las(&mut self, op: &mut Operand) {
+    let res = op.val & self.sp;
+    self.a = res;
+    self.x = res;
+    self.sp = res;
+    self.set_zn(res);
+  }
+
+  pub fn lax(&mut self, op: &mut Operand) {
+    self.a = op.val;
+    self.x = op.val;
+    self.set_zn(op.val);
+  }
+
+  pub fn sax(&mut self, op: &mut Operand) {
+    if let OperandSrc::Addr(src) = op.src {
+      self.set_instr_result(InstrDst::Mem(src, self.a & self.x));
+    } else { unreachable!() }
+  }
+
+  pub fn sha(&mut self, _op: &mut Operand) {
+    todo!("sha")
+  }
+
+  pub fn tas(&mut self, _op: &mut Operand) {
+    todo!("shs/tas")
+  }
+
+  pub fn shx(&mut self, _op: &mut Operand) {
+    todo!("shx")
+  }
+
+  pub fn shy(&mut self, _op: &mut Operand) {
+    todo!("shy")
+  }
+
+  pub fn sbx(&mut self, op: &mut Operand) {
+    if let OperandSrc::Addr(_src) = op.src {
+      todo!("sbx")
+    } else { unreachable!() }
+  }
+
+  pub fn ane(&mut self, _op: &mut Operand) {
+    todo!("ane/xaa")
+  }
+
+  pub fn lxa(&mut self, _op: &mut Operand) {
+    todo!("lxa")
+  }
+
+  pub fn usbc(&mut self, op: &mut Operand) {
+    self.sbc(op);
+  }
 }
 
 #[cfg(test)]
