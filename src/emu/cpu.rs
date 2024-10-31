@@ -115,8 +115,8 @@ impl Cpu {
   pub fn wrapping_fetch16(&mut self, addr: u16) -> u16 {
     if addr & 0x00FF == 0x00FF {
       let page = addr & 0xFF00;
-      let low = self.mem_fetch(page & 0xFF);
-      let high = self.mem_fetch(page & 0x00);
+      let low = self.mem_fetch(page | 0xFF);
+      let high = self.mem_fetch(page | 0x00);
       u16::from_le_bytes([low, high])
     } else { self.mem_fetch16(addr) }
   }
