@@ -275,9 +275,8 @@ impl Cpu {
         let addr = self.fetch16_at_pc();
         Operand { src: Addr(addr), val: self.mem_fetch(addr) }
       }
-      //TODO: should be done wrapping add?
       AbsoluteX => { 
-        let addr = self.fetch16_at_pc() + self.x as u16 + self.carry() as u16;
+        let addr = self.fetch16_at_pc().wrapping_add(self.x as u16);
         // page crossing check
         if addr & 0xFF00 != self.pc & 0xFF00 {
           self.cycles = self.cycles.wrapping_add(1);
@@ -285,9 +284,8 @@ impl Cpu {
 
         Operand { src: Addr(addr), val: self.mem_fetch(addr) }
       }
-      //TODO: should be done wrapping add?
       AbsoluteY => {
-        let addr = self.fetch16_at_pc() + self.y as u16 + self.carry() as u16;
+        let addr = self.fetch16_at_pc().wrapping_add(self.y as u16);
         // page crossing check
         if addr & 0xFF00 != self.pc & 0xFF00 {
           self.cycles = self.cycles.wrapping_add(1);
