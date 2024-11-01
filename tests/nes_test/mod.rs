@@ -164,7 +164,7 @@ use prettydiff::{diff_lines, diff_words};
         info!("Stack: {}", cpu.stack_trace());
 
         info!("Flags: {}", diff_lines(&my_p, &log_p));
-        info!("Results: ${:04X}", cpu.mem_fetch16(0x2));
+        info!("Results: ${:04X}", cpu.mem_read16(0x2));
 
         info!("{}", "-".repeat(50));
         panic!()

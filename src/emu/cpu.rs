@@ -29,7 +29,7 @@ pub const STACK_END: usize = 0x0200;
 // After every successive restart, it will be SP - 0x03
 const STACK_RESET: u8 = 0xFD;
 const PC_RESET: u16 = 0xFFFC;
-pub const MEM_SIZE: usize = 0x10000;
+pub const MEM_SIZE: usize = 0x1_0000;
 
 pub const INTERRUPT_NON_MASKABLE: u16 = 0xFFFA;
 pub const INTERRUPT_RESET: u16 = 0xFFFC;
@@ -104,43 +104,43 @@ impl Cpu {
     mem[addr..addr+data.len()].copy_from_slice(data);
   }
 
-  pub fn mem_fetch(&mut self, addr: u16) -> u8 {
+  pub fn mem_read(&mut self, addr: u16) -> u8 {
     //self.cycles = self.cycles.wrapping_add(1);
     self.mem.borrow()[addr as usize]
   }
 
-  pub fn mem_fetch16(&mut self, addr: u16) -> u16 {
-    u16::from_le_bytes([self.mem_fetch(addr), self.mem_fetch(addr+1)])
+  pub fn mem_read16(&mut self, addr: u16) -> u16 {
+    u16::from_le_bytes([self.mem_read(addr), self.mem_read(addr+1)])
   }
 
-  pub fn wrapping_fetch16(&mut self, addr: u16) -> u16 {
+  pub fn wrapping_read16(&mut self, addr: u16) -> u16 {
     if addr & 0x00FF == 0x00FF {
       let page = addr & 0xFF00;
-      let low = self.mem_fetch(page | 0xFF);
-      let high = self.mem_fetch(page | 0x00);
+      let low = self.mem_read(page | 0xFF);
+      let high = self.mem_read(page | 0x00);
       u16::from_le_bytes([low, high])
-    } else { self.mem_fetch16(addr) }
+    } else { self.mem_read16(addr) }
   }
 
-  pub fn mem_set(&mut self, addr: u16, val: u8) {
+  pub fn mem_write(&mut self, addr: u16, val: u8) {
     //self.cycles = self.cycles.wrapping_add(1);
     self.mem.borrow_mut()[addr as usize] = val;
   }
 
-  pub fn mem_set16(&mut self, addr: u16, val: u16) {
+  pub fn mem_write16(&mut self, addr: u16, val: u16) {
     let [low, high] = val.to_le_bytes();
     self.mem.borrow_mut()[addr as usize] = low;
     self.mem.borrow_mut()[(addr + 1) as usize] = high;
   }
 
-  pub fn fetch_at_pc(&mut self) -> u8 {
-    let res = self.mem_fetch(self.pc);
+  pub fn pc_fetch(&mut self) -> u8 {
+    let res = self.mem_read(self.pc);
     self.pc = self.pc.wrapping_add(1);
     res
   }
 
-  pub fn fetch16_at_pc(&mut self) -> u16 {
-    let res = self.mem_fetch16(self.pc);
+  pub fn pc_fetch16(&mut self) -> u16 {
+    let res = self.mem_read16(self.pc);
     self.pc = self.pc.wrapping_add(2);
     res
   }
@@ -152,7 +152,7 @@ impl Cpu {
 
   pub fn stack_push(&mut self, val: u8) {
     debug!("-> Pushing ${:02X} to stack at cycle {}", val, self.cycles);
-    self.mem_set(self.sp_addr(), val);
+    self.mem_write(self.sp_addr(), val);
     debug!("\t{}", self.stack_trace());
     self.sp = self.sp.wrapping_sub(1);
   }
@@ -165,9 +165,9 @@ impl Cpu {
 
   pub fn stack_pull(&mut self) -> u8 {
     self.sp = self.sp.wrapping_add(1);
-    debug!("<- Pulling ${:02X} from stack at cycle {}", self.mem_fetch(self.sp_addr()), self.cycles);
+    debug!("<- Pulling ${:02X} from stack at cycle {}", self.mem_read(self.sp_addr()), self.cycles);
     debug!("\t{}", self.stack_trace());
-    self.mem_fetch(self.sp_addr())
+    self.mem_read(self.sp_addr())
   }
 
   pub fn stack_pull16(&mut self) -> u16 {
@@ -182,7 +182,7 @@ impl Cpu {
     const RANGE: i16 = 5;
     for i in -RANGE..=0 {
       let addr = self.sp_addr().wrapping_add_signed(i);
-      s.push_str(&format!("${:02X}, ", self.mem_fetch(addr)));
+      s.push_str(&format!("${:02X}, ", self.mem_read(addr)));
     }
 
     s
@@ -213,7 +213,7 @@ impl Cpu {
     loop {
       if callback(self) { break; };
 
-      let opcode = self.fetch_at_pc();
+      let opcode = self.pc_fetch();
       
       let instr = &INSTRUCTIONS[opcode as usize];
       let mut op = self.get_operand_with_addressing(&instr);
@@ -231,12 +231,12 @@ impl Cpu {
   }
 
   fn get_zeropage_operand(&mut self, offset: u8) -> Operand {
-    let zero_addr = (self.fetch_at_pc().wrapping_add(offset)) as u16;
-    Operand { src: OperandSrc::Addr(zero_addr), val: self.mem_fetch(zero_addr) }
+    let zero_addr = (self.pc_fetch().wrapping_add(offset)) as u16;
+    Operand { src: OperandSrc::Addr(zero_addr), val: self.mem_read(zero_addr) }
   }
 
   fn get_absolute_operand(&mut self, offset: u8, instr: &Instruction) -> Operand {
-    let addr_base = self.fetch16_at_pc();
+    let addr_base = self.pc_fetch16();
     let addr_effective = addr_base.wrapping_add(offset as u16);
 
     // page crossing check
@@ -244,7 +244,7 @@ impl Cpu {
       self.cycles = self.cycles.wrapping_add(1);
     }
 
-    Operand { src: OperandSrc::Addr(addr_effective), val: self.mem_fetch(addr_effective) }
+    Operand { src: OperandSrc::Addr(addr_effective), val: self.mem_read(addr_effective) }
   }
 
   pub fn get_operand_with_addressing(&mut self, instr: &Instruction) -> Operand {
@@ -255,7 +255,7 @@ impl Cpu {
     let res = match mode {
       Implicit => Operand {src: None, val: 0},
       Accumulator => Operand {src: Acc, val: self.a},
-      Immediate | Relative => Operand {src: None, val: self.fetch_at_pc()},
+      Immediate | Relative => Operand {src: None, val: self.pc_fetch()},
       ZeroPage => self.get_zeropage_operand(0),
       ZeroPageX => self.get_zeropage_operand(self.x),
       ZeroPageY => self.get_zeropage_operand(self.y),
@@ -263,30 +263,30 @@ impl Cpu {
       AbsoluteX => self.get_absolute_operand(self.x, instr),
       AbsoluteY => self.get_absolute_operand(self.y, instr),
       Indirect => {
-        let addr = self.fetch16_at_pc();
-        let addr_effective = self.wrapping_fetch16(addr);
+        let addr = self.pc_fetch16();
+        let addr_effective = self.wrapping_read16(addr);
         Operand { src: Addr(addr_effective), val: 0 }
       }
       IndirectX => {
-        let zero_addr = (self.fetch_at_pc().wrapping_add(self.x)) as u16;
-        let addr_effective = self.wrapping_fetch16(zero_addr);
-        info!("[IndirectX] ZeroAddr: {zero_addr:02X}, Effective: {addr_effective:04X}");
-        Operand { src: Addr(addr_effective), val: self.mem_fetch(addr_effective) }
+        let zero_addr = (self.pc_fetch().wrapping_add(self.x)) as u16;
+        let addr_effective = self.wrapping_read16(zero_addr);
+        trace!("[IndirectX] ZeroAddr: {zero_addr:02X}, Effective: {addr_effective:04X}");
+        Operand { src: Addr(addr_effective), val: self.mem_read(addr_effective) }
       }
       IndirectY => {
-        let zero_addr = self.fetch_at_pc() as u16;
-        let addr_base = self.wrapping_fetch16(zero_addr);
+        let zero_addr = self.pc_fetch() as u16;
+        let addr_base = self.wrapping_read16(zero_addr);
         let addr_effective = addr_base.wrapping_add(self.y as u16);
 
-        info!("[IndirectY] ZeroAddr: {zero_addr:04X}, BaseAddr: {addr_base:04X}, Effective: {addr_effective:04X}");
-        info!(" | Has crossed boundaries? {}", addr_effective & 0xFF00 != addr_base & 0xFF00);
+        trace!("[IndirectY] ZeroAddr: {zero_addr:04X}, BaseAddr: {addr_base:04X}, Effective: {addr_effective:04X}");
+        trace!(" | Has crossed boundaries? {}", addr_effective & 0xFF00 != addr_base & 0xFF00);
         
         // page crossing check
         if instr.page_boundary_cycle && addr_effective & 0xFF00 != addr_base & 0xFF00 {
-          info!(" | Boundary crossed at cycle {}", self.cycles);
+          trace!(" | Boundary crossed at cycle {}", self.cycles);
           self.cycles = self.cycles.wrapping_add(1);
         }
-        Operand { src: Addr(addr_effective), val: self.mem_fetch(addr_effective) }
+        Operand { src: Addr(addr_effective), val: self.mem_read(addr_effective) }
       }
     };
 
@@ -298,7 +298,7 @@ impl Cpu {
       InstrDst::Acc(res) => self.a = res,
       InstrDst::X(res) => self.x = res,
       InstrDst::Y(res) => self.y = res,
-      InstrDst::Mem(addr, res) => self.mem_set(addr, res),
+      InstrDst::Mem(addr, res) => self.mem_write(addr, res),
     }
   }
 
@@ -439,7 +439,7 @@ impl Cpu {
   pub fn inc(&mut self, op: &mut Operand) {
     if let OperandSrc::Addr(src) = op.src {
       op.val = self.increase(op.val, u8::wrapping_add);
-      self.mem_set(src, op.val);
+      self.mem_write(src, op.val);
     } else { unreachable!() }
   }
   pub fn inx(&mut self, _: &mut Operand) {
@@ -451,7 +451,7 @@ impl Cpu {
   pub fn dec(&mut self, op: &mut Operand) {
     if let OperandSrc::Addr(src) = op.src {
       op.val = self.increase(op.val, u8::wrapping_sub);
-      self.mem_set(src, op.val);
+      self.mem_write(src, op.val);
     } else { unreachable!() }
   }
   pub fn dex(&mut self, _: &mut Operand) {
@@ -468,7 +468,7 @@ impl Cpu {
 
     match op.src {
       OperandSrc::Acc => self.a = op.val,
-      OperandSrc::Addr(src) => self.mem_set(src, op.val),
+      OperandSrc::Addr(src) => self.mem_write(src, op.val),
       OperandSrc::None => { unreachable!() }
     }
   }

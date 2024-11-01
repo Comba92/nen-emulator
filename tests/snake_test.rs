@@ -65,26 +65,26 @@ mod snake_test {
           match event {
             Event::Quit { .. } => return true,
             Event::KeyDown { keycode: Some(Keycode::W), .. } => {
-              cpu.mem_set(0xFF, 0x77);
+              cpu.mem_write(0xFF, 0x77);
             }
             Event::KeyDown { keycode: Some(Keycode::S), .. } => {
-              cpu.mem_set(0xFF, 0x73);
+              cpu.mem_write(0xFF, 0x73);
             }
             Event::KeyDown { keycode: Some(Keycode::A), .. } => {
-              cpu.mem_set(0xFF, 0x61);
+              cpu.mem_write(0xFF, 0x61);
             }
             Event::KeyDown { keycode: Some(Keycode::D), .. } => {
-              cpu.mem_set(0xFF, 0x64);
+              cpu.mem_write(0xFF, 0x64);
             }
             _ => {}
         }
       }
 
-      cpu.mem_set(0xfe, rng.gen_range(2..16));
+      cpu.mem_write(0xfe, rng.gen_range(2..16));
 
       let mut to_update = false;
       for i in 0..(0x600-0x200) {
-        let color_idx = cpu.mem_fetch(0x200 + i);
+        let color_idx = cpu.mem_read(0x200 + i);
         let color = match color_idx {
           0 => Color::BLACK,
           1 => Color::WHITE,

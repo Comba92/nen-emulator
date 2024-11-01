@@ -7,3 +7,4 @@
 2. Implement Memory Bus, Interrupts, synchronization
 
 3. Implement PPU
+- Render pattern table
