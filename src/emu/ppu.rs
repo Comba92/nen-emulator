@@ -1,9 +1,8 @@
 #![allow(dead_code)]
-use std::rc::Rc;
 
 use bitflags::bitflags;
 
-use super::bus::Bus;
+use super::bus::PPU_REG_START;
 
 // +--------------------+ $10000
 // |     Mirrors        |
@@ -43,17 +42,17 @@ use super::bus::Bus;
 
 const VRAM_SIZE: usize = 0x0800; // 2KB
 
-const PATTERNS_START: usize = 0x0000;
-const PATTERNS_END: usize = 0x1FFF;
+const PATTERNS_START: u16 = 0x0000;
+const PATTERNS_END: u16 = 0x1FFF;
 
-const NAMES_START: usize = 0x2000;
-const NAMES_END: usize = 0x3EFF;
+const NAMES_START: u16 = 0x2000;
+const NAMES_END: u16 = 0x3EFF;
 
-const PALETTES_START: usize = 0x3F00;
+const PALETTES_START: u16 = 0x3F00;
 const PALETTES_SIZE: usize = 0x20;
-const PALETTES_MIRRORS_END: usize = 0x3FFF;
+const PALETTES_MIRRORS_END: u16 = 0x3FFF;
 
-const PPU_MIRRORS_START: usize = 0x4000;
+const PPU_MIRRORS_START: u16 = 0x4000;
 
 pub const PPU_CTRL: u16 = 0x2000;
 pub const PPU_MASK: u16 = 0x2001;
@@ -112,7 +111,6 @@ struct OAMEntry {
 pub struct Ppu {
   pub vram: [u8; VRAM_SIZE],
   pub oam: [u8; 256],
-  pub bus: Rc<Bus>,
 
   v: u8,
   t: u8,
@@ -120,18 +118,38 @@ pub struct Ppu {
   w: u8,
   pub cycles: usize,
   pub scanline: usize,
+
+  pub ctrl: PpuCtrl,
+  pub mask: PpuMask,
+  pub stat: PpuStat,
+
+  pub req_state: RequestAddr,
+  pub req_addr: u16,
+  pub req_buf: u8,
+
+  pub nmi_requested: bool,
+}
+
+enum RequestAddr {
+  Start, AddrHigh(u8)
 }
 
 impl Ppu {
-  pub fn new(bus: Rc<Bus>) -> Self {
-    Self { 
-      vram: [0; VRAM_SIZE], oam: [0; 256], bus, 
-      v: 0, t:0, x: 0, w: 0, cycles: 21, scanline: 0
+  pub fn new() -> Self {
+    Self {
+      vram: [0; VRAM_SIZE], oam: [0; 256],
+      v: 0, t:0, x: 0, w: 0, 
+      cycles: 21, scanline: 0,
+      ctrl: PpuCtrl::empty(), 
+      stat: PpuStat::empty(),
+      mask: PpuMask::empty(),
+      req_state: RequestAddr::Start, req_addr: 0, req_buf: 0,
+      nmi_requested: false,
     }
   }
 
-  pub fn step(&mut self, steps: usize) {
-    self.cycles = self.cycles.wrapping_add(steps);
+  pub fn step(&mut self, cycles: usize) {
+    self.cycles = self.cycles.wrapping_add(cycles);
 
     if self.cycles >= HORIZONTAL_OVERSCAN {
       self.cycles -= HORIZONTAL_OVERSCAN;
@@ -142,7 +160,7 @@ impl Ppu {
       // drawing here
     } else if self.scanline == VISIBLE_SCANLINES {
       // send VBlank NMI
-      self.bus.send_nmi();
+      self.request_nmi();
     }
 
     if self.scanline >= VERTICAL_OVERSCAN {
@@ -150,16 +168,85 @@ impl Ppu {
     }
   }
 
-  pub fn ctrl(&self) -> PpuCtrl { PpuCtrl::from_bits_retain(self.bus.read(PPU_CTRL)) }
-  pub fn set_ctrl(&self, val: u8) {
-    self.bus.write(PPU_CTRL, val);
+  pub fn reg_read(&mut self, addr: u16) -> u8 {
+    if [PPU_CTRL, PPU_MASK, OAM_ADDR, PPU_SCROLL, PPU_DATA, OAM_DMA].contains(&addr) {
+        eprintln!("Invalid read to write-only PPU register ${addr:04X}");
+        return 0;
+    }
+
+    match addr {
+      PPU_STAT => self.stat.bits(),
+      OAM_DATA => todo!("oam_data read"),
+      PPU_DATA => self.mem_read(self.req_addr),
+      _ => unreachable!()
+    }
   }
-  pub fn mask(&self) -> PpuMask { PpuMask::from_bits_retain(self.bus.read(PPU_MASK)) }
-  pub fn set_mask(&self, _val: u8) {
-    todo!("set ppu mask")
+
+  pub fn reg_write(&mut self, addr: u16, val: u8) {
+    let reg = addr - PPU_REG_START;
+      match reg {
+        PPU_CTRL => self.ctrl = PpuCtrl::from_bits_retain(val),
+        PPU_MASK => eprintln!("ppu mask write not implemented"),
+        PPU_STAT => eprintln!("Invalid write to read-only PPUSTAT register ${reg:04X}"),
+        PPU_ADDR => {
+          match self.req_state {
+              RequestAddr::Start => self.req_state = RequestAddr::AddrHigh(val),
+              RequestAddr::AddrHigh(high) => {
+                self.req_state = RequestAddr::Start;
+                self.req_addr = u16::from_le_bytes([val, high]);
+              }
+          }
+        }
+        PPU_DATA => {
+          self.mem_write(self.req_addr, val);
+        }
+        _ => unreachable!()
+      };
   }
-  pub fn stat(&self) -> PpuStat { PpuStat::from_bits_retain(self.bus.read(PPU_STAT)) }
-  pub fn set_stat(&self, val: u8) {
-    self.bus.write(PPU_STAT, val);
+
+  fn next_req_addr(&mut self) {
+    match self.ctrl.contains(PpuCtrl::vram_incr) {
+        false =>  self.req_addr = (self.req_addr + 1) % PALETTES_MIRRORS_END,
+        true => self.req_addr = (self.req_addr + 32) % PALETTES_MIRRORS_END, 
+      }
   }
+
+  pub fn request_nmi(&mut self) {
+    self.nmi_requested = true;
+  }
+
+  pub fn mem_read(&mut self, addr: u16) -> u8 {
+    let res = self.req_buf;
+
+    let data = match addr {
+      0..=PATTERNS_END => {},
+      NAMES_START..=NAMES_END => {},
+      PALETTES_START..=PALETTES_MIRRORS_END => {
+
+      }
+      _ => {}
+    };
+
+    self.req_buf = data;
+    res
+  }
+
+  pub fn mem_write(&mut self, _addr: u16, _val: u8) {}
+
+  // pub fn ctrl(&self) -> PpuCtrl { PpuCtrl::from_bits_retain(self.bus.read(PPU_CTRL)) }
+  // pub fn set_ctrl(&self, val: u8) {
+  //   self.bus.write(PPU_CTRL, val);
+  // }
+  // pub fn mask(&self) -> PpuMask { PpuMask::from_bits_retain(self.bus.read(PPU_MASK)) }
+  // pub fn set_mask(&self, _val: u8) {
+  //   todo!("set ppu mask")
+  // }
+  // pub fn stat(&self) -> PpuStat { PpuStat::from_bits_retain(self.bus.read(PPU_STAT)) }
+  // pub fn set_stat(&self, val: u8) {
+  //   self.bus.write(PPU_STAT, val);
+  // }
+
+  // pub fn set_data(&self) {
+
+  // }
 }

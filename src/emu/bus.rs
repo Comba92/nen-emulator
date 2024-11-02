@@ -27,9 +27,9 @@
 // |_______________| $0000 |_______________|
 #![allow(dead_code)]
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 
-use super::{cart::Cart, ppu::{OAM_ADDR, OAM_DMA, PPU_CTRL, PPU_DATA, PPU_MASK, PPU_SCROLL, PPU_STAT}};
+use super::{cart::Cart, ppu::Ppu};
 
 pub const MEM_SIZE: usize = 0x1_0000; // 64KB
 
@@ -47,8 +47,8 @@ const RAM_MIRROR_START: u16 = 0x0800;
 const RAM_MIRROR_SIZE: u16 = 0x0800;
 const RAM_MIRRORS_END: u16 = 0x1FFF;
 
-const PPU_REG_START: u16 = 0x2000;
-const PPU_REG_END: u16 = 0x2007;
+pub const PPU_REG_START: u16 = 0x2000;
+pub const PPU_REG_END: u16 = 0x2007;
 
 const PPU_REG_MIRRORS_START: u16 = 0x2008;
 const PPU_REG_MIRRORS_END: u16 = 0x3FFF;
@@ -70,28 +70,20 @@ trait MemAccess {
 }
 
 pub struct Bus {
-    //mem: RefCell<[u8; MEM_SIZE]>,
     ram: RefCell<[u8; WRAM_SIZE]>,
-    ppu_regs: RefCell<[u8; 8]>,
     sram: RefCell<[u8; CART_MEM_SIZE]>,
     rom: RefCell<[u8; ROM_SIZE]>,
-
-    pub nmi: Cell<bool>,
-    pub irq: Cell<bool>,
     
-    pub ppu_addr_buf: Cell<[u8; 2]>,
-    pub ppu_data_buf: Cell<u8>,
+    pub ppu: RefCell<Ppu>,
 }
 
 impl Bus {
     pub fn new(cart: &Cart) -> Self {
         let bus = Self { 
-            irq: Cell::new(false), nmi: Cell::new(false), 
             ram: RefCell::new([0; WRAM_SIZE as usize]),
-            ppu_regs: RefCell::new([0; 8]),
+            ppu: RefCell::new(Ppu::new()),
             sram: RefCell::new([0; CART_MEM_SIZE]),
             rom: RefCell::new([0; ROM_SIZE]),
-            ppu_addr_buf: Cell::new([0; 2]), ppu_data_buf: Cell::new(0),
         };
 
         bus.write_data(0x8000, &cart.prg_rom);
@@ -99,10 +91,13 @@ impl Bus {
         bus
     }
 
-    pub fn poll_nmi(&self) -> bool { self.nmi.replace(false) }
-    pub fn poll_irq(&self) -> bool { self.nmi.replace(false) }
-    pub fn send_nmi(&self) { self.nmi.set(true); }
-    pub fn send_irq(&self) { self.irq.set(true); }
+    pub fn step(&self, cycles: usize) {
+        self.ppu.borrow_mut().step(cycles);
+    }
+
+    pub fn poll_nmi(&self) -> bool { self.ppu.borrow().nmi_requested }
+    // TODO IRQ
+    pub fn poll_irq(&self) -> bool { false }
 
     pub fn read(&self, addr: u16) -> u8 {
         match addr {
@@ -111,13 +106,7 @@ impl Bus {
                 let mirrored = (addr - RAM_MIRROR_START) % RAM_MIRROR_SIZE;
                 self.ram.borrow()[mirrored as usize]
             },
-            PPU_REG_START..=PPU_REG_END => {
-                let reg = addr - PPU_REG_START;
-                if [PPU_CTRL, PPU_MASK, OAM_ADDR, PPU_SCROLL, PPU_DATA, OAM_DMA].contains(&reg) {
-                    eprintln!("Invalid read to write-only PPU register ${reg:04X}")
-                }
-                self.ppu_regs.borrow()[reg as usize] 
-            },
+            PPU_REG_START..=PPU_REG_END => self.ppu.borrow_mut().reg_read(addr),
             PPU_REG_MIRRORS_START..=PPU_REG_MIRRORS_END => {
                 let mirrored = (addr - PPU_REG_MIRRORS_START) % PPU_REG_MIRRORS_SIZE;
                 self.read(mirrored)
@@ -148,13 +137,7 @@ impl Bus {
                 let mirrored = (addr - RAM_MIRROR_START) % RAM_MIRROR_SIZE;
                 self.ram.borrow_mut()[mirrored as usize] = val;
             },
-            PPU_REG_START..=PPU_REG_END => {
-                let reg = addr - PPU_REG_START;
-                if reg == PPU_STAT {
-                    eprintln!("Invalid write to read-only PPUSTAT register ${reg:04X}")
-                }
-                self.ppu_regs.borrow_mut()[reg as usize] = val;
-            },
+            PPU_REG_START..=PPU_REG_END => self.ppu.borrow_mut().reg_write(addr, val),
             PPU_REG_MIRRORS_START..=PPU_REG_MIRRORS_END => {
                 let mirrored = (addr - PPU_REG_MIRRORS_START) % PPU_REG_MIRRORS_SIZE;
                 self.write(mirrored, val)
