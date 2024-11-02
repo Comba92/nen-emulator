@@ -1,6 +1,6 @@
 use std::{path::Path, rc::Rc};
 
-use cart::Cart;
+use cart::{Cart, CartHeader};
 use cpu::Cpu;
 use ppu::Ppu;
 use bus::Bus;

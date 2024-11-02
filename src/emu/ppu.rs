@@ -55,15 +55,15 @@ const PALETTES_MIRRORS_END: usize = 0x3FFF;
 
 const PPU_MIRRORS_START: usize = 0x4000;
 
-const PPU_CTRL: u16 = 0x2000;
-const PPU_MASK: u16 = 0x2001;
-const PPU_STAT: u16 = 0x2002;
-const OAM_ADDR: u16 = 0x2003;
-const OAM_DATA: u16 = 0x2004;
-const PPU_SCROLL: u16 = 0x2005;
-const PPU_ADDR: u16 = 0x2006;
-const PPU_DATA: u16 = 0x2007;
-const OAM_DMA: u16 = 0x4014;
+pub const PPU_CTRL: u16 = 0x2000;
+pub const PPU_MASK: u16 = 0x2001;
+pub const PPU_STAT: u16 = 0x2002;
+pub const OAM_ADDR: u16 = 0x2003;
+pub const OAM_DATA: u16 = 0x2004;
+pub const PPU_SCROLL: u16 = 0x2005;
+pub const PPU_ADDR: u16 = 0x2006;
+pub const PPU_DATA: u16 = 0x2007;
+pub const OAM_DMA: u16 = 0x4014;
 
 const VISIBLE_SCANLINES: usize = 240;
 const VERTICAL_OVERSCAN: usize = 261;
@@ -148,10 +148,6 @@ impl Ppu {
     if self.scanline >= VERTICAL_OVERSCAN {
       self.scanline = 0;
     }
-  }
-
-  pub fn reg_write(&mut self, _addr: u16, _val: u8) {
-    todo!()
   }
 
   pub fn ctrl(&self) -> PpuCtrl { PpuCtrl::from_bits_retain(self.bus.read(PPU_CTRL)) }

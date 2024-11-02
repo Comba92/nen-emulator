@@ -79,12 +79,8 @@ impl Cart {
     }
     
     let header = CartHeader::new(&rom[0..16]);
-    let prg_start = if header.has_trainer { 512 } else { 0 };
+    let prg_start = if header.has_trainer { 16 + 512 } else { 16 };
     let chr_start = prg_start + header.prg_size as usize;
-
-    if rom.len() < HEADER_SIZE + chr_start + header.chr_size {
-      panic!("Rom file is too small");
-    }
 
     let prg_rom = rom[prg_start..chr_start].to_vec();
     let chr_rom = rom[chr_start..chr_start+header.chr_size].to_vec();
