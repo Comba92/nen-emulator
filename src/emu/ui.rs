@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use sdl2::{event::Event, pixels::{Color, PixelFormat, PixelFormatEnum}, rect::Rect, render::{Canvas, Texture, TextureCreator}, video::{Window, WindowContext}, EventPump, Sdl, VideoSubsystem};
+use sdl2::{event::Event, pixels::{Color, PixelFormat, PixelFormatEnum}, render::{Canvas, Texture, TextureCreator}, video::{Window, WindowContext}, EventPump, Sdl, VideoSubsystem};
 
 pub struct Sdl2Context {
     pub ctx: Sdl,
@@ -22,12 +22,13 @@ impl FrameBuffer {
 
     pub fn set_pixel(&mut self, x: usize, y: usize, color: Color) {
         let (r, g, b) = color.rgb();
-        self.buffer[(y*self.width + x) * 3 + 0] = r;
-        self.buffer[(y*self.width + x) * 3 + 1] = g;
-        self.buffer[(y*self.width + x) * 3 + 2] = b;
+        let idx = (y*self.width + x) * 3;
+        self.buffer[idx + 0] = r;
+        self.buffer[idx + 1] = g;
+        self.buffer[idx + 2] = b;
     }
 
-    pub fn set_tile(&mut self, x: usize, y: usize, tile: [[Color; 8]; 8]) {
+    pub fn set_tile(&mut self, x: usize, y: usize, tile: Tile) {
         for row in 0..8 {
             for col in 0..8 {
                 let color = tile[row][col];
@@ -58,6 +59,33 @@ impl Sdl2Context {
             .create_texture_target(PixelFormatEnum::RGB24, width, height)
             .expect("Could not create a texture")
     }
+}
+
+const GREYSCALE_PALETTE: [Color; 4] = [
+    Color::BLACK,
+    Color::RGB(123, 123, 123),
+    Color::RGB(191, 191, 191),
+    Color::RGB(238, 238, 238),
+];
+
+type Tile = [[Color; 8]; 8];
+pub fn parse_tile(tile: &[u8]) -> Tile {
+    let mut sprite = [[Color::BLACK; 8]; 8];
+
+    for row in 0..8 {
+        let plane0 = tile[row];
+        let plane1 = tile[row + 8];
+
+        for bit in (0..8).rev() {
+            let bit0 = (plane0 >> bit) & 1;
+            let bit1 = ((plane1 >> bit) & 1) << 1;
+            let color = bit1 | bit0;
+
+            sprite[row][7-bit] = GREYSCALE_PALETTE[color as usize];
+        }
+    }
+
+    sprite
 }
 
 pub fn show() {

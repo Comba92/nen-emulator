@@ -26,7 +26,7 @@ static GAME_CODE: [u8; 309] = [
 mod snake_test {
     use std::time::Duration;
 
-    use nen_emulator::emu::cpu::Cpu;
+    use nen_emulator::emu::Emulator;
     use rand::Rng;
     use sdl2::{event::Event, keyboard::Keycode, pixels::{Color, PixelFormatEnum}};
 
@@ -53,14 +53,14 @@ mod snake_test {
         .create_texture_target(PixelFormatEnum::RGB24, 32, 32)
         .unwrap();
 
-    let mut cpu = Cpu::new();
-    cpu.write_data(0x600, &GAME_CODE);
-    cpu.pc = 0x600;
+    let mut emu = Emulator::debug();
+    emu.bus.write_data(0x600, &GAME_CODE);
+    emu.cpu.pc = 0x600;
 
     let mut framebuffer = [0u8; 32*32*3];
     let mut rng = rand::thread_rng();
 
-    cpu.interpret_with_callback(|cpu| {
+    emu.cpu.interpret_with_callback(|cpu| {
         for event in events.poll_iter() {
           match event {
             Event::Quit { .. } => return true,
@@ -120,7 +120,7 @@ mod snake_test {
       false
     });
 
-    println!("{:?}", cpu);
+    println!("{:?}", emu.cpu);
   }
   
 }

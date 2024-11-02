@@ -1,3 +1,4 @@
+# TODO
 1. Complete CPU
 - TODO: interrupts
 - TODO: illegal opcodes
@@ -8,3 +9,5 @@
 
 3. Implement PPU
 - Render pattern table
+
+# Resources

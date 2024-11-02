@@ -1,11 +1,11 @@
 #[cfg(test)]
 pub mod nes_test {
 use core::panic;
-use std::{fs, path::Path};
+use std::{fs, path::Path, rc::Rc};
 use circular_buffer::CircularBuffer;
-use log::info;
+use log::{info, warn};
 
-use nen_emulator::emu::{cart::Cart, cpu::{Cpu, CpuFlags}, instr::{AddressingMode, INSTRUCTIONS}};
+use nen_emulator::emu::{bus::Bus, cart::Cart, cpu::{Cpu, CpuFlags}, instr::{AddressingMode, INSTRUCTIONS}, Emulator};
 use prettydiff::{diff_lines, diff_words};
 
   #[derive(Eq)]
@@ -59,34 +59,37 @@ use prettydiff::{diff_lines, diff_words};
     println!("{:?}", cart.header);
   }
 
-  fn debug_line(cpu: &CpuMock, mem: &[u8]) -> String {
-    let opcode = &INSTRUCTIONS[mem[cpu.pc as usize] as usize]; 
+  fn debug_line(cpu: &CpuMock, bus: &Rc<Bus>) -> String {
+    let opcode = bus.read(cpu.pc);
+    let instr = &INSTRUCTIONS[opcode as usize]; 
     
-    let operand8 = mem[cpu.pc as usize+1];
-    let operand16 = u16::from_le_bytes([operand8, mem[cpu.pc as usize+2]]);
+    let operand8 = bus.read(cpu.pc+1);
+    let operand16 = u16::from_le_bytes([operand8, bus.read(cpu.pc+2)]);
 
     use AddressingMode::*;
-    let desc = match opcode.addressing {
+    let desc = match instr.addressing {
       Implicit | Accumulator => String::new(),
       Immediate => format!("#${operand8:02X}"),
-      Relative => format!("${:04X}", (cpu.pc+opcode.bytes as u16).wrapping_add_signed((operand8 as i8) as i16)),
-      ZeroPage | ZeroPageX | ZeroPageY => format!("${operand8:02X} = ${:04X}", mem[operand8 as usize]),
-      Absolute => format!("${operand16:04X} = ${:02X}", mem[operand16 as usize]),
-      AbsoluteX => format!("${:04X} = ${:02X}", operand16+cpu.x as u16, mem[(operand16+cpu.x as u16) as usize]),
-      AbsoluteY => format!("${:04X} = ${:02X}", operand16+cpu.y as u16, mem[(operand16+cpu.y as u16) as usize]),
-      Indirect => format!("${operand16:04X} = {:04X}", mem[operand16 as usize]),
-      IndirectX => format!("IndX ${:04X} @ {:04X}", operand8+cpu.x, mem[(operand8+cpu.x) as usize]),
-      IndirectY => format!("IndY ${:04X} @ {:04X}", operand8, mem[operand8 as usize] as u16 + cpu.y as u16),
+      Relative => format!("${:04X}", (cpu.pc+instr.bytes as u16).wrapping_add_signed((operand8 as i8) as i16)),
+      ZeroPage | ZeroPageX | ZeroPageY => format!("${operand8:02X} = ${:04X}", bus.read(operand8 as u16)),
+      Absolute => format!("${operand16:04X} = ${:02X}", bus.read(operand16)),
+      AbsoluteX => format!("${:04X} = ${:02X}", operand16+cpu.x as u16, bus.read(operand16+cpu.x as u16)),
+      AbsoluteY => format!("${:04X} = ${:02X}", operand16+cpu.y as u16, bus.read(operand16+cpu.y as u16)),
+      Indirect => format!("${operand16:04X} = {:04X}", bus.read(operand16)),
+      IndirectX => format!("IndX ${:04X} @ {:04X}", operand8+cpu.x, bus.read((operand8+cpu.x) as u16)),
+      IndirectY => format!("IndY ${:04X} @ {:04X}", operand8, bus.read((operand8 as u16) as u16 + cpu.y as u16)),
     };
 
     format!(
-      "{:04X}  {:02X} {:02X} {:02X}  {opcode} {desc:20} \
+      "{:04X}  {:02X} {:02X} {:02X}  {instr} {desc:20} \
       A:{a:02X} X:{x:02X} Y:{y:02X} P:{p:02X} SP:{sp:02X} CYC:{cyc}",
-      cpu.pc, mem[cpu.pc as usize], operand8, mem[cpu.pc as usize+2],
-      opcode=opcode.name,
+      cpu.pc, opcode, operand8, bus.read(cpu.pc + 2),
+      instr=instr.name,
       a=cpu.a, x=cpu.x, y=cpu.y, p=cpu.p, sp=cpu.sp, cyc=cpu.cycles
     )
   }
+
+  const LINES_RANGE: usize = 8;
 
   #[test]
   fn nes_test() {
@@ -96,82 +99,82 @@ use prettydiff::{diff_lines, diff_words};
 
     let log_str = include_str!("nestest.log");
     let mut test_log = log_str
-      .lines().enumerate();
+      .lines();
 
     let rom_path = Path::new("tests/nes_test/nestest.nes");
     let prg_rom = fs::read(rom_path).unwrap();
-    let mut cpu = Cpu::new();
+    let mut emu = Emulator::debug();
 
-    cpu.pc = 0xC000;
-    cpu.p = CpuFlags::from_bits_retain(0x24);
-    cpu.write_data(0x8000, &prg_rom[16..16+0x4000]);
-    cpu.write_data(0xC000, &prg_rom[16..16+0x4000]);
+    warn!("{:?}", emu.cart.header);
+    warn!("PRG ROM SIZE: ${:04X}", emu.cart.prg_rom.len());
+
+    emu.cpu.pc = 0xC000;
+    emu.cpu.p = CpuFlags::from_bits_retain(0x24);
+    emu.bus.write_data(0x8000, &prg_rom[16..16+0x4000]);
+    emu.bus.write_data(0xC000, &prg_rom[16..16+0x4000]);
     
-    const RANGE: usize = 8;
-    let mut most_recent_instr = CircularBuffer::<RANGE, (CpuMock, CpuMock)>::new();
+    let mut most_recent_instr = CircularBuffer::<LINES_RANGE, (CpuMock, CpuMock)>::new();
+    let mut line_count = 1;
 
-    cpu.interpret_with_callback(move |cpu| {
+    emu.cpu.interpret_with_callback(move |cpu| {
       let next_line = test_log.next();
 
       if let None = next_line {
         info!("Reached end of input!!");
-        let mut trace: Vec<(usize, &(CpuMock, CpuMock))> = most_recent_instr.iter().enumerate().collect::<Vec<_>>();
-        trace.sort_by(|a, b| a.0.cmp(&b.0));
-
-        for (_, (mine, log)) in trace {
-          let my_line = debug_line(mine, cpu.mem.borrow().as_slice());
-          let log_line = debug_line(log, cpu.mem.borrow().as_slice());
-    
-          info!("|Mine -> {my_line}"); 
-          info!("|Log  -> {log_line}");
-          info!("");
-        }
+        print_last_diffs(&most_recent_instr, cpu, line_count);
 
         return true;
       }
 
-      let (mut line_count, line) = next_line.unwrap();
-      line_count+=1;
+      let line = next_line.unwrap();
       
       let my_cpu = CpuMock::from_cpu(cpu);
       let log_cpu = CpuMock::from_log(line);
-
+      
       if my_cpu != log_cpu {
-        let mut trace: Vec<(usize, &(CpuMock, CpuMock))> = most_recent_instr.iter().enumerate().collect::<Vec<_>>();
-        trace.sort_by(|a, b| a.0.cmp(&b.0));
+        print_last_diffs(&most_recent_instr, cpu, line_count);
 
-        for (i, (mine, log)) in trace {
-          let my_line = debug_line(mine, cpu.mem.borrow().as_slice());
-          let log_line = debug_line(log, cpu.mem.borrow().as_slice());
-    
-          let line = line_count - RANGE + i;
-          info!("{}|Mine -> {my_line}", line); 
-          info!("{}|Log  -> {log_line}", line);
-          info!("");
-        }
-
-        let my_line = debug_line(&my_cpu, cpu.mem.borrow().as_slice());
-        let log_line = debug_line(&log_cpu, cpu.mem.borrow().as_slice());
-        info!("{}|Mine -> {my_line}", line_count); 
+        let my_line = debug_line(&my_cpu, &cpu.bus);
+        let log_line = debug_line(&log_cpu, &cpu.bus);
+        info!("{}|Mine -> {my_line}", line_count);
         info!("{}|Log  -> {log_line}", line_count);
         info!("");
 
         info!("{}", "-".repeat(50));
         info!("Incosistency at line {line_count}\n{}", diff_words(&my_line, &log_line));
-
+      
         let my_p = format!("{:?}", CpuFlags::from_bits_retain(my_cpu.p));
         let log_p = format!("{:?}", CpuFlags::from_bits_retain(log_cpu.p));
         info!("Stack: {}", cpu.stack_trace());
-
+      
         info!("Flags: {}", diff_lines(&my_p, &log_p));
         info!("Results: ${:04X}", cpu.mem_read16(0x2));
-
+      
         info!("{}", "-".repeat(50));
-        panic!()
-      }
 
+        panic!("Instruction inconsistency")
+      }
+      
       most_recent_instr.push_back((my_cpu, log_cpu));
+      line_count+=1;
+
       false
     });
+  }
+  
+  
+  fn print_last_diffs(most_recent_instr: &CircularBuffer<8, (CpuMock, CpuMock)>, cpu: &mut Cpu, line_count: usize) {
+    let mut trace: Vec<(usize, &(CpuMock, CpuMock))> = most_recent_instr.iter().enumerate().collect::<Vec<_>>();
+    trace.sort_by(|a, b| a.0.cmp(&b.0));
+    
+    for (i, (mine, log)) in trace {
+      let my_line = debug_line(mine, &cpu.bus);
+      let log_line = debug_line(log, &cpu.bus);
+    
+      let line = line_count.max(LINES_RANGE) - LINES_RANGE + i+1;
+      info!("{}|Mine -> {my_line}", line); 
+      info!("{}|Log  -> {log_line}", line);
+      info!("");
+    }
   }
 }

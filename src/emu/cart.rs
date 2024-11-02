@@ -15,6 +15,7 @@ pub struct CartHeader {
 }
 
 const ASCII_NES: [u8; 4] = [0x4E, 0x45, 0x53, 0x1A];
+const HEADER_SIZE: usize = 16;
 const PRG_ROM_PAGE_SIZE: usize = 1024 * 16;
 const CHR_ROM_PAGE_SIZE: usize = 1024 * 8;
 
@@ -42,7 +43,7 @@ impl Cart {
   pub fn new(rom_path: &Path) -> Self {
     let rom = fs::read(rom_path)
       .expect(format!("Couldn't locate rom file at {:?}", rom_path).as_str());
-    if rom.len() < 16 {
+    if rom.len() < HEADER_SIZE {
       panic!("Rom file is too small");
     }
     
@@ -50,11 +51,11 @@ impl Cart {
     let prg_start = if header.has_trainer { 512 } else { 0 };
     let chr_start = prg_start + header.prg_size as usize;
 
-    if rom.len() < 16 + chr_start + header.chr_size {
+    if rom.len() < HEADER_SIZE + chr_start + header.chr_size {
       panic!("Rom file is too small");
     }
 
-    let prg_rom = rom[prg_start .. chr_start].to_vec();
+    let prg_rom = rom[prg_start..chr_start].to_vec();
     let chr_rom = rom[chr_start..chr_start+header.chr_size].to_vec();
 
     Cart { header, prg_rom, chr_rom }

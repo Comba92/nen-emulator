@@ -2,33 +2,8 @@
 mod patterns_test {
     use std::path::Path;
 
-    use nen_emulator::emu::{cart::Cart, ui::{FrameBuffer, Sdl2Context}};
-    use sdl2::pixels::{Color, PixelFormatEnum};
-
-    fn parse_tile(tile: &[u8]) -> [[Color; 8]; 8] {
-      let mut sprite = [[Color::BLACK; 8]; 8];
-      
-      for row in 0..8 {
-        let plane0 = tile[row];
-        let plane1 = tile[row + 8];
-
-        for bit in (0..8).rev() {
-          let bit0 = (plane0 >> bit) & 1;
-          let bit1 = ((plane1 >> bit) & 1) << 1;
-          let color = bit1 | bit0;
-
-          sprite[row][7-bit] = match color {
-            0 => Color::BLACK,
-            1 => Color::GRAY,
-            2 => Color::GREY,
-            3 => Color::WHITE,
-            _ => unreachable!()
-          }
-        }
-      }
-
-      sprite
-    }
+    use nen_emulator::emu::{cart::Cart, ui::{parse_tile, FrameBuffer, Sdl2Context}};
+    use sdl2::pixels::PixelFormatEnum;
 
     #[test]
     fn print_pattern() {
@@ -77,7 +52,7 @@ mod patterns_test {
       .create_texture_target(PixelFormatEnum::RGB24, framebuf.width as u32, framebuf.height as u32)
       .unwrap();
 
-      let cart = Cart::new(Path::new("tests/test_roms/Pacman.nes"));
+      let cart = Cart::new(Path::new("tests/test_roms/Super Mario Bros.nes"));
 
       for (i, tile) in cart.chr_rom.chunks(16).enumerate() {
         let x = i*8 % framebuf.width;
@@ -89,6 +64,7 @@ mod patterns_test {
 
       texture.update(None, &framebuf.buffer, framebuf.width*3).unwrap();
       sdl.canvas.copy(&texture, None, None).unwrap();
+      sdl.canvas.present();
 
       'running: loop {
         for event in sdl.events.poll_iter() {
@@ -97,8 +73,6 @@ mod patterns_test {
             _ => {}
           }
         }
-
-        sdl.canvas.present();
       }
 
 

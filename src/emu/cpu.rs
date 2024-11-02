@@ -4,7 +4,7 @@ use std::{cell::RefCell, fmt::Debug, ops::{Shl, Shr}, rc::Rc};
 use bitflags::bitflags;
 use log::{debug, info, trace};
 
-use super::instr::{AddressingMode, Instruction, INSTRUCTIONS, INSTR_TO_FN};
+use super::{bus::Bus, instr::{AddressingMode, Instruction, INSTRUCTIONS, INSTR_TO_FN}};
 
 bitflags! {
   #[derive(Debug, Clone, Copy)]
@@ -45,7 +45,7 @@ pub struct Cpu {
   pub x: u8,
   pub y: u8,
   pub cycles: usize,
-  pub mem: Rc<RefCell<[u8; MEM_SIZE]>>,
+  pub bus: Rc<Bus>,
 }
 
 impl Debug for Cpu {
@@ -55,7 +55,7 @@ impl Debug for Cpu {
 }
 
 impl Cpu {
-  pub fn new() -> Self {    
+  pub fn new(bus: Rc<Bus>) -> Self {    
     Self {
       pc: PC_RESET as u16,
       sp: STACK_RESET,
@@ -63,7 +63,7 @@ impl Cpu {
       // At boot, only interrupt flag is enabled
       p: CpuFlags::from(CpuFlags::interrupt),
       cycles: 7,
-      mem: Rc::new(RefCell::new([0; MEM_SIZE])),
+      bus,
     }
   }
 
@@ -99,14 +99,9 @@ impl Cpu {
     self.p.contains(CpuFlags::carry).into()
   }
 
-  pub fn write_data(&mut self, addr: usize, data: &[u8]) {
-    let mut mem = self.mem.borrow_mut();
-    mem[addr..addr+data.len()].copy_from_slice(data);
-  }
-
   pub fn mem_read(&mut self, addr: u16) -> u8 {
     //self.cycles = self.cycles.wrapping_add(1);
-    self.mem.borrow()[addr as usize]
+    self.bus.read(addr)
   }
 
   pub fn mem_read16(&mut self, addr: u16) -> u16 {
@@ -124,13 +119,13 @@ impl Cpu {
 
   pub fn mem_write(&mut self, addr: u16, val: u8) {
     //self.cycles = self.cycles.wrapping_add(1);
-    self.mem.borrow_mut()[addr as usize] = val;
+    self.bus.write(addr, val);
   }
 
   pub fn mem_write16(&mut self, addr: u16, val: u16) {
     let [low, high] = val.to_le_bytes();
-    self.mem.borrow_mut()[addr as usize] = low;
-    self.mem.borrow_mut()[(addr + 1) as usize] = high;
+    self.bus.write(addr, low);
+    self.bus.write(addr+1, high);
   }
 
   pub fn pc_fetch(&mut self) -> u8 {
@@ -683,31 +678,5 @@ impl Cpu {
 
   pub fn jam(&mut self, _: &mut Operand) {
     todo!("jam")
-  }
-}
-
-#[cfg(test)]
-mod tests {
-use super::*;
-
-  #[test]
-  fn signed_test() {
-    let unsigned = 130u8;
-    let signed = unsigned as i8;
-    let signed16 = (unsigned as i8) as i16;
-
-    assert_eq!(signed, -126);
-    assert_eq!(signed16, -126);
-  }
-
-  #[test]
-  fn cpu_test() {
-    let mut cpu = Cpu::new();
-    let codes = vec![0x69, 0x01, 0x69, 0x05];
-    cpu.write_data(0, &codes);
-
-    cpu.interpret();
-
-    assert_eq!(cpu.a, 6);
   }
 }

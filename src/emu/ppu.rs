@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use std::rc::Rc;
 
 use super::bus::Bus;
@@ -65,4 +66,10 @@ pub struct Ppu {
   vram: [u8; VRAM_SIZE],
   oam: [u8; 256],
   bus: Rc<Bus>,
+}
+
+impl Ppu {
+  pub fn new(bus: Rc<Bus>) -> Self {
+    Self { vram: [0; VRAM_SIZE], oam: [0; 256], bus }
+  }
 }
