@@ -1,4 +1,4 @@
-use std::{cell::RefCell, path::Path, rc::Rc};
+use std::{path::Path, rc::Rc};
 
 use cart::Cart;
 use cpu::Cpu;
@@ -24,10 +24,10 @@ pub struct Emulator {
 impl Emulator {
   pub fn new(rom_path: &Path) -> Self {
     let cart = Cart::new(rom_path);
-    Emulator::from(cart)
+    Emulator::from_cart(cart)
   }
 
-  pub fn from(cart: Cart) -> Self {
+  pub fn from_cart(cart: Cart) -> Self {
     let bus = Rc::new(Bus::new(&cart));
     let cpu = Cpu::new(Rc::clone(&bus));
     let ppu = Ppu::new(Rc::clone(&bus));
@@ -36,6 +36,15 @@ impl Emulator {
   }
 
   pub fn debug() -> Self {
-    Emulator::from(Cart::empty())
+    Emulator::from_cart(Cart::empty())
+  }
+
+  pub fn step(&mut self) {
+    let last_cycles = self.cpu.cycles;
+    self.cpu.step();
+    
+    for _ in 0..3 {
+      self.ppu.step(self.cpu.cycles - last_cycles);
+    }
   }
 }

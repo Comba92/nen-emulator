@@ -43,16 +43,17 @@ mod patterns_test {
     fn render_patterns() {
       const RENDER_WIDTH: u32 = 128*2;
       const RENDER_HEIGHT: u32 = 128;
+      const SCALE: u32 = 5;
 
-      let mut sdl = Sdl2Context::new("Patterns", RENDER_WIDTH*8, RENDER_HEIGHT*8);
-      
+      let mut sdl = Sdl2Context::new("Patterns", RENDER_WIDTH*SCALE, RENDER_HEIGHT*SCALE);
+
       let mut framebuf = FrameBuffer::new(RENDER_WIDTH as usize, RENDER_HEIGHT as usize);
 
       let mut texture = sdl.texture_creator
       .create_texture_target(PixelFormatEnum::RGB24, framebuf.width as u32, framebuf.height as u32)
       .unwrap();
 
-      let cart = Cart::new(Path::new("tests/test_roms/Super Mario Bros.nes"));
+      let cart = Cart::new(Path::new("tests/test_roms/Donkey Kong.nes"));
 
       for (i, tile) in cart.chr_rom.chunks(16).enumerate() {
         let x = i*8 % framebuf.width;

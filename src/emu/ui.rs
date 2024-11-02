@@ -1,5 +1,4 @@
-#![allow(dead_code)]
-use sdl2::{event::Event, pixels::{Color, PixelFormat, PixelFormatEnum}, render::{Canvas, Texture, TextureCreator}, video::{Window, WindowContext}, EventPump, Sdl, VideoSubsystem};
+use sdl2::{event::Event, pixels::{Color, PixelFormatEnum}, render::{Canvas, Texture, TextureCreator}, video::{Window, WindowContext}, EventPump, Sdl, VideoSubsystem};
 
 pub struct Sdl2Context {
     pub ctx: Sdl,

@@ -60,31 +60,33 @@ mod snake_test {
     let mut framebuffer = [0u8; 32*32*3];
     let mut rng = rand::thread_rng();
 
-    emu.cpu.interpret_with_callback(|cpu| {
+    'running: loop {
+        emu.step();
+
         for event in events.poll_iter() {
           match event {
-            Event::Quit { .. } => return true,
+            Event::Quit { .. } => break 'running,
             Event::KeyDown { keycode: Some(Keycode::W), .. } => {
-              cpu.mem_write(0xFF, 0x77);
+              emu.cpu.mem_write(0xFF, 0x77);
             }
             Event::KeyDown { keycode: Some(Keycode::S), .. } => {
-              cpu.mem_write(0xFF, 0x73);
+              emu.cpu.mem_write(0xFF, 0x73);
             }
             Event::KeyDown { keycode: Some(Keycode::A), .. } => {
-              cpu.mem_write(0xFF, 0x61);
+              emu.cpu.mem_write(0xFF, 0x61);
             }
             Event::KeyDown { keycode: Some(Keycode::D), .. } => {
-              cpu.mem_write(0xFF, 0x64);
+              emu.cpu.mem_write(0xFF, 0x64);
             }
             _ => {}
         }
       }
 
-      cpu.mem_write(0xfe, rng.gen_range(2..16));
+      emu.cpu.mem_write(0xfe, rng.gen_range(2..16));
 
       let mut to_update = false;
       for i in 0..(0x600-0x200) {
-        let color_idx = cpu.mem_read(0x200 + i);
+        let color_idx = emu.cpu.mem_read(0x200 + i);
         let color = match color_idx {
           0 => Color::BLACK,
           1 => Color::WHITE,
@@ -117,10 +119,7 @@ mod snake_test {
       }
 
       std::thread::sleep(Duration::new(0, 10_000));
-      false
-    });
-
-    println!("{:?}", emu.cpu);
+    }
   }
   
 }

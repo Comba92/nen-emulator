@@ -1,5 +1,5 @@
 #![allow(unused_imports)]
-use std::{cell::RefCell, fmt::Debug, ops::{Shl, Shr}, rc::Rc};
+use std::{cell::RefCell, default, fmt::Debug, ops::{Shl, Shr}, rc::Rc};
 
 use bitflags::bitflags;
 use log::{debug, info, trace};
@@ -11,7 +11,7 @@ bitflags! {
   pub struct CpuFlags: u8 {
     const carry     = 0b0000_0001;
     const zero      = 0b0000_0010;
-    const interrupt = 0b0000_0100;
+    const irq_off   = 0b0000_0100;
     const decimal   = 0b0000_1000;
     const brk       = 0b0001_0000;
     const unused    = 0b0010_0000;
@@ -29,12 +29,12 @@ pub const STACK_END: usize = 0x0200;
 // After every successive restart, it will be SP - 0x03
 const STACK_RESET: u8 = 0xFD;
 const PC_RESET: u16 = 0xFFFC;
+const STAT_RESET: u8 = 0x24;
 pub const MEM_SIZE: usize = 0x1_0000;
 
-pub const INTERRUPT_NON_MASKABLE: u16 = 0xFFFA;
-pub const INTERRUPT_RESET: u16 = 0xFFFC;
-pub const INTERRUPT_REQUEST: u16 = 0xFFFE;
-
+pub const NMI_ISR: u16 = 0xFFFA;
+pub const RESET_ISR: u16 = 0xFFFC;
+pub const IRQ_ISR: u16 = 0xFFFE;
 
 #[derive(Clone)]
 pub struct Cpu {
@@ -61,7 +61,7 @@ impl Cpu {
       sp: STACK_RESET,
       a: 0, x: 0, y: 0,
       // At boot, only interrupt flag is enabled
-      p: CpuFlags::from(CpuFlags::interrupt),
+      p: CpuFlags::from_bits_retain(STAT_RESET),
       cycles: 7,
       bus,
     }
@@ -105,7 +105,7 @@ impl Cpu {
   }
 
   pub fn mem_read16(&mut self, addr: u16) -> u16 {
-    u16::from_le_bytes([self.mem_read(addr), self.mem_read(addr+1)])
+    self.bus.read16(addr)
   }
 
   pub fn wrapping_read16(&mut self, addr: u16) -> u16 {
@@ -123,9 +123,7 @@ impl Cpu {
   }
 
   pub fn mem_write16(&mut self, addr: u16, val: u16) {
-    let [low, high] = val.to_le_bytes();
-    self.bus.write(addr, low);
-    self.bus.write(addr+1, high);
+    self.bus.write16(addr, val);
   }
 
   pub fn pc_fetch(&mut self) -> u8 {
@@ -184,11 +182,13 @@ impl Cpu {
   }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 enum OperandSrc {
-  Acc, Addr(u16), None
+  Acc, Addr(u16), 
+  #[default]
+  None
 }
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Operand {
   src: OperandSrc,
   val: u8,
@@ -200,28 +200,35 @@ pub enum InstrDst {
 pub type InstrFn = fn(&mut Cpu, &mut Operand);
 
 impl Cpu {
-  pub fn interpret(&mut self) {
-    self.interpret_with_callback(|_| { false });
+  pub fn step(&mut self) {
+    let opcode = self.pc_fetch();
+    
+    let instr = &INSTRUCTIONS[opcode as usize];
+    let mut op = self.get_operand_with_addressing(&instr);
+    
+    let opname = instr.name.as_str();
+    let (_, inst_fn) = INSTR_TO_FN
+    .get_key_value(opname)
+    .expect(&format!("Op {opcode}({}) should be in map", instr.name));
+  
+    inst_fn(self, &mut op);
+    self.cycles += instr.cycles;
+    self.poll_interrupts();
   }
 
-  pub fn interpret_with_callback<F: FnMut(&mut Cpu) -> bool>(&mut self, mut callback: F) {
-    loop {
-      if callback(self) { break; };
+  fn handle_interrupt(&mut self, isr_addr: u16) {
+    self.stack_push16(self.pc);
+    self.stack_push(self.p.bits());
+    self.cycles = self.cycles.wrapping_add(2);
+    self.p.insert(CpuFlags::irq_off);
+    self.pc = self.mem_read16(isr_addr);
+  }
 
-      let opcode = self.pc_fetch();
-      
-      let instr = &INSTRUCTIONS[opcode as usize];
-      let mut op = self.get_operand_with_addressing(&instr);
-      
-      let opname = instr.name.as_str();
-
-      let (_, inst_fn) = INSTR_TO_FN
-        .get_key_value(opname)
-        .expect(&format!("Op {opcode}({}) should be in map", instr.name));
-      
-      inst_fn(self, &mut op);
-
-      self.cycles += instr.cycles;
+  fn poll_interrupts(&mut self) {
+    if self.bus.poll_nmi() {
+      self.handle_interrupt(NMI_ISR);
+    } else if self.bus.poll_irq() && !self.p.contains(CpuFlags::irq_off) { 
+      self.handle_interrupt(IRQ_ISR);
     }
   }
 
@@ -547,7 +554,7 @@ impl Cpu {
     self.clear_stat(CpuFlags::decimal)
   }
   pub fn cli(&mut self, _: &mut Operand) {
-    self.clear_stat(CpuFlags::interrupt)
+    self.clear_stat(CpuFlags::irq_off)
   }
   pub fn clv(&mut self, _: &mut Operand) {
     self.clear_stat(CpuFlags::overflow)
@@ -562,13 +569,16 @@ impl Cpu {
     self.set_stat(CpuFlags::decimal)
   }
   pub fn sei(&mut self, _: &mut Operand) {
-    self.set_stat(CpuFlags::interrupt)
+    self.set_stat(CpuFlags::irq_off)
   }
 
   pub fn brk(&mut self, op: &mut Operand) {
     self.stack_push16(self.pc);
     self.php(op);
+    self.p.insert(CpuFlags::irq_off);
+    self.pc = self.mem_read16(IRQ_ISR);
   }
+
   pub fn rti(&mut self, op: &mut Operand) {
     self.plp(op);
     self.pc = self.stack_pull16();
