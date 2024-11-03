@@ -16,7 +16,7 @@ pub struct CartHeader {
   pub has_trainer: bool,
   pub has_battery_prg: bool,
   pub has_alt_nametbl: bool,
-  pub nametbl_layout: NametableLayout,
+  pub nametbl_mirroring: NametblMirroring,
   pub mapper: u8,
 }
 
@@ -25,8 +25,8 @@ const HEADER_SIZE: usize = 16;
 const PRG_ROM_PAGE_SIZE: usize = 1024 * 16;
 const CHR_ROM_PAGE_SIZE: usize = 1024 * 8;
 
-#[derive(Debug, Default)]
-pub enum NametableLayout { Vertical, Horizontal, #[default] None }
+#[derive(Debug, Default, Clone, Copy)]
+pub enum NametblMirroring { #[default] None, Horizontally, Vertically }
 
 impl CartHeader {
   pub fn new(rom: &[u8]) -> Self {
@@ -43,8 +43,8 @@ impl CartHeader {
     let chr_size = rom[5] as usize * CHR_ROM_PAGE_SIZE;
     
     let nametbl_layout = match rom[6] & 1 {
-      0 => NametableLayout::Vertical,
-      1 => NametableLayout::Horizontal,
+      0 => NametblMirroring::Horizontally,
+      1 => NametblMirroring::Vertically,
       _ => unreachable!()
     };
 
@@ -63,7 +63,7 @@ impl CartHeader {
       chr_size,
       has_trainer,
       has_battery_prg,
-      nametbl_layout,
+      nametbl_mirroring: nametbl_layout,
       has_alt_nametbl,
       mapper,
     }
@@ -79,7 +79,7 @@ impl Cart {
     }
     
     let header = CartHeader::new(&rom[0..16]);
-    let prg_start = if header.has_trainer { 16 + 512 } else { 16 };
+    let prg_start = HEADER_SIZE + if header.has_trainer { 512 } else { 0 };
     let chr_start = prg_start + header.prg_size as usize;
 
     let prg_rom = rom[prg_start..chr_start].to_vec();

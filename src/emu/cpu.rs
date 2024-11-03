@@ -1,8 +1,7 @@
-#![allow(unused_imports)]
-use std::{cell::RefCell, default, fmt::Debug, ops::{Shl, Shr}, rc::Rc};
+use std::{fmt, ops::{Shl, Shr}, rc::Rc};
 
 use bitflags::bitflags;
-use log::{debug, info, trace};
+use log::{debug, trace};
 
 use super::{bus::Bus, instr::{AddressingMode, Instruction, INSTRUCTIONS, INSTR_TO_FN}};
 
@@ -48,7 +47,7 @@ pub struct Cpu {
   pub bus: Rc<Bus>,
 }
 
-impl Debug for Cpu {
+impl fmt::Debug for Cpu {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Cpu").field("pc", &self.pc).field("sp", &self.sp).field("sr", &self.p).field("a", &self.a).field("x", &self.x).field("y", &self.y).field("cycles", &self.cycles).finish()
     }

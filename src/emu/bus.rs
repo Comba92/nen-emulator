@@ -27,7 +27,9 @@
 // |_______________| $0000 |_______________|
 #![allow(dead_code)]
 
-use std::cell::RefCell;
+use std::cell::{Cell, OnceCell, RefCell, RefMut};
+
+use log::{info, warn};
 
 use super::{cart::Cart, ppu::Ppu};
 
@@ -59,14 +61,18 @@ const CART_MEM_SIZE: usize = 0xBFE0;
 const SRAM_START: u16 = 0x6000;
 const SRAM_SIZE: u16 = 0x2000;
 const ROM_START: u16 = 0x8000;
-const ROM_SIZE: usize = 0x4000;
+const ROM_SIZE: usize = 0x8000;
 const CART_MEM_END: u16 = 0xFFFF;
 
-trait MemAccess {
-    fn mem_read(&mut self, addr: u16) -> u8;
-    fn mem_read16(&mut self, add: u16) -> u16;
-    fn mem_write(&mut self, addr: u16, val: u8);
-    fn mem_write16(&mut self, addr: u16, val: u16);
+trait Device {
+    // fn mem_read(&mut self, addr: u16) -> u8;
+    // fn mem_read16(&mut self, add: u16) -> u16;
+    // fn mem_write(&mut self, addr: u16, val: u8);
+    // fn mem_write16(&mut self, addr: u16, val: u16);
+}
+
+pub enum BusTarget {
+    Ram, SRam, Rom, Ppu, None
 }
 
 pub struct Bus {
@@ -74,16 +80,18 @@ pub struct Bus {
     sram: RefCell<[u8; CART_MEM_SIZE]>,
     rom: RefCell<[u8; ROM_SIZE]>,
     
-    pub ppu: RefCell<Ppu>,
+    ppu: OnceCell<RefCell<Ppu>>,
+    pub nmi: Cell<bool>
 }
 
 impl Bus {
     pub fn new(cart: &Cart) -> Self {
         let bus = Self { 
             ram: RefCell::new([0; WRAM_SIZE as usize]),
-            ppu: RefCell::new(Ppu::new()),
+            ppu: OnceCell::new(),
             sram: RefCell::new([0; CART_MEM_SIZE]),
             rom: RefCell::new([0; ROM_SIZE]),
+            nmi: Cell::new(false),
         };
 
         bus.write_data(0x8000, &cart.prg_rom);
@@ -91,73 +99,85 @@ impl Bus {
         bus
     }
 
-    pub fn step(&self, cycles: usize) {
-        self.ppu.borrow_mut().step(cycles);
+    pub fn connect(&self, ppu: Ppu) {
+        self.ppu.set(RefCell::new(ppu)).unwrap();
     }
 
-    pub fn poll_nmi(&self) -> bool { self.ppu.borrow().nmi_requested }
+    pub fn step(&self, cycles: usize) {
+        self.ppu().step(cycles);
+    }
+
+    pub fn ppu(&self) -> RefMut<Ppu> {
+        self.ppu.get().unwrap().borrow_mut()
+    }
+
+    pub fn send_nmi(&self) { self.nmi.set(true) }
+    pub fn poll_nmi(&self) -> bool { self.nmi.replace(false) }
     // TODO IRQ
     pub fn poll_irq(&self) -> bool { false }
 
-    pub fn read(&self, addr: u16) -> u8 {
+    // TODO: replace subtractions with masks
+    pub fn map(&self, addr: u16) -> (BusTarget, u16) {
         match addr {
-            0..=WRAM_END => self.ram.borrow()[addr as usize],
-            RAM_MIRROR_START..=RAM_MIRRORS_END => {
-                let mirrored = (addr - RAM_MIRROR_START) % RAM_MIRROR_SIZE;
-                self.ram.borrow()[mirrored as usize]
+            0..=RAM_MIRRORS_END => {
+                let ram_addr = addr & WRAM_END;
+                (BusTarget::Ram, ram_addr)
             },
-            PPU_REG_START..=PPU_REG_END => self.ppu.borrow_mut().reg_read(addr),
+            PPU_REG_START..=PPU_REG_END => {
+                warn!("Access to PPU REG ${addr:04X}");
+                (BusTarget::Ppu, addr)
+            },
             PPU_REG_MIRRORS_START..=PPU_REG_MIRRORS_END => {
-                let mirrored = (addr - PPU_REG_MIRRORS_START) % PPU_REG_MIRRORS_SIZE;
-                self.read(mirrored)
+                let mirrored = addr & PPU_REG_END;
+                warn!("Access to PPU REG ${mirrored:04X}");
+                (BusTarget::Ppu, mirrored)
             }
             CART_MEM_START..ROM_START => {
-                let rom_addr = (addr - CART_MEM_START) % (ROM_START - CART_MEM_START);
-                self.sram.borrow()[rom_addr as usize]
+                let rom_addr = addr - CART_MEM_START;
+                (BusTarget::SRam, rom_addr)
             }
             ROM_START..=CART_MEM_END => {
-                let rom_addr = (addr - ROM_START) % self.rom.borrow().len() as u16;
-                self.rom.borrow()[rom_addr as usize]
+                let rom_addr = addr - ROM_START;
+                (BusTarget::Rom, rom_addr)
             },
             _ => {
-                eprintln!("Read to ${addr:04X} not yet implemented");
-                0
+                info!("Access to ${addr:04X} not yet implemented");
+                (BusTarget::None, 0)
             },
         }
     }
 
+
+    pub fn read(&self, addr: u16) -> u8 {
+        let (target, new_addr) = self.map(addr);
+        match target {
+            BusTarget::Ram => self.rom.borrow()[new_addr as usize],
+            BusTarget::Ppu => self.ppu().reg_read(addr),
+            BusTarget::SRam => self.sram.borrow()[new_addr as usize],
+            BusTarget::Rom => self.rom.borrow()[new_addr as usize],
+            BusTarget::None => 0,
+        }
+    }
+
     pub fn read16(&self, addr: u16) -> u16 {
-        u16::from_le_bytes([self.read(addr), self.read(addr+1)])
+        u16::from_le_bytes([self.read(addr), self.read(addr.wrapping_add(1))])
     }
 
     pub fn write(&self, addr: u16, val: u8) {
-        match addr {
-            0..=WRAM_END => self.ram.borrow_mut()[addr as usize] = val,
-            RAM_MIRROR_START..=RAM_MIRRORS_END => {
-                let mirrored = (addr - RAM_MIRROR_START) % RAM_MIRROR_SIZE;
-                self.ram.borrow_mut()[mirrored as usize] = val;
-            },
-            PPU_REG_START..=PPU_REG_END => self.ppu.borrow_mut().reg_write(addr, val),
-            PPU_REG_MIRRORS_START..=PPU_REG_MIRRORS_END => {
-                let mirrored = (addr - PPU_REG_MIRRORS_START) % PPU_REG_MIRRORS_SIZE;
-                self.write(mirrored, val)
-            }
-            CART_MEM_START..ROM_START => {
-                let addr = (addr - CART_MEM_START) % (ROM_START - CART_MEM_START);
-                self.sram.borrow_mut()[addr as usize] = val;
-            }
-            ROM_START..=CART_MEM_END => {
-                let rom_addr = (addr - ROM_START) % self.rom.borrow().len() as u16;
-                self.rom.borrow_mut()[rom_addr as usize] = val;
-            }
-            _ => eprintln!("Write to ${addr:04X} not yet implemented"),
+        let (target, new_addr) = self.map(addr);
+        match target {
+            BusTarget::Ram => self.rom.borrow_mut()[new_addr as usize] = val,
+            BusTarget::Ppu => self.ppu().reg_write(addr, val),
+            BusTarget::SRam => self.sram.borrow_mut()[new_addr as usize] = val,
+            BusTarget::Rom => self.rom.borrow_mut()[new_addr as usize] = val,
+            BusTarget::None => {},
         }
     }
 
     pub fn write16(&self, addr: u16, val: u16) {
         let [low, high] = val.to_le_bytes();
         self.write(addr, low);
-        self.write(addr+1, high);
+        self.write(addr.wrapping_add(1), high);
     }
 
     pub fn write_data(&self, start: u16, data: &[u8]) {

@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::{collections::HashMap, sync::LazyLock};
 use serde::{de::Visitor, Deserialize, Deserializer, Serialize};
 

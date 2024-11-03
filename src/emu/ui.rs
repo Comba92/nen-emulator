@@ -1,4 +1,8 @@
+use std::path::Path;
+
 use sdl2::{event::Event, pixels::{Color, PixelFormatEnum}, render::{Canvas, Texture, TextureCreator}, video::{Window, WindowContext}, EventPump, Sdl, VideoSubsystem};
+
+use super::Emulator;
 
 pub struct Sdl2Context {
     pub ctx: Sdl,
@@ -17,6 +21,10 @@ impl FrameBuffer {
     pub fn new(width: usize, height: usize) -> Self {
         let buffer = vec![0; width * height * 3];
         Self { buffer, width, height }
+    }
+
+    pub fn pitch(&self) -> usize {
+        self.width * 3
     }
 
     pub fn set_pixel(&mut self, x: usize, y: usize, color: Color) {
@@ -87,11 +95,14 @@ pub fn parse_tile(tile: &[u8]) -> Tile {
     sprite
 }
 
-pub fn show() {
+pub fn run() {
     let mut sdl = Sdl2Context::new("NenEmulator", 800, 600);
     sdl.canvas.set_scale(10.0, 10.0).unwrap();
     let mut _texture = sdl.texture_creator
     .create_texture_target(PixelFormatEnum::RGB24, 800, 600).unwrap();
+
+    let rom_path = Path::new("tests/test_roms/Donkey Kong.nes");
+    let mut _emu = Emulator::new(rom_path);
 
     'running: loop {
         for event in sdl.events.poll_iter() {

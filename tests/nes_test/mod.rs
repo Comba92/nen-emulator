@@ -1,7 +1,7 @@
 #[cfg(test)]
 pub mod nes_test {
 use core::panic;
-use std::{fs, path::Path, rc::Rc};
+use std::{path::Path, rc::Rc};
 use circular_buffer::CircularBuffer;
 use log::info;
 
@@ -127,13 +127,13 @@ use prettydiff::{diff_lines, diff_words};
       .lines();
 
     let rom_path = Path::new("tests/nes_test/nestest.nes");
-    let prg_rom = fs::read(rom_path).unwrap();
-    let mut emu = Emulator::debug();
+    let rom = Cart::new(rom_path);
+    let mut emu = Emulator::from_cart(rom);
 
     emu.cpu.pc = 0xC000;
     emu.cpu.p = CpuFlags::from_bits_retain(0x24);
-    emu.bus.write_data(0x8000, &prg_rom[16..16+0x4000]);
-    emu.bus.write_data(0xC000, &prg_rom[16..16+0x4000]);
+    emu.bus.write_data(0x8000, &emu.cart.prg_rom[..0x4000]);
+    emu.bus.write_data(0xC000, &emu.cart.prg_rom[..0x4000]);
     
     let mut most_recent_instr = CircularBuffer::<LINES_RANGE, (CpuMock, CpuMock)>::new();
     let mut line_count = 1;
@@ -149,7 +149,7 @@ use prettydiff::{diff_lines, diff_words};
       
       let line = next_line.unwrap();
       
-      let my_cpu = CpuMock::from_cpu(&emu.cpu, &emu.ppu);
+      let my_cpu = CpuMock::from_cpu(&emu.cpu, &emu.bus.ppu());
       let log_cpu = CpuMock::from_log(line);
       
       if my_cpu != log_cpu {

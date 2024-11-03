@@ -3,6 +3,7 @@ use std::{path::Path, rc::Rc};
 use cart::Cart;
 use cpu::Cpu;
 use bus::Bus;
+use ppu::Ppu;
 
 pub mod cpu;
 pub mod ppu;
@@ -28,6 +29,8 @@ impl Emulator {
   pub fn from_cart(cart: Cart) -> Self {
     let bus = Rc::new(Bus::new(&cart));
     let cpu = Cpu::new(Rc::clone(&bus));
+    let ppu = Ppu::new(Rc::clone(&bus), cart.header.nametbl_mirroring);
+    bus.connect(ppu);
 
     Emulator {bus, cpu, cart}
   }
@@ -36,12 +39,14 @@ impl Emulator {
     Emulator::from_cart(Cart::empty())
   }
 
-  pub fn step(&mut self) {
+  pub fn step(&mut self) -> bool {
     let last_cycles = self.cpu.cycles;
     self.cpu.step();
     
     for _ in 0..3 {
       self.bus.step(self.cpu.cycles - last_cycles);
     }
+
+    self.bus.nmi.get() 
   }
 }
