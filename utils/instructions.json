@@ -757,8 +757,8 @@
   {
     "opcode": 75,
     "mnemonics": [
-      "ASR",
-      "ALR"
+      "ALR",
+      "ASR"
     ],
     "addressingMode": "immediate",
     "cycles": 2,

@@ -1,1 +1,1 @@
-mod nes_test;
+mod nestest;

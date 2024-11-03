@@ -123,7 +123,7 @@ pub static INSTR_TO_FN: LazyLock<HashMap<&'static str, InstrFn>> = LazyLock::new
   map.insert("SRE", Cpu::sre);
   map.insert("LSR", Cpu::lsr);
   map.insert("PHA", Cpu::pha);
-  map.insert("ASR", Cpu::asr);
+  map.insert("ALR", Cpu::alr);
   map.insert("JMP", Cpu::jmp);
   map.insert("BVC", Cpu::bvc);
   map.insert("CLI", Cpu::cli);

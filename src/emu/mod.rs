@@ -40,6 +40,8 @@ impl Emulator {
   }
 
   pub fn step(&mut self) -> bool {
+    if self.bus.ppu().nmi_requested { return true }
+
     let last_cycles = self.cpu.cycles;
     self.cpu.step();
     

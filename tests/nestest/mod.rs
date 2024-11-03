@@ -126,7 +126,7 @@ use prettydiff::{diff_lines, diff_words};
     let mut test_log = log_str
       .lines();
 
-    let rom_path = Path::new("tests/nes_test/nestest.nes");
+    let rom_path = Path::new("tests/nestest/nestest.nes");
     let rom = Cart::new(rom_path);
     let mut emu = Emulator::from_cart(rom);
 

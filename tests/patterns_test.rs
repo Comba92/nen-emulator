@@ -3,7 +3,7 @@ mod patterns_test {
     use std::path::Path;
 
     use nen_emulator::emu::{cart::Cart, ui::{parse_tile, FrameBuffer, Sdl2Context}, Emulator};
-    use sdl2::pixels::PixelFormatEnum;
+    use sdl2::{event::Event, pixels::PixelFormatEnum};
 
     #[test]
     #[ignore]
@@ -54,7 +54,7 @@ mod patterns_test {
       .create_texture_target(PixelFormatEnum::RGB24, framebuf.width as u32, framebuf.height as u32)
       .unwrap();
 
-      let cart = Cart::new(Path::new("tests/test_roms/Pacman.nes"));
+      let cart = Cart::new(Path::new("tests/test_roms/Donkey Kong.nes"));
 
       for (i, tile) in cart.chr_rom.chunks(16).enumerate() {
         let x = i*8 % framebuf.width;
@@ -82,7 +82,7 @@ mod patterns_test {
 
     #[test]
     fn render_nametbls() {  
-      // colog::init();
+      colog::init();
 
       const RENDER_WIDTH: u32 = 32;
       const RENDER_HEIGHT: u32 = 30;
@@ -99,15 +99,19 @@ mod patterns_test {
       let rom_path = &Path::new("tests/test_roms/Pacman.nes");
       let mut emu = Emulator::new(rom_path);
 
+      for _ in 0..576 {
+        while !emu.step() {}
+      }
+      println!("Run for 1m frames");
+      println!("{:?}", emu.bus.ppu());
+
       'running: loop {
         for event in sdl.events.poll_iter() {
           match event {
-            sdl2::event::Event::Quit { .. } => break 'running,
+            Event::Quit { .. } => break 'running,
             _ => {}
           }
         }
-
-        while !emu.step() {}
 
         let ppu = emu.bus.ppu();
         let bg_ptrntbl = ppu.ctrl.bg_ptrntbl_addr();
@@ -117,8 +121,11 @@ mod patterns_test {
           let y = i as u32 / RENDER_WIDTH;
           let tile_start = bg_ptrntbl as usize + (tile_idx as usize * 16);
           let tile = &emu.cart.chr_rom[tile_start..tile_start+16];
+          println!("{tile_idx}: {:?}", tile);
           framebuf.set_tile(x as usize, y as usize, parse_tile(tile));
         }
+        println!("Bg Patterntbl: {bg_ptrntbl}");
+        break 'running;
 
         texture.update(None, &framebuf.buffer, framebuf.pitch()).unwrap();
         sdl.canvas.copy(&texture, None, None).unwrap();

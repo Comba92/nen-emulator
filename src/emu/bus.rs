@@ -108,7 +108,7 @@ impl Bus {
         self.ppu.get().unwrap().borrow_mut()
     }
 
-    pub fn poll_nmi(&self) -> bool { 
+    pub fn poll_nmi(&self) -> bool {
         let mut ppu = self.ppu();
         let nmi = ppu.nmi_requested;
         ppu.nmi_requested = false;
@@ -184,7 +184,7 @@ impl Bus {
 
     pub fn write_data(&self, start: u16, data: &[u8]) {
         for (offset, byte) in data.iter().enumerate() {
-            self.write(start + offset as u16, *byte);
+            self.write(start.wrapping_add(offset as u16), *byte);
         }
     }
 }

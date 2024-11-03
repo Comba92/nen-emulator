@@ -386,8 +386,7 @@ impl Cpu {
   }
 
   pub fn logical(&mut self, res: u8) {
-    self.set_zero(res);
-    self.set_neg(res);
+    self.set_zn(res);
     self.a = res;
   }
   pub fn and(&mut self, op: &mut Operand) {
@@ -470,7 +469,7 @@ impl Cpu {
     match op.src {
       OperandSrc::Acc => self.a = op.val,
       OperandSrc::Addr(src) => self.mem_write(src, op.val),
-      OperandSrc::None => { unreachable!() }
+      OperandSrc::None => {}
     }
   }
   pub fn asl(&mut self, op: &mut Operand) {
@@ -586,7 +585,7 @@ impl Cpu {
 }
 
 impl Cpu {
-  pub fn asr(&mut self, op: &mut Operand) {
+  pub fn alr(&mut self, op: &mut Operand) {
     self.and(op);
     self.lsr(op);
   }
@@ -609,6 +608,10 @@ impl Cpu {
   pub fn arr(&mut self, op: &mut Operand) {
     self.and(op);
     self.ror(op);
+    let bit6 = op.val & 0b0100_0000 != 0;
+    let bit5 = op.val & 0b0010_0000 != 0;
+    self.p.set(CpuFlags::carry, bit6);
+    self.p.set(CpuFlags::overflow, bit6 ^ bit5);
   }
 
   pub fn dcp(&mut self, op: &mut Operand) {
@@ -640,36 +643,55 @@ impl Cpu {
   }
 
   pub fn lax(&mut self, op: &mut Operand) {
-    self.a = op.val;
-    self.x = op.val;
-    self.set_zn(op.val);
+    self.lda(op);
+    self.tax(op);
   }
 
   pub fn sax(&mut self, op: &mut Operand) {
     if let OperandSrc::Addr(src) = op.src {
-      self.set_instr_result(InstrDst::Mem(src, self.a & self.x));
+      let res = self.a & self.x;
+      self.set_instr_result(InstrDst::Mem(src, res));
+    } else { unreachable!() }
+  }
+  
+  pub fn tas(&mut self, op: &mut Operand) {
+    if let OperandSrc::Addr(src) = op.src {
+      // TODO: indexed y behaviour is different
+      self.sp = self.a & self.x;
+      let res = self.a & self.x & ((src >> 8) as u8).wrapping_add(1);
+      self.set_instr_result(InstrDst::Mem(src, res));
     } else { unreachable!() }
   }
 
-  pub fn sha(&mut self, _op: &mut Operand) {
-    todo!("sha")
+  pub fn sha(&mut self, op: &mut Operand) {
+    if let OperandSrc::Addr(src) = op.src {
+      // TODO: indexed y behaviour is different
+      let res = self.a & self.x & ((src >> 8) as u8).wrapping_add(1);
+      self.set_instr_result(InstrDst::Mem(src, res));
+    } else { unreachable!() }
   }
 
-  pub fn tas(&mut self, _op: &mut Operand) {
-    todo!("shs/tas")
+  pub fn shx(&mut self, op: &mut Operand) {
+    if let OperandSrc::Addr(src) = op.src {
+      // TODO: indexed y behaviour is different
+      let res = self.a & self.y & ((src >> 8) as u8).wrapping_add(1);
+      self.set_instr_result(InstrDst::Mem(src, res));
+    } else { unreachable!() }
   }
 
-  pub fn shx(&mut self, _op: &mut Operand) {
-    todo!("shx")
-  }
-
-  pub fn shy(&mut self, _op: &mut Operand) {
-    todo!("shy")
+  pub fn shy(&mut self, op: &mut Operand) {
+    if let OperandSrc::Addr(src) = op.src {
+      // TODO: indexed y behaviour is different
+      let res = self.a & self.y & ((src >> 8) as u8).wrapping_add(1);
+      self.set_instr_result(InstrDst::Mem(src, res));
+    } else { unreachable!() }
   }
 
   pub fn sbx(&mut self, op: &mut Operand) {
     if let OperandSrc::Addr(_src) = op.src {
-      todo!("sbx")
+      let res = (self.a & self.x).wrapping_sub(op.val);
+      self.set_czn(res as u16);
+      self.x = res;
     } else { unreachable!() }
   }
 
@@ -686,6 +708,7 @@ impl Cpu {
   }
 
   pub fn jam(&mut self, _: &mut Operand) {
+    // freezes the cpu
     todo!("jam")
   }
 }

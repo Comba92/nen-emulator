@@ -3,7 +3,7 @@
 use std::fmt;
 
 use bitflags::bitflags;
-use log::info;
+use log::{info, warn};
 
 use super::cart::{Cart, NametblMirroring};
 
@@ -180,7 +180,8 @@ impl fmt::Debug for Ppu {
 impl Ppu {
   pub fn new(cart: &Cart) -> Self {
     let mut ppu = Self {
-      vram: [0; VRAM_SIZE], oam: [0; OAM_SIZE], 
+      vram: [0; VRAM_SIZE],
+      oam: [0; OAM_SIZE], 
       palette: [0; PALETTES_SIZE], 
       chr_rom: [0; PATTERNS_SIZE],
       v: 0, t:0, x: 0, w: 0, 
@@ -198,6 +199,10 @@ impl Ppu {
     ppu
   }
 
+  pub fn send_nmi(&mut self) {
+    self.nmi_requested = true;
+  }
+
   pub fn step(&mut self, cycles: usize) {
     self.cycles = self.cycles.wrapping_add(cycles);
 
@@ -209,12 +214,19 @@ impl Ppu {
     if (0..VISIBLE_SCANLINES).contains(&self.scanline) {
       // drawing here
     } else if self.scanline == VISIBLE_SCANLINES {
-      if self.ctrl.contains(PpuCtrl::vblank_nmi_on) {
+      // if self.ctrl.contains(PpuCtrl::vblank_nmi_on) {
         self.send_nmi();
-      }
+      // }
     } else if self.scanline >= VERTICAL_OVERSCAN {
       self.scanline = 0;
     }
+  }
+
+  fn next_req_addr(&mut self) {
+    match self.ctrl.contains(PpuCtrl::vram_incr) {
+        false => self.req_addr = (self.req_addr + 1) % PALETTES_MIRRORS_END,
+        true  => self.req_addr = (self.req_addr + 32) % PALETTES_MIRRORS_END, 
+      }
   }
 
   pub fn reg_read(&mut self, addr: u16) -> u8 {
@@ -255,19 +267,10 @@ impl Ppu {
       };
   }
 
-  fn next_req_addr(&mut self) {
-    match self.ctrl.contains(PpuCtrl::vram_incr) {
-        false => self.req_addr = (self.req_addr + 1) % PALETTES_MIRRORS_END,
-        true  => self.req_addr = (self.req_addr + 32) % PALETTES_MIRRORS_END, 
-      }
-  }
-
-  pub fn send_nmi(&mut self) {
-    self.nmi_requested = true;
-  }
-
   pub fn mem_read(&mut self, addr: u16) -> u8 {
     let res = self.req_buf;
+    warn!("reading ppu at {addr:04X}");
+
 
     let data = match addr {
       0..=PATTERNS_END => {
@@ -275,11 +278,12 @@ impl Ppu {
       },
       NAMETBLS_START..=NAMETBLS_END => {
         let mirrored = self.mirror_nametbl(addr);
+        warn!("reading vram at {mirrored:04X}");
         self.vram[mirrored as usize]
       },
       PALETTES_START..=PALETTES_MIRRORS_END => {
         let palette = (addr & PALETTES_END) - PALETTES_START;
-        self.vram[palette as usize]
+        self.palette[palette as usize]
       }
       _ => {
         info!("read to unused vram address ${addr:04X}");
@@ -293,17 +297,20 @@ impl Ppu {
   }
 
   pub fn mem_write(&mut self, addr: u16, val: u8) {
+    warn!("writing ppu at {addr:04X}");
+    
     match addr {
       0..=PATTERNS_END => {
-        self.chr_rom[addr as usize] = val;
+        info!("illegal write on chr_rom at ${addr:04X}");
       },
       NAMETBLS_START..=NAMETBLS_END => {
         let mirrored = self.mirror_nametbl(addr);
+        warn!("writing vram at {mirrored:04X}");
         self.vram[mirrored as usize] = val;
       },
       PALETTES_START..=PALETTES_MIRRORS_END => {
         let palette = (addr & PALETTES_END) - PALETTES_START;
-        self.vram[palette as usize] = val;
+        self.palette[palette as usize] = val;
       }
       _ => {
         info!("write to unused vram address ${addr:04X}");
