@@ -1,11 +1,11 @@
 #![allow(dead_code)]
 
-use std::{fmt, rc::Rc};
+use std::fmt;
 
 use bitflags::bitflags;
 use log::info;
 
-use super::{bus::{Bus, PPU_REG_START}, cart::NametblMirroring};
+use super::cart::{Cart, NametblMirroring};
 
 // +--------------------+ $10000
 // |     Mirrors        |
@@ -44,8 +44,10 @@ use super::{bus::{Bus, PPU_REG_START}, cart::NametblMirroring};
 
 
 const VRAM_SIZE: usize = 0x0800; // 2KB
+const OAM_SIZE: usize = 0x100; // 256 bytes
 
 const PATTERNS_START: u16 = 0x0000;
+const PATTERNS_SIZE: usize = 0x2000;
 const PATTERNS_END: u16 = 0x1FFF;
 
 const VRAM_START: u16 = NAMETBLS_START;
@@ -53,8 +55,8 @@ const NAMETBLS_START: u16 = 0x2000;
 const NAMETBLS_END: u16 = 0x2FFF;
 
 const PALETTES_START: u16 = 0x3F00;
-const PALETTES_SIZE: usize = 0x20;
-const PALETTES_END: u16 = PALETTES_START - PALETTES_SIZE as u16;
+const PALETTES_SIZE: usize = 0x20; // 32 bytes
+const PALETTES_END: u16 = PALETTES_START + PALETTES_SIZE as u16;
 const PALETTES_MIRRORS_END: u16 = 0x3FFF;
 
 const PPU_MIRRORS_START: u16 = 0x4000;
@@ -74,8 +76,8 @@ const VERTICAL_OVERSCAN: usize = 261;
 const SCANLINE_PIXELS: usize = 256;
 const HORIZONTAL_OVERSCAN: usize = 341;
 
-const NAMETBL_WIDTH: usize = 30;
-const NAMETBL_HEIGHT: usize = 32;
+const NAMETBL_WIDTH: usize = 32;
+const NAMETBL_HEIGHT: usize = 30;
 const NAMETBL_SIZE: u16 = 0x400; // 1 KB
 
 bitflags! {
@@ -141,7 +143,9 @@ struct OAMEntry {
 
 pub struct Ppu {
   pub vram: [u8; VRAM_SIZE],
-  pub oam: [u8; 256],
+  pub palette: [u8; PALETTES_SIZE],
+  pub oam: [u8; OAM_SIZE],
+  pub chr_rom: [u8; PATTERNS_SIZE],
 
   v: u16,
   t: u16,
@@ -159,7 +163,7 @@ pub struct Ppu {
   pub req_buf: u8,
 
   pub mirroring: NametblMirroring,
-  pub bus: Rc<Bus>,
+  pub nmi_requested: bool,
 }
 
 #[derive(Debug)]
@@ -174,18 +178,24 @@ impl fmt::Debug for Ppu {
 }
 
 impl Ppu {
-  pub fn new(bus: Rc<Bus>, mirroring: NametblMirroring) -> Self {
-    Self {
-      vram: [0; VRAM_SIZE], oam: [0; 256],
+  pub fn new(cart: &Cart) -> Self {
+    let mut ppu = Self {
+      vram: [0; VRAM_SIZE], oam: [0; OAM_SIZE], 
+      palette: [0; PALETTES_SIZE], 
+      chr_rom: [0; PATTERNS_SIZE],
       v: 0, t:0, x: 0, w: 0, 
       cycles: 21, scanline: 0,
       ctrl: PpuCtrl::empty(), 
       stat: PpuStat::empty(),
       mask: PpuMask::empty(),
       req_state: RequestAddr::Start, req_addr: 0, req_buf: 0,
-      mirroring,
-      bus,
-    }
+      mirroring: cart.header.nametbl_mirroring,
+      nmi_requested: false,
+    };
+
+    let (left, _) = ppu.chr_rom.split_at_mut(cart.chr_rom.len());
+    left.copy_from_slice(&cart.chr_rom);
+    ppu
   }
 
   pub fn step(&mut self, cycles: usize) {
@@ -199,16 +209,17 @@ impl Ppu {
     if (0..VISIBLE_SCANLINES).contains(&self.scanline) {
       // drawing here
     } else if self.scanline == VISIBLE_SCANLINES {
-      // send VBlank NMI
-      self.send_nmi();
+      if self.ctrl.contains(PpuCtrl::vblank_nmi_on) {
+        self.send_nmi();
+      }
     } else if self.scanline >= VERTICAL_OVERSCAN {
       self.scanline = 0;
     }
   }
 
   pub fn reg_read(&mut self, addr: u16) -> u8 {
-    if [PPU_CTRL, PPU_MASK, OAM_ADDR, PPU_SCROLL, PPU_DATA, OAM_DMA].contains(&addr) {
-        info!("Invalid read to write-only PPU register ${addr:04X}");
+    if [PPU_CTRL, PPU_MASK, OAM_ADDR, PPU_SCROLL, PPU_ADDR, OAM_DMA].contains(&addr) {
+        info!("Invalid READ to write-only PPU register ${addr:04X}");
         return 0;
     }
 
@@ -224,17 +235,16 @@ impl Ppu {
   }
 
   pub fn reg_write(&mut self, addr: u16, val: u8) {
-    let reg = addr - PPU_REG_START;
-      match reg {
+      match addr {
         PPU_CTRL => self.ctrl = PpuCtrl::from_bits_retain(val),
-        PPU_MASK => info!("ppu mask write not implemented"),
-        PPU_STAT => info!("Invalid write to read-only PPUSTAT register ${reg:04X}"),
+        PPU_MASK => self.mask = PpuMask::from_bits_retain(val),
+        PPU_STAT => info!("Invalid write to read-only PPUSTAT register ${addr:04X}"),
         PPU_ADDR => {
           match self.req_state {
               RequestAddr::Start => self.req_state = RequestAddr::AddrHigh(val),
               RequestAddr::AddrHigh(high) => {
                 self.req_state = RequestAddr::Start;
-                self.req_addr = u16::from_le_bytes([val, high]);
+                self.req_addr = u16::from_le_bytes([val, high]) & PALETTES_MIRRORS_END;
               }
           }
         }
@@ -247,13 +257,13 @@ impl Ppu {
 
   fn next_req_addr(&mut self) {
     match self.ctrl.contains(PpuCtrl::vram_incr) {
-        false =>  self.req_addr = (self.req_addr + 1) % PALETTES_MIRRORS_END,
-        true => self.req_addr = (self.req_addr + 32) % PALETTES_MIRRORS_END, 
+        false => self.req_addr = (self.req_addr + 1) % PALETTES_MIRRORS_END,
+        true  => self.req_addr = (self.req_addr + 32) % PALETTES_MIRRORS_END, 
       }
   }
 
   pub fn send_nmi(&mut self) {
-    self.bus.send_nmi();
+    self.nmi_requested = true;
   }
 
   pub fn mem_read(&mut self, addr: u16) -> u8 {
@@ -261,8 +271,7 @@ impl Ppu {
 
     let data = match addr {
       0..=PATTERNS_END => {
-        info!("chr rom read");
-        0
+        self.chr_rom[addr as usize]
       },
       NAMETBLS_START..=NAMETBLS_END => {
         let mirrored = self.mirror_nametbl(addr);
@@ -286,7 +295,7 @@ impl Ppu {
   pub fn mem_write(&mut self, addr: u16, val: u8) {
     match addr {
       0..=PATTERNS_END => {
-        info!("chr rom write");
+        self.chr_rom[addr as usize] = val;
       },
       NAMETBLS_START..=NAMETBLS_END => {
         let mirrored = self.mirror_nametbl(addr);
@@ -323,21 +332,139 @@ impl Ppu {
       (_, _) => addr,
     }
   }
+}
 
-  // pub fn ctrl(&self) -> PpuCtrl { PpuCtrl::from_bits_retain(self.bus.read(PPU_CTRL)) }
-  // pub fn set_ctrl(&self, val: u8) {
-  //   self.bus.write(PPU_CTRL, val);
-  // }
-  // pub fn mask(&self) -> PpuMask { PpuMask::from_bits_retain(self.bus.read(PPU_MASK)) }
-  // pub fn set_mask(&self, _val: u8) {
-  //   todo!("set ppu mask")
-  // }
-  // pub fn stat(&self) -> PpuStat { PpuStat::from_bits_retain(self.bus.read(PPU_STAT)) }
-  // pub fn set_stat(&self, val: u8) {
-  //   self.bus.write(PPU_STAT, val);
-  // }
+#[cfg(test)]
+mod ppu_tests {
+  use super::*;
 
-  // pub fn set_data(&self) {
+  fn new_empty_ppu() -> Ppu {
+    Ppu::new(&Cart::empty())
+  }
 
-  // }
+  #[test]
+  fn test_ppu_vram_writes() {
+      let mut ppu = new_empty_ppu();
+      ppu.reg_write(PPU_ADDR, 0x23);
+      ppu.reg_write(PPU_ADDR, 0x05);
+      ppu.reg_write(PPU_DATA, 0x66);
+
+      assert_eq!(ppu.vram[0x0305], 0x66);
+  }
+
+  #[test]
+    fn test_ppu_vram_reads() {
+        let mut ppu = new_empty_ppu();
+        ppu.reg_write(PPU_CTRL, 0);
+        ppu.vram[0x0305] = 0x66;
+
+        ppu.reg_write(PPU_ADDR, 0x23);
+        ppu.reg_write(PPU_ADDR, 0x05);
+
+        ppu.reg_read(PPU_DATA); //load_into_buffer
+        assert_eq!(ppu.req_addr, 0x2306);
+        assert_eq!(ppu.reg_read(PPU_DATA), 0x66);
+    }
+
+    #[test]
+    fn test_ppu_vram_reads_cross_page() {
+        let mut ppu = new_empty_ppu();
+        ppu.reg_write(PPU_CTRL, 0);
+        ppu.vram[0x01ff] = 0x66;
+        ppu.vram[0x0200] = 0x77;
+
+        ppu.reg_write(PPU_ADDR, 0x21);
+        ppu.reg_write(PPU_ADDR, 0xff);
+
+        ppu.reg_read(PPU_DATA); //load_into_buffer
+        assert_eq!(ppu.reg_read(PPU_DATA), 0x66);
+        assert_eq!(ppu.reg_read(PPU_DATA), 0x77);
+    }
+
+    #[test]
+    fn test_ppu_vram_reads_step_32() {
+        let mut ppu = new_empty_ppu();
+        ppu.reg_write(PPU_CTRL, 0b100);
+        ppu.vram[0x01ff] = 0x66;
+        ppu.vram[0x01ff + 32] = 0x77;
+        ppu.vram[0x01ff + 64] = 0x88;
+
+        ppu.reg_write(PPU_ADDR, 0x21);
+        ppu.reg_write(PPU_ADDR, 0xff);
+
+        ppu.reg_read(PPU_DATA); //load_into_buffer
+        assert_eq!(ppu.reg_read(PPU_DATA), 0x66);
+        assert_eq!(ppu.reg_read(PPU_DATA), 0x77);
+        assert_eq!(ppu.reg_read(PPU_DATA), 0x88);
+    }
+
+    #[test]
+    fn test_vram_horizontal_mirror() {
+        let mut ppu = new_empty_ppu();
+        ppu.mirroring = NametblMirroring::Horizontally;
+
+        ppu.reg_write(PPU_ADDR, 0x24);
+        ppu.reg_write(PPU_ADDR, 0x05);
+
+        ppu.reg_write(PPU_DATA, 0x66); //write to a
+
+        ppu.reg_write(PPU_ADDR, 0x28);
+        ppu.reg_write(PPU_ADDR, 0x05);
+
+        ppu.reg_write(PPU_DATA, 0x77); //write to B
+
+        ppu.reg_write(PPU_ADDR, 0x20);
+        ppu.reg_write(PPU_ADDR, 0x05);
+
+        ppu.reg_read(PPU_DATA); //load into buffer
+        assert_eq!(ppu.reg_read(PPU_DATA), 0x66); //read from A
+
+        ppu.reg_write(PPU_ADDR, 0x2C);
+        ppu.reg_write(PPU_ADDR, 0x05);
+
+        ppu.reg_read(PPU_DATA); //load into buffer
+        assert_eq!(ppu.reg_read(PPU_DATA), 0x77); //read from b
+    }
+
+    #[test]
+    fn test_vram_vertical_mirror() {
+        let mut ppu = new_empty_ppu();
+        ppu.mirroring = NametblMirroring::Vertically;
+
+        ppu.reg_write(PPU_ADDR, 0x20);
+        ppu.reg_write(PPU_ADDR, 0x05);
+
+        ppu.reg_write(PPU_DATA, 0x66); //write to A
+
+        ppu.reg_write(PPU_ADDR, 0x2C);
+        ppu.reg_write(PPU_ADDR, 0x05);
+
+        ppu.reg_write(PPU_DATA, 0x77); //write to b
+
+        ppu.reg_write(PPU_ADDR, 0x28);
+        ppu.reg_write(PPU_ADDR, 0x05);
+
+        ppu.reg_read(PPU_DATA); //load into buffer
+        assert_eq!(ppu.reg_read(PPU_DATA), 0x66); //read from a
+
+        ppu.reg_write(PPU_ADDR, 0x24);
+        ppu.reg_write(PPU_ADDR, 0x05);
+
+        ppu.reg_read(PPU_DATA); //load into buffer
+        assert_eq!(ppu.reg_read(PPU_DATA), 0x77); //read from B
+    }
+
+    #[test]
+    fn test_ppu_vram_mirroring() {
+        let mut ppu = new_empty_ppu();
+        ppu.reg_write(PPU_CTRL, 0);
+        ppu.vram[0x0305] = 0x66;
+
+        ppu.reg_write(PPU_ADDR, 0x63); //0x6305 -> 0x2305
+        ppu.reg_write(PPU_ADDR, 0x05);
+
+        ppu.reg_read(PPU_DATA); //load into_buffer
+        assert_eq!(ppu.reg_read(PPU_DATA), 0x66);
+        // assert_eq!(ppu.addr.read(), 0x0306)
+    }
 }

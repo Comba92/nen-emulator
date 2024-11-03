@@ -27,7 +27,7 @@
 // |_______________| $0000 |_______________|
 #![allow(dead_code)]
 
-use std::cell::{Cell, OnceCell, RefCell, RefMut};
+use std::cell::{OnceCell, RefCell, RefMut};
 
 use log::{info, warn};
 
@@ -79,9 +79,8 @@ pub struct Bus {
     ram: RefCell<[u8; WRAM_SIZE]>,
     sram: RefCell<[u8; CART_MEM_SIZE]>,
     rom: RefCell<[u8; ROM_SIZE]>,
-    
+
     ppu: OnceCell<RefCell<Ppu>>,
-    pub nmi: Cell<bool>
 }
 
 impl Bus {
@@ -91,9 +90,7 @@ impl Bus {
             ppu: OnceCell::new(),
             sram: RefCell::new([0; CART_MEM_SIZE]),
             rom: RefCell::new([0; ROM_SIZE]),
-            nmi: Cell::new(false),
         };
-
         bus.write_data(0x8000, &cart.prg_rom);
         bus.write_data(0xC000, &cart.prg_rom);
         bus
@@ -111,8 +108,13 @@ impl Bus {
         self.ppu.get().unwrap().borrow_mut()
     }
 
-    pub fn send_nmi(&self) { self.nmi.set(true) }
-    pub fn poll_nmi(&self) -> bool { self.nmi.replace(false) }
+    pub fn poll_nmi(&self) -> bool { 
+        let mut ppu = self.ppu();
+        let nmi = ppu.nmi_requested;
+        ppu.nmi_requested = false;
+        nmi
+    }
+
     // TODO IRQ
     pub fn poll_irq(&self) -> bool { false }
 

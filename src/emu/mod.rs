@@ -29,7 +29,7 @@ impl Emulator {
   pub fn from_cart(cart: Cart) -> Self {
     let bus = Rc::new(Bus::new(&cart));
     let cpu = Cpu::new(Rc::clone(&bus));
-    let ppu = Ppu::new(Rc::clone(&bus), cart.header.nametbl_mirroring);
+    let ppu = Ppu::new(&cart);
     bus.connect(ppu);
 
     Emulator {bus, cpu, cart}
@@ -47,6 +47,6 @@ impl Emulator {
       self.bus.step(self.cpu.cycles - last_cycles);
     }
 
-    self.bus.nmi.get() 
+    self.bus.ppu().nmi_requested
   }
 }
