@@ -249,6 +249,8 @@ impl Ppu {
   }
 
   pub fn reg_read(&mut self, addr: u16) -> u8 {
+    warn!("Reading ppu at REG ${addr:04X} at cycle {}", self.cpu_cycles);
+
     if [PPU_CTRL, PPU_MASK, OAM_ADDR, PPU_SCROLL, PPU_ADDR, OAM_DMA].contains(&addr) {
         info!("Invalid READ to write-only PPU register ${addr:04X}");
         return 0;
@@ -272,6 +274,8 @@ impl Ppu {
   }
 
   pub fn reg_write(&mut self, addr: u16, val: u8) {
+      warn!("Writing {val:02X} on ppu at REG ${addr:04X} at cycle {}", self.cpu_cycles);
+
       match addr {
         PPU_CTRL => self.ctrl = PpuCtrl::from_bits_retain(val),
         PPU_MASK => self.mask = PpuMask::from_bits_retain(val),
@@ -317,7 +321,7 @@ impl Ppu {
     res
   }
 
-  pub fn mem_read_old(&mut self, addr: u16) -> u8 {
+  pub fn _mem_read(&mut self, addr: u16) -> u8 {
     let res = self.req_buf;
     warn!("reading ppu at ${addr:04X} at cycle {}", self.cpu_cycles);
 
@@ -351,14 +355,14 @@ impl Ppu {
   }
 
   pub fn mem_write(&mut self, addr: u16, val: u8) {
-    let addr = addr & VRAM_END;
-    warn!("writing ppu at ${addr:04X} at cycle {}", self.cpu_cycles);
+    let new_addr = addr & VRAM_END;
+    warn!("writing {val:02X} on ppu at ${new_addr:04X}(original ${addr:04X})at cycle {}", self.cpu_cycles);
     self.vram[addr as usize] = val;
     self.next_req_addr();
   }
 
-  pub fn mem_write_old(&mut self, addr: u16, val: u8) {
-    warn!("writing ppu at ${addr:04X} at cycle {}", self.cpu_cycles);
+  pub fn _mem_write(&mut self, addr: u16, val: u8) {
+    warn!("writing {val:02X} to ppu at ${addr:04X} at cycle {}", self.cpu_cycles);
     
     let addr = addr & VRAM_END;
     match addr {
@@ -368,7 +372,7 @@ impl Ppu {
       },
       NAMETBLS_START..=NAMETBLS_END => {
         let mirrored = self.mirror_nametbl(addr);
-        warn!("writing vram at ${mirrored:04X} at cycle {}", self.cpu_cycles);
+        warn!("writing {val:02X} to vram at ${mirrored:04X} (original: ${addr:04X}) at cycle {}", self.cpu_cycles);
         self.vram[mirrored as usize] = val;
       },
       PALETTES_START..=PALETTES_MIRRORS_END => {
@@ -396,12 +400,14 @@ impl Ppu {
     let nametbl_idx = addr / NAMETBL_SIZE;
     
     use NametblMirroring::*;
-    match (self.mirroring, nametbl_idx) {
+    let res = match (self.mirroring, nametbl_idx) {
       (Horizontally, 1) | (Horizontally, 2) => addr - NAMETBL_SIZE,
       (Horizontally, 3) => addr - NAMETBL_SIZE*2,
       (Vertically, 2) | (Vertically, 3) => addr - NAMETBL_SIZE*2,
       (_, _) => addr,
-    }
+    };
+
+    res + NAMETBLS_START
   }
 }
 

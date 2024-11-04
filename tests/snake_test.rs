@@ -26,6 +26,7 @@ static GAME_CODE: [u8; 309] = [
 mod snake_test {
     use std::time::Duration;
 
+    use log::info;
     use nen_emulator::emu::Emulator;
     use rand::Rng;
     use sdl2::{event::Event, keyboard::Keycode, pixels::{Color, PixelFormatEnum}};
@@ -36,6 +37,7 @@ mod snake_test {
 
   #[test]
   fn run_snake() {
+
     let ctx = sdl2::init().expect("Couldn't initialize SDL2");
     let video= ctx.video().expect("Couldn't initialize video subsystem");
     let mut canvas = video.window("Nen-Emulator", (32.0 * PIXEL_SCALE) as u32, (32.0 * PIXEL_SCALE) as u32)
@@ -120,6 +122,8 @@ mod snake_test {
 
       std::thread::sleep(Duration::new(0, 10_000));
     }
+
+    println!("{:?}", emu.cpu);
   }
   
 }

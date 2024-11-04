@@ -56,7 +56,7 @@ mod patterns_test {
       .create_texture_target(PixelFormatEnum::RGB24, framebuf.width as u32, framebuf.height as u32)
       .unwrap();
 
-      let cart = Cart::new(Path::new("tests/test_roms/Donkey Kong.nes"));
+      let cart = Cart::new(Path::new("tests/nestest/nestest.nes"));
 
       for (i, tile) in cart.chr_rom.chunks(16).enumerate() {
         let x = i*8 % framebuf.width;
@@ -97,12 +97,12 @@ mod patterns_test {
       .create_texture_target(PixelFormatEnum::RGB24, framebuf.width as u32, framebuf.height as u32)
       .unwrap();
     
-    let rom_path = &Path::new("tests/test_roms/Donkey Kong.nes");
+    let rom_path = &Path::new("tests/nestest/nestest.nes");
+    //let rom_path = &Path::new("tests/test_roms/Pacman.nes");
     let mut emu = Emulator::new(rom_path);
     
-    
       //colog::init();
-      for _ in 0..1000 {
+      for _ in 0..20000 {
         emu.step_until_nmi();
       }
       println!("Run for 1m frames");

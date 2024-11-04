@@ -29,7 +29,7 @@
 
 use std::cell::{OnceCell, RefCell, RefMut};
 
-use log::{info, warn};
+use log::{info, trace, warn};
 
 use super::{cart::Cart, ppu::Ppu};
 
@@ -71,12 +71,13 @@ trait Device {
     // fn mem_write16(&mut self, addr: u16, val: u16);
 }
 
+#[derive(Debug)]
 pub enum BusTarget {
     Ram, SRam, Rom, Ppu, None
 }
 
 pub struct Bus {
-    ram: RefCell<[u8; WRAM_SIZE]>,
+    pub ram: RefCell<[u8; WRAM_SIZE]>,
     sram: RefCell<[u8; CART_MEM_SIZE]>,
     rom: RefCell<[u8; ROM_SIZE]>,
 
@@ -157,8 +158,9 @@ impl Bus {
 
     pub fn read(&self, addr: u16) -> u8 {
         let (target, new_addr) = self.map(addr);
+        trace!("Sent: {addr}, Got {new_addr}, Target: {target:?}");
         match target {
-            BusTarget::Ram => self.rom.borrow()[new_addr as usize],
+            BusTarget::Ram => self.ram.borrow()[new_addr as usize],
             BusTarget::Ppu => self.ppu().reg_read(new_addr),
             BusTarget::SRam => self.sram.borrow()[new_addr as usize],
             BusTarget::Rom => self.rom.borrow()[new_addr as usize],
@@ -173,7 +175,7 @@ impl Bus {
     pub fn write(&self, addr: u16, val: u8) {
         let (target, new_addr) = self.map(addr);
         match target {
-            BusTarget::Ram => self.rom.borrow_mut()[new_addr as usize] = val,
+            BusTarget::Ram => self.ram.borrow_mut()[new_addr as usize] = val,
             BusTarget::Ppu => self.ppu().reg_write(new_addr, val),
             BusTarget::SRam => self.sram.borrow_mut()[new_addr as usize] = val,
             BusTarget::Rom => self.rom.borrow_mut()[new_addr as usize] = val,
