@@ -120,6 +120,12 @@ impl PpuCtrl {
     let nametbl_idx = self.bits() & PpuCtrl::base_nametbl.bits();
     NAMETBLS_START + NAMETBL_SIZE*nametbl_idx as u16
   }
+  pub fn vramm_addr_incr(&self) -> u16 {
+    match self.contains(PpuCtrl::vram_incr) {
+      false => 1,
+      true  => 32 
+    }
+  }
   pub fn spr_ptrntbl_addr(&self) -> u16 {
     match self.contains(PpuCtrl::spr_ptrntbl) {
       false => 0x000,
@@ -157,6 +163,7 @@ pub struct Ppu {
   pub ctrl: PpuCtrl,
   pub mask: PpuMask,
   pub stat: PpuStat,
+  pub oam_addr: u8,
 
   pub req_state: RequestAddr,
   pub req_addr: u16,
@@ -189,6 +196,7 @@ impl Ppu {
       ctrl: PpuCtrl::empty(), 
       stat: PpuStat::empty(),
       mask: PpuMask::empty(),
+      oam_addr: 0,
       req_state: RequestAddr::Start, req_addr: 0, req_buf: 0,
       mirroring: cart.header.nametbl_mirroring,
       nmi_requested: false,
@@ -208,25 +216,24 @@ impl Ppu {
 
     if self.cycles >= HORIZONTAL_OVERSCAN {
       self.cycles -= HORIZONTAL_OVERSCAN;
-      self.scanline = self.scanline.wrapping_add(1);
+      self.scanline += 1;
     }
 
     if (0..VISIBLE_SCANLINES).contains(&self.scanline) {
       // drawing here
-    } else if self.scanline == VISIBLE_SCANLINES {
+    } else if self.scanline == VISIBLE_SCANLINES+1 {
       // if self.ctrl.contains(PpuCtrl::vblank_nmi_on) {
+        self.stat.insert(PpuStat::vblank);
         self.send_nmi();
       // }
     } else if self.scanline >= VERTICAL_OVERSCAN {
       self.scanline = 0;
+      self.stat.remove(PpuStat::vblank);
     }
   }
 
   fn next_req_addr(&mut self) {
-    match self.ctrl.contains(PpuCtrl::vram_incr) {
-        false => self.req_addr = (self.req_addr + 1) % PALETTES_MIRRORS_END,
-        true  => self.req_addr = (self.req_addr + 32) % PALETTES_MIRRORS_END, 
-      }
+    self.req_addr = (self.req_addr + self.ctrl.vramm_addr_incr()) & PALETTES_MIRRORS_END;
   }
 
   pub fn reg_read(&mut self, addr: u16) -> u8 {
@@ -237,7 +244,7 @@ impl Ppu {
 
     match addr {
       PPU_STAT => self.stat.bits(),
-      OAM_DATA => todo!("oam_data read"),
+      OAM_DATA => self.oam[self.oam_addr as usize],
       PPU_DATA => self.mem_read(self.req_addr),
       _ => {
         info!("Read to PPU ${addr:04X} not implemented");
@@ -251,6 +258,11 @@ impl Ppu {
         PPU_CTRL => self.ctrl = PpuCtrl::from_bits_retain(val),
         PPU_MASK => self.mask = PpuMask::from_bits_retain(val),
         PPU_STAT => info!("Invalid write to read-only PPUSTAT register ${addr:04X}"),
+        OAM_ADDR => self.oam_addr = val,
+        OAM_DATA => {
+          self.oam[self.oam_addr as usize] = val;
+          self.oam_addr = self.oam_addr.wrapping_add(1);
+        }
         PPU_ADDR => {
           match self.req_state {
               RequestAddr::Start => self.req_state = RequestAddr::AddrHigh(val),
@@ -260,9 +272,7 @@ impl Ppu {
               }
           }
         }
-        PPU_DATA => {
-          self.mem_write(self.req_addr, val);
-        }
+        PPU_DATA => self.mem_write(self.req_addr, val),
         _ => info!("Write to PPU ${addr:04X} not implemented")
       };
   }
@@ -302,6 +312,7 @@ impl Ppu {
     match addr {
       0..=PATTERNS_END => {
         info!("illegal write on chr_rom at ${addr:04X}");
+        self.vram[addr as usize] = val;
       },
       NAMETBLS_START..=NAMETBLS_END => {
         let mirrored = self.mirror_nametbl(addr);
