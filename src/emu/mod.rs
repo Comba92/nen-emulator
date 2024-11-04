@@ -3,7 +3,6 @@ use std::{path::Path, rc::Rc};
 use cart::Cart;
 use cpu::Cpu;
 use bus::Bus;
-use ppu::Ppu;
 
 pub mod cpu;
 pub mod ppu;

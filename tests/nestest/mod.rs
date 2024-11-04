@@ -118,9 +118,9 @@ use prettydiff::{diff_lines, diff_words};
 
   #[test]
   fn nes_test() {
-    // let mut builder = colog::basic_builder();
-    // builder.filter_level(log::LevelFilter::Info);
-    // builder.init();
+    let mut builder = colog::basic_builder();
+    builder.filter_level(log::LevelFilter::Info);
+    builder.init();
 
     let log_str = include_str!("nestest.log");
     let mut test_log = log_str
@@ -147,12 +147,12 @@ use prettydiff::{diff_lines, diff_words};
         info!("Errors: ${:02X}", &emu.cpu.mem_read(0x2));
         info!("Results: ${:04X}", &emu.cpu.mem_read16(0x2));
         
-        let mut builder = colog::basic_builder();
-        builder.filter_level(log::LevelFilter::Info);
-        builder.init();
-        for _ in 0..100 {
-          emu.step();
-        }
+        // let mut builder = colog::basic_builder();
+        // builder.filter_level(log::LevelFilter::Info);
+        // builder.init();
+        // for _ in 0..100 {
+        //   emu.step();
+        // }
         
         break;
       }

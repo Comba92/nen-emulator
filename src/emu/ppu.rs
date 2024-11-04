@@ -334,7 +334,7 @@ impl Ppu {
       },
       PALETTES_START..=PALETTES_MIRRORS_END => {
         warn!("reading palettes at ${addr:04X} at cycle {}", self.cpu_cycles);
-        let palette = (addr & PALETTES_END) - PALETTES_START;
+        let _palette = (addr & PALETTES_END) - PALETTES_START;
         // self.palette[palette as usize]
         0
       }
