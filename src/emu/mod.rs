@@ -27,10 +27,8 @@ impl Emulator {
   }
 
   pub fn from_cart(cart: Cart) -> Self {
-    let bus = Rc::new(Bus::new(&cart));
+    let bus = Rc::new(Bus::with_ppu(&cart));
     let cpu = Cpu::new(Rc::clone(&bus));
-    let ppu = Ppu::new(&cart);
-    bus.connect(ppu);
 
     Emulator {bus, cpu, cart}
   }
@@ -39,16 +37,22 @@ impl Emulator {
     Emulator::from_cart(Cart::empty())
   }
 
-  pub fn step(&mut self) -> bool {
-    if self.bus.ppu().nmi_requested { return true }
-
+  pub fn step(&mut self) {
     let last_cycles = self.cpu.cycles;
     self.cpu.step();
-    
-    for _ in 0..3 {
-      self.bus.step(self.cpu.cycles - last_cycles);
-    }
+    self.bus.step(self.cpu.cycles - last_cycles, self.cpu.cycles);
+  }
 
-    self.bus.ppu().nmi_requested
+  pub fn step_until_nmi(&mut self) {
+    loop {
+      let last_cycles = self.cpu.cycles;
+      self.cpu.step();
+      
+      for _ in 0..3 {
+        self.bus.step(self.cpu.cycles - last_cycles, self.cpu.cycles);
+      }
+
+      if self.bus.ppu().nmi_requested { break; }
+    }
   }
 }

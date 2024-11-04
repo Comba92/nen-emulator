@@ -1,7 +1,7 @@
 use std::{fmt, ops::{Shl, Shr}, rc::Rc};
 
 use bitflags::bitflags;
-use log::{debug, trace};
+use log::{debug, info, trace};
 
 use super::{bus::Bus, instr::{AddressingMode, Instruction, INSTRUCTIONS, INSTR_TO_FN}};
 
@@ -203,8 +203,10 @@ impl Cpu {
     let opcode = self.pc_fetch();
     
     let instr = &INSTRUCTIONS[opcode as usize];
-    let mut op = self.get_operand_with_addressing(&instr);
     
+    let mut op = self.get_operand_with_addressing(&instr);
+    info!("{:?} with op {:?} at cycle {}", instr, op, self.cycles);
+
     let opname = instr.name.as_str();
     let (_, inst_fn) = INSTR_TO_FN
     .get_key_value(opname)
@@ -217,7 +219,8 @@ impl Cpu {
 
   fn handle_interrupt(&mut self, isr_addr: u16) {
     self.stack_push16(self.pc);
-    self.stack_push(self.p.bits());
+    let pushable = self.p.clone().union(CpuFlags::brkpush);
+    self.stack_push(pushable.bits());
     self.cycles = self.cycles.wrapping_add(2);
     self.p.insert(CpuFlags::irq_off);
     self.pc = self.mem_read16(isr_addr);
@@ -322,7 +325,7 @@ impl Cpu {
   pub fn store(&mut self, op: &mut Operand, val: u8) {
     if let OperandSrc::Addr(src) = op.src {
       self.set_instr_result(InstrDst::Mem(src, val))
-    } else { unreachable!() }  
+    }  
   }
 
   pub fn sta(&mut self, op: &mut Operand) {
@@ -372,7 +375,7 @@ impl Cpu {
   }
   pub fn php(&mut self, _: &mut Operand) {
     // Brk is always 1 on pushes
-    let pushable = self.p.union(CpuFlags::brkpush);
+    let pushable = self.p.clone().union(CpuFlags::brkpush);
     trace!("[PHP] Pushing {pushable:?} (${:02X}) to stack at cycle {}", pushable.bits(), self.cycles);
     self.stack_push(pushable.bits());
   }
@@ -440,7 +443,7 @@ impl Cpu {
     if let OperandSrc::Addr(src) = op.src {
       op.val = self.increase(op.val, u8::wrapping_add);
       self.mem_write(src, op.val);
-    } else { unreachable!() }
+    }
   }
   pub fn inx(&mut self, _: &mut Operand) {
     self.x = self.increase(self.x, u8::wrapping_add);
@@ -452,7 +455,7 @@ impl Cpu {
     if let OperandSrc::Addr(src) = op.src {
       op.val = self.increase(op.val, u8::wrapping_sub);
       self.mem_write(src, op.val);
-    } else { unreachable!() }
+    }
   }
   pub fn dex(&mut self, _: &mut Operand) {
     self.x = self.increase(self.x, u8::wrapping_sub);
@@ -490,7 +493,7 @@ impl Cpu {
   pub fn jmp(&mut self, op: &mut Operand) {
     if let OperandSrc::Addr(src) = op.src {
       self.pc = src;
-    } else { unreachable!() }
+    }
   }
   pub fn jsr(&mut self, op: &mut Operand) {
     self.stack_push16(self.pc - 1);
@@ -651,7 +654,7 @@ impl Cpu {
     if let OperandSrc::Addr(src) = op.src {
       let res = self.a & self.x;
       self.set_instr_result(InstrDst::Mem(src, res));
-    } else { unreachable!() }
+    }
   }
   
   pub fn tas(&mut self, op: &mut Operand) {
@@ -660,7 +663,7 @@ impl Cpu {
       self.sp = self.a & self.x;
       let res = self.a & self.x & ((src >> 8) as u8).wrapping_add(1);
       self.set_instr_result(InstrDst::Mem(src, res));
-    } else { unreachable!() }
+    }
   }
 
   pub fn sha(&mut self, op: &mut Operand) {
@@ -668,7 +671,7 @@ impl Cpu {
       // TODO: indexed y behaviour is different
       let res = self.a & self.x & ((src >> 8) as u8).wrapping_add(1);
       self.set_instr_result(InstrDst::Mem(src, res));
-    } else { unreachable!() }
+    }
   }
 
   pub fn shx(&mut self, op: &mut Operand) {
@@ -676,7 +679,7 @@ impl Cpu {
       // TODO: indexed y behaviour is different
       let res = self.a & self.y & ((src >> 8) as u8).wrapping_add(1);
       self.set_instr_result(InstrDst::Mem(src, res));
-    } else { unreachable!() }
+    }
   }
 
   pub fn shy(&mut self, op: &mut Operand) {
@@ -684,7 +687,7 @@ impl Cpu {
       // TODO: indexed y behaviour is different
       let res = self.a & self.y & ((src >> 8) as u8).wrapping_add(1);
       self.set_instr_result(InstrDst::Mem(src, res));
-    } else { unreachable!() }
+    }
   }
 
   pub fn sbx(&mut self, op: &mut Operand) {
@@ -692,7 +695,7 @@ impl Cpu {
       let res = (self.a & self.x).wrapping_sub(op.val);
       self.set_czn(res as u16);
       self.x = res;
-    } else { unreachable!() }
+    }
   }
 
   pub fn ane(&mut self, _op: &mut Operand) {
@@ -709,6 +712,6 @@ impl Cpu {
 
   pub fn jam(&mut self, _: &mut Operand) {
     // freezes the cpu
-    todo!("jam")
+    // todo!("jam")
   }
 }

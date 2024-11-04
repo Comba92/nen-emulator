@@ -96,12 +96,18 @@ impl Bus {
         bus
     }
 
-    pub fn connect(&self, ppu: Ppu) {
+    pub fn connect_ppu(&self, ppu: Ppu) {
         self.ppu.set(RefCell::new(ppu)).unwrap();
     }
 
-    pub fn step(&self, cycles: usize) {
-        self.ppu().step(cycles);
+    pub fn with_ppu(cart: &Cart) -> Self {
+        let bus = Bus::new(cart);
+        bus.connect_ppu(Ppu::new(cart));
+        bus
+    }
+
+    pub fn step(&self, cycles: usize, cpu_cycles: usize) {
+        self.ppu().step(cycles * 3, cpu_cycles);
     }
 
     pub fn ppu(&self) -> RefMut<Ppu> {
@@ -118,7 +124,6 @@ impl Bus {
     // TODO IRQ
     pub fn poll_irq(&self) -> bool { false }
 
-    // TODO: replace subtractions with masks
     pub fn map(&self, addr: u16) -> (BusTarget, u16) {
         match addr {
             0..=RAM_MIRRORS_END => {
@@ -131,7 +136,7 @@ impl Bus {
             },
             PPU_REG_MIRRORS_START..=PPU_REG_MIRRORS_END => {
                 let mirrored = addr & PPU_REG_END;
-                warn!("Access to PPU REG ${mirrored:04X}");
+                warn!("Access to PPU REG ${mirrored:04X} (original: ${addr:04X})");
                 (BusTarget::Ppu, mirrored)
             }
             CART_MEM_START..ROM_START => {
@@ -143,7 +148,7 @@ impl Bus {
                 (BusTarget::Rom, rom_addr)
             },
             _ => {
-                info!("Access to ${addr:04X} not yet implemented");
+                info!("Access to ${addr:04X} not implemented");
                 (BusTarget::None, 0)
             },
         }
@@ -154,7 +159,7 @@ impl Bus {
         let (target, new_addr) = self.map(addr);
         match target {
             BusTarget::Ram => self.rom.borrow()[new_addr as usize],
-            BusTarget::Ppu => self.ppu().reg_read(addr),
+            BusTarget::Ppu => self.ppu().reg_read(new_addr),
             BusTarget::SRam => self.sram.borrow()[new_addr as usize],
             BusTarget::Rom => self.rom.borrow()[new_addr as usize],
             BusTarget::None => 0,
@@ -169,7 +174,7 @@ impl Bus {
         let (target, new_addr) = self.map(addr);
         match target {
             BusTarget::Ram => self.rom.borrow_mut()[new_addr as usize] = val,
-            BusTarget::Ppu => self.ppu().reg_write(addr, val),
+            BusTarget::Ppu => self.ppu().reg_write(new_addr, val),
             BusTarget::SRam => self.sram.borrow_mut()[new_addr as usize] = val,
             BusTarget::Rom => self.rom.borrow_mut()[new_addr as usize] = val,
             BusTarget::None => {},
@@ -186,5 +191,54 @@ impl Bus {
         for (offset, byte) in data.iter().enumerate() {
             self.write(start.wrapping_add(offset as u16), *byte);
         }
+    }
+}
+
+#[cfg(test)]
+mod bus_tests {
+    use crate::emu::ppu::{PPU_ADDR, PPU_CTRL, PPU_DATA, PPU_MASK, PPU_SCROLL, PPU_STAT};
+
+    use super::*;
+
+    fn new_bus() -> Bus {
+        colog::init();
+        let bus = Bus::new(&Cart::empty());
+        bus.connect_ppu(Ppu::new(&Cart::empty()));
+        bus
+    }
+
+    #[test]
+    fn ppu_regs() {
+        let bus = new_bus();
+        bus.read(PPU_CTRL);
+        bus.read(PPU_MASK);
+        bus.read(PPU_STAT);
+        bus.read(PPU_SCROLL);
+        bus.read(PPU_ADDR);
+        bus.read(PPU_DATA);
+    }
+
+    #[test]
+    fn ppu_reg_mirror() {
+        let bus = new_bus();
+        bus.ppu().vram[0x2121] = 0x69;
+
+        bus.read(0x351E);
+        bus.write(0x351E, 0x21);
+        bus.write(0x351E, 0x21);
+        bus.read(0x351F);
+        assert_eq!(bus.read(0x351F), 0x69);
+    }
+
+    #[test]
+    fn ppu_addr() {
+        let bus = new_bus();
+        bus.ppu().vram[0x05] = 0x69;
+
+        bus.write(PPU_ADDR, 0x20);
+        bus.write(PPU_ADDR, 0x05);
+
+        bus.read(PPU_DATA);
+        assert_eq!(bus.read(PPU_DATA), 0x69);
     }
 }

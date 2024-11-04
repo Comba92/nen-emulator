@@ -8,7 +8,7 @@ use log::info;
 use nen_emulator::emu::{bus::Bus, cart::Cart, cpu::{Cpu, CpuFlags}, instr::{AddressingMode, INSTRUCTIONS}, ppu::Ppu, Emulator};
 use prettydiff::{diff_lines, diff_words};
 
-  #[derive(Debug, Eq, Clone)]
+  #[derive(Debug, PartialEq, Eq, Clone)]
   struct CpuMock {
     pc: u16,
     sp: u8,
@@ -20,14 +20,14 @@ use prettydiff::{diff_lines, diff_words};
     ppu_cycles: usize,
     cpu_cycles: usize
   }
-  impl PartialEq for CpuMock {
-    fn eq(&self, other: &Self) -> bool {
-        self.pc == other.pc && self.sp == other.sp && self.a == other.a && self.x == other.x && self.y == other.y && self.p == other.p 
-        && self.cpu_cycles == other.cpu_cycles
-        && self.ppu_cycles == other.ppu_cycles
-        && self.scanlines == other.scanlines
-    }
-  }
+  // impl PartialEq for CpuMock {
+  //   fn eq(&self, other: &Self) -> bool {
+  //       self.pc == other.pc && self.sp == other.sp && self.a == other.a && self.x == other.x && self.y == other.y && self.p == other.p 
+  //       && self.cpu_cycles == other.cpu_cycles
+  //       && self.ppu_cycles == other.ppu_cycles
+  //       && self.scanlines == other.scanlines
+  //   }
+  // }
 
   impl CpuMock {
     fn from_cpu(cpu: &Cpu, ppu: &Ppu) -> Self {
@@ -118,9 +118,9 @@ use prettydiff::{diff_lines, diff_words};
 
   #[test]
   fn nes_test() {
-    let mut builder = colog::basic_builder();
-    builder.filter_level(log::LevelFilter::Info);
-    builder.init();
+    // let mut builder = colog::basic_builder();
+    // builder.filter_level(log::LevelFilter::Info);
+    // builder.init();
 
     let log_str = include_str!("nestest.log");
     let mut test_log = log_str
@@ -144,11 +144,20 @@ use prettydiff::{diff_lines, diff_words};
       if let None = next_line {
         info!("Reached end of input!!");
         print_last_diffs(&most_recent_instr, &emu.cpu, line_count);
+        info!("Errors: ${:02X}", &emu.cpu.mem_read(0x2));
+        info!("Results: ${:04X}", &emu.cpu.mem_read16(0x2));
+        
+        let mut builder = colog::basic_builder();
+        builder.filter_level(log::LevelFilter::Info);
+        builder.init();
+        for _ in 0..100 {
+          emu.step();
+        }
+        
         break;
       }
       
       let line = next_line.unwrap();
-      
       let my_cpu = CpuMock::from_cpu(&emu.cpu, &emu.bus.ppu());
       let log_cpu = CpuMock::from_log(line);
       

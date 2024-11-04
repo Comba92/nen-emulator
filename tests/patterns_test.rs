@@ -42,6 +42,8 @@ mod patterns_test {
 
     #[test]
     fn render_patterns() {
+      colog::init();
+
       const RENDER_WIDTH: u32 = 128*2;
       const RENDER_HEIGHT: u32 = 128;
       const SCALE: u32 = 3;
@@ -81,30 +83,32 @@ mod patterns_test {
     }
 
     #[test]
-    fn render_nametbls() {  
-      colog::init();
-
+    fn render_bg() {  
+      
       const RENDER_WIDTH: u32 = 32;
       const RENDER_HEIGHT: u32 = 30;
       const SCALE: u32 = 25;
-
+      
       let mut sdl = Sdl2Context::new("Background", RENDER_WIDTH*SCALE, RENDER_HEIGHT*SCALE);
-
+      
       let mut framebuf = FrameBuffer::new(8*RENDER_WIDTH as usize, 8*RENDER_HEIGHT as usize);
-
+      
       let mut texture = sdl.texture_creator
       .create_texture_target(PixelFormatEnum::RGB24, framebuf.width as u32, framebuf.height as u32)
       .unwrap();
-
-      let rom_path = &Path::new("tests/test_roms/Pacman.nes");
-      let mut emu = Emulator::new(rom_path);
-
-      for _ in 0..576 {
-        while !emu.step() {}
+    
+    let rom_path = &Path::new("tests/test_roms/Donkey Kong.nes");
+    let mut emu = Emulator::new(rom_path);
+    
+    
+      //colog::init();
+      for _ in 0..1000 {
+        emu.step_until_nmi();
       }
       println!("Run for 1m frames");
       println!("{:?}", emu.bus.ppu());
 
+      let bg_ptrntbl = emu.bus.ppu().ctrl.bg_ptrntbl_addr();
       'running: loop {
         for event in sdl.events.poll_iter() {
           match event {
@@ -114,24 +118,25 @@ mod patterns_test {
         }
 
         let ppu = emu.bus.ppu();
-        let bg_ptrntbl = ppu.ctrl.bg_ptrntbl_addr();
+
         for i in 0..32*30 {
-          let tile_idx = ppu.vram[i];
+          let tile_idx = ppu.vram[0x2000 + i];
           let x = i as u32 % RENDER_WIDTH;
           let y = i as u32 / RENDER_WIDTH;
-          let tile_start = bg_ptrntbl as usize + (tile_idx as usize * 16);
+          let tile_start = (bg_ptrntbl as usize) + ((tile_idx as usize) * 16);
           let tile = &emu.cart.chr_rom[tile_start..tile_start+16];
-          println!("{tile_idx}: {:?}", tile);
-          framebuf.set_tile(x as usize, y as usize, parse_tile(tile));
+          //println!("{tile_idx}: {:?}", tile);
+          framebuf.set_tile(8*x as usize, 8*y as usize, parse_tile(tile));
         }
-        println!("Bg Patterntbl: {bg_ptrntbl}");
-        break 'running;
+        //break 'running;
 
         texture.update(None, &framebuf.buffer, framebuf.pitch()).unwrap();
         sdl.canvas.copy(&texture, None, None).unwrap();
         sdl.canvas.present();
       }
 
+      println!("{bg_ptrntbl}");
+      println!("{:?}", &emu.bus.ppu().vram[0x2000..]);
       println!("{:?} {:?} {:?}", emu.cpu, emu.bus.ppu(), emu.cart.header);
     }
 

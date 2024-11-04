@@ -58,6 +58,7 @@ const PALETTES_START: u16 = 0x3F00;
 const PALETTES_SIZE: usize = 0x20; // 32 bytes
 const PALETTES_END: u16 = PALETTES_START + PALETTES_SIZE as u16;
 const PALETTES_MIRRORS_END: u16 = 0x3FFF;
+const VRAM_END: u16 = PALETTES_MIRRORS_END;
 
 const PPU_MIRRORS_START: u16 = 0x4000;
 
@@ -148,7 +149,7 @@ struct OAMEntry {
 }
 
 pub struct Ppu {
-  pub vram: [u8; VRAM_SIZE],
+  pub vram: [u8; 0x4000],
   pub palette: [u8; PALETTES_SIZE],
   pub oam: [u8; OAM_SIZE],
   pub chr_rom: [u8; PATTERNS_SIZE],
@@ -165,17 +166,25 @@ pub struct Ppu {
   pub stat: PpuStat,
   pub oam_addr: u8,
 
+  pub scroll_state: RequestScroll,
+  pub scroll_x: u8,
+  pub scroll_y: u8,
+
   pub req_state: RequestAddr,
   pub req_addr: u16,
   pub req_buf: u8,
 
   pub mirroring: NametblMirroring,
   pub nmi_requested: bool,
+  pub cpu_cycles: usize,
 }
 
 #[derive(Debug)]
 pub enum RequestAddr {
   Start, AddrHigh(u8)
+}
+pub enum RequestScroll {
+  Start, ScrollX
 }
 
 impl fmt::Debug for Ppu {
@@ -187,7 +196,7 @@ impl fmt::Debug for Ppu {
 impl Ppu {
   pub fn new(cart: &Cart) -> Self {
     let mut ppu = Self {
-      vram: [0; VRAM_SIZE],
+      vram: [0; 0x4000],
       oam: [0; OAM_SIZE], 
       palette: [0; PALETTES_SIZE], 
       chr_rom: [0; PATTERNS_SIZE],
@@ -198,20 +207,25 @@ impl Ppu {
       mask: PpuMask::empty(),
       oam_addr: 0,
       req_state: RequestAddr::Start, req_addr: 0, req_buf: 0,
+      scroll_state: RequestScroll::Start, scroll_x: 0, scroll_y: 0,
       mirroring: cart.header.nametbl_mirroring,
       nmi_requested: false,
+      cpu_cycles: 0,
     };
 
-    let (left, _) = ppu.chr_rom.split_at_mut(cart.chr_rom.len());
+    let (left, _) = ppu.vram.split_at_mut(cart.chr_rom.len());
     left.copy_from_slice(&cart.chr_rom);
     ppu
   }
 
   pub fn send_nmi(&mut self) {
-    self.nmi_requested = true;
+    //if self.ctrl.contains(PpuCtrl::vblank_nmi_on) {
+      self.nmi_requested = true;
+    //}
   }
 
-  pub fn step(&mut self, cycles: usize) {
+  pub fn step(&mut self, cycles: usize, cpu_cycles: usize) {
+    self.cpu_cycles = cpu_cycles;
     self.cycles = self.cycles.wrapping_add(cycles);
 
     if self.cycles >= HORIZONTAL_OVERSCAN {
@@ -222,10 +236,8 @@ impl Ppu {
     if (0..VISIBLE_SCANLINES).contains(&self.scanline) {
       // drawing here
     } else if self.scanline == VISIBLE_SCANLINES+1 {
-      // if self.ctrl.contains(PpuCtrl::vblank_nmi_on) {
         self.stat.insert(PpuStat::vblank);
         self.send_nmi();
-      // }
     } else if self.scanline >= VERTICAL_OVERSCAN {
       self.scanline = 0;
       self.stat.remove(PpuStat::vblank);
@@ -233,7 +245,7 @@ impl Ppu {
   }
 
   fn next_req_addr(&mut self) {
-    self.req_addr = (self.req_addr + self.ctrl.vramm_addr_incr()) & PALETTES_MIRRORS_END;
+    self.req_addr = (self.req_addr + self.ctrl.vramm_addr_incr()) & VRAM_END;
   }
 
   pub fn reg_read(&mut self, addr: u16) -> u8 {
@@ -243,11 +255,17 @@ impl Ppu {
     }
 
     match addr {
-      PPU_STAT => self.stat.bits(),
+      PPU_STAT => {
+        let res = self.stat.bits();
+        self.req_state = RequestAddr::Start;
+        self.scroll_state = RequestScroll::Start;
+        self.stat.remove(PpuStat::vblank);
+        res
+      }
       OAM_DATA => self.oam[self.oam_addr as usize],
       PPU_DATA => self.mem_read(self.req_addr),
       _ => {
-        info!("Read to PPU ${addr:04X} not implemented");
+        info!("Read to PPU REG ${addr:04X} at cycle {} not implemented", self.cpu_cycles);
         0
       }
     }
@@ -257,74 +275,109 @@ impl Ppu {
       match addr {
         PPU_CTRL => self.ctrl = PpuCtrl::from_bits_retain(val),
         PPU_MASK => self.mask = PpuMask::from_bits_retain(val),
-        PPU_STAT => info!("Invalid write to read-only PPUSTAT register ${addr:04X}"),
+        PPU_STAT => info!("Invalid write to read-only PPUSTAT register ${addr:04X} at cycle {}", self.cpu_cycles),
         OAM_ADDR => self.oam_addr = val,
         OAM_DATA => {
           self.oam[self.oam_addr as usize] = val;
           self.oam_addr = self.oam_addr.wrapping_add(1);
+        }
+        PPU_SCROLL => {
+          match self.scroll_state {
+            RequestScroll::Start => {
+              self.scroll_state = RequestScroll::ScrollX;
+              self.scroll_x = val;
+            }
+            RequestScroll::ScrollX => {
+              self.scroll_state = RequestScroll::Start;
+              self.scroll_y = val;
+            }
+        }
         }
         PPU_ADDR => {
           match self.req_state {
               RequestAddr::Start => self.req_state = RequestAddr::AddrHigh(val),
               RequestAddr::AddrHigh(high) => {
                 self.req_state = RequestAddr::Start;
-                self.req_addr = u16::from_le_bytes([val, high]) & PALETTES_MIRRORS_END;
+                self.req_addr = u16::from_le_bytes([val, high]) & VRAM_END;
               }
           }
         }
         PPU_DATA => self.mem_write(self.req_addr, val),
-        _ => info!("Write to PPU ${addr:04X} not implemented")
+        _ => info!("Write to PPU REG ${addr:04X} not implemented at cycle {}", self.cpu_cycles)
       };
   }
 
   pub fn mem_read(&mut self, addr: u16) -> u8 {
     let res = self.req_buf;
-    warn!("reading ppu at {addr:04X}");
+    let addr = addr & VRAM_END;
+    self.req_buf = self.vram[addr as usize];
+    self.next_req_addr();
+    warn!("reading ppu at ${addr:04X} at cycle {}", self.cpu_cycles);
+    info!("PPU read got value {:02X} from read buf", res);
+    res
+  }
 
+  pub fn mem_read_old(&mut self, addr: u16) -> u8 {
+    let res = self.req_buf;
+    warn!("reading ppu at ${addr:04X} at cycle {}", self.cpu_cycles);
 
+    let addr = addr & VRAM_END;
     let data = match addr {
       0..=PATTERNS_END => {
+        warn!("reading chr_rom at ${addr:04X} at cycle {}", self.cpu_cycles);
         self.chr_rom[addr as usize]
       },
       NAMETBLS_START..=NAMETBLS_END => {
         let mirrored = self.mirror_nametbl(addr);
-        warn!("reading vram at {mirrored:04X}");
+        warn!("reading vram at ${mirrored:04X} at cycle {}", self.cpu_cycles);
         self.vram[mirrored as usize]
       },
       PALETTES_START..=PALETTES_MIRRORS_END => {
+        warn!("reading palettes at ${addr:04X} at cycle {}", self.cpu_cycles);
         let palette = (addr & PALETTES_END) - PALETTES_START;
-        self.palette[palette as usize]
+        // self.palette[palette as usize]
+        0
       }
       _ => {
-        info!("read to unused vram address ${addr:04X}");
+        info!("read to unused vram address ${addr:04X} at cycle {}", self.cpu_cycles);
         0
       }
     };
 
     self.req_buf = data;
     self.next_req_addr();
+    info!("PPU read got value {:02X} from read buf", res);
     res
   }
 
   pub fn mem_write(&mut self, addr: u16, val: u8) {
-    warn!("writing ppu at {addr:04X}");
+    let addr = addr & VRAM_END;
+    warn!("writing ppu at ${addr:04X} at cycle {}", self.cpu_cycles);
+    self.vram[addr as usize] = val;
+    self.next_req_addr();
+  }
+
+  pub fn mem_write_old(&mut self, addr: u16, val: u8) {
+    warn!("writing ppu at ${addr:04X} at cycle {}", self.cpu_cycles);
     
+    let addr = addr & VRAM_END;
     match addr {
       0..=PATTERNS_END => {
-        info!("illegal write on chr_rom at ${addr:04X}");
-        self.vram[addr as usize] = val;
+        info!("illegal write on chr_rom at ${addr:04X} at cycle {}", self.cpu_cycles);
+        self.chr_rom[addr as usize] = val;
       },
       NAMETBLS_START..=NAMETBLS_END => {
         let mirrored = self.mirror_nametbl(addr);
-        warn!("writing vram at {mirrored:04X}");
+        warn!("writing vram at ${mirrored:04X} at cycle {}", self.cpu_cycles);
         self.vram[mirrored as usize] = val;
       },
       PALETTES_START..=PALETTES_MIRRORS_END => {
         let palette = (addr & PALETTES_END) - PALETTES_START;
-        self.palette[palette as usize] = val;
+        warn!("writing palettes at ${palette:04X} (original: ${addr:04X}) at cycle {}", self.cpu_cycles);
+        // self.palette[palette as usize] = val;
       }
       _ => {
-        info!("write to unused vram address ${addr:04X}");
+        info!("write to unused vram address ${addr:04X} at cycle {}", self.cpu_cycles);
       }
     };
 
