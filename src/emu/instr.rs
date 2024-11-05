@@ -16,7 +16,7 @@ pub struct Instruction {
   pub bytes: usize, 
   pub cycles: usize,
   pub page_boundary_cycle: bool,
-  // pub illegal: bool,
+  pub illegal: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone, Copy)]

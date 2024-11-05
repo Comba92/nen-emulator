@@ -55,7 +55,7 @@ impl fmt::Debug for Cpu {
 
 impl Cpu {
   pub fn new(bus: Rc<Bus>) -> Self {    
-    Self {
+    let mut cpu = Self {
       pc: PC_RESET as u16,
       sp: STACK_RESET,
       a: 0, x: 0, y: 0,
@@ -63,7 +63,15 @@ impl Cpu {
       p: CpuFlags::from_bits_retain(STAT_RESET),
       cycles: 7,
       bus,
-    }
+    };
+
+    cpu.stack_push16(PC_RESET);
+    cpu.stack_push16(PC_RESET);
+    cpu.stack_push16(PC_RESET);
+    cpu.stack_push16(PC_RESET);
+
+    cpu.sp = STACK_RESET;
+    cpu
   }
 
   pub fn set_carry(&mut self, res: u16) {
@@ -724,6 +732,6 @@ impl Cpu {
 
   pub fn jam(&mut self, _: &Operand) {
     // freezes the cpu
-    panic!("cpu jammed")
+    // panic!("cpu jammed")
   }
 }

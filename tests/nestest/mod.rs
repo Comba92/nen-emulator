@@ -1,7 +1,7 @@
 #[cfg(test)]
 pub mod nes_test {
 use core::panic;
-use std::{path::Path, rc::Rc};
+use std::{fs, io::{BufWriter, Write}, path::Path, rc::Rc};
 use circular_buffer::CircularBuffer;
 use log::{error, info};
 
@@ -87,8 +87,8 @@ use prettydiff::{diff_lines, diff_words};
     let opcode = bus.read(cpu.pc);
     let instr = &INSTRUCTIONS[opcode as usize];
     
-    let operand8 = bus.read(cpu.pc+1);
-    let operand16 = u16::from_le_bytes([operand8, bus.read(cpu.pc+2)]);
+    let operand8 = bus.read(cpu.pc.wrapping_add(1));
+    let operand16 = u16::from_le_bytes([operand8, bus.read(cpu.pc.wrapping_add(2))]);
 
     use AddressingMode::*;
     let desc = match instr.addressing {
@@ -101,14 +101,26 @@ use prettydiff::{diff_lines, diff_words};
       AbsoluteY => format!("${:04X} = ${:02X}", operand16.wrapping_add(cpu.y as u16), bus.read(operand16.wrapping_add(cpu.y as u16))),
       Indirect => format!("${operand16:04X} = {:04X}", bus.read(operand16)),
       IndirectX => format!("IndX ${:04X} @ {:04X}", operand8.wrapping_add(cpu.x), bus.read((operand8.wrapping_add(cpu.x)) as u16)),
-      IndirectY => format!("IndY ${:04X} @ {:04X}", operand8, bus.read((operand8 as u16) as u16 + cpu.y as u16)),
+      IndirectY => format!("IndY ${:04X} @ {:04X}", operand8, bus.read((operand8 as u16).wrapping_add(cpu.y as u16))),
+    };
+    let desc = " ".repeat(27);
+    
+    let mem_data = match instr.bytes {
+      1 => format!("{:02X}      ", opcode),
+      2 => format!("{:02X} {:02X}   ", opcode, operand8),
+      3 => format!("{:02X} {:02X} {:02X}", opcode, operand8, bus.read(cpu.pc.wrapping_add(2))),
+      _ => unreachable!()
+    };
+    let is_illegal = match instr.illegal {
+      true => '*',
+      false => ' ',
     };
 
     format!(
-      "{:04X}  {:02X} {:02X} {:02X}  {instr} {desc:20} \
+      "{:04X}  {mem_data} {is_illegal}{instr} {desc:27} \
       A:{a:02X} X:{x:02X} Y:{y:02X} P:{p:02X} SP:{sp:02X} \
-      PPU: {scanline}, {pixel} CYC:{cyc}",
-      cpu.pc, opcode, operand8, bus.read(cpu.pc + 2),
+      PPU:{scanline:>3},{pixel:>3} CYC:{cyc}",
+      cpu.pc,
       instr=instr.name, scanline=cpu.scanlines, pixel=cpu.ppu_cycles,
       a=cpu.a, x=cpu.x, y=cpu.y, p=cpu.p, sp=cpu.sp, cyc=cpu.cpu_cycles
     )
@@ -117,7 +129,7 @@ use prettydiff::{diff_lines, diff_words};
   const LINES_RANGE: usize = 8;
 
   #[test]
-  fn nes_test() {
+  fn nestest() {
     let mut builder = colog::basic_builder();
     builder.filter_level(log::LevelFilter::Info);
     builder.init();
@@ -183,6 +195,29 @@ use prettydiff::{diff_lines, diff_words};
       emu.step();
     }
   }
+
+#[test]
+fn nestest_to_file() {
+  let file = fs::File::create("tests/nestest/mylog.log").expect("Couldn't create log file");
+  let mut buf = BufWriter::new(file);
+
+  let rom_path = Path::new("tests/nestest/nestest.nes");
+  let rom = Cart::new(rom_path);
+  let mut emu = Emulator::from_cart(rom);
+  emu.cpu.pc = 0xC000;
+  emu.bus.write_data(0x8000, &emu.cart.prg_rom[..0x4000]);
+  emu.bus.write_data(0xC000, &emu.cart.prg_rom[..0x4000]);
+  emu.cpu.mem_write16(0x2, 0);
+
+  for _ in 0..8992 {
+    let snapshot = CpuMock::from_cpu(&emu.cpu, &emu.bus.ppu());
+    let mut line = debug_line(&snapshot, &emu.bus);
+    line.push('\n');
+    
+    buf.write(line.as_bytes()).expect("Couldn't write line to file");
+    emu.step();
+  }
+}
 
 fn print_diff(my_cpu: &CpuMock, log_cpu: &CpuMock, cpu: &Cpu, line_count: usize) -> (String, String) {
     let my_line = debug_line(my_cpu, &cpu.bus);

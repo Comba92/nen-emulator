@@ -311,7 +311,7 @@ impl Ppu {
       };
   }
 
-  pub fn mem_read(&mut self, addr: u16) -> u8 {
+  pub fn _mem_read(&mut self, addr: u16) -> u8 {
     let res = self.req_buf;
     let addr = addr & VRAM_END;
     self.req_buf = self.vram[addr as usize];
@@ -321,7 +321,7 @@ impl Ppu {
     res
   }
 
-  pub fn _mem_read(&mut self, addr: u16) -> u8 {
+  pub fn mem_read(&mut self, addr: u16) -> u8 {
     let res = self.req_buf;
     warn!("reading ppu at ${addr:04X} at cycle {}", self.cpu_cycles);
 
@@ -354,14 +354,14 @@ impl Ppu {
     res
   }
 
-  pub fn mem_write(&mut self, addr: u16, val: u8) {
+  pub fn __mem_write(&mut self, addr: u16, val: u8) {
     let new_addr = addr & VRAM_END;
     warn!("writing {val:02X} on ppu at ${new_addr:04X}(original ${addr:04X})at cycle {}", self.cpu_cycles);
     self.vram[addr as usize] = val;
     self.next_req_addr();
   }
 
-  pub fn _mem_write(&mut self, addr: u16, val: u8) {
+  pub fn mem_write(&mut self, addr: u16, val: u8) {
     warn!("writing {val:02X} to ppu at ${addr:04X} at cycle {}", self.cpu_cycles);
     
     let addr = addr & VRAM_END;
@@ -407,7 +407,7 @@ impl Ppu {
       (_, _) => addr,
     };
 
-    res + NAMETBLS_START
+    res
   }
 }
 

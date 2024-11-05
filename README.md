@@ -18,6 +18,9 @@
 - http://www.6502.org/users/obelisk/6502
 - https://www.pagetable.com/c64ref/6502
 - https://www.masswerk.at/6502/6502_instruction_set.html
+###
+Illegal Opcodes
+- https://www.nesdev.org/undocumented_opcodes.txt
 
 ## Memory
 - https://en.wikibooks.org/wiki/NES_Programming/Memory_Map
