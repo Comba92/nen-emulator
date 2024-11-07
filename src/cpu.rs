@@ -3,7 +3,7 @@ use std::{cell::OnceCell, fmt, ops::{BitAnd, BitOr, BitXor, Not, Shl, Shr}};
 use bitflags::bitflags;
 use log::{debug, trace};
 
-use crate::{bus::Bus, cart::Cart, instr::{AddressingMode, Instruction, INSTRUCTIONS, INSTR_TO_FN}, ppu::PpuStat};
+use crate::{bus::Bus, cart::Cart, instr::{AddressingMode, Instruction, INSTRUCTIONS, INSTR_TO_FN}, mem::Memory, ppu::PpuStat};
 
 bitflags! {
   #[derive(Debug, Clone, Copy)]
@@ -35,6 +35,30 @@ pub const NMI_ISR: u16 = 0xFFFA;
 pub const RESET_ISR: u16 = 0xFFFC;
 pub const IRQ_ISR: u16 = 0xFFFE;
 
+struct RamEmpty;
+impl Memory for RamEmpty {
+    fn read(&self, _: u16) -> u8 { 0 }
+    fn write(&mut self, _: u16, _: u8) {}
+}
+
+struct Ram64KB {
+  mem: [u8; 0x10000]
+}
+impl Ram64KB {
+  pub fn new() -> Self {
+    Self {mem: [0; 0x10000]}
+  }
+}
+impl Memory for Ram64KB {
+  fn read(&self, addr: u16) -> u8 {
+    self.mem[(addr % 0xFFFF) as usize]
+  }
+
+  fn write(&mut self, addr: u16, val: u8) {
+    self.mem[(addr % 0xFFFF) as usize] = val;
+  }
+}
+
 pub struct Cpu {
   pub pc: u16,
   pub sp: u8,
@@ -44,7 +68,17 @@ pub struct Cpu {
   pub y: u8,
   pub cycles: usize,
   pub jammed: bool,
-  pub bus: Bus,
+  pub bus: Box<dyn Memory>,
+}
+
+impl Memory for Cpu {
+  fn read(&self, addr: u16) -> u8 {
+    self.bus.read(addr)
+  }
+
+  fn write(&mut self, addr: u16, val: u8) {
+    self.bus.write(addr, val);
+  }
 }
 
 impl fmt::Debug for Cpu {
@@ -54,8 +88,8 @@ impl fmt::Debug for Cpu {
 }
 
 impl Cpu {
-  pub fn new(cart: Cart) -> Self {    
-    let mut cpu = Self {
+  pub fn without_mem() -> Self {
+    Self {
       pc: PC_RESET,
       sp: STACK_RESET,
       a: 0, x: 0, y: 0,
@@ -63,19 +97,29 @@ impl Cpu {
       p: CpuFlags::from_bits_retain(STAT_RESET),
       cycles: 7,
       jammed: false,
-      bus: Bus::new(cart),
-    };
+      bus: Box::new(RamEmpty),
+    }
+  }
 
-    cpu.pc = cpu.mem_read16(PC_RESET);
+  pub fn new(cart: Cart) -> Self {    
+    let mut cpu = Cpu::without_mem();
+    cpu.bus = Box::new(Bus::new(cart));
+    cpu.pc = cpu.read16(PC_RESET);
     cpu
   }
 
-  pub fn debug() -> Self {
-    let mut cpu = Cpu::new(Cart::empty());
-    cpu.bus.ppu_enabled = false;
-    cpu
+  pub fn without_cart() -> Self {
+    Cpu::new(Cart::empty())
   }
 
+  pub fn with_ram64kb() -> Self {    
+    let mut cpu = Cpu::without_mem();
+    cpu.bus = Box::new(Ram64KB::new());
+    cpu
+  }
+}
+
+impl Cpu {
   pub fn set_carry(&mut self, res: u16) {
     self.p.set(CpuFlags::carry, res > u8::MAX as u16);
   }
@@ -108,45 +152,23 @@ impl Cpu {
     self.p.contains(CpuFlags::carry).into()
   }
 
-  pub fn mem_read(&mut self, addr: u16) -> u8 {
-    //self.cycles = self.cycles.wrapping_add(1);
-    self.bus.read(addr)
-  }
-
-  pub fn mem_read16(&mut self, addr: u16) -> u16 {
-    self.bus.read16(addr)
-  }
-
   pub fn wrapping_read16(&mut self, addr: u16) -> u16 {
     if addr & 0x00FF == 0x00FF {
       let page = addr & 0xFF00;
-      let low = self.mem_read(page | 0xFF);
-      let high = self.mem_read(page | 0x00);
+      let low = self.read(page | 0xFF);
+      let high = self.read(page | 0x00);
       u16::from_le_bytes([low, high])
-    } else { self.mem_read16(addr) }
-  }
-
-  pub fn mem_write(&mut self, addr: u16, val: u8) {
-    //self.cycles = self.cycles.wrapping_add(1);
-    self.bus.write(addr, val);
-  }
-
-  pub fn mem_write16(&mut self, addr: u16, val: u16) {
-    self.bus.write16(addr, val);
-  }
-
-  pub fn mem_write_data(&mut self, start: u16, data: &[u8]) {
-    self.bus.write_data(start, data);
+    } else { self.read16(addr) }
   }
 
   pub fn pc_fetch(&mut self) -> u8 {
-    let res = self.mem_read(self.pc);
+    let res = self.read(self.pc);
     self.pc = self.pc.wrapping_add(1);
     res
   }
 
   pub fn pc_fetch16(&mut self) -> u16 {
-    let res = self.mem_read16(self.pc);
+    let res = self.read16(self.pc);
     self.pc = self.pc.wrapping_add(2);
     res
   }
@@ -158,7 +180,7 @@ impl Cpu {
 
   pub fn stack_push(&mut self, val: u8) {
     debug!("-> Pushing ${:02X} to stack at cycle {}", val, self.cycles);
-    self.mem_write(self.sp_addr(), val);
+    self.write(self.sp_addr(), val);
     debug!("\t{}", self.stack_trace());
     self.sp = self.sp.wrapping_sub(1);
   }
@@ -171,9 +193,9 @@ impl Cpu {
 
   pub fn stack_pull(&mut self) -> u8 {
     self.sp = self.sp.wrapping_add(1);
-    debug!("<- Pulling ${:02X} from stack at cycle {}", self.mem_read(self.sp_addr()), self.cycles);
+    debug!("<- Pulling ${:02X} from stack at cycle {}", self.read(self.sp_addr()), self.cycles);
     debug!("\t{}", self.stack_trace());
-    self.mem_read(self.sp_addr())
+    self.read(self.sp_addr())
   }
 
   pub fn stack_pull16(&mut self) -> u16 {
@@ -183,12 +205,12 @@ impl Cpu {
     u16::from_le_bytes([low, high])
   }
 
-  pub fn stack_trace(self: &mut Cpu) -> String {
+  pub fn stack_trace(&mut self) -> String {
     let mut s = String::new();
     const RANGE: i16 = 5;
     for i in -RANGE..=0 {
       let addr = self.sp_addr().wrapping_add_signed(i);
-      s.push_str(&format!("${:02X}, ", self.mem_read(addr)));
+      s.push_str(&format!("${:02X}, ", self.read(addr)));
     }
 
     s
@@ -210,8 +232,7 @@ pub type InstrFn = fn(&mut Cpu, &mut Operand);
 
 impl Cpu {
   pub fn step(&mut self) {
-    
-    let cycles_at_start = self.cycles;
+    let _cycles_at_start = self.cycles;
     let opcode = self.pc_fetch();
     
     let instr = &INSTRUCTIONS[opcode as usize];
@@ -227,16 +248,8 @@ impl Cpu {
     instr_fn(self, &mut op);
     self.cycles += instr.cycles;
     
-    self.bus.step(self.cycles - cycles_at_start);
-    self.poll_interrupts();
-  }
-  
-  pub fn step_until_vblank(&mut self) {
-    loop {
-      self.step();
-      
-      if self.bus.ppu.stat.contains(PpuStat::vblank) { break; }
-    }
+    // self.bus.step(self.cycles - cycles_at_start);
+    // self.poll_interrupts();
   }
   
   fn handle_interrupt(&mut self, isr_addr: u16) {
@@ -245,16 +258,16 @@ impl Cpu {
     self.stack_push(pushable.bits());
     self.cycles = self.cycles.wrapping_add(2);
     self.p.insert(CpuFlags::irq_off);
-    self.pc = self.mem_read16(isr_addr);
+    self.pc = self.read16(isr_addr);
   }
 
-  fn poll_interrupts(&mut self) {
-    if self.bus.poll_nmi() {
-      self.handle_interrupt(NMI_ISR);
-    } else if self.bus.poll_irq() && !self.p.contains(CpuFlags::irq_off) { 
-      self.handle_interrupt(IRQ_ISR);
-    }
-  }
+  // fn poll_interrupts(&mut self) {
+  //   if self.bus.poll_nmi() {
+  //     self.handle_interrupt(NMI_ISR);
+  //   } else if self.bus.poll_irq() && !self.p.contains(CpuFlags::irq_off) { 
+  //     self.handle_interrupt(IRQ_ISR);
+  //   }
+  // }
 
   fn get_zeropage_operand(&mut self, offset: u8) -> Operand {
     let zero_addr = (self.pc_fetch().wrapping_add(offset)) as u16;
@@ -323,7 +336,7 @@ impl Cpu {
       InstrDst::Acc => self.a = res,
       InstrDst::X => self.x = res,
       InstrDst::Y => self.y = res,
-      InstrDst::Mem(addr) => self.mem_write(addr, res),
+      InstrDst::Mem(addr) => self.write(addr, res),
     }
   }
 
@@ -331,7 +344,7 @@ impl Cpu {
     match op {
       Operand::Acc => self.a,
       Operand::Imm(val) => *val,
-      Operand::Addr(addr, val) => *val.get_or_init(|| self.mem_read(*addr)),
+      Operand::Addr(addr, val) => *val.get_or_init(|| self.read(*addr)),
     }
   }
 
@@ -485,7 +498,7 @@ impl Cpu {
     let val = self.get_operand_value(op);
     let res = self.increase(val, u8::wrapping_add);
     if let Operand::Addr(dst, _) = op {
-      self.mem_write(*dst, res);
+      self.write(*dst, res);
       *op = Operand::Addr(*dst, OnceCell::from(res));
     } else { unreachable!("inc should always have an address destination, got {op:?}") }
   }
@@ -499,7 +512,7 @@ impl Cpu {
     let val = self.get_operand_value(op);
     let res = self.increase(val, u8::wrapping_sub);
     if let Operand::Addr(dst, _) = op {
-      self.mem_write(*dst, res);
+      self.write(*dst, res);
       *op = Operand::Addr(*dst, OnceCell::from(res));
     } else { unreachable!("dec should always have an address destination, got {op:?}") }
   }
@@ -519,7 +532,7 @@ impl Cpu {
     match op {
       Operand::Acc | Operand::Imm(_) => self.a = res,
       Operand::Addr(dst, _) => {
-        self.mem_write(*dst, res);
+        self.write(*dst, res);
         *op = Operand::Addr(*dst, OnceCell::from(res))
       }
     }
@@ -623,12 +636,12 @@ impl Cpu {
     self.set_stat(CpuFlags::irq_off)
   }
 
-  pub fn brk(&mut self, op: &mut Operand) {
+  pub fn brk(cpu: &mut Cpu, op: &mut Operand) {
     // BRK IS 2 BYTES LONG!!
-    self.stack_push16(self.pc.wrapping_add(1));
-    self.php(op);
-    self.p.insert(CpuFlags::irq_off);
-    self.pc = self.mem_read16(IRQ_ISR);
+    cpu.stack_push16(cpu.pc.wrapping_add(1));
+    cpu.php(op);
+    cpu.p.insert(CpuFlags::irq_off);
+    cpu.pc = cpu.read16(IRQ_ISR);
   }
 
   pub fn rti(&mut self, op: &mut Operand) {
@@ -734,7 +747,7 @@ impl Cpu {
   // FIXME (we're doing a mem read twice)
   pub fn high_addr_bitand(&mut self, op: &mut Operand, val: u8) {
     if let Operand::Addr(dst, _) = op {
-      let addr = self.mem_read(self.pc.wrapping_sub(1));
+      let addr = self.read(self.pc.wrapping_sub(1));
       let res = val & addr.wrapping_add(1);
       self.set_instr_result(InstrDst::Mem(*dst), res);
     }

@@ -1,7 +1,7 @@
 #[allow(unused_imports)]
 use log::{debug, info, trace, warn};
 
-use crate::{cart::Cart, ppu::Ppu};
+use crate::{cart::Cart, mem::Memory, ppu::Ppu};
 
 #[derive(Debug)]
 pub enum BusDst {
@@ -14,6 +14,16 @@ pub struct Bus {
   pub ppu: Ppu,
 
   pub ppu_enabled: bool,
+}
+
+impl Memory for Bus {
+  fn read(&self, addr: u16) -> u8 {
+    todo!()
+  }
+
+  fn write(&mut self, addr: u16, val: u8) {
+    todo!()
+  }
 }
 
 impl Bus {

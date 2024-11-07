@@ -1,7 +1,7 @@
 use core::fmt;
 use std::fs;
 
-use nen_emulator::cpu::{Cpu, CpuFlags};
+use nen_emulator::{cpu::{Cpu, CpuFlags}, mem::Memory};
 use prettydiff::diff_words;
 use serde::Deserialize;
 
@@ -43,7 +43,7 @@ struct Test {
 
 #[test]
 fn cpu_test_one() {
-  let json = include_str!("./processor_tests/00.json");
+  let json = include_str!("./tests/00.json");
   let test: Vec<Test> = serde_json::from_str(json).unwrap();
 
   let mut cpu = cpu_from_mock(&test[0].start);
@@ -53,7 +53,7 @@ fn cpu_test_one() {
   }
   let mut my_end = CpuMock::from_cpu(&cpu);
   for (addr, _) in &test[0].end.ram {
-    my_end.ram.push((*addr, cpu.mem[*addr as usize]))
+    my_end.ram.push((*addr, cpu.read(*addr)))
   }
   assert_eq!(test[0].end, my_end, 
     "Found error {:?}\n{}",
@@ -61,7 +61,7 @@ fn cpu_test_one() {
 }
 
 fn cpu_from_mock(mock: &CpuMock) -> Cpu {
-  let mut cpu = Cpu::debug();
+  let mut cpu = Cpu::with_ram64kb();
   cpu.a = mock.a;
   cpu.x = mock.x;
   cpu.y = mock.y;
@@ -70,7 +70,7 @@ fn cpu_from_mock(mock: &CpuMock) -> Cpu {
   cpu.p = CpuFlags::from_bits_retain(mock.p);
   cpu.cycles = 0;
   for (addr, byte) in &mock.ram {
-    cpu.mem_write(*addr, *byte);
+    cpu.write(*addr, *byte);
   }
 
   cpu
@@ -78,11 +78,12 @@ fn cpu_from_mock(mock: &CpuMock) -> Cpu {
 
 #[test]
 fn cpu_test() {
-  let mut dir = fs::read_dir("./tests/processor_tests/").expect("directory not found")
+  let mut dir = fs::read_dir("./tests/single_step_tests/tests")
+    .expect("directory not found")
     .enumerate();
 
   while let Some((i, Ok(f))) = dir.next() {
-    let json_test = fs::read(f.path()).expect("coulnd't read file");
+    let json_test = fs::read(f.path()).expect("couldnt't read file");
     let tests: Vec<Test> = serde_json::from_slice(&json_test).expect("couldn't parse json");
     println!("Testing file {i}: {:?}", f.file_name());
 
@@ -92,9 +93,10 @@ fn cpu_test() {
         cpu.step();
         if cpu.jammed { continue 'testing; }
       }
+
       let mut my_end = CpuMock::from_cpu(&cpu);
       for (addr, _) in &test.end.ram {
-        my_end.ram.push((*addr, cpu.mem_read(*addr)))
+        my_end.ram.push((*addr, cpu.read(*addr)))
       }
 
       if my_end != test.end {

@@ -81,7 +81,6 @@ fn get_instr_len(inst: &Instruction) -> usize {
   }
 }
 
-
 fn get_instructions() -> [Instruction; 256] {
   let json = include_str!("../utils/instructions.json");
   let mut deserialized = serde_json::from_str::<Vec<Instruction>>(json).unwrap();

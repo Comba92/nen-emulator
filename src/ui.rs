@@ -101,10 +101,6 @@ pub fn run() {
     let mut _texture = sdl.texture_creator
     .create_texture_target(PixelFormatEnum::RGB24, 800, 600).unwrap();
 
-    let rom_path = Path::new("tests/test_roms/Donkey Kong.nes");
-    let cart = Cart::new(rom_path);
-    let mut _emu = Cpu::new(cart);
-
     'running: loop {
         for event in sdl.events.poll_iter() {
             match event {

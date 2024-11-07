@@ -1,9 +1,11 @@
 #[cfg(test)]
 mod patterns_test {
     use std::path::Path;
-
-    use nen_emulator::emu::{cart::Cart, ui::{parse_tile, FrameBuffer, Sdl2Context}, Emulator};
+    #[allow(unused_imports)]
+    use log::info;
+    use nen_emulator::{cart::Cart, cpu::Cpu, ui::{parse_tile, FrameBuffer, Sdl2Context}};
     use sdl2::{event::Event, pixels::PixelFormatEnum};
+
 
     #[test]
     #[ignore]
@@ -56,7 +58,7 @@ mod patterns_test {
       .create_texture_target(PixelFormatEnum::RGB24, framebuf.width as u32, framebuf.height as u32)
       .unwrap();
 
-      let cart = Cart::new(Path::new("tests/nestest/nestest.nes"));
+      let cart = Cart::new(Path::new("tests/Balloon Fight.nes"));
 
       for (i, tile) in cart.chr_rom.chunks(16).enumerate() {
         let x = i*8 % framebuf.width;
@@ -83,49 +85,60 @@ mod patterns_test {
     }
 
     #[test]
-    fn render_bg() {  
-      
+    fn render_tiles() {
       const RENDER_WIDTH: u32 = 32;
       const RENDER_HEIGHT: u32 = 30;
       const SCALE: u32 = 25;
       
       let mut sdl = Sdl2Context::new("Background", RENDER_WIDTH*SCALE, RENDER_HEIGHT*SCALE);
-      
       let mut framebuf = FrameBuffer::new(8*RENDER_WIDTH as usize, 8*RENDER_HEIGHT as usize);
       
       let mut texture = sdl.texture_creator
       .create_texture_target(PixelFormatEnum::RGB24, framebuf.width as u32, framebuf.height as u32)
       .unwrap();
     
-    // let rom_path = &Path::new("tests/nestest/nestest.nes");
-    let rom_path = &Path::new("tests/test_roms/Pacman.nes");
-    let mut emu = Emulator::new(rom_path);
-    
-      //colog::init();
-      for _ in 0..10000 {
-        emu.step_until_nmi();
-      }
-      println!("Run for 1m frames");
-      println!("{:?}", emu.bus.ppu());
+      let rom_path = &Path::new("tests/Pacman.nes");
+      let cart = Cart::new(rom_path);
+      let mut emu = Cpu::new(cart);
 
-      let bg_ptrntbl = emu.bus.ppu().ctrl.bg_ptrntbl_addr();
+      // let mut builder = colog::basic_builder();
+      // builder.filter_level(log::LevelFilter::Trace);
+      // builder.init();
+
+      // // colog::init();
+      // for _ in 0..200 {
+      //   emu.step();
+      // }
+
       'running: loop {
+        for _ in 0..260 {
+          emu.step();
+        }
+
         for event in sdl.events.poll_iter() {
           match event {
             Event::Quit { .. } => break 'running,
             _ => {}
           }
         }
-
-        let ppu = emu.bus.ppu();
-
+        
+        let bg_ptrntbl = emu.bus.ppu.ctrl.bg_ptrntbl_addr();
         for i in 0..32*30 {
-          let tile_idx = ppu.vram[0x2000 + i];
+          let tile_idx = emu.bus.ppu.vram[0x2000 + i];
           let x = i as u32 % RENDER_WIDTH;
           let y = i as u32 / RENDER_WIDTH;
-          let tile_start = (bg_ptrntbl as usize) + ((tile_idx as usize) * 16);
-          let tile = &emu.cart.chr_rom[tile_start..tile_start+16];
-          //println!("{tile_idx}: {:?}", tile);
+          let tile_start = (bg_ptrntbl as usize) + (tile_idx as usize) * 16;
+          let tile = &emu.bus.cart.chr_rom[tile_start..tile_start+16];
+          framebuf.set_tile(8*x as usize, 8*y as usize, parse_tile(tile));
+        }
+
+        let spr_ptrntbl = emu.bus.ppu.ctrl.spr_ptrntbl_addr();
+        for i in (0..256).step_by(4) {
+          let tile_idx = emu.bus.ppu.oam[i + 1];
+          let x = emu.bus.ppu.oam[i + 3] as usize;
+          let y = emu.bus.ppu.oam[i] as usize;
+          let tile_start = (spr_ptrntbl as usize) + (tile_idx as usize) * 16;
+          let tile = &emu.bus.cart.chr_rom[tile_start..tile_start+16];
           framebuf.set_tile(8*x as usize, 8*y as usize, parse_tile(tile));
         }
         //break 'running;
@@ -135,9 +148,12 @@ mod patterns_test {
         sdl.canvas.present();
       }
 
-      println!("{bg_ptrntbl}");
-      println!("{:?}", &emu.bus.ppu().vram[0x2000..]);
-      println!("{:?} {:?} {:?}", emu.cpu, emu.bus.ppu(), emu.cart.header);
+      // println!("VRAM filled {:?} times",vram_filled);
+      // println!("OAM filled {:?} times", oam_filled);
+
+      println!("OAM {:?}", emu.bus.ppu.oam);
+      println!("VRAM {:?}", &emu.bus.ppu.vram[0x2000..0x4000]);
+      println!("{:?} {:?} {:?}", emu, emu.bus.ppu, emu.bus.cart.header);
     }
 
 }
