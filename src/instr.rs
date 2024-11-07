@@ -1,9 +1,9 @@
 use std::{collections::HashMap, sync::LazyLock};
-use serde::{de::Visitor, Deserialize, Deserializer, Serialize};
+use serde::{de::Visitor, Deserialize, Deserializer};
 
 use super::cpu::{Cpu, InstrFn};
 
-#[derive(Serialize, Deserialize, Debug, Default, Clone)]
+#[derive(Deserialize, Debug, Default, Clone)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Instruction {
   pub opcode: u8,
@@ -19,7 +19,7 @@ pub struct Instruction {
   pub illegal: bool,
 }
 
-#[derive(Serialize, Deserialize, Debug, Default, Clone, Copy)]
+#[derive(Deserialize, Debug, Default, Clone, Copy)]
 #[serde(rename_all = "camelCase")]
 pub enum AddressingMode {
   #[default]
@@ -83,7 +83,7 @@ fn get_instr_len(inst: &Instruction) -> usize {
 
 
 fn get_instructions() -> [Instruction; 256] {
-  let json = include_str!("../../utils/instructions.json");
+  let json = include_str!("../utils/instructions.json");
   let mut deserialized = serde_json::from_str::<Vec<Instruction>>(json).unwrap();
   
   deserialized.sort_by(|a, b| a.opcode.cmp(&b.opcode));

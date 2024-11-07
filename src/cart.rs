@@ -1,13 +1,13 @@
 use std::{fs, path::Path};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Cart {
   pub header: CartHeader,
   pub prg_rom: Vec<u8>,
   pub chr_rom: Vec<u8>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct CartHeader {
   pub prg_16kb_pages: usize,
   pub chr_8kb_pages: usize,

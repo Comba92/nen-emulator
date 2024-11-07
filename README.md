@@ -21,6 +21,9 @@
 ###
 Illegal Opcodes
 - https://www.nesdev.org/undocumented_opcodes.txt
+Correct XAA
+- http://www.ffd2.com/fridge/docs/6502-NMOS.extra.opcodes
+- https://www.nesdev.org/the%20%27B%27%20flag%20&%20BRK%20instruction.txt
 
 ## Memory
 - https://en.wikibooks.org/wiki/NES_Programming/Memory_Map
