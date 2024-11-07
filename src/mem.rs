@@ -1,8 +1,8 @@
 pub trait Memory {
-  fn read(&self, addr: u16) -> u8;
+  fn read(&mut self, addr: u16) -> u8;
   fn write(&mut self, addr: u16, val: u8);
 
-  fn read16(&self, addr: u16) -> u16 {
+  fn read16(&mut self, addr: u16) -> u16 {
     let low = self.read(addr);
     let high = self.read(addr.wrapping_add(1));
     u16::from_le_bytes([low, high])

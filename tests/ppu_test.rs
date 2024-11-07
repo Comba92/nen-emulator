@@ -1,10 +1,10 @@
 #[cfg(test)]
-mod patterns_test {
+mod ppu_test {
     use std::path::Path;
     #[allow(unused_imports)]
     use log::info;
-    use nen_emulator::{cart::Cart, cpu::Cpu, ui::{parse_tile, FrameBuffer, Sdl2Context}};
-    use sdl2::{event::Event, pixels::PixelFormatEnum};
+    use nen_emulator::{cart::Cart, cpu::Cpu, dev::JoypadStat, ui::{parse_tile, FrameBuffer, Sdl2Context}};
+    use sdl2::{event::Event, pixels::PixelFormatEnum, keyboard::Keycode};
 
 
     #[test]
@@ -15,7 +15,7 @@ mod patterns_test {
         0x01, 0x02, 0x04, 0x08, 0x16, 0x21, 0x42, 0x87
       ];
 
-      let cart = Cart::new(Path::new("tests/test_roms/Pacman.nes"));
+      let cart = Cart::new(Path::new("tests/test_roms/nestest.nes"));
 
       for (i, tile) in cart.chr_rom.chunks(16).enumerate().take(100) {
         println!("Tile {i}");
@@ -58,7 +58,7 @@ mod patterns_test {
       .create_texture_target(PixelFormatEnum::RGB24, framebuf.width as u32, framebuf.height as u32)
       .unwrap();
 
-      let cart = Cart::new(Path::new("tests/Balloon Fight.nes"));
+      let cart = Cart::new(Path::new("tests/nestest.nes"));
 
       for (i, tile) in cart.chr_rom.chunks(16).enumerate() {
         let x = i*8 % framebuf.width;
@@ -97,7 +97,7 @@ mod patterns_test {
       .create_texture_target(PixelFormatEnum::RGB24, framebuf.width as u32, framebuf.height as u32)
       .unwrap();
     
-      let rom_path = &Path::new("tests/Pacman.nes");
+      let rom_path = &Path::new("tests/nestest/nestest.nes");
       let cart = Cart::new(rom_path);
       let mut emu = Cpu::new(cart);
 
@@ -118,13 +118,43 @@ mod patterns_test {
         for event in sdl.events.poll_iter() {
           match event {
             Event::Quit { .. } => break 'running,
+            Event::KeyDown { keycode, .. } => {
+              if let Some(keycode) = keycode {
+                match keycode {
+                  Keycode::Z => emu.bus.joypad.button.insert(JoypadStat::A),
+                  Keycode::X => emu.bus.joypad.button.insert(JoypadStat::B),
+                  Keycode::UP => emu.bus.joypad.button.insert(JoypadStat::UP),
+                  Keycode::DOWN => emu.bus.joypad.button.insert(JoypadStat::DOWN),
+                  Keycode::LEFT => emu.bus.joypad.button.insert(JoypadStat::LEFT),
+                  Keycode::RIGHT => emu.bus.joypad.button.insert(JoypadStat::RIGHT),
+                  Keycode::N => emu.bus.joypad.button.insert(JoypadStat::SELECT),
+                  Keycode::M => emu.bus.joypad.button.insert(JoypadStat::START),
+                  _ => {}
+                }
+              }
+            }
+            Event::KeyUp { keycode, .. } => {
+              if let Some(keycode) = keycode {
+                match keycode {
+                  Keycode::Z => emu.bus.joypad.button.remove(JoypadStat::A),
+                  Keycode::X => emu.bus.joypad.button.remove(JoypadStat::B),
+                  Keycode::UP => emu.bus.joypad.button.remove(JoypadStat::UP),
+                  Keycode::DOWN => emu.bus.joypad.button.remove(JoypadStat::DOWN),
+                  Keycode::LEFT => emu.bus.joypad.button.remove(JoypadStat::LEFT),
+                  Keycode::RIGHT => emu.bus.joypad.button.remove(JoypadStat::RIGHT),
+                  Keycode::N => emu.bus.joypad.button.remove(JoypadStat::SELECT),
+                  Keycode::M => emu.bus.joypad.button.remove(JoypadStat::START),
+                  _ => {}
+                }
+              }
+            }
             _ => {}
           }
         }
         
         let bg_ptrntbl = emu.bus.ppu.ctrl.bg_ptrntbl_addr();
         for i in 0..32*30 {
-          let tile_idx = emu.bus.ppu.vram[0x2000 + i];
+          let tile_idx = emu.bus.ppu.vram[i];
           let x = i as u32 % RENDER_WIDTH;
           let y = i as u32 / RENDER_WIDTH;
           let tile_start = (bg_ptrntbl as usize) + (tile_idx as usize) * 16;
@@ -152,7 +182,7 @@ mod patterns_test {
       // println!("OAM filled {:?} times", oam_filled);
 
       println!("OAM {:?}", emu.bus.ppu.oam);
-      println!("VRAM {:?}", &emu.bus.ppu.vram[0x2000..0x4000]);
+      println!("VRAM {:?}", &emu.bus.ppu.vram);
       println!("{:?} {:?} {:?}", emu, emu.bus.ppu, emu.bus.cart.header);
     }
 

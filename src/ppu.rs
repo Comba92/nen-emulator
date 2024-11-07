@@ -47,18 +47,18 @@ impl PpuCtrl {
   pub fn vram_addr_incr(&self) -> u16 {
     match self.contains(PpuCtrl::vram_incr) {
       false => 1,
-      true  => 32 
+      true  => 32
     }
   }
   pub fn spr_ptrntbl_addr(&self) -> u16 {
     match self.contains(PpuCtrl::spr_ptrntbl) {
-      false => 0x000,
+      false => 0x0000,
       true  => 0x1000
     }
   }
   pub fn bg_ptrntbl_addr(&self) -> u16 {
     match self.contains(PpuCtrl::bg_ptrntbl) {
-      false => 0x000,
+      false => 0x0000,
       true  => 0x1000
     }
   }
@@ -67,6 +67,10 @@ impl PpuCtrl {
 #[derive(Debug)]
 pub enum WriteLatch {
   FirstWrite, SecondWrite
+}
+
+pub enum VramDst {
+  Patterntbl, Nametbl, Palettes, Unused
 }
 
 pub struct Ppu {
@@ -80,7 +84,9 @@ pub struct Ppu {
   pub ctrl: PpuCtrl,
   pub mask: PpuMask,
   pub stat: PpuStat,
-  pub vram: [u8; 0x5000],
+  pub patterns: [u8; 0x2000], 
+  pub vram: [u8; 0x1000],
+  pub palettes: [u8; 0x20],
   pub oam: [u8; 256],
   pub scanline: usize,
   pub cycles: usize,
@@ -98,7 +104,10 @@ impl Ppu {
   pub fn new(cart: &Cart) -> Self {
     let mut ppu = Self {
       v: 0, t: 0, x: 0, w: WriteLatch::FirstWrite, 
-      vram: [0; 0x5000], oam: [0; 256],
+      patterns: [0; 0x2000],
+      vram: [0; 0x1000], 
+      palettes: [0; 0x20],
+      oam: [0; 256],
       oam_addr: 0, data_buf: 0,
       scanline: 0, cycles: 21,
       ctrl: PpuCtrl::empty(),
@@ -108,7 +117,7 @@ impl Ppu {
       mirroring: cart.header.nametbl_mirroring
     };
 
-    let (left, _) = ppu.vram.split_at_mut(cart.chr_rom.len());
+    let (left, _) = ppu.patterns.split_at_mut(cart.chr_rom.len());
     left.copy_from_slice(&cart.chr_rom);
     ppu
   }
@@ -123,7 +132,7 @@ impl Ppu {
       // Post-render scanline (240)
       // Vertical blanking lines (240-260)
       if self.scanline == 241 {
-        warn!("VBLANK!!");
+        info!("VBLANK!!");
         self.stat.insert(PpuStat::vblank);
         if self.ctrl.contains(PpuCtrl::vblank_nmi_on) {
           self.nmi_requested = true;
@@ -132,6 +141,7 @@ impl Ppu {
       } else if self.scanline > 260 {
         self.stat = PpuStat::empty();
         self.nmi_requested = false;
+        self.oam_addr = 0;
         self.scanline = 0;
         self.cycles = 0;
       }
@@ -157,6 +167,7 @@ impl Ppu {
       0x2000 => {
         let was_nmi_off = !self.ctrl.contains(PpuCtrl::vblank_nmi_on);
         self.ctrl = PpuCtrl::from_bits_retain(val);
+        self.t = self.t | ((self.ctrl.bits() as u16) << 11);
         if was_nmi_off 
         && self.ctrl.contains(PpuCtrl::vblank_nmi_on) 
         && self.stat.contains(PpuStat::vblank) {
@@ -172,9 +183,17 @@ impl Ppu {
       0x2005 => {
         match self.w {
           WriteLatch::FirstWrite => {
+            self.t = self.t | (val & 0b1111_1000) as u16;
+            self.x = val & 0b0000_0111;
+            
             self.w = WriteLatch::SecondWrite;
           }
-          WriteLatch::SecondWrite => { 
+          WriteLatch::SecondWrite => {
+            let low = val & 0b0000_0111;
+            let high = val & 0b1111_1000;
+            let res = ((low as u16) << 13) | ((high as u16) << 6);
+            self.t = self.t | res;
+
             self.w = WriteLatch::FirstWrite;
           }
         }
@@ -201,38 +220,92 @@ impl Ppu {
     }
   }
 
+  pub fn oam_dma(&mut self, page: &[u8]) {
+    self.oam.copy_from_slice(page);
+  }
+
+  pub fn map(&self, addr: u16) -> (VramDst, usize) {
+    match addr {
+      0x0000..=0x1FFF => (VramDst::Patterntbl, addr as usize),
+      0x2000..=0x2FFF => {
+        let mirrored = self.mirror_nametbl(addr);
+        (VramDst::Nametbl, mirrored as usize)
+      }
+      0x3F00..0x3FFF => {
+        let palette = (addr - 0x3F00) % 0x20;
+        (VramDst::Palettes, palette as usize)
+      }
+      _ => (VramDst::Unused, 0), 
+    }
+  }
+
+  pub fn increase_vram_address(&mut self) {
+    self.v = self.v.wrapping_add(self.ctrl.vram_addr_incr());
+  }
+
   pub fn vram_read(&mut self) -> u8 {
     info!("PPU_DATA READ at {:04X}", self.v);
 
     let res = self.data_buf;
-    let addr = if (0x2000..=0x2FFF).contains(&self.v){
-      self.v & 0x2FFF
-    } else { self.v };
+    let (dst, addr) = self.map(self.v);
+    let data = match dst {
+      VramDst::Patterntbl => self.patterns[addr],
+      VramDst::Nametbl => self.vram[addr],
+      VramDst::Palettes => self.palettes[addr],
+      VramDst::Unused => 0,
+    };
 
-    let data = self.vram[addr as usize];
     self.data_buf = data;
-    self.v = self.v.wrapping_add(self.ctrl.vram_addr_incr());
+    self.increase_vram_address();
     res
   }
+
+  // pub fn vram_read(&mut self) -> u8 {
+  //   info!("PPU_DATA READ at {:04X}", self.v);
+
+  //   let res = self.data_buf;
+  //   let addr = if (0x2000..=0x2FFF).contains(&self.v){
+  //     self.v & 0x2FFF
+  //   } else { self.v };
+
+  //   let data = self.vram[addr as usize];
+  //   self.data_buf = data;
+  //   self.v = self.v.wrapping_add(self.ctrl.vram_addr_incr());
+  //   res
+  // }
 
   pub fn vram_write(&mut self, val: u8) {
     info!("PPU_DATA WRITE at {:04X} = {val:02X}", self.v);
 
-    if (0..=0x1FFF).contains(&self.v) {
-      warn!("Can't write to CHR");
-      return;
+    let (dst, addr) = self.map(self.v);
+    match dst {
+      VramDst::Patterntbl => eprintln!("Illegal write to CHR_ROM"),
+      VramDst::Nametbl => self.vram[addr] = val,
+      VramDst::Palettes => eprintln!("Palettes writing not implemented"),
+      VramDst::Unused => {}
     }
 
-    let addr = if (0x2000..=0x2FFF).contains(&self.v){
-      self.v & 0x2FFF
-    } else { self.v };
-
-    self.vram[addr as usize] = val;
-    self.v = self.v.wrapping_add(self.ctrl.vram_addr_incr());
+    self.increase_vram_address();
   }
 
+  // pub fn vram_write(&mut self, val: u8) {
+  //   info!("PPU_DATA WRITE at {:04X} = {val:02X}", self.v);
+
+  //   if (0..=0x1FFF).contains(&self.v) {
+  //     warn!("Can't write to CHR");
+  //     return;
+  //   }
+
+  //   let addr = if (0x2000..=0x2FFF).contains(&self.v){
+  //     self.v & 0x2FFF
+  //   } else { self.v };
+
+  //   self.vram[addr as usize] = val;
+  //   self.v = self.v.wrapping_add(self.ctrl.vram_addr_incr());
+  // }
+
   pub fn mirror_nametbl(&self, addr: u16) -> u16 {
-    let addr = (addr & 0x2FFF) - 0x2000;
+    let addr = addr - 0x2000;
     let nametbl_idx = addr / 0x400;
     
     use NametblMirroring::*;
@@ -243,6 +316,6 @@ impl Ppu {
       (_, _) => addr,
     };
 
-    res + 0x2000
+    res
   }
 }

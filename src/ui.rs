@@ -1,9 +1,4 @@
-use std::path::Path;
-
 use sdl2::{event::Event, pixels::{Color, PixelFormatEnum}, render::{Canvas, Texture, TextureCreator}, video::{Window, WindowContext}, EventPump, Sdl, VideoSubsystem};
-
-use crate::{cart::Cart, cpu::Cpu};
-
 pub struct Sdl2Context {
     pub ctx: Sdl,
     pub video: VideoSubsystem,

@@ -66,7 +66,7 @@ use prettydiff::{diff_lines, diff_words};
 
   #[test]
   fn parse_log_line() {
-    let log_str = include_str!("nestest.log");
+    let log_str = include_str!("nestest/nestest.log");
     let mut test_log = log_str
       .lines();
 
@@ -132,19 +132,18 @@ use prettydiff::{diff_lines, diff_words};
     builder.filter_level(log::LevelFilter::Info);
     builder.init();
 
-    let log_str = include_str!("nestest.log");
+    let log_str = include_str!("nestest/nestest.log");
     let mut test_log = log_str
       .lines();
 
-    let rom_path = Path::new("tests/nestest.nes");
+    let rom_path = Path::new("./tests/nestest/nestest.nes");
     let rom = Cart::new(rom_path);
-    let cart = rom.clone();
     let mut emu = Cpu::new(rom);
 
     emu.pc = 0xC000;
     emu.p = CpuFlags::from_bits_retain(0x24);
-    emu.write_data(0x8000, &cart.prg_rom[..0x4000]);
-    emu.write_data(0xC000, &cart.prg_rom[..0x4000]);
+    //emu.write_data(0x8000, &cart.prg_rom[..0x4000]);
+    //emu.write_data(0xC000, &cart.prg_rom[..0x4000]);
     
     let mut most_recent_instr = CircularBuffer::<LINES_RANGE, (CpuMock, CpuMock)>::new();
     let mut line_count = 1;

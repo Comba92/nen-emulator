@@ -3,7 +3,7 @@ use std::{cell::OnceCell, fmt, ops::{BitAnd, BitOr, BitXor, Not, Shl, Shr}};
 use bitflags::bitflags;
 use log::{debug, trace};
 
-use crate::{bus::Bus, cart::Cart, instr::{AddressingMode, Instruction, INSTRUCTIONS, INSTR_TO_FN}, mem::Memory, ppu::PpuStat};
+use crate::{bus::Bus, cart::Cart, instr::{AddressingMode, Instruction, INSTRUCTIONS, INSTR_TO_FN}, mem::Memory};
 
 bitflags! {
   #[derive(Debug, Clone, Copy)]
@@ -35,30 +35,6 @@ pub const NMI_ISR: u16 = 0xFFFA;
 pub const RESET_ISR: u16 = 0xFFFC;
 pub const IRQ_ISR: u16 = 0xFFFE;
 
-struct RamEmpty;
-impl Memory for RamEmpty {
-    fn read(&self, _: u16) -> u8 { 0 }
-    fn write(&mut self, _: u16, _: u8) {}
-}
-
-struct Ram64KB {
-  mem: [u8; 0x10000]
-}
-impl Ram64KB {
-  pub fn new() -> Self {
-    Self {mem: [0; 0x10000]}
-  }
-}
-impl Memory for Ram64KB {
-  fn read(&self, addr: u16) -> u8 {
-    self.mem[(addr % 0xFFFF) as usize]
-  }
-
-  fn write(&mut self, addr: u16, val: u8) {
-    self.mem[(addr % 0xFFFF) as usize] = val;
-  }
-}
-
 pub struct Cpu {
   pub pc: u16,
   pub sp: u8,
@@ -68,11 +44,11 @@ pub struct Cpu {
   pub y: u8,
   pub cycles: usize,
   pub jammed: bool,
-  pub bus: Box<dyn Memory>,
+  pub bus: Bus,
 }
 
 impl Memory for Cpu {
-  fn read(&self, addr: u16) -> u8 {
+  fn read(&mut self, addr: u16) -> u8 {
     self.bus.read(addr)
   }
 
@@ -88,8 +64,8 @@ impl fmt::Debug for Cpu {
 }
 
 impl Cpu {
-  pub fn without_mem() -> Self {
-    Self {
+  pub fn new(cart: Cart) -> Self {
+    let mut cpu = Self {
       pc: PC_RESET,
       sp: STACK_RESET,
       a: 0, x: 0, y: 0,
@@ -97,29 +73,13 @@ impl Cpu {
       p: CpuFlags::from_bits_retain(STAT_RESET),
       cycles: 7,
       jammed: false,
-      bus: Box::new(RamEmpty),
-    }
-  }
+      bus: Bus::new(cart),
+    };
 
-  pub fn new(cart: Cart) -> Self {    
-    let mut cpu = Cpu::without_mem();
-    cpu.bus = Box::new(Bus::new(cart));
     cpu.pc = cpu.read16(PC_RESET);
     cpu
   }
 
-  pub fn without_cart() -> Self {
-    Cpu::new(Cart::empty())
-  }
-
-  pub fn with_ram64kb() -> Self {    
-    let mut cpu = Cpu::without_mem();
-    cpu.bus = Box::new(Ram64KB::new());
-    cpu
-  }
-}
-
-impl Cpu {
   pub fn set_carry(&mut self, res: u16) {
     self.p.set(CpuFlags::carry, res > u8::MAX as u16);
   }
@@ -232,7 +192,7 @@ pub type InstrFn = fn(&mut Cpu, &mut Operand);
 
 impl Cpu {
   pub fn step(&mut self) {
-    let _cycles_at_start = self.cycles;
+    let cycles_at_start = self.cycles;
     let opcode = self.pc_fetch();
     
     let instr = &INSTRUCTIONS[opcode as usize];
@@ -248,8 +208,8 @@ impl Cpu {
     instr_fn(self, &mut op);
     self.cycles += instr.cycles;
     
-    // self.bus.step(self.cycles - cycles_at_start);
-    // self.poll_interrupts();
+    self.bus.step(self.cycles - cycles_at_start);
+    self.poll_interrupts();
   }
   
   fn handle_interrupt(&mut self, isr_addr: u16) {
@@ -261,13 +221,13 @@ impl Cpu {
     self.pc = self.read16(isr_addr);
   }
 
-  // fn poll_interrupts(&mut self) {
-  //   if self.bus.poll_nmi() {
-  //     self.handle_interrupt(NMI_ISR);
-  //   } else if self.bus.poll_irq() && !self.p.contains(CpuFlags::irq_off) { 
-  //     self.handle_interrupt(IRQ_ISR);
-  //   }
-  // }
+  fn poll_interrupts(&mut self) {
+    if self.bus.poll_nmi() {
+      self.handle_interrupt(NMI_ISR);
+    } else if self.bus.poll_irq() && !self.p.contains(CpuFlags::irq_off) { 
+      self.handle_interrupt(IRQ_ISR);
+    }
+  }
 
   fn get_zeropage_operand(&mut self, offset: u8) -> Operand {
     let zero_addr = (self.pc_fetch().wrapping_add(offset)) as u16;
