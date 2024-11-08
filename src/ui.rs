@@ -1,8 +1,8 @@
-use std::sync::LazyLock;
+use std::{path::Path, sync::LazyLock};
 
 use sdl2::{event::Event, keyboard::Keycode, pixels::{Color, PixelFormatEnum}, render::{Canvas, Texture, TextureCreator}, video::{Window, WindowContext}, EventPump, Sdl, VideoSubsystem};
 
-use crate::{dev::{Joypad, JoypadStat}, ppu::Ppu};
+use crate::{cart::Cart, cpu::Cpu, dev::{Joypad, JoypadStat}, ppu::Ppu};
 
 pub static SYS_PALETTES: LazyLock<[Color; 64]> = LazyLock::new(|| {
     let bytes = include_bytes!("../palettes/Composite_wiki.pal");
@@ -79,7 +79,7 @@ pub fn tile_to_colors(tile: &[u8], palette: &[u8]) -> Tile {
 pub struct NesScreen(FrameBuffer);
 impl NesScreen {
     pub fn new() -> Self {
-        NesScreen(FrameBuffer::new(SCREEN_WIDTH, SCREEN_HEIGHT))
+        NesScreen(FrameBuffer::new(SCREEN_WIDTH*8, SCREEN_HEIGHT*8))
     }
 
     pub fn render_background(&mut self, ppu: &Ppu) {
@@ -87,18 +87,19 @@ impl NesScreen {
         for i in 0..32*30 {
           let tile_idx = ppu.vram[i];
           let x = i % (self.0.width/8);
-          let y = i / (self.0.height/8);
+          let y = i / (self.0.width/8);
 
           let tile_start = (bg_ptrntbl as usize) + (tile_idx as usize) * 16;
           let tile = &ppu.patterns[tile_start..tile_start+16];
 
-          let attribute_idx = (y/2 * 8) + (x/2);
+          let attribute_idx = (y/4 * 8) + (x/4);
+          // need to do mirroring here
           let attribute = ppu.vram[0x3C0 + attribute_idx as usize];
-          let palette_id = match (x % 2, y % 2) {
-            (0, 0) => (attribute & 0b0000_0011) >> 0 & 0b11,
-            (0, 1) => (attribute & 0b0000_1100) >> 2 & 0b11,
-            (1, 0) => (attribute & 0b0011_0000) >> 4 & 0b11,
-            (1, 1) => (attribute & 0b1100_0000) >> 6 & 0b11,
+          let palette_id = match (x % 4, y % 4) {
+            (0..2, 0..2) => (attribute & 0b0000_0011) >> 0 & 0b11,
+            (2..4, 0..2) => (attribute & 0b0000_1100) >> 2 & 0b11,
+            (0..2, 2..4) => (attribute & 0b0011_0000) >> 4 & 0b11,
+            (2..4, 2..4) => (attribute & 0b1100_0000) >> 6 & 0b11,
             _ => unreachable!("mod 2 should always give 0 and 1"),
           } as usize * 4;
 
@@ -147,9 +148,9 @@ impl Sdl2Context {
         Self { ctx, video, canvas, events, texture_creator }
     }
 
-    pub fn new_texture<'a>(&'a self, width: u32, height: u32) -> Texture<'a> {
+    pub fn new_texture<'a>(&'a self, width: usize, height: usize) -> Texture<'a> {
         self.texture_creator
-            .create_texture_target(PixelFormatEnum::RGB24, width, height)
+            .create_texture_target(PixelFormatEnum::RGB24, width as u32, height as u32)
             .expect("Could not create a texture")
     }
 
@@ -196,17 +197,30 @@ impl Sdl2Context {
 }
 
 pub fn run() {
-    let mut sdl = Sdl2Context::new("NenEmulator", 800, 600);
-    sdl.canvas.set_scale(10.0, 10.0).unwrap();
-    let mut _texture = sdl.texture_creator
-    .create_texture_target(PixelFormatEnum::RGB24, 800, 600).unwrap();
+    let mut sdl = Sdl2Context::new("NenEmulator", SCREEN_WIDTH as u32*8, SCREEN_HEIGHT as u32*8);
+    
+    let mut framebuf = NesScreen::new();
+    let mut texture = sdl.texture_creator
+    .create_texture_target(PixelFormatEnum::RGB24, framebuf.0.width as u32, framebuf.0.height as u32)
+    .unwrap();
+
+    let rom_path = &Path::new("tests/test_roms/Donkey Kong.nes");
+    let cart = Cart::new(rom_path);
+    let mut emu = Cpu::new(cart);
 
     'running: loop {
+        emu.step_until_vblank();
+
         for event in sdl.events.poll_iter() {
             match event {
                 Event::Quit { .. } => break 'running,
                 _ => {}
             }
         }
+
+        framebuf.render_background(&emu.bus.ppu);
+        texture.update(None, &framebuf.0.buffer, framebuf.0.pitch()).unwrap();
+        sdl.canvas.copy(&texture, None, None).unwrap();
+        sdl.canvas.present();
     }
 }

@@ -44,7 +44,7 @@ impl PpuCtrl {
     let nametbl_idx = self.bits() & PpuCtrl::base_nametbl.bits();
     0x2000 + 0x0400*nametbl_idx as u16
   }
-  
+
   pub fn vram_addr_incr(&self) -> u16 {
     match self.contains(PpuCtrl::vram_incr) {
       false => 1,
@@ -75,9 +75,10 @@ pub enum VramDst {
   Patterntbl, Nametbl, Palettes, Unused
 }
 
+#[derive(Debug)]
 pub enum SpritePriority { Front, Behind }
+#[derive(Debug)]
 pub struct Sprite {
-  pub index: u8,
   pub y: u8,
   pub tile: u8,
   pub palette: usize,
@@ -86,6 +87,26 @@ pub struct Sprite {
   pub flip_vertical: bool,
   pub x: u8,
 }
+impl Sprite {
+  pub fn from_bytes(bytes: &[u8]) -> Self {
+    let y = bytes[0];
+    let tile = bytes[1];
+    let attributes = bytes[2];
+    let palette = (attributes & 0b11) as usize;
+    let priority  = match (attributes >> 5) & 1 == 0 {
+      false => SpritePriority::Front,
+      true => SpritePriority::Behind,
+    };
+    let flip_horizontal = attributes >> 6 & 1 != 0;
+    let flip_vertical = attributes >> 7 & 1 != 0;
+
+    let x = bytes[3];
+
+    Self {
+      y, tile, palette, priority, flip_horizontal, flip_vertical, x,
+    }
+  }
+}
 
 pub struct AttributeEntry {
   pub top_left: u8,
@@ -93,10 +114,7 @@ pub struct AttributeEntry {
   pub btm_left: u8,
   pub btm_right: u8,
 }
-
-pub struct PatternEntry {
-  pub backdrop: u8,
-  pub colors: [u8; 3]
+impl AttributeEntry {
 }
 
 pub struct Ppu {
@@ -110,7 +128,7 @@ pub struct Ppu {
   pub ctrl: PpuCtrl,
   pub mask: PpuMask,
   pub stat: PpuStat,
-  pub patterns: [u8; 0x2000], 
+  pub patterns: [u8; 0x2000],
   pub vram: [u8; 0x1000],
   pub palettes: [u8; 0x20],
   pub oam: [u8; 256],

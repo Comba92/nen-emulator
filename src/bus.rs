@@ -1,7 +1,7 @@
 #[allow(unused_imports)]
 use log::{debug, info, trace, warn, error};
 
-use crate::{cart::Cart, dev::Joypad, mem::Memory, ppu::{Ppu, PpuStat}};
+use crate::{cart::Cart, dev::Joypad, mem::Memory, ppu::Ppu};
 
 #[derive(Debug)]
 pub enum BusDst {
@@ -36,10 +36,11 @@ impl Memory for Bus {
       BusDst::Ram => self.ram[addr] = val,
       BusDst::Ppu => self.ppu.reg_write(addr as u16, val),
       BusDst::Dma => {
-        let mut page = [0; 0x100];
+        let mut page = [0; 256];
+        let start = (val as u16) << 8;
         for offset in 0..256 {
           page[offset] = self.read(
-            val.wrapping_add(offset as u8) as u16
+            start.wrapping_add(offset as u16)
           );
         }
         self.ppu.oam_dma(&page);

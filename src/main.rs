@@ -1,3 +1,5 @@
+use nen_emulator::ui;
+
 fn main() {
-    println!("Hello, world!");
+    ui::run();
 }

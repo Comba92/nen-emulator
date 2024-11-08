@@ -32,6 +32,8 @@ Correct XAA
 ## Ppu
 - https://bugzmanov.github.io/nes_ebook/chapter_6.html
 - https://austinmorlan.com/posts/nes_rendering_overview/
+- https://leeteng.com/blog/content/writing-nes-emulator
+
 
 ### Tests
 - https://www.nesdev.org/wiki/Emulator_tests

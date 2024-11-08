@@ -3,7 +3,7 @@ mod ppu_test {
     use std::path::Path;
     #[allow(unused_imports)]
     use log::info;
-    use nen_emulator::{cart::Cart, cpu::Cpu, dev::JoypadStat, ui::{FrameBuffer, Sdl2Context, GREYSCALE_PALETTE}};
+    use nen_emulator::{cart::Cart, cpu::Cpu, dev::JoypadStat, ppu::Sprite, ui::{FrameBuffer, Sdl2Context, GREYSCALE_PALETTE}};
     use sdl2::{event::Event, pixels::PixelFormatEnum, keyboard::Keycode};
 
 
@@ -164,22 +164,24 @@ mod ppu_test {
           framebuf.set_tile(8*x as usize, 8*y as usize, tile, palette);
         }
 
-        // let spr_ptrntbl = emu.bus.ppu.ctrl.spr_ptrntbl_addr();
-        // for i in (0..256).step_by(4) {
-        //   let tile_idx = emu.bus.ppu.oam[i + 1];
-        //   let attributes = emu.bus.ppu.oam[i + 2];
-        //   let x = emu.bus.ppu.oam[i + 3] as usize;
-        //   let y = emu.bus.ppu.oam[i] as usize;
+        let spr_ptrntbl = emu.bus.ppu.ctrl.spr_ptrntbl_addr();
+        for i in (0..256).step_by(4) {
+          let tile_idx = emu.bus.ppu.oam[i + 1];
+          let attributes = emu.bus.ppu.oam[i + 2];
+          let x = emu.bus.ppu.oam[i + 3] as usize;
+          let y = emu.bus.ppu.oam[i] as usize + 1;
 
-        //   if x >= RENDER_WIDTH as usize || y >= RENDER_HEIGHT as usize { continue; }
+          let sprite = Sprite::from_bytes(&emu.bus.ppu.oam[i..i+4]);
+          if x >= 8*RENDER_WIDTH as usize - 8 || y >= 8*RENDER_HEIGHT as usize - 8 { continue; }
 
-        //   let tile_start = (spr_ptrntbl as usize) + (tile_idx as usize) * 16;
-        //   let tile = &emu.bus.cart.chr_rom[tile_start..tile_start+16];
+          let tile_start = (spr_ptrntbl as usize) + (tile_idx as usize) * 16;
+          let tile = &emu.bus.cart.chr_rom[tile_start..tile_start+16];
           
-        //   let palette_id = 16 + (attributes & 0b0000_0011) as usize * 4;
-        //   let palette = &emu.bus.ppu.palettes[palette_id..palette_id+4];
-        //   framebuf.set_tile(8*x as usize, 8*y as usize, tile, palette);
-        // }
+          let palette_id = 16 + (attributes & 0b11) as usize * 4;
+          let palette = &emu.bus.ppu.palettes[palette_id..palette_id+4];
+          framebuf.set_tile(x as usize, y as usize, tile, palette);
+        }
+
 
         texture.update(None, &framebuf.buffer, framebuf.pitch()).unwrap();
         sdl.canvas.copy(&texture, None, None).unwrap();
