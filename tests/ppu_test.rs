@@ -85,11 +85,11 @@ mod ppu_test {
 
     #[test]
     fn render_tiles() {
-      const RENDER_WIDTH: u32 = 32;
-      const RENDER_HEIGHT: u32 = 30;
-      const SCALE: u32 = 25;
+      const RENDER_WIDTH: f32 = 32.0;
+      const RENDER_HEIGHT: f32 = 30.0;
+      const SCALE: f32 = 3.0;
       
-      let mut sdl = Sdl2Context::new("Background", RENDER_WIDTH*SCALE, RENDER_HEIGHT*SCALE);
+      let mut sdl = Sdl2Context::new("Background", (8.0*RENDER_WIDTH*SCALE) as u32, (8.0*RENDER_HEIGHT*SCALE) as u32);
       let mut framebuf = FrameBuffer::new(8*RENDER_WIDTH as usize, 8*RENDER_HEIGHT as usize);
       
       let mut texture = sdl.texture_creator
@@ -141,21 +141,22 @@ mod ppu_test {
           }
         }
         
-        let bg_ptrntbl = emu.bus.ppu.ctrl.bg_ptrntbl_addr();
+        let bg_ptrntbl = emu.bus.ppu.ctrl.bg_ptrntbl_addr() as usize;
         for i in 0..32*30 {
           let tile_idx = emu.bus.ppu.vram[i];
-          let x = i as u32 % RENDER_WIDTH;
-          let y = i as u32 / RENDER_WIDTH;
-          let tile_start = (bg_ptrntbl as usize) + (tile_idx as usize) * 16;
+          let x = i as u32 % RENDER_WIDTH as u32;
+          let y = i as u32 / RENDER_WIDTH as u32;
+          let tile_start = bg_ptrntbl + (tile_idx as usize) * 16;
           let tile = &emu.bus.cart.chr_rom[tile_start..tile_start+16];
 
-          let attribute_idx = (y/2 * 8) + (x/2);
+          let attribute_idx = (y/4 * 8) + (x/4);
+          // need to do mirroring here
           let attribute = emu.bus.ppu.vram[0x3C0 + attribute_idx as usize];
-          let palette_id = match (x % 2, y % 2) {
-            (0, 0) => (attribute & 0b0000_0011) >> 0 & 0b11,
-            (0, 1) => (attribute & 0b0000_1100) >> 2 & 0b11,
-            (1, 0) => (attribute & 0b0011_0000) >> 4 & 0b11,
-            (1, 1) => (attribute & 0b1100_0000) >> 6 & 0b11,
+          let palette_id = match (x % 4, y % 4) {
+            (0..2, 0..2) => (attribute & 0b0000_0011) >> 0 & 0b11,
+            (2..4, 0..2) => (attribute & 0b0000_1100) >> 2 & 0b11,
+            (0..2, 2..4) => (attribute & 0b0011_0000) >> 4 & 0b11,
+            (2..4, 2..4) => (attribute & 0b1100_0000) >> 6 & 0b11,
             _ => unreachable!("mod 2 should always give 0 and 1"),
           } as usize * 4;
 
@@ -166,20 +167,28 @@ mod ppu_test {
         // let spr_ptrntbl = emu.bus.ppu.ctrl.spr_ptrntbl_addr();
         // for i in (0..256).step_by(4) {
         //   let tile_idx = emu.bus.ppu.oam[i + 1];
+        //   let attributes = emu.bus.ppu.oam[i + 2];
         //   let x = emu.bus.ppu.oam[i + 3] as usize;
         //   let y = emu.bus.ppu.oam[i] as usize;
+
+        //   if x >= RENDER_WIDTH as usize || y >= RENDER_HEIGHT as usize { continue; }
+
         //   let tile_start = (spr_ptrntbl as usize) + (tile_idx as usize) * 16;
         //   let tile = &emu.bus.cart.chr_rom[tile_start..tile_start+16];
-        //   framebuf.set_tile(8*x as usize, 8*y as usize, tile, &GREYSCALE_IDS);
+          
+        //   let palette_id = 16 + (attributes & 0b0000_0011) as usize * 4;
+        //   let palette = &emu.bus.ppu.palettes[palette_id..palette_id+4];
+        //   framebuf.set_tile(8*x as usize, 8*y as usize, tile, palette);
         // }
-        // break 'running;
 
         texture.update(None, &framebuf.buffer, framebuf.pitch()).unwrap();
         sdl.canvas.copy(&texture, None, None).unwrap();
         sdl.canvas.present();
       }
 
+      println!("PALETTES {:?}", emu.bus.ppu.palettes);
       println!("OAM {:?}", emu.bus.ppu.oam);
+
       // println!("VRAM {:?}", &emu.bus.ppu.vram);
       println!("{:?} {:?} {:?}", emu, emu.bus.ppu, emu.bus.cart.header);
     }

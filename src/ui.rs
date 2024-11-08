@@ -1,15 +1,8 @@
 use std::sync::LazyLock;
 
-use sdl2::{event::Event, pixels::{Color, PixelFormatEnum}, render::{Canvas, Texture, TextureCreator}, video::{Window, WindowContext}, EventPump, Sdl, VideoSubsystem};
+use sdl2::{event::Event, keyboard::Keycode, pixels::{Color, PixelFormatEnum}, render::{Canvas, Texture, TextureCreator}, video::{Window, WindowContext}, EventPump, Sdl, VideoSubsystem};
 
-use crate::ppu::Ppu;
-pub struct Sdl2Context {
-    pub ctx: Sdl,
-    pub video: VideoSubsystem,
-    pub canvas: Canvas<Window>,
-    pub events: EventPump,
-    pub texture_creator: TextureCreator<WindowContext>
-}
+use crate::{dev::{Joypad, JoypadStat}, ppu::Ppu};
 
 pub static SYS_PALETTES: LazyLock<[Color; 64]> = LazyLock::new(|| {
     let bytes = include_bytes!("../palettes/Composite_wiki.pal");
@@ -25,6 +18,9 @@ pub static SYS_PALETTES: LazyLock<[Color; 64]> = LazyLock::new(|| {
 });
 
 pub const GREYSCALE_PALETTE: [u8; 4] = [0x3F, 0x00, 0x10, 0x20];
+
+pub const SCREEN_WIDTH: usize = 32;
+pub const SCREEN_HEIGHT: usize = 30;
 
 pub struct FrameBuffer {
     pub buffer: Vec<u8>,
@@ -59,31 +55,6 @@ impl FrameBuffer {
             }
         }
     }
-
-    pub fn render_background(&mut self, ppu: &Ppu) {
-        let bg_ptrntbl = ppu.ctrl.bg_ptrntbl_addr();
-        for i in 0..32*30 {
-          let tile_idx = ppu.vram[i];
-          let x = i % (self.width/8);
-          let y = i / (self.height/8);
-
-          let tile_start = (bg_ptrntbl as usize) + (tile_idx as usize) * 16;
-          let tile = &ppu.patterns[tile_start..tile_start+16];
-
-          let attribute_idx = (y/2 * 8) + (x/2);
-          let attribute = ppu.vram[0x3C0 + attribute_idx as usize];
-          let palette_id = match (x % 2, y % 2) {
-            (0, 0) => (attribute & 0b0000_0011) >> 0 & 0b11,
-            (0, 1) => (attribute & 0b0000_1100) >> 2 & 0b11,
-            (1, 0) => (attribute & 0b0011_0000) >> 4 & 0b11,
-            (1, 1) => (attribute & 0b1100_0000) >> 6 & 0b11,
-            _ => unreachable!("mod 2 should always give 0 and 1"),
-          } as usize * 4;
-
-          let palette = &ppu.palettes[palette_id..palette_id+4];
-          self.set_tile(8*x as usize, 8*y as usize, tile, palette);
-        }
-    }
 }
 
 pub fn tile_to_colors(tile: &[u8], palette: &[u8]) -> Tile {
@@ -103,6 +74,61 @@ pub fn tile_to_colors(tile: &[u8], palette: &[u8]) -> Tile {
     }
 
     sprite
+}
+
+pub struct NesScreen(FrameBuffer);
+impl NesScreen {
+    pub fn new() -> Self {
+        NesScreen(FrameBuffer::new(SCREEN_WIDTH, SCREEN_HEIGHT))
+    }
+
+    pub fn render_background(&mut self, ppu: &Ppu) {
+        let bg_ptrntbl = ppu.ctrl.bg_ptrntbl_addr();
+        for i in 0..32*30 {
+          let tile_idx = ppu.vram[i];
+          let x = i % (self.0.width/8);
+          let y = i / (self.0.height/8);
+
+          let tile_start = (bg_ptrntbl as usize) + (tile_idx as usize) * 16;
+          let tile = &ppu.patterns[tile_start..tile_start+16];
+
+          let attribute_idx = (y/2 * 8) + (x/2);
+          let attribute = ppu.vram[0x3C0 + attribute_idx as usize];
+          let palette_id = match (x % 2, y % 2) {
+            (0, 0) => (attribute & 0b0000_0011) >> 0 & 0b11,
+            (0, 1) => (attribute & 0b0000_1100) >> 2 & 0b11,
+            (1, 0) => (attribute & 0b0011_0000) >> 4 & 0b11,
+            (1, 1) => (attribute & 0b1100_0000) >> 6 & 0b11,
+            _ => unreachable!("mod 2 should always give 0 and 1"),
+          } as usize * 4;
+
+          let palette = &ppu.palettes[palette_id..palette_id+4];
+          self.0.set_tile(8*x as usize, 8*y as usize, tile, palette);
+        }
+    }
+
+    pub fn render_sprites(&mut self, ppu: &Ppu) {
+        let spr_ptrntbl = ppu.ctrl.spr_ptrntbl_addr();
+
+        // Sprites with lower OAM indices are drawn in front
+        for i in (0..256).step_by(4).rev() {
+          let tile_idx = ppu.oam[i + 1];
+          let x = ppu.oam[i + 3] as usize;
+          let y = ppu.oam[i] as usize;
+          let tile_start = (spr_ptrntbl as usize) + (tile_idx as usize) * 16;
+          let tile = &ppu.patterns[tile_start..tile_start+16];
+
+          self.0.set_tile(8*x as usize, 8*y as usize, tile, &GREYSCALE_PALETTE);
+        }
+    }
+}
+
+pub struct Sdl2Context {
+    pub ctx: Sdl,
+    pub video: VideoSubsystem,
+    pub canvas: Canvas<Window>,
+    pub events: EventPump,
+    pub texture_creator: TextureCreator<WindowContext>
 }
 
 impl Sdl2Context {
@@ -125,6 +151,47 @@ impl Sdl2Context {
         self.texture_creator
             .create_texture_target(PixelFormatEnum::RGB24, width, height)
             .expect("Could not create a texture")
+    }
+
+    pub fn handle_input(&mut self, joypad: &mut Joypad) -> bool {
+        for event in self.events.poll_iter() {
+            match event {
+              Event::Quit { .. } => return true,
+              Event::KeyDown { keycode, .. } => {
+                if let Some(keycode) = keycode {
+                  match keycode {
+                    Keycode::Z => joypad.button.insert(JoypadStat::A),
+                    Keycode::X => joypad.button.insert(JoypadStat::B),
+                    Keycode::UP => joypad.button.insert(JoypadStat::UP),
+                    Keycode::DOWN => joypad.button.insert(JoypadStat::DOWN),
+                    Keycode::LEFT => joypad.button.insert(JoypadStat::LEFT),
+                    Keycode::RIGHT => joypad.button.insert(JoypadStat::RIGHT),
+                    Keycode::N => joypad.button.insert(JoypadStat::SELECT),
+                    Keycode::M => joypad.button.insert(JoypadStat::START),
+                    _ => {}
+                  }
+                }
+              }
+              Event::KeyUp { keycode, .. } => {
+                if let Some(keycode) = keycode {
+                  match keycode {
+                    Keycode::Z => joypad.button.remove(JoypadStat::A),
+                    Keycode::X => joypad.button.remove(JoypadStat::B),
+                    Keycode::UP => joypad.button.remove(JoypadStat::UP),
+                    Keycode::DOWN => joypad.button.remove(JoypadStat::DOWN),
+                    Keycode::LEFT => joypad.button.remove(JoypadStat::LEFT),
+                    Keycode::RIGHT => joypad.button.remove(JoypadStat::RIGHT),
+                    Keycode::N => joypad.button.remove(JoypadStat::SELECT),
+                    Keycode::M => joypad.button.remove(JoypadStat::START),
+                    _ => {}
+                  }
+                }
+              }
+              _ => {}
+            }
+          }
+
+        false
     }
 }
 

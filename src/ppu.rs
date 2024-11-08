@@ -19,15 +19,15 @@ bitflags! {
 
   #[derive(Debug)]
   pub struct PpuMask: u8 {
-    const greyscale   = 0b0000_0001;
-    const bg_lstrip   = 0b0000_0010;
-    const spr_lstrip  = 0b0000_0100;
-    const bg_render   = 0b0000_1000;
+    const greyscale     = 0b0000_0001;
+    const bg_lstrip     = 0b0000_0010;
+    const spr_lstrip    = 0b0000_0100;
+    const bg_render_on  = 0b0000_1000;
 
-    const spr_render  = 0b0001_0000;
-    const red_boost   = 0b0010_0000;
-    const blue_boost  = 0b0100_0000;
-    const green_boost = 0b1000_0000;
+    const spr_render_on = 0b0001_0000;
+    const red_boost     = 0b0010_0000;
+    const blue_boost    = 0b0100_0000;
+    const green_boost   = 0b1000_0000;
   }
 
   #[derive(Debug)]
@@ -44,6 +44,7 @@ impl PpuCtrl {
     let nametbl_idx = self.bits() & PpuCtrl::base_nametbl.bits();
     0x2000 + 0x0400*nametbl_idx as u16
   }
+  
   pub fn vram_addr_incr(&self) -> u16 {
     match self.contains(PpuCtrl::vram_incr) {
       false => 1,
@@ -62,7 +63,8 @@ impl PpuCtrl {
       true  => 0x1000
     }
   }
- }
+}
+
 
 #[derive(Debug)]
 pub enum WriteLatch {
@@ -73,9 +75,16 @@ pub enum VramDst {
   Patterntbl, Nametbl, Palettes, Unused
 }
 
-// TODO
-pub struct OAMEntry {
-
+pub enum SpritePriority { Front, Behind }
+pub struct Sprite {
+  pub index: u8,
+  pub y: u8,
+  pub tile: u8,
+  pub palette: usize,
+  pub priority: SpritePriority,
+  pub flip_horizontal: bool,
+  pub flip_vertical: bool,
+  pub x: u8,
 }
 
 pub struct AttributeEntry {
@@ -89,9 +98,6 @@ pub struct PatternEntry {
   pub backdrop: u8,
   pub colors: [u8; 3]
 }
-
-const SCREEN_WIDTH: usize = 32;
-const SCREEN_HEIGHT: usize = 30;
 
 pub struct Ppu {
   pub v: u16, // current vram address
@@ -154,19 +160,22 @@ impl Ppu {
       self.scanline += 1;
 
       // Post-render scanline (240)
-      // Vertical blanking lines (240-260)
+
+      // Vertical blanking lines (241-260)
       if self.scanline == 241 {
         info!("VBLANK!!");
         self.vblank_started = true;
         self.stat.insert(PpuStat::vblank);
+
         if self.ctrl.contains(PpuCtrl::vblank_nmi_on) {
           self.nmi_requested = true;
         }
+
       // Pre-render scanline (261)
       } else if self.scanline > 260 {
         self.stat = PpuStat::empty();
-        self.nmi_requested = false;
         self.oam_addr = 0;
+        self.nmi_requested = false;
         self.scanline = 0;
         self.cycles = 0;
       }
