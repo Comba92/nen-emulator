@@ -26,9 +26,8 @@ static GAME_CODE: [u8; 309] = [
 #[cfg(test)]
 mod snake_test {
     use std::time::Duration;
-
-    use log::info;
-    use nen_emulator::emu::{instr::INSTRUCTIONS, Emulator};
+    
+    use nen_emulator::{cart::Cart, cpu::Cpu, mem::Memory};
     use rand::Rng;
     use sdl2::{event::Event, keyboard::Keycode, pixels::{Color, PixelFormatEnum}};
 
@@ -57,9 +56,9 @@ mod snake_test {
         .create_texture_target(PixelFormatEnum::RGB24, 32, 32)
         .unwrap();
 
-    let mut emu = Emulator::debug();
+    let mut emu = Cpu::new(Cart::empty());
     emu.bus.write_data(0x600, &GAME_CODE);
-    emu.cpu.pc = 0x600;
+    emu.pc = 0x600;
 
     let mut framebuffer = [0u8; 32*32*3];
     let mut rng = rand::thread_rng();
@@ -72,26 +71,26 @@ mod snake_test {
           match event {
             Event::Quit { .. } => break 'running,
             Event::KeyDown { keycode: Some(Keycode::W), .. } => {
-              emu.cpu.mem_write(0xFF, 0x77);
+              emu.write(0xFF, 0x77);
             }
             Event::KeyDown { keycode: Some(Keycode::S), .. } => {
-              emu.cpu.mem_write(0xFF, 0x73);
+              emu.write(0xFF, 0x73);
             }
             Event::KeyDown { keycode: Some(Keycode::A), .. } => {
-              emu.cpu.mem_write(0xFF, 0x61);
+              emu.write(0xFF, 0x61);
             }
             Event::KeyDown { keycode: Some(Keycode::D), .. } => {
-              emu.cpu.mem_write(0xFF, 0x64);
+              emu.write(0xFF, 0x64);
             }
             _ => {}
         }
       }
 
-      emu.cpu.mem_write(0xfe, rng.gen_range(2..16));
+      emu.write(0xfe, rng.gen_range(2..16));
 
       let mut to_update = false;
       for i in 0..(0x600-0x200) {
-        let color_idx = emu.cpu.mem_read(0x200 + i);
+        let color_idx = emu.read(0x200 + i);
         let color = match color_idx {
           0 => Color::BLACK,
           1 => Color::WHITE,
@@ -126,7 +125,7 @@ mod snake_test {
       std::thread::sleep(Duration::new(0, 10_000));
     }
 
-    println!("{:?}", emu.cpu);
+    println!("{:?}", emu);
   }
   
 }

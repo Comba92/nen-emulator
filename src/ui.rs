@@ -1,9 +1,4 @@
-use std::path::Path;
-
 use sdl2::{event::Event, pixels::{Color, PixelFormatEnum}, render::{Canvas, Texture, TextureCreator}, video::{Window, WindowContext}, EventPump, Sdl, VideoSubsystem};
-
-use super::Emulator;
-
 pub struct Sdl2Context {
     pub ctx: Sdl,
     pub video: VideoSubsystem,
@@ -100,9 +95,6 @@ pub fn run() {
     sdl.canvas.set_scale(10.0, 10.0).unwrap();
     let mut _texture = sdl.texture_creator
     .create_texture_target(PixelFormatEnum::RGB24, 800, 600).unwrap();
-
-    let rom_path = Path::new("tests/test_roms/Donkey Kong.nes");
-    let mut _emu = Emulator::new(rom_path);
 
     'running: loop {
         for event in sdl.events.poll_iter() {
