@@ -2,7 +2,7 @@ use std::fmt;
 
 use crate::cart::{Cart, NametblMirroring};
 use bitflags::bitflags;
-use log::{info, warn};
+use log::{error, info, warn};
 
 bitflags! {
   #[derive(Debug)]
@@ -73,6 +73,26 @@ pub enum VramDst {
   Patterntbl, Nametbl, Palettes, Unused
 }
 
+// TODO
+pub struct OAMEntry {
+
+}
+
+pub struct AttributeEntry {
+  pub top_left: u8,
+  pub top_right: u8,
+  pub btm_left: u8,
+  pub btm_right: u8,
+}
+
+pub struct PatternEntry {
+  pub backdrop: u8,
+  pub colors: [u8; 3]
+}
+
+const SCREEN_WIDTH: usize = 32;
+const SCREEN_HEIGHT: usize = 30;
+
 pub struct Ppu {
   pub v: u16, // current vram address
   pub t: u16, // temporary vram address / topleft onscreen tile
@@ -90,8 +110,10 @@ pub struct Ppu {
   pub oam: [u8; 256],
   pub scanline: usize,
   pub cycles: usize,
-  pub nmi_requested: bool,
   pub mirroring: NametblMirroring,
+
+  pub nmi_requested: bool,
+  pub vblank_started: bool,
 }
 
 impl fmt::Debug for Ppu {
@@ -113,8 +135,10 @@ impl Ppu {
       ctrl: PpuCtrl::empty(),
       mask: PpuMask::empty(),
       stat: PpuStat::empty(),
+      mirroring: cart.header.nametbl_mirroring,
+
       nmi_requested: false,
-      mirroring: cart.header.nametbl_mirroring
+      vblank_started: false,
     };
 
     let (left, _) = ppu.patterns.split_at_mut(cart.chr_rom.len());
@@ -133,6 +157,7 @@ impl Ppu {
       // Vertical blanking lines (240-260)
       if self.scanline == 241 {
         info!("VBLANK!!");
+        self.vblank_started = true;
         self.stat.insert(PpuStat::vblank);
         if self.ctrl.contains(PpuCtrl::vblank_nmi_on) {
           self.nmi_requested = true;
@@ -279,9 +304,9 @@ impl Ppu {
 
     let (dst, addr) = self.map(self.v);
     match dst {
-      VramDst::Patterntbl => eprintln!("Illegal write to CHR_ROM"),
+      VramDst::Patterntbl => error!("Illegal write to CHR_ROM"),
       VramDst::Nametbl => self.vram[addr] = val,
-      VramDst::Palettes => eprintln!("Palettes writing not implemented"),
+      VramDst::Palettes => self.palettes[addr] = val,
       VramDst::Unused => {}
     }
 

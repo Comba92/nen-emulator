@@ -1,11 +1,11 @@
 #[allow(unused_imports)]
-use log::{debug, info, trace, warn};
+use log::{debug, info, trace, warn, error};
 
-use crate::{cart::Cart, dev::Joypad, mem::Memory, ppu::Ppu};
+use crate::{cart::Cart, dev::Joypad, mem::Memory, ppu::{Ppu, PpuStat}};
 
 #[derive(Debug)]
 pub enum BusDst {
-  Ram, Ppu, Dma, SRam, Prg, Joypad1, NoImpl
+  Ram, Ppu, Dma, SRam, Prg, Joypad1, Joypad2, NoImpl
 }
 
 pub struct Bus {
@@ -26,7 +26,7 @@ impl Memory for Bus {
       BusDst::Joypad1 => self.joypad.read(),
       BusDst::SRam => self.sram[addr],
       BusDst::Prg => self.rom[addr],
-      _ => { eprintln!("Read to {addr:04X} not implemented"); 0 }
+      _ => { info!("Read to {addr:04X} not implemented"); 0 }
     }
   }
 
@@ -45,9 +45,10 @@ impl Memory for Bus {
         self.ppu.oam_dma(&page);
       }
       BusDst::Joypad1 => self.joypad.write(val),
+      BusDst::Joypad2 => {} // TODO
       BusDst::SRam => self.sram[addr] = val,
-      BusDst::Prg => eprintln!("Illegal write to PRG_ROM at {addr:04X}"),
-      BusDst::NoImpl => eprintln!("Write to {addr:04X} not implemented")
+      BusDst::Prg => error!("Illegal write to PRG_ROM at {addr:04X}"),
+      BusDst::NoImpl => info!("Write to {addr:04X} not implemented")
     }
   }
 }
@@ -71,7 +72,12 @@ impl Bus {
   pub fn step(&mut self, cycles: usize) {
     self.ppu.step(cycles * 3);
   }
-
+  
+  pub fn peek_vblank(&mut self) -> bool {
+    let vblank = self.ppu.vblank_started;
+    self.ppu.vblank_started = false;
+    vblank
+  }
   pub fn poll_nmi(&mut self) -> bool {
     let nmi = self.ppu.nmi_requested;
     self.ppu.nmi_requested = false;
@@ -89,8 +95,11 @@ impl Bus {
         let ppu_addr = addr & 0x2007;
         (BusDst::Ppu, ppu_addr as usize)
       }
+
       0x4014 => (BusDst::Dma, addr as usize),
       0x4016 => (BusDst::Joypad1, addr as usize),
+      0x4017 => (BusDst::Joypad2, addr as usize),
+
       0x6000..=0x7FFF => (BusDst::SRam, addr as usize - 0x6000),
       0x8000..=0xFFFF => (BusDst::Prg, addr as usize - 0x8000),
       _ => (BusDst::NoImpl, addr as usize)

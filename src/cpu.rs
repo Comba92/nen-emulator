@@ -211,6 +211,13 @@ impl Cpu {
     self.bus.step(self.cycles - cycles_at_start);
     self.poll_interrupts();
   }
+
+  pub fn step_until_vblank(&mut self) {
+    loop {
+      self.step();
+      if self.bus.peek_vblank() { break; }
+    }
+  }
   
   fn handle_interrupt(&mut self, isr_addr: u16) {
     self.stack_push16(self.pc);

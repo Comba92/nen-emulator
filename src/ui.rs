@@ -1,4 +1,8 @@
+use std::sync::LazyLock;
+
 use sdl2::{event::Event, pixels::{Color, PixelFormatEnum}, render::{Canvas, Texture, TextureCreator}, video::{Window, WindowContext}, EventPump, Sdl, VideoSubsystem};
+
+use crate::ppu::Ppu;
 pub struct Sdl2Context {
     pub ctx: Sdl,
     pub video: VideoSubsystem,
@@ -7,11 +11,27 @@ pub struct Sdl2Context {
     pub texture_creator: TextureCreator<WindowContext>
 }
 
+pub static SYS_PALETTES: LazyLock<[Color; 64]> = LazyLock::new(|| {
+    let bytes = include_bytes!("../palettes/Composite_wiki.pal");
+  
+    let colors: Vec<Color> = bytes
+      .chunks(3)
+      // we take only the first palette set of 64 colors, more might be in a .pal file
+      .take(64)
+      .map(|rgb| Color::RGB(rgb[0], rgb[1], rgb[2]))
+      .collect();
+  
+    colors.try_into().unwrap()
+});
+
+pub const GREYSCALE_PALETTE: [u8; 4] = [0x3F, 0x00, 0x10, 0x20];
+
 pub struct FrameBuffer {
     pub buffer: Vec<u8>,
     pub width: usize,
     pub height: usize,
 }
+type Tile = [[Color; 8]; 8];
 impl FrameBuffer {
     pub fn new(width: usize, height: usize) -> Self {
         let buffer = vec![0; width * height * 3];
@@ -30,14 +50,59 @@ impl FrameBuffer {
         self.buffer[idx + 2] = b;
     }
 
-    pub fn set_tile(&mut self, x: usize, y: usize, tile: Tile) {
+    pub fn set_tile(&mut self, x: usize, y: usize, tile: &[u8], palette: &[u8]) {
+        let parsed_tile = tile_to_colors(tile, palette);
         for row in 0..8 {
             for col in 0..8 {
-                let color = tile[row][col];
+                let color = parsed_tile[row][col];
                 self.set_pixel(x+col, y+row, color);
             }
         }
     }
+
+    pub fn render_background(&mut self, ppu: &Ppu) {
+        let bg_ptrntbl = ppu.ctrl.bg_ptrntbl_addr();
+        for i in 0..32*30 {
+          let tile_idx = ppu.vram[i];
+          let x = i % (self.width/8);
+          let y = i / (self.height/8);
+
+          let tile_start = (bg_ptrntbl as usize) + (tile_idx as usize) * 16;
+          let tile = &ppu.patterns[tile_start..tile_start+16];
+
+          let attribute_idx = (y/2 * 8) + (x/2);
+          let attribute = ppu.vram[0x3C0 + attribute_idx as usize];
+          let palette_id = match (x % 2, y % 2) {
+            (0, 0) => (attribute & 0b0000_0011) >> 0 & 0b11,
+            (0, 1) => (attribute & 0b0000_1100) >> 2 & 0b11,
+            (1, 0) => (attribute & 0b0011_0000) >> 4 & 0b11,
+            (1, 1) => (attribute & 0b1100_0000) >> 6 & 0b11,
+            _ => unreachable!("mod 2 should always give 0 and 1"),
+          } as usize * 4;
+
+          let palette = &ppu.palettes[palette_id..palette_id+4];
+          self.set_tile(8*x as usize, 8*y as usize, tile, palette);
+        }
+    }
+}
+
+pub fn tile_to_colors(tile: &[u8], palette: &[u8]) -> Tile {
+    let mut sprite = [[Color::BLACK; 8]; 8];
+
+    for row in 0..8 {
+        let plane0 = tile[row];
+        let plane1 = tile[row + 8];
+
+        for bit in (0..8).rev() {
+            let bit0 = (plane0 >> bit) & 1;
+            let bit1 = ((plane1 >> bit) & 1) << 1;
+            let color = bit1 | bit0;
+            let color_id = palette[color as usize] as usize;
+            sprite[row][7-bit] = SYS_PALETTES[color_id];
+        }
+    }
+
+    sprite
 }
 
 impl Sdl2Context {
@@ -61,33 +126,6 @@ impl Sdl2Context {
             .create_texture_target(PixelFormatEnum::RGB24, width, height)
             .expect("Could not create a texture")
     }
-}
-
-const GREYSCALE_PALETTE: [Color; 4] = [
-    Color::BLACK,
-    Color::RGB(123, 123, 123),
-    Color::RGB(191, 191, 191),
-    Color::RGB(238, 238, 238),
-];
-
-type Tile = [[Color; 8]; 8];
-pub fn parse_tile(tile: &[u8]) -> Tile {
-    let mut sprite = [[Color::BLACK; 8]; 8];
-
-    for row in 0..8 {
-        let plane0 = tile[row];
-        let plane1 = tile[row + 8];
-
-        for bit in (0..8).rev() {
-            let bit0 = (plane0 >> bit) & 1;
-            let bit1 = ((plane1 >> bit) & 1) << 1;
-            let color = bit1 | bit0;
-
-            sprite[row][7-bit] = GREYSCALE_PALETTE[color as usize];
-        }
-    }
-
-    sprite
 }
 
 pub fn run() {

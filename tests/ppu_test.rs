@@ -3,7 +3,7 @@ mod ppu_test {
     use std::path::Path;
     #[allow(unused_imports)]
     use log::info;
-    use nen_emulator::{cart::Cart, cpu::Cpu, dev::JoypadStat, ui::{parse_tile, FrameBuffer, Sdl2Context}};
+    use nen_emulator::{cart::Cart, cpu::Cpu, dev::JoypadStat, ui::{FrameBuffer, Sdl2Context, GREYSCALE_PALETTE}};
     use sdl2::{event::Event, pixels::PixelFormatEnum, keyboard::Keycode};
 
 
@@ -64,8 +64,7 @@ mod ppu_test {
         let x = i*8 % framebuf.width;
         let y = (i*8 / framebuf.width)*8;
 
-        let col_tile = parse_tile(tile);
-        framebuf.set_tile(x, y, col_tile);
+        framebuf.set_tile(x, y, tile, &GREYSCALE_PALETTE);
       }
 
       texture.update(None, &framebuf.buffer, framebuf.pitch()).unwrap();
@@ -97,23 +96,13 @@ mod ppu_test {
       .create_texture_target(PixelFormatEnum::RGB24, framebuf.width as u32, framebuf.height as u32)
       .unwrap();
     
-      let rom_path = &Path::new("tests/nestest/nestest.nes");
+      // let rom_path = &Path::new("tests/nestest/nestest.nes");
+      let rom_path = &Path::new("tests/test_roms/Donkey Kong.nes");
       let cart = Cart::new(rom_path);
       let mut emu = Cpu::new(cart);
 
-      // let mut builder = colog::basic_builder();
-      // builder.filter_level(log::LevelFilter::Trace);
-      // builder.init();
-
-      // // colog::init();
-      // for _ in 0..200 {
-      //   emu.step();
-      // }
-
       'running: loop {
-        for _ in 0..260 {
-          emu.step();
-        }
+        emu.step_until_vblank();
 
         for event in sdl.events.poll_iter() {
           match event {
@@ -159,30 +148,39 @@ mod ppu_test {
           let y = i as u32 / RENDER_WIDTH;
           let tile_start = (bg_ptrntbl as usize) + (tile_idx as usize) * 16;
           let tile = &emu.bus.cart.chr_rom[tile_start..tile_start+16];
-          framebuf.set_tile(8*x as usize, 8*y as usize, parse_tile(tile));
+
+          let attribute_idx = (y/2 * 8) + (x/2);
+          let attribute = emu.bus.ppu.vram[0x3C0 + attribute_idx as usize];
+          let palette_id = match (x % 2, y % 2) {
+            (0, 0) => (attribute & 0b0000_0011) >> 0 & 0b11,
+            (0, 1) => (attribute & 0b0000_1100) >> 2 & 0b11,
+            (1, 0) => (attribute & 0b0011_0000) >> 4 & 0b11,
+            (1, 1) => (attribute & 0b1100_0000) >> 6 & 0b11,
+            _ => unreachable!("mod 2 should always give 0 and 1"),
+          } as usize * 4;
+
+          let palette = &emu.bus.ppu.palettes[palette_id..palette_id+4];
+          framebuf.set_tile(8*x as usize, 8*y as usize, tile, palette);
         }
 
-        let spr_ptrntbl = emu.bus.ppu.ctrl.spr_ptrntbl_addr();
-        for i in (0..256).step_by(4) {
-          let tile_idx = emu.bus.ppu.oam[i + 1];
-          let x = emu.bus.ppu.oam[i + 3] as usize;
-          let y = emu.bus.ppu.oam[i] as usize;
-          let tile_start = (spr_ptrntbl as usize) + (tile_idx as usize) * 16;
-          let tile = &emu.bus.cart.chr_rom[tile_start..tile_start+16];
-          framebuf.set_tile(8*x as usize, 8*y as usize, parse_tile(tile));
-        }
-        //break 'running;
+        // let spr_ptrntbl = emu.bus.ppu.ctrl.spr_ptrntbl_addr();
+        // for i in (0..256).step_by(4) {
+        //   let tile_idx = emu.bus.ppu.oam[i + 1];
+        //   let x = emu.bus.ppu.oam[i + 3] as usize;
+        //   let y = emu.bus.ppu.oam[i] as usize;
+        //   let tile_start = (spr_ptrntbl as usize) + (tile_idx as usize) * 16;
+        //   let tile = &emu.bus.cart.chr_rom[tile_start..tile_start+16];
+        //   framebuf.set_tile(8*x as usize, 8*y as usize, tile, &GREYSCALE_IDS);
+        // }
+        // break 'running;
 
         texture.update(None, &framebuf.buffer, framebuf.pitch()).unwrap();
         sdl.canvas.copy(&texture, None, None).unwrap();
         sdl.canvas.present();
       }
 
-      // println!("VRAM filled {:?} times",vram_filled);
-      // println!("OAM filled {:?} times", oam_filled);
-
       println!("OAM {:?}", emu.bus.ppu.oam);
-      println!("VRAM {:?}", &emu.bus.ppu.vram);
+      // println!("VRAM {:?}", &emu.bus.ppu.vram);
       println!("{:?} {:?} {:?}", emu, emu.bus.ppu, emu.bus.cart.header);
     }
 
