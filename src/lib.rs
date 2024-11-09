@@ -8,4 +8,4 @@ pub mod ppu;
 pub mod dev;
 
 pub mod cart;
-pub mod ui;
+pub mod renderer;

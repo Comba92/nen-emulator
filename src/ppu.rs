@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::cart::{Cart, NametblMirroring};
+use crate::{cart::{Cart, NametblMirroring}, renderer::SCREEN_WIDTH};
 use bitflags::bitflags;
 use log::{error, info, warn};
 
@@ -75,24 +75,73 @@ pub enum VramDst {
   Patterntbl, Nametbl, Palettes, Unused
 }
 
+pub struct Sprite<'a> {
+  pub palette: &'a [u8],
+  pub tile: &'a [u8],
+  pub x: usize,
+  pub y: usize,
+}
+impl<'a> Sprite<'a> {
+  pub fn bg_sprite_from_idx(i: usize, ppu: &'a Ppu) -> Self {
+    let x = i % (SCREEN_WIDTH);
+    let y = i / (SCREEN_WIDTH);
+    
+    let tile_idx = ppu.vram[i] as usize;
+    let bg_ptrntbl = ppu.ctrl.bg_ptrntbl_addr() as usize;
+    let tile_start = bg_ptrntbl + tile_idx * 16;
+    let tile = &ppu.patterns[tile_start..tile_start+16];
+
+    let attribute_idx = (y/4 * 8) + (x/4);
+    let attribute_addr = (0x2000 + 0x3C0 + attribute_idx) as u16;
+    let attribute = ppu.vram_peek(attribute_addr);
+
+    let palette_id = match (x % 4, y % 4) {
+      (0..2, 0..2) => (attribute & 0b0000_0011) >> 0 & 0b11,
+      (2..4, 0..2) => (attribute & 0b0000_1100) >> 2 & 0b11,
+      (0..2, 2..4) => (attribute & 0b0011_0000) >> 4 & 0b11,
+      (2..4, 2..4) => (attribute & 0b1100_0000) >> 6 & 0b11,
+      _ => unreachable!("mod 2 should always give 0 and 1"),
+    } as usize * 4;
+    let palette = &ppu.palettes[palette_id..palette_id+4];
+
+    Self {x: x*8, y: y*8, tile, palette}
+  }
+
+  pub fn oam_sprite_from_idx(i: usize, ppu: &'a Ppu) -> Self {
+    let bytes = &ppu.oam[i..i+4];
+    let sprite = OamEntry::from_bytes(bytes);
+    
+    let spr_ptrntbl = ppu.ctrl.spr_ptrntbl_addr() as usize;
+    let tile_start = spr_ptrntbl + (sprite.tile_id as usize) * 16;
+    let tile = &ppu.patterns[tile_start..tile_start+16];
+    let palette = &ppu.palettes[sprite.palette_id..sprite.palette_id+4];
+    
+    Self {
+      x: sprite.x as usize,
+      y: sprite.y as usize,
+      tile, palette, 
+    }
+  }
+}
+
 #[derive(Debug)]
 pub enum SpritePriority { Front, Behind }
 #[derive(Debug)]
-pub struct Sprite {
-  pub y: u8,
-  pub tile: u8,
-  pub palette: usize,
+pub struct OamEntry {
+  pub y: usize,
+  pub tile_id: u8,
+  pub palette_id: usize,
   pub priority: SpritePriority,
   pub flip_horizontal: bool,
   pub flip_vertical: bool,
-  pub x: u8,
+  pub x: usize,
 }
-impl Sprite {
+impl OamEntry {
   pub fn from_bytes(bytes: &[u8]) -> Self {
-    let y = bytes[0];
+    let y = bytes[0] as usize;
     let tile = bytes[1];
     let attributes = bytes[2];
-    let palette = (attributes & 0b11) as usize;
+    let palette = 16 + (attributes & 0b11) as usize * 4;
     let priority  = match (attributes >> 5) & 1 == 0 {
       false => SpritePriority::Front,
       true => SpritePriority::Behind,
@@ -100,21 +149,12 @@ impl Sprite {
     let flip_horizontal = attributes >> 6 & 1 != 0;
     let flip_vertical = attributes >> 7 & 1 != 0;
 
-    let x = bytes[3];
+    let x = bytes[3] as usize;
 
     Self {
-      y, tile, palette, priority, flip_horizontal, flip_vertical, x,
+      y, tile_id: tile, palette_id: palette, priority, flip_horizontal, flip_vertical, x,
     }
   }
-}
-
-pub struct AttributeEntry {
-  pub top_left: u8,
-  pub top_right: u8,
-  pub btm_left: u8,
-  pub btm_right: u8,
-}
-impl AttributeEntry {
 }
 
 pub struct Ppu {
@@ -295,36 +335,24 @@ impl Ppu {
     self.v = self.v.wrapping_add(self.ctrl.vram_addr_incr());
   }
 
-  pub fn vram_read(&mut self) -> u8 {
-    info!("PPU_DATA READ at {:04X}", self.v);
-
-    let res = self.data_buf;
-    let (dst, addr) = self.map(self.v);
-    let data = match dst {
+  pub fn vram_peek(&self, addr: u16) -> u8 {
+    let (dst, addr) = self.map(addr);
+    match dst {
       VramDst::Patterntbl => self.patterns[addr],
       VramDst::Nametbl => self.vram[addr],
       VramDst::Palettes => self.palettes[addr],
       VramDst::Unused => 0,
-    };
+    }
+  }
 
-    self.data_buf = data;
+  pub fn vram_read(&mut self) -> u8 {
+    info!("PPU_DATA READ at {:04X}", self.v);
+
+    let res = self.data_buf;
+    self.data_buf = self.vram_peek(self.v);
     self.increase_vram_address();
     res
   }
-
-  // pub fn vram_read(&mut self) -> u8 {
-  //   info!("PPU_DATA READ at {:04X}", self.v);
-
-  //   let res = self.data_buf;
-  //   let addr = if (0x2000..=0x2FFF).contains(&self.v){
-  //     self.v & 0x2FFF
-  //   } else { self.v };
-
-  //   let data = self.vram[addr as usize];
-  //   self.data_buf = data;
-  //   self.v = self.v.wrapping_add(self.ctrl.vram_addr_incr());
-  //   res
-  // }
 
   pub fn vram_write(&mut self, val: u8) {
     info!("PPU_DATA WRITE at {:04X} = {val:02X}", self.v);
@@ -339,22 +367,6 @@ impl Ppu {
 
     self.increase_vram_address();
   }
-
-  // pub fn vram_write(&mut self, val: u8) {
-  //   info!("PPU_DATA WRITE at {:04X} = {val:02X}", self.v);
-
-  //   if (0..=0x1FFF).contains(&self.v) {
-  //     warn!("Can't write to CHR");
-  //     return;
-  //   }
-
-  //   let addr = if (0x2000..=0x2FFF).contains(&self.v){
-  //     self.v & 0x2FFF
-  //   } else { self.v };
-
-  //   self.vram[addr as usize] = val;
-  //   self.v = self.v.wrapping_add(self.ctrl.vram_addr_incr());
-  // }
 
   pub fn mirror_nametbl(&self, addr: u16) -> u16 {
     let addr = addr - 0x2000;

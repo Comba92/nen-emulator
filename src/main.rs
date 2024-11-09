@@ -1,5 +1,5 @@
-use nen_emulator::ui;
+use nen_emulator::renderer;
 
 fn main() {
-    ui::run();
+    renderer::run();
 }

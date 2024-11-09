@@ -3,7 +3,7 @@ mod ppu_test {
     use std::path::Path;
     #[allow(unused_imports)]
     use log::info;
-    use nen_emulator::{cart::Cart, cpu::Cpu, dev::JoypadStat, ppu::Sprite, ui::{FrameBuffer, Sdl2Context, GREYSCALE_PALETTE}};
+    use nen_emulator::{cart::Cart, cpu::Cpu, dev::JoypadStat, ppu::OamEntry, renderer::{FrameBuffer, Sdl2Context, GREYSCALE_PALETTE}};
     use sdl2::{event::Event, pixels::PixelFormatEnum, keyboard::Keycode};
 
 
@@ -97,7 +97,7 @@ mod ppu_test {
       .unwrap();
     
       // let rom_path = &Path::new("tests/nestest/nestest.nes");
-      let rom_path = &Path::new("tests/test_roms/Donkey Kong.nes");
+      let rom_path = &Path::new("tests/test_roms/Pacman.nes");
       let cart = Cart::new(rom_path);
       let mut emu = Cpu::new(cart);
 
@@ -171,7 +171,7 @@ mod ppu_test {
           let x = emu.bus.ppu.oam[i + 3] as usize;
           let y = emu.bus.ppu.oam[i] as usize + 1;
 
-          let sprite = Sprite::from_bytes(&emu.bus.ppu.oam[i..i+4]);
+          let _sprite = OamEntry::from_bytes(&emu.bus.ppu.oam[i..i+4]);
           if x >= 8*RENDER_WIDTH as usize - 8 || y >= 8*RENDER_HEIGHT as usize - 8 { continue; }
 
           let tile_start = (spr_ptrntbl as usize) + (tile_idx as usize) * 16;

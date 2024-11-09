@@ -1,14 +1,19 @@
 # TODO
 1. Complete CPU
-- TODO: interrupts
-- TODO: illegal opcodes
 - Better cycles counting?
 - Better operand handling?
 
 2. Implement Memory Bus, Interrupts, synchronization
+- Better input
 
 3. Implement PPU
-- Render pattern table
+- Sprite transparency
+- Sprite flipping
+- Scrolling
+
+4. Mappers
+
+5. APU if i have the energy
 
 # Resources
 - https://www.nesdev.org/NESDoc.pdf

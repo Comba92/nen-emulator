@@ -1,5 +1,4 @@
-#[allow(unused_imports)]
-use log::{debug, info, trace, warn, error};
+use log::{info, error};
 
 use crate::{cart::Cart, dev::Joypad, mem::Memory, ppu::Ppu};
 
