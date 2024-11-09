@@ -1,4 +1,4 @@
-use std::{cell::OnceCell, fmt, ops::{BitAnd, BitOr, BitXor, Not, Shl, Shr}};
+use std::{cell::OnceCell, fmt, ops::{BitAnd, BitOr, BitXor, Not, Shl, Shr}, path::Path};
 
 use bitflags::bitflags;
 use log::{debug, trace};
@@ -78,6 +78,11 @@ impl Cpu {
 
     cpu.pc = cpu.read16(PC_RESET);
     cpu
+  }
+
+  pub fn from_rom_path(rom_path: &Path) -> Self {
+    let cart = Cart::new(rom_path);
+    Cpu::new(cart)
   }
 
   pub fn set_carry(&mut self, res: u16) {

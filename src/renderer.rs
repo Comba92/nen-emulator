@@ -131,11 +131,11 @@ impl Sdl2Context {
     }
 }
 
-pub fn handle_input(event: Event, joypad: &mut Joypad) {
+pub fn handle_input(event: &Event, joypad: &mut Joypad) {
     match event {
         Event::KeyDown { keycode, .. } => {
             if let Some(keycode) = keycode {
-                match keycode {
+                match *keycode {
                 Keycode::Z => joypad.button.insert(JoypadStat::A),
                 Keycode::X => joypad.button.insert(JoypadStat::B),
                 Keycode::UP => joypad.button.insert(JoypadStat::UP),
@@ -150,7 +150,7 @@ pub fn handle_input(event: Event, joypad: &mut Joypad) {
         }
         Event::KeyUp { keycode, .. } => {
             if let Some(keycode) = keycode {
-                match keycode {
+                match *keycode {
                 Keycode::Z => joypad.button.remove(JoypadStat::A),
                 Keycode::X => joypad.button.remove(JoypadStat::B),
                 Keycode::UP => joypad.button.remove(JoypadStat::UP),

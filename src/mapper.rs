@@ -20,7 +20,7 @@ pub fn new_mapper_from_id(id: u8) -> Rc<RefCell<dyn Mapper>> {
         2 => Rc::new(RefCell::new(UxRom::default())),
         3 => Rc::new(RefCell::new(INesMapper003::default())),
 
-        _ => panic!("Mapper not implemented, game can't be loaded correctly")
+        _ => panic!("Mapper {id} not implemented, game can't be loaded correctly")
     }
 }
 

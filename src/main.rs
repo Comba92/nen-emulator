@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{env::args, path::PathBuf};
 
 use nen_emulator::{cart::Cart, cpu::Cpu, renderer::{handle_input, NesScreen, Sdl2Context, SCREEN_HEIGHT, SCREEN_WIDTH}};
 use sdl2::{event::Event, pixels::PixelFormatEnum};
@@ -15,21 +15,28 @@ fn main() {
         PixelFormatEnum::RGB24, framebuf.0.width as u32, framebuf.0.height as u32
     ).unwrap();
 
-    let rom_path = &Path::new("roms/Super Mario Bros.nes");
-    let cart = Cart::new(rom_path);
+    let filename = args().nth(1);
+    let rom_path = if let Some(filename) = filename {
+        PathBuf::from(filename)
+    } else { PathBuf::from("roms/Donkey Kong.nes") };
 
-    let mut emu = Cpu::new(cart);
+
+
+    let mut emu = Cpu::from_rom_path(&rom_path);
 
     'running: loop {
         emu.step_until_vblank();
 
         for event in sdl.events.poll_iter() {
+            handle_input(&event, &mut emu.bus.joypad);
+
             match event {
                 Event::Quit { .. } => break 'running,
+                Event::DropFile { filename, .. } => {
+                    emu = Cpu::from_rom_path(&PathBuf::from(filename))
+                }
                 _ => {}
             }
-
-            handle_input(event, &mut emu.bus.joypad);
         }
 
         framebuf.render_background(&emu.bus.ppu);
