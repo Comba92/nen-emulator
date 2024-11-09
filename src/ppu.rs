@@ -75,13 +75,16 @@ pub enum VramDst {
   Patterntbl, Nametbl, Palettes, Unused
 }
 
-pub struct Sprite<'a> {
+pub struct Tile<'a> {
   pub palette: &'a [u8],
-  pub tile: &'a [u8],
+  pub pixels: &'a [u8],
   pub x: usize,
   pub y: usize,
+  pub priority: SpritePriority,
+  pub flip_horizontal: bool,
+  pub flip_vertical: bool,
 }
-impl<'a> Sprite<'a> {
+impl<'a> Tile<'a> {
   pub fn bg_sprite_from_idx(i: usize, ppu: &'a Ppu) -> Self {
     let x = i % (SCREEN_WIDTH);
     let y = i / (SCREEN_WIDTH);
@@ -104,7 +107,14 @@ impl<'a> Sprite<'a> {
     } as usize * 4;
     let palette = &ppu.palettes[palette_id..palette_id+4];
 
-    Self {x: x*8, y: y*8, tile, palette}
+    Self {
+      x: x*8, y: y*8, 
+      pixels: tile, 
+      palette, 
+      priority: SpritePriority::Background, 
+      flip_horizontal: false,
+      flip_vertical: false
+    }
   }
 
   pub fn oam_sprite_from_idx(i: usize, ppu: &'a Ppu) -> Self {
@@ -119,13 +129,16 @@ impl<'a> Sprite<'a> {
     Self {
       x: sprite.x as usize,
       y: sprite.y as usize,
-      tile, palette, 
+      pixels: tile, palette,
+      priority: sprite.priority,
+      flip_horizontal: sprite.flip_horizontal,
+      flip_vertical: sprite.flip_vertical,
     }
   }
 }
 
-#[derive(Debug)]
-pub enum SpritePriority { Front, Behind }
+#[derive(Debug, PartialEq, Eq)]
+pub enum SpritePriority { Front, Behind, Background }
 #[derive(Debug)]
 pub struct OamEntry {
   pub y: usize,

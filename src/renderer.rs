@@ -2,7 +2,7 @@ use std::{path::Path, sync::LazyLock};
 
 use sdl2::{event::Event, keyboard::Keycode, pixels::{Color, PixelFormatEnum}, render::{Canvas, TextureCreator}, video::{Window, WindowContext}, EventPump, Sdl, VideoSubsystem};
 
-use crate::{cart::Cart, cpu::Cpu, dev::{Joypad, JoypadStat}, ppu::{Sprite, Ppu}};
+use crate::{cart::Cart, cpu::Cpu, dev::{Joypad, JoypadStat}, ppu::{Ppu, SpritePriority, Tile}};
 
 pub static SYS_PALETTES: LazyLock<[Color; 64]> = LazyLock::new(|| {
     let bytes = include_bytes!("../palettes/Composite_wiki.pal");
@@ -27,7 +27,7 @@ pub struct FrameBuffer {
     pub width: usize,
     pub height: usize,
 }
-type Tile = [[Color; 8]; 8];
+
 impl FrameBuffer {
     pub fn new(width: usize, height: usize) -> Self {
         let buffer = vec![0; width * height * 3];
@@ -46,34 +46,37 @@ impl FrameBuffer {
         self.buffer[idx + 2] = b;
     }
 
-    pub fn set_tile(&mut self, x: usize, y: usize, tile: &[u8], palette: &[u8]) {
-        let parsed_tile = tile_to_colors(tile, palette);
+    pub fn set_tile(&mut self, tile: Tile) {
         for row in 0..8 {
-            for col in 0..8 {
-                let color = parsed_tile[row][col];
-                self.set_pixel(x+col, y+row, color);
+            let plane0 = tile.pixels[row];
+            let plane1 = tile.pixels[row + 8];
+
+            let x_start: usize = match tile.flip_horizontal {
+                false => 7,
+                true => 0,
+            };
+            let y_start: usize = match tile.flip_vertical {
+                false => 0,
+                true => 7,
+            };
+
+            for bit in 0..8 {
+                let bit0 = (plane0 >> bit) & 1;
+                let bit1 = ((plane1 >> bit) & 1) << 1;
+                let color_idx = bit1 | bit0;
+
+                let x = x_start.abs_diff(bit as usize);
+                let y = y_start.abs_diff(row);
+
+                if tile.priority == SpritePriority::Background
+                || color_idx != 0 {
+                    let color_id = tile.palette[color_idx as usize] as usize;
+                    let color = SYS_PALETTES[color_id];
+                    self.set_pixel(tile.x + x, tile.y + y, color);
+                }
             }
         }
     }
-}
-
-pub fn tile_to_colors(tile: &[u8], palette: &[u8]) -> Tile {
-    let mut sprite = [[Color::BLACK; 8]; 8];
-
-    for row in 0..8 {
-        let plane0 = tile[row];
-        let plane1 = tile[row + 8];
-
-        for bit in (0..8).rev() {
-            let bit0 = (plane0 >> bit) & 1;
-            let bit1 = ((plane1 >> bit) & 1) << 1;
-            let color = bit1 | bit0;
-            let color_id = palette[color as usize] as usize;
-            sprite[row][7-bit] = SYS_PALETTES[color_id];
-        }
-    }
-
-    sprite
 }
 
 pub struct NesScreen(FrameBuffer);
@@ -84,17 +87,16 @@ impl NesScreen {
 
     pub fn render_background(&mut self, ppu: &Ppu) {
         for i in 0..32*30 {
-          let tile = Sprite::bg_sprite_from_idx(i, ppu);
-          self.0.set_tile(tile.x, tile.y, tile.tile, tile.palette);
+          let tile = Tile::bg_sprite_from_idx(i, ppu);
+          self.0.set_tile(tile);
         }
     }
 
-    // TODO: transparency, flipping
     pub fn render_sprites(&mut self, ppu: &Ppu) {
         for i in (0..256).step_by(4) {
-            let sprite = Sprite::oam_sprite_from_idx(i, ppu);
+            let sprite = Tile::oam_sprite_from_idx(i, ppu);
             if sprite.x >= SCREEN_WIDTH*8 - 8 || sprite.y >= SCREEN_HEIGHT*8 - 8 { continue; }
-            self.0.set_tile(sprite.x, sprite.y, sprite.tile, sprite.palette);
+            self.0.set_tile(sprite);
         }
     }
 }
@@ -172,7 +174,7 @@ pub fn run() {
         PixelFormatEnum::RGB24, framebuf.0.width as u32, framebuf.0.height as u32
     ).unwrap();
 
-    let rom_path = &Path::new("tests/test_roms/Donkey Kong.nes");
+    let rom_path = &Path::new("roms/Pacman.nes");
     let cart = Cart::new(rom_path);
     let mut emu = Cpu::new(cart);
 

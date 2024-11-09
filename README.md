@@ -7,8 +7,7 @@
 - Better input
 
 3. Implement PPU
-- Sprite transparency
-- Sprite flipping
+- Rendering on/off
 - Scrolling
 
 4. Mappers
