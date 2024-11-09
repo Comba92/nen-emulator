@@ -15,9 +15,8 @@ fn main() {
         PixelFormatEnum::RGB24, framebuf.0.width as u32, framebuf.0.height as u32
     ).unwrap();
 
-    let rom_path = &Path::new("roms/Pacman.nes");
+    let rom_path = &Path::new("roms/Super Mario Bros.nes");
     let cart = Cart::new(rom_path);
-    println!("{:#?}", cart.header);
 
     let mut emu = Cpu::new(cart);
 

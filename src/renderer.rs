@@ -1,6 +1,6 @@
 use std::sync::LazyLock;
 
-use sdl2::{event::Event, keyboard::Keycode, pixels::{Color, PixelFormatEnum}, render::{Canvas, TextureCreator}, video::{Window, WindowContext}, EventPump, Sdl, VideoSubsystem};
+use sdl2::{event::Event, keyboard::Keycode, pixels::Color, render::{Canvas, TextureCreator}, video::{Window, WindowContext}, EventPump, Sdl, VideoSubsystem};
 
 use crate::{dev::{Joypad, JoypadStat}, ppu::{Ppu, PpuMask, SpritePriority, Tile}};
 
@@ -76,11 +76,6 @@ impl FrameBuffer {
                 }
             }
         }
-    }
-
-
-    pub fn set_tile16(&mut self, tile: Tile) {
-
     }
 }
 

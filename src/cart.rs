@@ -1,6 +1,6 @@
 use std::{cell::RefCell, fs, path::Path, rc::Rc};
 
-use crate::mapper::{new_mapper_from_id, CartMapper, Nrom};
+use crate::mapper::{new_mapper_from_id, CartMapper, NRom};
 
 #[derive(Debug, Default, Clone)]
 pub struct CartHeader {
@@ -98,6 +98,8 @@ impl Cart {
     }
     
     let header = CartHeader::new(&rom[0..16]);
+    println!("{:#?}", header);
+
     let prg_start = HEADER_SIZE + if header.has_trainer { 512 } else { 0 };
     let chr_start = prg_start + header.prg_size as usize;
 
@@ -109,6 +111,6 @@ impl Cart {
   }
 
   pub fn empty() -> Self {
-    Cart { header: CartHeader::default(), prg_rom: Vec::new(), chr_rom: Vec::new(), mapper: Rc::new(RefCell::new(Nrom)) }
+    Cart { header: CartHeader::default(), prg_rom: Vec::new(), chr_rom: Vec::new(), mapper: Rc::new(RefCell::new(NRom)) }
   }
 }

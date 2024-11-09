@@ -181,17 +181,19 @@ pub struct Ppu {
   pub x: u8, // Fine X Scroll
   pub w: WriteLatch, // First or second write toggle
   pub data_buf: u8,
-  pub oam_addr: u8,
   
   pub ctrl: PpuCtrl,
   pub mask: PpuMask,
   pub stat: PpuStat,
   pub scroll: (u8, u8),
+  pub oam_addr: u8,
+  
   pub mapper: CartMapper,
   pub patterns: Vec<u8>,
   pub vram: [u8; 0x1000],
-  pub palettes: [u8; 0x20],
+  pub palettes: [u8; 32],
   pub oam: [u8; 256],
+  
   pub scanline: usize,
   pub cycles: usize,
   pub mirroring: NametblMirroring,
@@ -213,7 +215,7 @@ impl Ppu {
       patterns: chr_rom,
       mapper,
       vram: [0; 0x1000], 
-      palettes: [0; 0x20],
+      palettes: [0; 32],
       oam: [0; 256],
       oam_addr: 0, data_buf: 0,
       scanline: 0, cycles: 21,
@@ -232,6 +234,10 @@ impl Ppu {
 
   pub fn step(&mut self, cycles: usize) {
     self.cycles += cycles;
+
+    if self.is_spr0_hit() {
+      self.stat.insert(PpuStat::spr0_hit);
+    }
 
     if self.cycles >= 341 {
       self.cycles -= 341;
@@ -356,7 +362,7 @@ impl Ppu {
         (VramDst::Nametbl, mirrored as usize)
       }
       0x3F00..0x3FFF => {
-        let palette = (addr - 0x3F00) % 0x20;
+        let palette = (addr - 0x3F00) % 32;
         (VramDst::Palettes, palette as usize)
       }
       _ => (VramDst::Unused, 0), 
@@ -393,7 +399,7 @@ impl Ppu {
     let (dst, addr) = self.map(self.v);
     match dst {
       VramDst::Patterntbl => self.mapper.as_ref().borrow_mut()
-        .write_chr(&self.patterns, addr, val),
+        .write_chr(addr, val),
       VramDst::Nametbl => self.vram[addr] = val,
       VramDst::Palettes => self.palettes[addr] = val,
       VramDst::Unused => {}

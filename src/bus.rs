@@ -1,4 +1,4 @@
-use log::{info, error};
+use log::info;
 
 use crate::{cart::{Cart, CartHeader}, dev::Joypad, mapper::CartMapper, mem::Memory, ppu::Ppu};
 
@@ -51,7 +51,7 @@ impl Memory for Bus {
       BusDst::Joypad1 => self.joypad.write(val),
       BusDst::Joypad2 => {} // TODO
       BusDst::SRam => self.sram[addr] = val,
-      BusDst::Prg => self.mapper.borrow_mut().write_prg(&self.prg, addr, val),
+      BusDst::Prg => self.mapper.borrow_mut().write_prg(addr, val),
       BusDst::NoImpl => info!("Write to {addr:04X} not implemented")
     }
   }
