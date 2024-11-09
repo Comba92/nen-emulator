@@ -112,15 +112,6 @@ impl Cpu {
     self.p.contains(CpuFlags::carry).into()
   }
 
-  pub fn wrapping_read16(&mut self, addr: u16) -> u16 {
-    if addr & 0x00FF == 0x00FF {
-      let page = addr & 0xFF00;
-      let low = self.read(page | 0xFF);
-      let high = self.read(page | 0x00);
-      u16::from_le_bytes([low, high])
-    } else { self.read16(addr) }
-  }
-
   pub fn pc_fetch(&mut self) -> u8 {
     let res = self.read(self.pc);
     self.pc = self.pc.wrapping_add(1);

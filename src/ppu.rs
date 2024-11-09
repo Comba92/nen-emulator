@@ -1,8 +1,8 @@
 use std::fmt;
 
-use crate::{cart::{Cart, NametblMirroring}, renderer::SCREEN_WIDTH};
+use crate::{cart::NametblMirroring, mapper::CartMapper, renderer::SCREEN_WIDTH};
 use bitflags::bitflags;
-use log::{error, info, warn};
+use log::{info, warn};
 
 bitflags! {
   #[derive(Debug)]
@@ -34,7 +34,7 @@ bitflags! {
   pub struct PpuStat: u8 {
     const open_bus     = 0b0001_1111;
     const spr_overflow = 0b0010_0000;
-    const spr_0hit     = 0b0100_0000;
+    const spr0_hit     = 0b0100_0000;
     const vblank       = 0b1000_0000;
   }
 }
@@ -64,7 +64,12 @@ impl PpuCtrl {
     }
   }
 }
-
+impl PpuMask {
+  pub fn is_render_on(&self) -> bool {
+    self.contains(PpuMask::bg_render_on) &&
+    self.contains(PpuMask::spr_render_on)
+  }
+}
 
 #[derive(Debug)]
 pub enum WriteLatch {
@@ -181,7 +186,9 @@ pub struct Ppu {
   pub ctrl: PpuCtrl,
   pub mask: PpuMask,
   pub stat: PpuStat,
-  pub patterns: [u8; 0x2000],
+  pub scroll: (u8, u8),
+  pub mapper: CartMapper,
+  pub patterns: Vec<u8>,
   pub vram: [u8; 0x1000],
   pub palettes: [u8; 0x20],
   pub oam: [u8; 256],
@@ -200,10 +207,11 @@ impl fmt::Debug for Ppu {
 }
 
 impl Ppu {
-  pub fn new(cart: &Cart) -> Self {
-    let mut ppu = Self {
+  pub fn new(chr_rom: Vec<u8>, mapper: CartMapper, mirroring: NametblMirroring) -> Self {
+    let ppu = Self {
       v: 0, t: 0, x: 0, w: WriteLatch::FirstWrite, 
-      patterns: [0; 0x2000],
+      patterns: chr_rom,
+      mapper,
       vram: [0; 0x1000], 
       palettes: [0; 0x20],
       oam: [0; 256],
@@ -212,14 +220,13 @@ impl Ppu {
       ctrl: PpuCtrl::empty(),
       mask: PpuMask::empty(),
       stat: PpuStat::empty(),
-      mirroring: cart.header.nametbl_mirroring,
+      scroll: (0, 0),
+      mirroring,
 
       nmi_requested: false,
       vblank_started: false,
     };
 
-    let (left, _) = ppu.patterns.split_at_mut(cart.chr_rom.len());
-    left.copy_from_slice(&cart.chr_rom);
     ppu
   }
 
@@ -237,6 +244,7 @@ impl Ppu {
         info!("VBLANK!!");
         self.vblank_started = true;
         self.stat.insert(PpuStat::vblank);
+        self.stat.remove(PpuStat::spr0_hit);
 
         if self.ctrl.contains(PpuCtrl::vblank_nmi_on) {
           self.nmi_requested = true;
@@ -251,6 +259,15 @@ impl Ppu {
         self.cycles = 0;
       }
     }
+  }
+
+  pub fn is_spr0_hit(&self) -> bool {
+    let spr0_y = self.oam[0] as usize;
+    let spr0_x = self.oam[3] as usize;
+
+    spr0_y == self.scanline &&
+    spr0_x <= self.cycles &&
+    self.mask.contains(PpuMask::spr_render_on)
   }
   
   pub fn reg_read(&mut self, addr: u16) -> u8 {
@@ -272,7 +289,7 @@ impl Ppu {
       0x2000 => {
         let was_nmi_off = !self.ctrl.contains(PpuCtrl::vblank_nmi_on);
         self.ctrl = PpuCtrl::from_bits_retain(val);
-        self.t = self.t | ((self.ctrl.bits() as u16) << 11);
+        self.t = self.t | (((val & 0b11) as u16) << 11);
         if was_nmi_off 
         && self.ctrl.contains(PpuCtrl::vblank_nmi_on) 
         && self.stat.contains(PpuStat::vblank) {
@@ -291,6 +308,7 @@ impl Ppu {
             self.t = self.t | (val & 0b1111_1000) as u16;
             self.x = val & 0b0000_0111;
             
+            self.scroll.0 = val;
             self.w = WriteLatch::SecondWrite;
           }
           WriteLatch::SecondWrite => {
@@ -299,6 +317,7 @@ impl Ppu {
             let res = ((low as u16) << 13) | ((high as u16) << 6);
             self.t = self.t | res;
 
+            self.scroll.1 = val;
             self.w = WriteLatch::FirstWrite;
           }
         }
@@ -351,7 +370,8 @@ impl Ppu {
   pub fn vram_peek(&self, addr: u16) -> u8 {
     let (dst, addr) = self.map(addr);
     match dst {
-      VramDst::Patterntbl => self.patterns[addr],
+      VramDst::Patterntbl => self.mapper.as_ref().borrow()
+        .read_chr(&self.patterns, addr),
       VramDst::Nametbl => self.vram[addr],
       VramDst::Palettes => self.palettes[addr],
       VramDst::Unused => 0,
@@ -372,7 +392,8 @@ impl Ppu {
 
     let (dst, addr) = self.map(self.v);
     match dst {
-      VramDst::Patterntbl => error!("Illegal write to CHR_ROM"),
+      VramDst::Patterntbl => self.mapper.as_ref().borrow_mut()
+        .write_chr(&self.patterns, addr, val),
       VramDst::Nametbl => self.vram[addr] = val,
       VramDst::Palettes => self.palettes[addr] = val,
       VramDst::Unused => {}

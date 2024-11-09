@@ -8,6 +8,15 @@ pub trait Memory {
     u16::from_le_bytes([low, high])
   }
 
+  fn wrapping_read16(&mut self, addr: u16) -> u16 {
+    if addr & 0x00FF == 0x00FF {
+      let page = addr & 0xFF00;
+      let low = self.read(page | 0xFF);
+      let high = self.read(page | 0x00);
+      u16::from_le_bytes([low, high])
+    } else { self.read16(addr) }
+  }
+
   fn write16(&mut self, addr: u16, val: u16) {
     let [low, high] = val.to_le_bytes();
     self.write(addr, low);

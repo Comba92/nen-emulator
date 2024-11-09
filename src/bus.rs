@@ -1,6 +1,6 @@
 use log::{info, error};
 
-use crate::{cart::Cart, dev::Joypad, mem::Memory, ppu::Ppu};
+use crate::{cart::{Cart, CartHeader}, dev::Joypad, mapper::CartMapper, mem::Memory, ppu::Ppu};
 
 #[derive(Debug)]
 pub enum BusDst {
@@ -10,8 +10,9 @@ pub enum BusDst {
 pub struct Bus {
   pub ram: [u8; 0x800],
   pub sram: [u8; 0x2000],
-  pub rom: [u8; 0x8000],
-  pub cart: Cart,
+  pub prg: Vec<u8>,
+  pub cart: CartHeader,
+  pub mapper: CartMapper,
   pub ppu: Ppu,
   pub joypad: Joypad,
 }
@@ -24,7 +25,7 @@ impl Memory for Bus {
       BusDst::Ppu => self.ppu.reg_read(addr as u16),
       BusDst::Joypad1 => self.joypad.read(),
       BusDst::SRam => self.sram[addr],
-      BusDst::Prg => self.rom[addr],
+      BusDst::Prg => self.mapper.borrow().read_prg(&self.prg, addr),
       _ => { info!("Read to {addr:04X} not implemented"); 0 }
     }
   }
@@ -50,7 +51,7 @@ impl Memory for Bus {
       BusDst::Joypad1 => self.joypad.write(val),
       BusDst::Joypad2 => {} // TODO
       BusDst::SRam => self.sram[addr] = val,
-      BusDst::Prg => error!("Illegal write to PRG_ROM at {addr:04X}"),
+      BusDst::Prg => self.mapper.borrow_mut().write_prg(&self.prg, addr, val),
       BusDst::NoImpl => info!("Write to {addr:04X} not implemented")
     }
   }
@@ -58,16 +59,21 @@ impl Memory for Bus {
 
 impl Bus {
   pub fn new(cart: Cart) -> Self {
-    let mut bus = Self {
+    let ppu = Ppu::new(
+      cart.chr_rom,
+      cart.mapper.clone(),
+      cart.header.nametbl_mirroring
+    );
+     
+    let bus = Self {
       ram: [0; 0x800], 
       sram: [0; 0x2000],
-      rom: [0; 0x8000], 
-      ppu: Ppu::new(&cart),
+      ppu, 
+      cart: cart.header,
+      prg: cart.prg_rom,
+      mapper: cart.mapper,
       joypad: Joypad::new(),
-      cart,
     };
-    bus.write_data(0x8000,&bus.cart.prg_rom.clone());
-    bus.write_data(0xC000,&bus.cart.prg_rom.clone());
 
     bus
   }
@@ -107,74 +113,6 @@ impl Bus {
       0x8000..=0xFFFF => (BusDst::Prg, addr as usize - 0x8000),
       _ => (BusDst::NoImpl, addr as usize)
     }
-  }
-
-  // pub fn __read(&mut self, addr: u16) -> u8 {
-  //   self.mem[addr as usize]  
-  // }
-
-  // pub fn __write(&mut self, addr: u16, val: u8) {
-  //   self.mem[addr as usize] = val;
-  // }
-
-  // pub fn read(&mut self, addr: u16) -> u8 {
-  //   trace!("READ {:?}: {:04X} -> {:04X}", self.map(addr).0, addr, self.map(addr).1);
-  
-  //   if (0..=0x1FFF).contains(&addr) {
-  //     let ram_addr = addr & 0x07FF;
-  //     self.mem[ram_addr as usize]
-  //   } else if (0x2000..=0x3FFF).contains(&addr) {
-  //     info!("READ {:?}: {:04X} -> {:04X}", self.map(addr).0, addr, self.map(addr).1);
-  //     let ppu_addr = addr & 0x2007;
-  //     self.ppu.reg_read(ppu_addr)
-  //   } else if (0x6000..=0x7FFF).contains(&addr) {
-  //     self.mem[addr as usize]
-  //   } else if (0x8000..=0xFFFF).contains(&addr) {
-  //     self.mem[addr as usize]
-  //   } else { debug!("Unimplemented memory read at {addr:04X}"); 0 }
-  // }
-
-  // pub fn read16(&mut self, addr: u16) -> u16 {
-  //   let low = self.read(addr);
-  //   let high = self.read(addr.wrapping_add(1));
-  //   u16::from_le_bytes([low, high])
-  // }
-
-  // pub fn write(&mut self, addr: u16, val: u8) {
-  //   trace!("WRITE {:?}: {:04X} -> {:04X}", self.map(addr).0, addr, self.map(addr).1);
-  //   if (0..=0x1FFF).contains(&addr) {
-  //     let ram_addr = addr & 0x07FF;
-  //     self.mem[ram_addr as usize] =  val;
-  //   } else if (0x2000..=0x3FFF).contains(&addr) {
-  //     let ppu_addr = addr & 0x2007;
-  //     self.ppu.reg_write(ppu_addr, val);
-  //   } else if addr == 0x4104 {
-  //     info!("PPU_OAM_DMA WRITE {addr:04X} = {val:02X}");
-  //     let start = (val as u16) << 8;
-  //     for i in 0..256 {
-  //       self.ppu.oam[i] = self.read(start + i as u16);
-  //     }
-  //   } else if (0x6000..=0x7FFF).contains(&addr) {
-  //     self.mem[addr as usize] = val;
-  //   } else if (0x8000..=0xFFFF).contains(&addr) {
-  //     warn!("Can't write to PRG")
-  //     // self.mem[addr as usize] = val;
-  //   }
-  //   else { debug!("Unimplemented memory write at {addr:04X}"); self.mem[addr as usize] = val; }
-  // }
-
-  // pub fn write16(&mut self, addr: u16, val: u16) {
-  //   let [low, high] = val.to_le_bytes();
-  //   self.write(addr, low);
-  //   self.write(addr.wrapping_add(1), high);
-  // }
-
-  pub fn write_data(&mut self, start: u16, data: &[u8]) {
-    // for (i , byte) in data.iter().enumerate() {
-    //   self.write(start + i as u16, *byte);
-    // }
-    let (left, _) = self.rom[(start - 0x8000) as usize..].split_at_mut(data.len());
-    left.copy_from_slice(data);
   }
 }
 
@@ -232,7 +170,7 @@ use super::*;
     let mut bus = Bus::new(Cart::new(&Path::new("./tests/nestest.nes")));
     
     let mut empty_bytes = 0;
-    for i in 0x8000..0x8000+bus.cart.prg_rom.len() {
+    for i in 0x8000..0x8000+bus.cart.prg_size {
       empty_bytes += if bus.read(i as u16) != 0 { 1 } else { 0 }
     }
     assert_ne!(0, empty_bytes, "PRG ROM is empty")

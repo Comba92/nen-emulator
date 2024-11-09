@@ -7,7 +7,9 @@
 - Better input
 
 3. Implement PPU
+- 16x16 tiles
 - Rendering on/off
+- Sprite priority
 - Scrolling
 
 4. Mappers
@@ -37,7 +39,12 @@ Correct XAA
 - https://bugzmanov.github.io/nes_ebook/chapter_6.html
 - https://austinmorlan.com/posts/nes_rendering_overview/
 - https://leeteng.com/blog/content/writing-nes-emulator
+- https://emudev.de/nes-emulator/palettes-attribute-tables-and-sprites/
+- https://www.youtube.com/watch?v=-THeUXqR3zY&list=PLrOv9FMX8xJHqMvSGB_9G9nZZ_4IgteYf&index=5&pp=iAQB
 
+## Mappers
+- https://mapper.nes.science/
+- https://bumbershootsoft.wordpress.com/2022/10/22/nes-beyond-40kb/
 
 ### Tests
 - https://www.nesdev.org/wiki/Emulator_tests

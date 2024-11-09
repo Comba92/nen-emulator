@@ -1,8 +1,8 @@
-use std::{path::Path, sync::LazyLock};
+use std::sync::LazyLock;
 
 use sdl2::{event::Event, keyboard::Keycode, pixels::{Color, PixelFormatEnum}, render::{Canvas, TextureCreator}, video::{Window, WindowContext}, EventPump, Sdl, VideoSubsystem};
 
-use crate::{cart::Cart, cpu::Cpu, dev::{Joypad, JoypadStat}, ppu::{Ppu, SpritePriority, Tile}};
+use crate::{dev::{Joypad, JoypadStat}, ppu::{Ppu, PpuMask, SpritePriority, Tile}};
 
 pub static SYS_PALETTES: LazyLock<[Color; 64]> = LazyLock::new(|| {
     let bytes = include_bytes!("../palettes/Composite_wiki.pal");
@@ -77,15 +77,23 @@ impl FrameBuffer {
             }
         }
     }
+
+
+    pub fn set_tile16(&mut self, tile: Tile) {
+
+    }
 }
 
-pub struct NesScreen(FrameBuffer);
+pub struct NesScreen(pub FrameBuffer);
 impl NesScreen {
     pub fn new() -> Self {
         NesScreen(FrameBuffer::new(SCREEN_WIDTH*8, SCREEN_HEIGHT*8))
     }
 
     pub fn render_background(&mut self, ppu: &Ppu) {
+        // TODO: if rendering is off, draw only backdrop
+        if !ppu.mask.contains(PpuMask::bg_render_on) { return; }
+        
         for i in 0..32*30 {
           let tile = Tile::bg_sprite_from_idx(i, ppu);
           self.0.set_tile(tile);
@@ -93,7 +101,9 @@ impl NesScreen {
     }
 
     pub fn render_sprites(&mut self, ppu: &Ppu) {
-        for i in (0..256).step_by(4) {
+        if !ppu.mask.contains(PpuMask::spr_render_on) { return; }
+
+        for i in (0..256).step_by(4).rev() {
             let sprite = Tile::oam_sprite_from_idx(i, ppu);
             if sprite.x >= SCREEN_WIDTH*8 - 8 || sprite.y >= SCREEN_HEIGHT*8 - 8 { continue; }
             self.0.set_tile(sprite);
@@ -159,42 +169,5 @@ pub fn handle_input(event: Event, joypad: &mut Joypad) {
             }
         }
         _ => {}
-    }
-}
-
-pub fn run() {
-    const SCALE: f32 = 4.0;
-    const WINDOW_WIDTH:  u32  = (SCALE * SCREEN_WIDTH  as f32* 8.0) as u32;
-    const WINDOW_HEIGHT: u32  = (SCALE * SCREEN_HEIGHT as f32* 8.0) as u32;
-
-    let mut sdl = Sdl2Context::new("NenEmulator", WINDOW_WIDTH, WINDOW_HEIGHT);
-    
-    let mut framebuf = NesScreen::new();
-    let mut texture = sdl.texture_creator.create_texture_target(
-        PixelFormatEnum::RGB24, framebuf.0.width as u32, framebuf.0.height as u32
-    ).unwrap();
-
-    let rom_path = &Path::new("roms/Pacman.nes");
-    let cart = Cart::new(rom_path);
-    let mut emu = Cpu::new(cart);
-
-    'running: loop {
-        emu.step_until_vblank();
-
-        for event in sdl.events.poll_iter() {
-            match event {
-                Event::Quit { .. } => break 'running,
-                _ => {}
-            }
-
-            handle_input(event, &mut emu.bus.joypad);
-        }
-
-        framebuf.render_background(&emu.bus.ppu);
-        framebuf.render_sprites(&emu.bus.ppu);
-
-        texture.update(None, &framebuf.0.buffer, framebuf.0.pitch()).unwrap();
-        sdl.canvas.copy(&texture, None, None).unwrap();
-        sdl.canvas.present();
     }
 }
