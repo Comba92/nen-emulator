@@ -53,7 +53,7 @@ impl CartHeader {
     let has_battery_prg = rom[6] & 0b0000_0010 != 0;
     let has_trainer = rom[6] & 0b0000_0100 != 0;
 
-    let mapper_low = rom[6] & 0b1111_0000 >> 4;
+    let mapper_low = rom[6] >> 4;
     let mapper_high = rom[7] & 0b1111_0000;
     let mapper = mapper_high | mapper_low;
 
@@ -99,6 +99,9 @@ impl Cart {
     
     let header = CartHeader::new(&rom[0..16]);
     println!("{:#?}", header);
+    if header.is_nes_v2 {
+      panic!("Nes 2.0 formato not supported");
+    }
 
     let prg_start = HEADER_SIZE + if header.has_trainer { 512 } else { 0 };
     let chr_start = prg_start + header.prg_size as usize;

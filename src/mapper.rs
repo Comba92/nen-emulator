@@ -3,7 +3,8 @@ use std::{cell::RefCell, rc::Rc};
 pub type CartMapper = Rc<RefCell<dyn Mapper>>;
 pub trait Mapper {
     fn read_prg(&self, prg: &[u8], addr: usize) -> u8 {
-        prg[addr]
+        if prg.len() == PRG_BANK_SIZE { prg[addr % (PRG_BANK_SIZE)] }
+        else { prg[addr] }
     }
     fn write_prg(&mut self, _addr: usize, _val: u8) {}
 
@@ -21,6 +22,15 @@ pub fn new_mapper_from_id(id: u8) -> Rc<RefCell<dyn Mapper>> {
         3 => Rc::new(RefCell::new(INesMapper003::default())),
 
         _ => panic!("Mapper {id} not implemented, game can't be loaded correctly")
+    }
+}
+
+pub enum PrgBank { First, Second }
+pub fn map_prg(addr: usize) -> PrgBank {
+    match addr {
+        0..0x4000      => PrgBank::First,
+        0x4000..0x8000 => PrgBank::Second,
+        _ => unreachable!()
     }
 }
 
@@ -69,7 +79,7 @@ impl Mapper for INesMapper003 {
         chr[self.chr_bank + addr]
     }
 
-    fn write_chr(&mut self, _addr: usize, val: u8) {
+    fn write_prg(&mut self, _addr: usize, val: u8) {
         self.chr_bank = val as usize * CHR_BANK_SIZE;
     }
 }

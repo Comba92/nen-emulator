@@ -38,7 +38,8 @@ impl FrameBuffer {
         self.width * 3
     }
 
-    pub fn set_pixel(&mut self, x: usize, y: usize, color: Color) {
+    pub fn set_pixel(&mut self, x: usize, y: usize, color_id: u8) {
+        let color = SYS_PALETTES[color_id as usize];
         let (r, g, b) = color.rgb();
         let idx = (y*self.width + x) * 3;
         self.buffer[idx + 0] = r;
@@ -70,9 +71,8 @@ impl FrameBuffer {
 
                 if tile.priority == SpritePriority::Background
                 || color_idx != 0 {
-                    let color_id = tile.palette[color_idx as usize] as usize;
-                    let color = SYS_PALETTES[color_id];
-                    self.set_pixel(tile.x + x, tile.y + y, color);
+                    let color_id = tile.palette[color_idx as usize];
+                    self.set_pixel(tile.x + x, tile.y + y, color_id);
                 }
             }
         }
@@ -118,9 +118,11 @@ impl Sdl2Context {
     pub fn new(name: &str, width: u32, height: u32) -> Self {
         let ctx = sdl2::init().expect("Couldn't initialize SDL2");
         let video= ctx.video().expect("Couldn't initialize video subsystem");
-        let canvas = video.window(name, width, height)
+        let window = video.window(name, width, height)
             .position_centered()
-            .build().expect("Couldn't initialize window")
+            .resizable()
+            .build().expect("Couldn't initialize window");
+        let canvas = window
             .into_canvas()
             .accelerated().present_vsync()
             .build().expect("Couldn't initialize drawing canvas");

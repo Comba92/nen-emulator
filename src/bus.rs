@@ -79,18 +79,14 @@ impl Bus {
   }
 
   pub fn step(&mut self, cycles: usize) {
-    self.ppu.step(cycles * 3);
+    for _ in 0..cycles*3 { self.ppu.step(); }
   }
   
   pub fn peek_vblank(&mut self) -> bool {
-    let vblank = self.ppu.vblank_started;
-    self.ppu.vblank_started = false;
-    vblank
+    self.ppu.vblank_started.take().is_some()
   }
   pub fn poll_nmi(&mut self) -> bool {
-    let nmi = self.ppu.nmi_requested;
-    self.ppu.nmi_requested = false;
-    nmi
+    self.ppu.nmi_requested.take().is_some()
   }
   pub fn poll_irq(&mut self) -> bool { false }
 

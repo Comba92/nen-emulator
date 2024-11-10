@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::{cart::NametblMirroring, mapper::CartMapper, renderer::SCREEN_WIDTH};
+use crate::{cart::NametblMirroring, mapper::CartMapper, renderer::{NesScreen, SCREEN_WIDTH}};
 use bitflags::bitflags;
 use log::{info, warn};
 
@@ -37,6 +37,15 @@ bitflags! {
     const spr0_hit     = 0b0100_0000;
     const vblank       = 0b1000_0000;
   }
+
+  #[derive(Debug)]
+  pub struct PpuRender: u16 {
+    const coarse_x  = 0b0_000_00_00000_11111;
+    const coarse_y  = 0b0_000_00_11111_00000;
+    const nametbl_x = 0b0_000_01_00000_00000;
+    const nametbl_y = 0b0_000_10_00000_00000;
+    const fine_y    = 0b0_111_00_00000_00000;
+  }
 }
 
 impl PpuCtrl {
@@ -64,10 +73,28 @@ impl PpuCtrl {
     }
   }
 }
-impl PpuMask {
-  pub fn is_render_on(&self) -> bool {
-    self.contains(PpuMask::bg_render_on) &&
-    self.contains(PpuMask::spr_render_on)
+
+#[derive(Default)]
+pub struct RenderData {
+  pub tile_id: u8,
+  pub palette_id: u8,
+  pub tile_plane0: u8,
+  pub tile_plane1: u8
+}
+
+#[derive(Default)]
+pub struct ShiftersRegs {
+  plane0: u16,
+  plane1: u16,
+  palette_low: u16,
+  palette_high: u16,
+}
+impl ShiftersRegs {
+  pub fn update(&mut self) {
+    self.plane0 <<= 1;
+    self.plane1 <<= 1;
+    self.palette_low <<= 1;
+    self.palette_high <<= 1;
   }
 }
 
@@ -176,11 +203,17 @@ impl OamEntry {
 }
 
 pub struct Ppu {
+  pub screen: NesScreen,
+
+  pub render_data: RenderData,
+  pub shifters: ShiftersRegs,
+
   pub v: u16, // current vram address
   pub t: u16, // temporary vram address / topleft onscreen tile
   pub x: u8, // Fine X Scroll
   pub w: WriteLatch, // First or second write toggle
   pub data_buf: u8,
+  pub in_odd_frame: bool,
   
   pub ctrl: PpuCtrl,
   pub mask: PpuMask,
@@ -198,8 +231,8 @@ pub struct Ppu {
   pub cycles: usize,
   pub mirroring: NametblMirroring,
 
-  pub nmi_requested: bool,
-  pub vblank_started: bool,
+  pub nmi_requested: Option<()>,
+  pub vblank_started: Option<()>,
 }
 
 impl fmt::Debug for Ppu {
@@ -211,6 +244,9 @@ impl fmt::Debug for Ppu {
 impl Ppu {
   pub fn new(chr_rom: Vec<u8>, mapper: CartMapper, mirroring: NametblMirroring) -> Self {
     let ppu = Self {
+      screen: NesScreen::new(),
+      render_data: RenderData::default(),
+      shifters: ShiftersRegs::default(),
       v: 0, t: 0, x: 0, w: WriteLatch::FirstWrite, 
       patterns: chr_rom,
       mapper,
@@ -218,6 +254,7 @@ impl Ppu {
       palettes: [0; 32],
       oam: [0; 256],
       oam_addr: 0, data_buf: 0,
+      in_odd_frame: false,
       scanline: 0, cycles: 21,
       ctrl: PpuCtrl::empty(),
       mask: PpuMask::empty(),
@@ -225,22 +262,22 @@ impl Ppu {
       scroll: (0, 0),
       mirroring,
 
-      nmi_requested: false,
-      vblank_started: false,
+      nmi_requested: None,
+      vblank_started: None,
     };
 
     ppu
   }
 
-  pub fn step(&mut self, cycles: usize) {
-    self.cycles += cycles;
+  pub fn step(&mut self) {
+    self.cycles += 1;
 
     if self.is_spr0_hit() {
       self.stat.insert(PpuStat::spr0_hit);
     }
 
-    if self.cycles >= 341 {
-      self.cycles -= 341;
+    if self.cycles == 341 {
+      self.cycles = 0;
       self.scanline += 1;
 
       // Post-render scanline (240)
@@ -248,22 +285,165 @@ impl Ppu {
       // Vertical blanking lines (241-260)
       if self.scanline == 241 {
         info!("VBLANK!!");
-        self.vblank_started = true;
+        self.vblank_started = Some(());
         self.stat.insert(PpuStat::vblank);
         self.stat.remove(PpuStat::spr0_hit);
 
         if self.ctrl.contains(PpuCtrl::vblank_nmi_on) {
-          self.nmi_requested = true;
+          self.nmi_requested = Some(());
         }
 
       // Pre-render scanline (261)
-      } else if self.scanline > 260 {
+      } else if self.scanline == 261 {
         self.stat = PpuStat::empty();
         self.oam_addr = 0;
-        self.nmi_requested = false;
         self.scanline = 0;
         self.cycles = 0;
       }
+    }
+  }
+
+  // TODO: factor these out to PpuRender
+  // https://www.nesdev.org/wiki/PPU_scrolling#Wrapping_around
+  pub fn increase_coarse_x(&mut self) {
+    if self.v & 0x001F == 31 {
+      self.v &= !0x001F;
+      self.v ^= 0x0400;
+    } else { self.v += 1; }
+  }
+
+  // https://www.nesdev.org/wiki/PPU_scrolling#Wrapping_around
+  pub fn increase_coarse_y(&mut self) {
+    if self.v & 0x7000 != 0x7000 {
+      self.v += 0x1000;
+    } else {
+      self.v &= !0x7000;
+      let mut y = (self.v & 0x03E0) >> 5;
+      if y == 29 {
+        y = 0;
+        self.v ^= 0x0800;
+      } else if y == 31 {
+        y = 0;
+      } else { y += 1; }
+
+      self.v = (self.v & !0x03E0) | (y << 5);
+    }
+  }
+
+  pub fn reset_render_x(&mut self) {
+    self.v = self.t & 0b11111 | self.v & !0b11111;
+    self.v = self.t & 0b1_00000_00000 | self.v & !0b1_00000_00000
+  }
+
+  pub fn reset_render_y(&mut self) {
+    self.v = self.t & 0b11111_00000 | self.v & !0b11111_00000;
+    self.v = self.t & 0b10_00000_00000 | self.v & !0b10_00000_00000;
+    self.v = self.t & 0b111_00_00000_00000 | self.v & !0b111_00_00000_00000;
+  }
+
+  pub fn step_accurate(&mut self) {
+    if !self.is_rendering_on() {
+      // shouldn't be rendering, only counting cycles
+    }
+
+
+    if self.is_spr0_hit() {
+      self.stat.insert(PpuStat::spr0_hit);
+    }
+
+    match (self.cycles, self.scanline) {
+      // Visible scanlines, first 2 tiles of next scaline, first two tiles on pre-render
+      (1..=255 | 321..=336, 0..=239) | (321..=336, 261) => {
+        self.shifters.update();
+
+        // https://www.nesdev.org/wiki/PPU_scrolling#Tile_and_attribute_fetching
+        match (self.cycles-1) % 8 {
+          0 => {
+            // Load shifters with rendering data
+            self.shifters.plane0 |= self.render_data.tile_plane0 as u16;
+            self.shifters.plane1 |= self.render_data.tile_plane1 as u16;
+            self.shifters.palette_low |= (self.render_data.palette_id & 0b01) as u16;
+            self.shifters.palette_high |= (self.render_data.palette_id & 0b10) as u16;
+
+            let nametable_id_addr = 0x2000 | (self.v & 0x0FFF);
+            self.render_data.tile_id = self.vram_peek(nametable_id_addr);
+          }
+          2 => {
+            let attribute_addr = 0x23C0 | 
+              (self.v & 0x0C00) | 
+              ((self.v >> 4) & 0x38) | 
+              ((self.v >> 2) & 0x07);
+            let mut attribute = self.vram_peek(attribute_addr);
+            if self.v & 0b00010_00000 != 0 { attribute >>= 4; }
+            if self.v & 0b00010 != 0 { attribute >>= 2; }
+
+            self.render_data.palette_id = attribute;
+          }
+          4 => {
+            let tile_addr_low = self.ctrl.spr_ptrntbl_addr() + self.render_data.tile_id as u16 + (self.v & 0b_111_00_00000_00000);
+            self.render_data.tile_plane0 = self.vram_peek(tile_addr_low);
+          }
+          6 => {
+            let tile_addr_high = self.ctrl.spr_ptrntbl_addr() + 8 + self.render_data.tile_id as u16 + (self.v & 0b_111_00_00000_00000);
+            self.render_data.tile_plane1 = self.vram_peek(tile_addr_high);
+          }
+          7 => {
+            self.increase_coarse_x();
+          }
+          _ => {}
+        }
+      }
+
+      // Scanline end
+      (256, 0..=239) => self.increase_coarse_y(),
+      (257, 0..=239) => self.reset_render_x(),
+
+      // Dummy nametable reads at end of each scanline
+      (337 | 339, 0..=239 | 261) => {
+        let nametable_id_addr = 0x2000 | (self.v & 0x0FFF);
+        self.render_data.tile_id = self.vram_peek(nametable_id_addr);
+      }
+
+      (1, 241) => {
+        info!("VBLANK!!");
+        self.vblank_started = Some(());
+
+        self.stat.insert(PpuStat::vblank);
+        self.stat.remove(PpuStat::spr0_hit);
+
+        if self.ctrl.contains(PpuCtrl::vblank_nmi_on) {
+          self.nmi_requested = Some(());
+        }
+      }
+      // Pre-render scanline
+      (1, 261) => self.stat = PpuStat::empty(),
+      (280..=304, 261) => self.reset_render_y(),
+      (340, 261) => {
+        // if frame is odd, jump from (339, 261) to (0,0)
+        self.cycles = 0;
+        self.scanline = 0;
+
+        self.in_odd_frame = !self.in_odd_frame;
+      }
+      _ => {}
+    }
+
+    if self.cycles < 256 && self.scanline < 240 {
+      let plane0bit = (self.shifters.plane0 >> (15 - self.x)) & 1;
+      let plane1bit = (self.shifters.plane1 >> (15 - self.x)) & 1;
+      let pixel = (plane1bit << 1) | plane0bit;
+      let palette0bit = (self.shifters.palette_low >> (15 - self.x)) & 1;
+      let palette1bit = (self.shifters.palette_high >> (15 - self.x)) & 1;
+      let palette_id = (palette1bit << 1) | palette0bit;
+      let color = self.palettes[((palette_id << 2) + pixel) as usize];
+
+      self.screen.0.set_pixel(self.cycles, self.scanline, color);
+    }
+
+    self.cycles += 1;
+    if self.cycles == 341 {
+      self.cycles = 0;
+      self.scanline += 1;
     }
   }
 
@@ -273,6 +453,11 @@ impl Ppu {
 
     spr0_y == self.scanline &&
     spr0_x <= self.cycles &&
+    self.mask.contains(PpuMask::spr_render_on)
+  }
+
+  pub fn is_rendering_on(&self) -> bool {
+    self.mask.contains(PpuMask::bg_render_on) &&
     self.mask.contains(PpuMask::spr_render_on)
   }
   
@@ -299,7 +484,7 @@ impl Ppu {
         if was_nmi_off 
         && self.ctrl.contains(PpuCtrl::vblank_nmi_on) 
         && self.stat.contains(PpuStat::vblank) {
-          self.nmi_requested = true;
+          self.nmi_requested = Some(());
         }
       }
       0x2001 => self.mask = PpuMask::from_bits_retain(val),
