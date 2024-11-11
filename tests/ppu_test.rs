@@ -189,7 +189,7 @@ mod ppu_test {
       
       let mut sdl = Sdl2Context::new("Background", (8.0*RENDER_WIDTH*SCALE) as u32, (8.0*RENDER_HEIGHT*SCALE) as u32);
       // let rom_path = &Path::new("tests/nestest/nestest.nes");
-      let rom_path = &Path::new("roms/Donkey Kong.nes");
+      let rom_path = &Path::new("roms/Super Mario Bros.nes");
       let cart = Cart::new(rom_path);
       let mut emu = Cpu::new(cart);
       
@@ -198,9 +198,7 @@ mod ppu_test {
       .unwrap();
 
       'running: loop {
-        for _ in 0..100 {
-          emu.step();
-        }
+        emu.step_until_vblank();
 
         for event in sdl.events.poll_iter() {
           match event {

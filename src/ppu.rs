@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::{cart::NametblMirroring, mapper::CartMapper, renderer::NesScreen};
+use crate::{cart::NametblMirroring, mapper::CartMapper, renderer::NesScreen, tile::Tile};
 use bitfield_struct::bitfield;
 use bitflags::bitflags;
 use log::{info, warn};
@@ -85,13 +85,13 @@ pub struct LoopyReg {
 }
 impl LoopyReg {
   pub fn nametbl(&self) -> u8 {
-    self.nametbl_y() << 1 | self.nametbl_x()
+    (self.nametbl_y() << 1) | self.nametbl_x()
   }
 
   pub fn nametbl_idx(&self) -> u16 {
-    ((self.nametbl() as u16) << 11) | 
-    ((self.coarse_y() as u16) << 6) | 
-    (self.coarse_x() as u16)
+    ((self.nametbl() as u16) << 10) 
+    | ((self.coarse_y() as u16) << 5)
+    | (self.coarse_x() as u16)
   }
 }
 
@@ -136,11 +136,11 @@ impl ShiftersRegs {
 
     let bit1 = ((self.plane1 & shift_mask) != 0) as u8;
     let bit0 = ((self.plane0 & shift_mask) != 0) as u8;
-    let pixel = (bit1 << 1) | bit0;
+    let pixel = (bit0 << 1) | bit1;
     
     let pal1 = ((self.palette_high & shift_mask) != 0) as u8;
     let pal0 = ((self.palette_low & shift_mask) != 0) as u8;
-    let palette_id = (pal1 << 1) | pal0;
+    let palette_id = (pal0 << 1) | pal1;
 
     (pixel as u8, palette_id as u8)
   }
@@ -259,131 +259,122 @@ impl Ppu {
     }
   }
 
-  // pub fn step_accurate(&mut self) {
-  //   match (self.cycle, self.scanline) {
-  //     // Pre-render line
-  //     (1, 261) => {
-  //       self.stat = PpuStat::empty();
-  //       self.oam_addr = 0;
-  //     }
+  pub fn step_accurate(&mut self) {
+    match (self.cycle, self.scanline) {
+      // Pre-render line
+      (1, 261) => {
+        self.stat = PpuStat::empty();
+        self.oam_addr = 0;
+      }
 
-  //     // Post-render line
-  //     (1, 241) => {
-  //       info!("VBLANK!!");
+      // Post-render line
+      (1, 241) => {
+        info!("VBLANK!!");
 
-  //       self.vblank_started = Some(());
-  //       self.stat.insert(PpuStat::vblank);
-  //       self.stat.remove(PpuStat::spr0_hit);
+        self.vblank_started = Some(());
+        self.stat.insert(PpuStat::vblank);
+        self.stat.remove(PpuStat::spr0_hit);
 
-  //       if self.ctrl.contains(PpuCtrl::vblank_nmi_on) {
-  //         self.nmi_requested = Some(());
-  //       }
-  //     }
+        if self.ctrl.contains(PpuCtrl::vblank_nmi_on) {
+          self.nmi_requested = Some(());
+        }
+      }
 
-  //     // Visible frames + Pre-render line background fetches
-  //     (1..=256 | 321..=336, 0..=239) | (321..=336, 261) => {
-  //       self.fetch_next_tile();
-  //     }
+      // Visible frames + Pre-render line background fetches
+      (1..=256 | 321..=336, 0..=239) | (321..=336, 261) => {
+        self.fetch_next_tile();
+      }
 
-  //     // Restore horizontal
-  //     (257, 0..=239 | 261)  => self.reset_render_x(),
-  //      // Restore vertical
-  //     (280..=304, 261)      => self.reset_render_y(),
+      // Restore horizontal
+      (257, 0..=239 | 261)  => self.reset_render_x(),
+       // Restore vertical
+      (280..=304, 261)      => self.reset_render_y(),
 
-  //     // Visible frames + Pre-render line sprite fetches
-  //     (257..=320, 0..=239 | 261) => {}
-  //     (337..=340, 0..=239 | 261) => {} // dummy unused nametable fetches
+      // Visible frames + Pre-render line sprite fetches
+      (257..=320, 0..=239 | 261) => {}
+      // Dummy unused nametable fetches
+      (337..=340, 0..=239 | 261) => {} 
       
-  //     _ => {}
-  //   }
+      _ => {}
+    }
     
-  //   // odd frame skip
-  //   if self.in_odd_frame
-  //   && self.cycle == 339 
-  //   && self.scanline == 261 {
-  //     self.cycle += 1;
-  //   }
+    // odd frame skip
+    if self.in_odd_frame
+    && self.cycle == 339 
+    && self.scanline == 261 {
+      self.cycle += 1;
+    }
 
-  //   if self.is_spr0_hit() {
-  //     self.stat.insert(PpuStat::spr0_hit);
-  //   }
+    if self.is_spr0_hit() {
+      self.stat.insert(PpuStat::spr0_hit);
+    }
     
-  //   self.cycle += 1;
-  //   if self.cycle >= 340 {
-  //     self.cycle = 0;
-  //     self.scanline += 1;
+    self.cycle += 1;
+    if self.cycle > 340 {
+      self.cycle = 0;
+      self.scanline += 1;
 
-  //     if self.scanline >= 261 {
-  //       self.scanline = 0;
-  //       self.in_odd_frame = !self.in_odd_frame
-  //     }
-  //   }
-  // }
+      if self.scanline > 261 {
+        self.scanline = 0;
+        self.in_odd_frame = !self.in_odd_frame
+      }
+    }
+  }
 
-  // pub fn fetch_next_tile(&mut self) {
-  //   self.shifters.update();
+  pub fn fetch_next_tile(&mut self) {
+    self.shifters.update();
 
-  //   // https://www.nesdev.org/wiki/PPU_scrolling#Tile_and_attribute_fetching
-  //   match (self.cycle-1) % 8 {
-  //     0 => {
-  //       self.shifters.load(&self.render_data);
-  //       self.render_data.tile_id = self.vram_peek(0x2000 | self.v.nametbl_idx());
-  //     }
-  //     2 => {
-  //       // TODO: probably slower than nesdev wiki's tricy bitwise calculation
+    // https://www.nesdev.org/wiki/PPU_scrolling#Tile_and_attribute_fetching
+    match (self.cycle-1) % 8 {
+      0 => {
+        self.shifters.load(&self.render_data);
+        self.render_data.tile_id = self.vram_peek(0x2000 | self.v.nametbl_idx());
+      }
+      2 => {
+        let attribute_addr = 0x23C0
+          | ((self.v.nametbl() as u16) << 10)
+          | ((self.v.coarse_y() as u16)/4) << 3
+          | ((self.v.coarse_x() as u16)/4);
 
-  //       let x = self.v.coarse_x();
-  //       let y = self.v.coarse_y();
-  //       let attribute_idx = (y/4 * 8) + (x/4);
-  //       let attribute_addr = self.v.nametbl() as u16 + 0x3C0 + attribute_idx as u16;
-  //       let attribute = self.vram_peek(attribute_addr);
-  //       let palette_id = match (x % 4, y % 4) {
-  //         (0..2, 0..2) => (attribute & 0b0000_0011) >> 0 & 0b11,
-  //         (2..4, 0..2) => (attribute & 0b0000_1100) >> 2 & 0b11,
-  //         (0..2, 2..4) => (attribute & 0b0011_0000) >> 4 & 0b11,
-  //         (2..4, 2..4) => (attribute & 0b1100_0000) >> 6 & 0b11,
-  //         _ => unreachable!("mod 4 shouldn't give values bigger than 4")
-  //       } * 4;
-        
-  //       self.render_data.palette_id = palette_id;
-  //     }
-  //     4 => {
-  //       let tile_addr  = self.ctrl.bg_ptrntbl_addr() +
-  //         (self.render_data.tile_id  as u16) * 16 +
-  //         self.v.fine_y() as u16;
+        let attribute = self.vram_peek(attribute_addr);
+        let palette_id = match (self.v.coarse_x() % 4, self.v.coarse_y() % 4) {
+          (0..2, 0..2) => (attribute & 0b0000_0011) >> 0 & 0b11,
+          (2..4, 0..2) => (attribute & 0b0000_1100) >> 2 & 0b11,
+          (0..2, 2..4) => (attribute & 0b0011_0000) >> 4 & 0b11,
+          (2..4, 2..4) => (attribute & 0b1100_0000) >> 6 & 0b11,
+          _ => unreachable!("mod 4 should always give value smaller than 4"),
+        } * 4;
 
-  //       let plane0 = self.vram_peek(tile_addr);
-  //       self.render_data.tile_plane0 = plane0;
-  //     }
-  //     6 => {
-  //       let tile_addr  = self.ctrl.bg_ptrntbl_addr() +
-  //       (self.render_data.tile_id  as u16) * 16 +
-  //       self.v.fine_y() as u16;
+        self.render_data.palette_id = palette_id;
+      }
+      4 => {
+        let tile_addr  = self.ctrl.bg_ptrntbl_addr() 
+          + (self.render_data.tile_id as u16) * 16
+          + self.v.fine_y() as u16;
 
-  //       let plane1 = self.vram_peek(tile_addr + 8);
-  //       self.render_data.tile_plane1 = plane1;
+        let plane0 = self.vram_peek(tile_addr);
+        self.render_data.tile_plane0 = plane0;
+      }
+      6 => {
+        let tile_addr  = self.ctrl.bg_ptrntbl_addr() 
+          + (self.render_data.tile_id as u16) * 16
+          + self.v.fine_y() as u16;
 
-  //       // if self.cycle < 255 && self.scanline < 239 {
-  //       //   for i in 0..8 {
-  //       //     let bit1 = (self.render_data.tile_plane1 >> i) & 1;
-  //       //     let bit0 = (self.render_data.tile_plane0 >> i) & 1;
-  //       //     let pixel = (bit1 << 1) | bit0;
-  //       //     self.screen.0.set_pixel(self.cycle+i-2, self.scanline, self.get_color_id(pixel, self.render_data.palette_id));
-  //       //   }
-  //       // }
-  //     }
-  //     7 => {
-  //       self.increase_coarse_x();
-  //       if self.cycle == 256 { self.increase_coarse_y(); }
-  //     }
-  //     _ => {}
-  //   }
+        let plane1 = self.vram_peek(tile_addr + 8);
+        self.render_data.tile_plane1 = plane1;
+      }
+      7 => {
+        self.increase_coarse_x();
+      }
+      _ => {}
+    }
+    if self.cycle == 256 { self.increase_coarse_y(); }
 
-  //   if self.cycle < 255 && self.scanline < 239 {
-  //     let (pixel, palette_id) = self.shifters.get(self.x);
-  //     self.screen.0.set_pixel(self.cycle-1, self.scanline, self.get_color_id(pixel, palette_id));
-  //   }
-  // }
+    if self.is_rendering_on() && self.cycle < 32*8 && self.scanline < 30*8 {
+      let (pixel, palette_id) = self.shifters.get(self.x);
+      self.screen.0.set_pixel(self.cycle-1, self.scanline, self.get_color_id(pixel, palette_id));
+    }
+  }
 
 
   // https://www.nesdev.org/wiki/PPU_scrolling#Wrapping_around
