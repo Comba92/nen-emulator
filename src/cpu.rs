@@ -3,7 +3,7 @@ use std::{cell::OnceCell, fmt, ops::{BitAnd, BitOr, BitXor, Not, Shl, Shr}, path
 use bitflags::bitflags;
 use log::{debug, trace};
 
-use crate::{bus::Bus, cart::Cart, instr::{AddressingMode, Instruction, INSTRUCTIONS, INSTR_TO_FN}, mem::Memory, renderer::{FrameBuffer, NesScreen}};
+use crate::{bus::Bus, cart::Cart, instr::{AddressingMode, Instruction, INSTRUCTIONS, INSTR_TO_FN}, mem::Memory, renderer::FrameBuffer};
 
 bitflags! {
   #[derive(Debug, Clone, Copy)]

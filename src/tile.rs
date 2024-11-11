@@ -31,7 +31,7 @@ impl<'a> Tile<'a> {
       (2..4, 0..2) => (attribute & 0b0000_1100) >> 2 & 0b11,
       (0..2, 2..4) => (attribute & 0b0011_0000) >> 4 & 0b11,
       (2..4, 2..4) => (attribute & 0b1100_0000) >> 6 & 0b11,
-      _ => unreachable!("mod 2 should always give 0 and 1"),
+      _ => unreachable!("mod 4 should always give value smaller than 4"),
     } as usize * 4;
     let palette = &ppu.palettes[palette_id..palette_id+4];
 

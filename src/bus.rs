@@ -98,7 +98,7 @@ impl Bus {
   }
 
   pub fn step(&mut self, cycles: usize) {
-    for _ in 0..cycles*3 { self.ppu.step_accurate(); }
+    for _ in 0..cycles*3 { self.ppu.step(); }
   }
   
   pub fn peek_vblank(&mut self) -> bool {

@@ -164,7 +164,7 @@ mod ppu_test {
           // let palette = &emu.bus.ppu.palettes[palette_id..palette_id+4];
           // framebuf.set_tile(x as usize, y as usize, tile, palette);
           let sprite = Tile::oam_sprite_from_idx(i, &emu.bus.ppu);
-          framebuf.set_tile(sprite);
+          //framebuf.set_tile(sprite);
         }
 
 
@@ -198,7 +198,9 @@ mod ppu_test {
       .unwrap();
 
       'running: loop {
-        emu.step_until_vblank();
+        for _ in 0..100 {
+          emu.step();
+        }
 
         for event in sdl.events.poll_iter() {
           match event {
