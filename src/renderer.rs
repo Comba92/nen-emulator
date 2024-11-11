@@ -2,7 +2,7 @@ use std::sync::LazyLock;
 
 use sdl2::{event::Event, keyboard::Keycode, pixels::Color, render::{Canvas, TextureCreator}, video::{Window, WindowContext}, EventPump, Sdl, VideoSubsystem};
 
-use crate::{dev::{Joypad, JoypadStat}, ppu::{Ppu, PpuMask, SpritePriority, Tile}};
+use crate::{dev::{Joypad, JoypadStat}, ppu::{Ppu, PpuMask}, tile::{SpritePriority, Tile, SCREEN_HEIGHT, SCREEN_WIDTH}};
 
 pub static SYS_PALETTES: LazyLock<[Color; 64]> = LazyLock::new(|| {
     let bytes = include_bytes!("../palettes/Composite_wiki.pal");
@@ -18,9 +18,6 @@ pub static SYS_PALETTES: LazyLock<[Color; 64]> = LazyLock::new(|| {
 });
 
 pub const GREYSCALE_PALETTE: [u8; 4] = [0x3F, 0x00, 0x10, 0x20];
-
-pub const SCREEN_WIDTH: usize = 32;
-pub const SCREEN_HEIGHT: usize = 30;
 
 pub struct FrameBuffer {
     pub buffer: Vec<u8>,
@@ -86,7 +83,6 @@ impl NesScreen {
     }
 
     pub fn render_background(&mut self, ppu: &Ppu) {
-        // TODO: if rendering is off, draw only backdrop
         if !ppu.mask.contains(PpuMask::bg_render_on) { return; }
         
         for i in 0..32*30 {
@@ -133,6 +129,7 @@ impl Sdl2Context {
     }
 }
 
+// TODO: this is hideous
 pub fn handle_input(event: &Event, joypad: &mut Joypad) {
     match event {
         Event::KeyDown { keycode, .. } => {

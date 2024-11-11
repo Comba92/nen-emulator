@@ -16,6 +16,8 @@
 
 5. APU if i have the energy
 
+6. Support for NES 2.0
+
 # Resources
 - https://www.nesdev.org/NESDoc.pdf
 

@@ -1,7 +1,7 @@
 use std::{env::args, path::PathBuf};
 
-use nen_emulator::{cpu::Cpu, renderer::{handle_input, NesScreen, Sdl2Context, SCREEN_HEIGHT, SCREEN_WIDTH}};
-use sdl2::{event::{Event, WindowEvent}, pixels::PixelFormatEnum};
+use nen_emulator::{cpu::Cpu, renderer::{handle_input, NesScreen, Sdl2Context}, tile::{SCREEN_HEIGHT, SCREEN_WIDTH}};
+use sdl2::{event::Event, pixels::PixelFormatEnum};
 
 fn main() {
     const SCALE: f32 = 3.5;

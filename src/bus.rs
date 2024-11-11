@@ -1,37 +1,58 @@
-use log::info;
+use log::{debug, info};
 
 use crate::{cart::{Cart, CartHeader}, dev::Joypad, mapper::CartMapper, mem::Memory, ppu::Ppu};
 
 #[derive(Debug)]
-pub enum BusDst {
+enum BusDst {
   Ram, Ppu, Dma, SRam, Prg, Joypad1, Joypad2, NoImpl
 }
 
 pub struct Bus {
-  pub ram: [u8; 0x800],
-  pub sram: [u8; 0x2000],
-  pub prg: Vec<u8>,
+  ram: [u8; 0x800],
+  sram: [u8; 0x2000],
+  prg: Vec<u8>,
   pub cart: CartHeader,
   pub mapper: CartMapper,
   pub ppu: Ppu,
   pub joypad: Joypad,
 }
 
+fn map_address(addr: u16) -> (BusDst, usize) {
+  match addr {
+    0x0000..=0x1FFF => {
+      let ram_addr = addr & 0x07FF;
+      (BusDst::Ram, ram_addr as usize)
+    }
+    0x2000..=0x3FFF => {
+      let ppu_addr = addr & 0x2007;
+      (BusDst::Ppu, ppu_addr as usize)
+    }
+
+    0x4014 => (BusDst::Dma, addr as usize),
+    0x4016 => (BusDst::Joypad1, addr as usize),
+    0x4017 => (BusDst::Joypad2, addr as usize),
+
+    0x6000..=0x7FFF => (BusDst::SRam, addr as usize - 0x6000),
+    0x8000..=0xFFFF => (BusDst::Prg, addr as usize - 0x8000),
+    _ => (BusDst::NoImpl, addr as usize)
+  }
+}
+
 impl Memory for Bus {
   fn read(&mut self, addr: u16) -> u8 {
-    let (dst, addr) = self.map(addr);
+    let (dst, addr) = map_address(addr);
     match dst {
       BusDst::Ram => self.ram[addr],
       BusDst::Ppu => self.ppu.reg_read(addr as u16),
       BusDst::Joypad1 => self.joypad.read(),
       BusDst::SRam => self.sram[addr],
       BusDst::Prg => self.mapper.borrow().read_prg(&self.prg, addr),
-      _ => { info!("Read to {addr:04X} not implemented"); 0 }
+      _ => { debug!("Read to {addr:04X} not implemented"); 0 }
     }
   }
 
   fn write(&mut self, addr: u16, val: u8) {
-    let (dst, addr) = self.map(addr);
+    let (dst, addr) = map_address(addr);
     match dst {
       BusDst::Ram => self.ram[addr] = val,
       BusDst::Ppu => self.ppu.reg_write(addr as u16, val),
@@ -52,7 +73,7 @@ impl Memory for Bus {
       BusDst::Joypad2 => {} // TODO
       BusDst::SRam => self.sram[addr] = val,
       BusDst::Prg => self.mapper.borrow_mut().write_prg(addr, val),
-      BusDst::NoImpl => info!("Write to {addr:04X} not implemented")
+      BusDst::NoImpl => debug!("Write to {addr:04X} not implemented")
     }
   }
 }
@@ -64,8 +85,8 @@ impl Bus {
       cart.mapper.clone(),
       cart.header.nametbl_mirroring
     );
-     
-    let bus = Self {
+
+    Self {
       ram: [0; 0x800], 
       sram: [0; 0x2000],
       ppu, 
@@ -73,13 +94,11 @@ impl Bus {
       prg: cart.prg_rom,
       mapper: cart.mapper,
       joypad: Joypad::new(),
-    };
-
-    bus
+    }
   }
 
   pub fn step(&mut self, cycles: usize) {
-    for _ in 0..cycles*3 { self.ppu.step(); }
+    for _ in 0..cycles*3 { self.ppu.step_accurate(); }
   }
   
   pub fn peek_vblank(&mut self) -> bool {
@@ -88,28 +107,8 @@ impl Bus {
   pub fn poll_nmi(&mut self) -> bool {
     self.ppu.nmi_requested.take().is_some()
   }
+  // TODO
   pub fn poll_irq(&mut self) -> bool { false }
-
-  pub fn map(&self, addr: u16) -> (BusDst, usize) {
-    match addr {
-      0x0000..=0x1FFF => {
-        let ram_addr = addr & 0x07FF;
-        (BusDst::Ram, ram_addr as usize)
-      }
-      0x2000..=0x3FFF => {
-        let ppu_addr = addr & 0x2007;
-        (BusDst::Ppu, ppu_addr as usize)
-      }
-
-      0x4014 => (BusDst::Dma, addr as usize),
-      0x4016 => (BusDst::Joypad1, addr as usize),
-      0x4017 => (BusDst::Joypad2, addr as usize),
-
-      0x6000..=0x7FFF => (BusDst::SRam, addr as usize - 0x6000),
-      0x8000..=0xFFFF => (BusDst::Prg, addr as usize - 0x8000),
-      _ => (BusDst::NoImpl, addr as usize)
-    }
-  }
 }
 
 #[cfg(test)]

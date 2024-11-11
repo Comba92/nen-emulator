@@ -3,8 +3,8 @@ mod ppu_test {
     use std::path::Path;
     #[allow(unused_imports)]
     use log::info;
-    use nen_emulator::{cart::Cart, cpu::Cpu, dev::JoypadStat, ppu::OamEntry, renderer::{FrameBuffer, Sdl2Context, GREYSCALE_PALETTE}};
-    use sdl2::{event::Event, pixels::PixelFormatEnum, keyboard::Keycode};
+    use nen_emulator::{cart::Cart, cpu::Cpu, renderer::{FrameBuffer, Sdl2Context, GREYSCALE_PALETTE, handle_input}, tile::{SpritePriority, Tile}};
+    use sdl2::{event::Event, pixels::PixelFormatEnum};
 
 
     #[test]
@@ -15,7 +15,7 @@ mod ppu_test {
         0x01, 0x02, 0x04, 0x08, 0x16, 0x21, 0x42, 0x87
       ];
 
-      let cart = Cart::new(Path::new("tests/test_roms/nestest.nes"));
+      let cart = Cart::new(Path::new("tests/nestest/nestest.nes"));
 
       for (i, tile) in cart.chr_rom.chunks(16).enumerate().take(100) {
         println!("Tile {i}");
@@ -58,13 +58,22 @@ mod ppu_test {
       .create_texture_target(PixelFormatEnum::RGB24, framebuf.width as u32, framebuf.height as u32)
       .unwrap();
 
-      let cart = Cart::new(Path::new("tests/nestest.nes"));
+      let cart = Cart::new(Path::new("roms/Donkey Kong.nes"));
 
       for (i, tile) in cart.chr_rom.chunks(16).enumerate() {
         let x = i*8 % framebuf.width;
         let y = (i*8 / framebuf.width)*8;
 
-        framebuf.set_tile(x, y, tile, &GREYSCALE_PALETTE);
+        let sprite = Tile {
+          x, y,
+          palette: &GREYSCALE_PALETTE,
+          pixels: tile,
+          priority: SpritePriority::Background,
+          flip_horizontal: false,
+          flip_vertical: false,
+        };
+
+        framebuf.set_tile(sprite);
       }
 
       texture.update(None, &framebuf.buffer, framebuf.pitch()).unwrap();
@@ -84,7 +93,7 @@ mod ppu_test {
     }
 
     #[test]
-    fn render_tiles() {
+    fn ppu_test() {
       const RENDER_WIDTH: f32 = 32.0;
       const RENDER_HEIGHT: f32 = 30.0;
       const SCALE: f32 = 3.0;
@@ -97,7 +106,7 @@ mod ppu_test {
       .unwrap();
     
       // let rom_path = &Path::new("tests/nestest/nestest.nes");
-      let rom_path = &Path::new("tests/test_roms/Pacman.nes");
+      let rom_path = &Path::new("roms/Donkey Kong.nes");
       let cart = Cart::new(rom_path);
       let mut emu = Cpu::new(cart);
 
@@ -107,79 +116,55 @@ mod ppu_test {
         for event in sdl.events.poll_iter() {
           match event {
             Event::Quit { .. } => break 'running,
-            Event::KeyDown { keycode, .. } => {
-              if let Some(keycode) = keycode {
-                match keycode {
-                  Keycode::Z => emu.bus.joypad.button.insert(JoypadStat::A),
-                  Keycode::X => emu.bus.joypad.button.insert(JoypadStat::B),
-                  Keycode::UP => emu.bus.joypad.button.insert(JoypadStat::UP),
-                  Keycode::DOWN => emu.bus.joypad.button.insert(JoypadStat::DOWN),
-                  Keycode::LEFT => emu.bus.joypad.button.insert(JoypadStat::LEFT),
-                  Keycode::RIGHT => emu.bus.joypad.button.insert(JoypadStat::RIGHT),
-                  Keycode::N => emu.bus.joypad.button.insert(JoypadStat::SELECT),
-                  Keycode::M => emu.bus.joypad.button.insert(JoypadStat::START),
-                  _ => {}
-                }
-              }
-            }
-            Event::KeyUp { keycode, .. } => {
-              if let Some(keycode) = keycode {
-                match keycode {
-                  Keycode::Z => emu.bus.joypad.button.remove(JoypadStat::A),
-                  Keycode::X => emu.bus.joypad.button.remove(JoypadStat::B),
-                  Keycode::UP => emu.bus.joypad.button.remove(JoypadStat::UP),
-                  Keycode::DOWN => emu.bus.joypad.button.remove(JoypadStat::DOWN),
-                  Keycode::LEFT => emu.bus.joypad.button.remove(JoypadStat::LEFT),
-                  Keycode::RIGHT => emu.bus.joypad.button.remove(JoypadStat::RIGHT),
-                  Keycode::N => emu.bus.joypad.button.remove(JoypadStat::SELECT),
-                  Keycode::M => emu.bus.joypad.button.remove(JoypadStat::START),
-                  _ => {}
-                }
-              }
-            }
             _ => {}
           }
+
+          handle_input(&event, &mut emu.bus.joypad);
         }
         
-        let bg_ptrntbl = emu.bus.ppu.ctrl.bg_ptrntbl_addr() as usize;
+        // let bg_ptrntbl = emu.bus.ppu.ctrl.bg_ptrntbl_addr() as usize;
         for i in 0..32*30 {
-          let tile_idx = emu.bus.ppu.vram[i];
-          let x = i as u32 % RENDER_WIDTH as u32;
-          let y = i as u32 / RENDER_WIDTH as u32;
-          let tile_start = bg_ptrntbl + (tile_idx as usize) * 16;
-          let tile = &emu.bus.cart.chr_rom[tile_start..tile_start+16];
+          // let tile_idx = emu.bus.ppu.vram[i];
+          // let x = i as u32 % RENDER_WIDTH as u32;
+          // let y = i as u32 / RENDER_WIDTH as u32;
+          // let tile_start = bg_ptrntbl + (tile_idx as usize) * 16;
+          // let tile = &emu.bus.ppu.patterns[tile_start..tile_start+16];
 
-          let attribute_idx = (y/4 * 8) + (x/4);
-          // need to do mirroring here
-          let attribute = emu.bus.ppu.vram[0x3C0 + attribute_idx as usize];
-          let palette_id = match (x % 4, y % 4) {
-            (0..2, 0..2) => (attribute & 0b0000_0011) >> 0 & 0b11,
-            (2..4, 0..2) => (attribute & 0b0000_1100) >> 2 & 0b11,
-            (0..2, 2..4) => (attribute & 0b0011_0000) >> 4 & 0b11,
-            (2..4, 2..4) => (attribute & 0b1100_0000) >> 6 & 0b11,
-            _ => unreachable!("mod 2 should always give 0 and 1"),
-          } as usize * 4;
+          // let attribute_idx = (y/4 * 8) + (x/4);
+          // // need to do mirroring here
+          // let attribute = emu.bus.ppu.vram[0x3C0 + attribute_idx as usize];
+          // let palette_id = match (x % 4, y % 4) {
+          //   (0..2, 0..2) => (attribute & 0b0000_0011) >> 0 & 0b11,
+          //   (2..4, 0..2) => (attribute & 0b0000_1100) >> 2 & 0b11,
+          //   (0..2, 2..4) => (attribute & 0b0011_0000) >> 4 & 0b11,
+          //   (2..4, 2..4) => (attribute & 0b1100_0000) >> 6 & 0b11,
+          //   _ => unreachable!("mod 2 should always give 0 and 1"),
+          // } as usize * 4;
 
-          let palette = &emu.bus.ppu.palettes[palette_id..palette_id+4];
-          framebuf.set_tile(8*x as usize, 8*y as usize, tile, palette);
+          // let palette = &emu.bus.ppu.palettes[palette_id..palette_id+4];
+          //framebuf.set_tile(8*x as usize, 8*y as usize, tile, palette);
+          let tile = Tile::bg_sprite_from_idx(i, &emu.bus.ppu);
+          framebuf.set_tile(tile);
         }
 
-        let spr_ptrntbl = emu.bus.ppu.ctrl.spr_ptrntbl_addr();
+        // let spr_ptrntbl = emu.bus.ppu.ctrl.spr_ptrntbl_addr();
         for i in (0..256).step_by(4) {
-          let tile_idx = emu.bus.ppu.oam[i + 1];
-          let attributes = emu.bus.ppu.oam[i + 2];
-          let x = emu.bus.ppu.oam[i + 3] as usize;
-          let y = emu.bus.ppu.oam[i] as usize + 1;
+          // let tile_idx = emu.bus.ppu.oam[i + 1];
+          // let attributes = emu.bus.ppu.oam[i + 2];
+          // let x = emu.bus.ppu.oam[i + 3] as usize;
+          // let y = emu.bus.ppu.oam[i] as usize + 1;
 
-          let _sprite = OamEntry::from_bytes(&emu.bus.ppu.oam[i..i+4]);
-          if x >= 8*RENDER_WIDTH as usize - 8 || y >= 8*RENDER_HEIGHT as usize - 8 { continue; }
+          // let _sprite = OamEntry::from_bytes(&emu.bus.ppu.oam[i..i+4]);
+          // if x >= 8*RENDER_WIDTH as usize - 8 || y >= 8*RENDER_HEIGHT as usize - 8 { continue; }
 
-          let tile_start = (spr_ptrntbl as usize) + (tile_idx as usize) * 16;
-          let tile = &emu.bus.cart.chr_rom[tile_start..tile_start+16];
+          // let tile_start = (spr_ptrntbl as usize) + (tile_idx as usize) * 16;
+          // let tile = &emu.bus.cart.chr_rom[tile_start..tile_start+16];
           
-          let palette_id = 16 + (attributes & 0b11) as usize * 4;
-          let palette = &emu.bus.ppu.palettes[palette_id..palette_id+4];
-          framebuf.set_tile(x as usize, y as usize, tile, palette);
+          // let palette_id = 16 + (attributes & 0b11) as usize * 4;
+          // let palette = &emu.bus.ppu.palettes[palette_id..palette_id+4];
+          // framebuf.set_tile(x as usize, y as usize, tile, palette);
+          let sprite = Tile::oam_sprite_from_idx(i, &emu.bus.ppu);
+          framebuf.set_tile(sprite);
         }
 
 
@@ -192,7 +177,43 @@ mod ppu_test {
       println!("OAM {:?}", emu.bus.ppu.oam);
 
       // println!("VRAM {:?}", &emu.bus.ppu.vram);
-      println!("{:?} {:?} {:?}", emu, emu.bus.ppu, emu.bus.cart.header);
+      println!("{:?} {:?} {:?}", emu, emu.bus.ppu, emu.bus.cart);
     }
 
+
+    #[test]
+    fn ppu_accurate() {
+      const RENDER_WIDTH: f32 = 32.0;
+      const RENDER_HEIGHT: f32 = 30.0;
+      const SCALE: f32 = 3.0;
+      
+      let mut sdl = Sdl2Context::new("Background", (8.0*RENDER_WIDTH*SCALE) as u32, (8.0*RENDER_HEIGHT*SCALE) as u32);
+      // let rom_path = &Path::new("tests/nestest/nestest.nes");
+      let rom_path = &Path::new("roms/Donkey Kong.nes");
+      let cart = Cart::new(rom_path);
+      let mut emu = Cpu::new(cart);
+      
+      let mut texture = sdl.texture_creator
+      .create_texture_target(PixelFormatEnum::RGB24, emu.get_screen().width as u32, emu.get_screen().height as u32)
+      .unwrap();
+
+      'running: loop {
+        emu.step_until_vblank();
+
+        for event in sdl.events.poll_iter() {
+          match event {
+            Event::Quit { .. } => break 'running,
+            _ => {}
+          }
+
+          handle_input(&event, &mut emu.bus.joypad);
+        }
+
+        texture.update(None, &emu.get_screen().buffer, emu.get_screen().pitch()).unwrap();
+        sdl.canvas.copy(&texture, None, None).unwrap();
+        sdl.canvas.present();
+      }
+
+      println!("{:?}", emu.bus.ppu);
+    }
 }

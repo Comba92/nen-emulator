@@ -1,6 +1,8 @@
 #![allow(dead_code)]
 use bitflags::bitflags;
 
+// TODO: this is hideous...
+
 enum Button {
     A, B, Select, Start, Up, Down, Left, Right
 }

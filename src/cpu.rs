@@ -3,7 +3,7 @@ use std::{cell::OnceCell, fmt, ops::{BitAnd, BitOr, BitXor, Not, Shl, Shr}, path
 use bitflags::bitflags;
 use log::{debug, trace};
 
-use crate::{bus::Bus, cart::Cart, instr::{AddressingMode, Instruction, INSTRUCTIONS, INSTR_TO_FN}, mem::Memory};
+use crate::{bus::Bus, cart::Cart, instr::{AddressingMode, Instruction, INSTRUCTIONS, INSTR_TO_FN}, mem::Memory, renderer::{FrameBuffer, NesScreen}};
 
 bitflags! {
   #[derive(Debug, Clone, Copy)]
@@ -29,7 +29,6 @@ pub const STACK_END: usize = 0x0200;
 const STACK_RESET: u8 = 0xFD;
 const PC_RESET: u16 = 0xFFFC;
 const STAT_RESET: u8 = 0x24;
-pub const MEM_SIZE: usize = 0x1_0000;
 
 pub const NMI_ISR: u16 = 0xFFFA;
 pub const RESET_ISR: u16 = 0xFFFC;
@@ -76,33 +75,36 @@ impl Cpu {
       bus: Bus::new(cart),
     };
 
+    // cpu should start by executing the reset subroutine
     cpu.pc = cpu.read16(PC_RESET);
     cpu
   }
+
+  pub fn reset(&mut self) { todo!() }
 
   pub fn from_rom_path(rom_path: &Path) -> Self {
     let cart = Cart::new(rom_path);
     Cpu::new(cart)
   }
 
-  pub fn set_carry(&mut self, res: u16) {
+  fn set_carry(&mut self, res: u16) {
     self.p.set(CpuFlags::carry, res > u8::MAX as u16);
   }
 
-  pub fn set_zero(&mut self, res: u8) {
+  fn set_zero(&mut self, res: u8) {
     self.p.set(CpuFlags::zero, res == 0);
   }
 
-  pub fn set_neg(&mut self, res: u8) {
+  fn set_neg(&mut self, res: u8) {
     self.p.set(CpuFlags::negative, res & 0b1000_0000 != 0);
   }
 
-  pub fn set_zn(&mut self, res: u8) {
+  fn set_zn(&mut self, res: u8) {
     self.set_zero(res);
     self.set_neg(res);
   }
   
-  pub fn set_czn(&mut self, res: u16) {
+  fn set_czn(&mut self, res: u16) {
     self.set_carry(res);
     self.set_zn(res as u8);
   }
@@ -117,13 +119,13 @@ impl Cpu {
     self.p.contains(CpuFlags::carry).into()
   }
 
-  pub fn pc_fetch(&mut self) -> u8 {
+  fn pc_fetch(&mut self) -> u8 {
     let res = self.read(self.pc);
     self.pc = self.pc.wrapping_add(1);
     res
   }
 
-  pub fn pc_fetch16(&mut self) -> u16 {
+  fn pc_fetch16(&mut self) -> u16 {
     let res = self.read16(self.pc);
     self.pc = self.pc.wrapping_add(2);
     res
@@ -180,7 +182,7 @@ impl Operand {
     Operand::Addr(addr, OnceCell::new())
   }
 }
-pub enum InstrDst {
+enum InstrDst {
   Acc, X, Y, Mem(u16)
 }
 
@@ -232,6 +234,10 @@ impl Cpu {
     }
   }
 
+  pub fn get_screen(&self) -> &FrameBuffer {
+    &self.bus.ppu.screen.0
+  }
+
   fn get_zeropage_operand(&mut self, offset: u8) -> Operand {
     let zero_addr = (self.pc_fetch().wrapping_add(offset)) as u16;
     Operand::fetchable(zero_addr)
@@ -249,7 +255,7 @@ impl Cpu {
     Operand::fetchable(addr_effective)
   }
 
-  pub fn get_operand_with_addressing(&mut self, instr: &Instruction) -> Operand {
+  fn get_operand_with_addressing(&mut self, instr: &Instruction) -> Operand {
     let mode = instr.addressing;
     use AddressingMode::*;
     
@@ -294,7 +300,7 @@ impl Cpu {
     res
   }
 
-  pub fn set_instr_result(&mut self, dst: InstrDst, res: u8) {
+  fn set_instr_result(&mut self, dst: InstrDst, res: u8) {
     match dst {
       InstrDst::Acc => self.a = res,
       InstrDst::X => self.x = res,
@@ -303,7 +309,7 @@ impl Cpu {
     }
   }
 
-  pub fn get_operand_value(&mut self, op: &mut Operand) -> u8 {
+  fn get_operand_value(&mut self, op: &mut Operand) -> u8 {
     match op {
       Operand::Acc => self.a,
       Operand::Imm(val) => *val,
@@ -311,7 +317,7 @@ impl Cpu {
     }
   }
 
-  pub fn load (&mut self, op: &mut Operand, dst: InstrDst) {
+  fn load (&mut self, op: &mut Operand, dst: InstrDst) {
     trace!("[LOAD] {op:?} at cycle {}", self.cycles);
 
     let val = self.get_operand_value(op);
@@ -329,7 +335,7 @@ impl Cpu {
     self.load(op, InstrDst::Y)
   }
 
-  pub fn store(&mut self, op: &mut Operand, val: u8) {
+  fn store(&mut self, op: &mut Operand, val: u8) {
     if let Operand::Addr(addr, _) = op {
       self.set_instr_result(InstrDst::Mem(*addr), val)
     } else { unreachable!("store operations should always have an address destination, got {op:?}") }
@@ -345,7 +351,7 @@ impl Cpu {
     self.store(op, self.y)
   }
 
-  pub fn transfer(&mut self, src: u8, dst: InstrDst) {
+  fn transfer(&mut self, src: u8, dst: InstrDst) {
     self.set_zn(src);
     self.set_instr_result(dst, src);
   }
@@ -395,7 +401,7 @@ impl Cpu {
     trace!("[PLP] Pulled {:?} (${:02X}) from stack at cycle {}", self.p, self.p.bits(), self.cycles);
   }
 
-  pub fn logical(&mut self, op: &mut Operand, bitop: fn(u8, u8) -> u8) {
+  fn logical(&mut self, op: &mut Operand, bitop: fn(u8, u8) -> u8) {
     let val = self.get_operand_value(op);
     let res = bitop(self.a, val);
     self.set_zn(res);
@@ -418,7 +424,7 @@ impl Cpu {
     self.p.set(CpuFlags::negative, val & 0b1000_0000 != 0);
   }
 
-  pub fn addition(&mut self, val: u8) {
+  fn addition(&mut self, val: u8) {
     let res = self.a as u16 + val as u16 + self.carry() as u16;
     self.set_overflow(self.a as u16, val as u16, res);
     self.set_czn(res);
@@ -435,7 +441,7 @@ impl Cpu {
     self.addition(val.not());
   }
 
-  pub fn compare(&mut self, reg: u8, op: &mut Operand) {
+  fn compare(&mut self, reg: u8, op: &mut Operand) {
     let val = self.get_operand_value(op);
     let res = reg.wrapping_sub(val);
     self.set_czn(res as u16);
@@ -452,7 +458,7 @@ impl Cpu {
     self.compare(self.y, op)
   }
 
-  pub fn increase(&mut self, val: u8, f: fn(u8, u8) -> u8) -> u8 {
+  fn increase(&mut self, val: u8, f: fn(u8, u8) -> u8) -> u8 {
     let res = f(val, 1);
     self.set_zn(res);
     res
@@ -486,7 +492,7 @@ impl Cpu {
     self.y = self.increase(self.y, u8::wrapping_sub);
   }
 
-  pub fn shift<F: Fn(u8) -> u8>(&mut self, op: &mut Operand, carry_bit: u8, shiftop: F) {
+  fn shift<F: Fn(u8) -> u8>(&mut self, op: &mut Operand, carry_bit: u8, shiftop: F) {
     let val = self.get_operand_value(op);
     self.p.set(CpuFlags::carry, val & carry_bit != 0);
     let res = shiftop(val);
@@ -529,7 +535,7 @@ impl Cpu {
     self.pc = self.stack_pull16() + 1;
   }
 
-  pub fn branch(&mut self, op: &mut Operand, cond: bool) {
+  fn branch(&mut self, op: &mut Operand, cond: bool) {
     if cond {
       let offset = self.get_operand_value(op) as i8;
       let new_pc = self.pc.wrapping_add_signed(offset as i16);
@@ -571,7 +577,7 @@ impl Cpu {
     self.branch(op, self.p.contains(CpuFlags::overflow))
   }
 
-  pub fn clear_stat(&mut self, s: CpuFlags) {
+  fn clear_stat(&mut self, s: CpuFlags) {
     self.p.remove(s);
   }
   pub fn clc(&mut self, _: &mut Operand) {
@@ -586,7 +592,7 @@ impl Cpu {
   pub fn clv(&mut self, _: &mut Operand) {
     self.clear_stat(CpuFlags::overflow)
   }
-  pub fn set_stat(&mut self, s: CpuFlags) {
+  fn set_stat(&mut self, s: CpuFlags) {
     self.p.insert(s);
   }
   pub fn sec(&mut self, _: &mut Operand) {
@@ -708,7 +714,7 @@ impl Cpu {
   }
 
   // FIXME (we're doing a mem read twice)
-  pub fn high_addr_bitand(&mut self, op: &mut Operand, val: u8) {
+  fn high_addr_bitand(&mut self, op: &mut Operand, val: u8) {
     if let Operand::Addr(dst, _) = op {
       let addr = self.read(self.pc.wrapping_sub(1));
       let res = val & addr.wrapping_add(1);
@@ -754,7 +760,6 @@ impl Cpu {
 
   // also called KIL, HLT
   pub fn jam(&mut self, _: &mut Operand) {
-    // freezes the cpu
     self.jammed = true;
   }
 }

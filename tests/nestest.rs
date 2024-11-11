@@ -16,16 +16,16 @@ use prettydiff::{diff_lines, diff_words};
     x: u8,
     y: u8,
     p: u8,
-    // scanlines: usize,
-    // ppu_cycles: usize,
+    scanlines: usize,
+    ppu_cycles: usize,
     cpu_cycles: usize
   }
   impl PartialEq for CpuMock {
     fn eq(&self, other: &Self) -> bool {
         self.pc == other.pc && self.sp == other.sp && self.a == other.a && self.x == other.x && self.y == other.y && self.p == other.p 
         && self.cpu_cycles == other.cpu_cycles
-        // && self.ppu_cycles == other.ppu_cycles
-        // && self.scanlines == other.scanlines
+        && self.ppu_cycles == other.ppu_cycles
+        && self.scanlines == other.scanlines
     }
   }
 
@@ -34,6 +34,8 @@ use prettydiff::{diff_lines, diff_words};
       CpuMock {
         pc: cpu.pc, sp: cpu.sp, a: cpu.a, x: cpu.x, y: cpu.y, p: cpu.p.bits(), 
         cpu_cycles: cpu.cycles,
+        ppu_cycles: cpu.bus.ppu.cycle,
+        scanlines: cpu.bus.ppu.scanline,
       }
     }
 
@@ -54,12 +56,12 @@ use prettydiff::{diff_lines, diff_words};
         .take_while(|token| !token.contains("CYC:"))
         .collect::<String>();
 
-      let _scanlines = usize::from_str_radix(ppu_data.split(',').nth(0).unwrap().trim_start_matches("PPU:").trim(), 10).unwrap();
-      let _ppu_cycles = usize::from_str_radix(ppu_data.split(',').nth(1).unwrap().trim(), 10).unwrap();
+      let scanlines = usize::from_str_radix(ppu_data.split(',').nth(0).unwrap().trim_start_matches("PPU:").trim(), 10).unwrap();
+      let ppu_cycles = usize::from_str_radix(ppu_data.split(',').nth(1).unwrap().trim(), 10).unwrap();
       let cpu_cycles = usize::from_str_radix(tokens.skip_while(|token| !token.contains("CYC:")).next().unwrap().split(':').last().unwrap(), 10).unwrap();
       
       CpuMock {
-        pc, a, x, y, sp, p, cpu_cycles, //ppu_cycles, scanlines
+        pc, a, x, y, sp, p, cpu_cycles, ppu_cycles, scanlines
       }
     }
   }

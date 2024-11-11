@@ -2,19 +2,21 @@ use std::{cell::RefCell, rc::Rc};
 
 pub type CartMapper = Rc<RefCell<dyn Mapper>>;
 pub trait Mapper {
+    // Default NRom PRG banking
     fn read_prg(&self, prg: &[u8], addr: usize) -> u8 {
         if prg.len() == PRG_BANK_SIZE { prg[addr % (PRG_BANK_SIZE)] }
         else { prg[addr] }
     }
     fn write_prg(&mut self, _addr: usize, _val: u8) {}
 
+    // Default NRom CHR banking
     fn read_chr(&self, chr: &[u8], addr: usize) -> u8 {
         chr[addr]
     }
     fn write_chr(&mut self, _addr: usize, _val: u8) {}
 }
 
-pub fn new_mapper_from_id(id: u8) -> Rc<RefCell<dyn Mapper>> {
+pub fn new_mapper_from_id(id: u8) -> CartMapper {
     match id {
         0 => Rc::new(RefCell::new(NRom)),
         1 => Rc::new(RefCell::new(Mmc1)),
@@ -25,14 +27,14 @@ pub fn new_mapper_from_id(id: u8) -> Rc<RefCell<dyn Mapper>> {
     }
 }
 
-pub enum PrgBank { First, Second }
-pub fn map_prg(addr: usize) -> PrgBank {
-    match addr {
-        0..0x4000      => PrgBank::First,
-        0x4000..0x8000 => PrgBank::Second,
-        _ => unreachable!()
-    }
-}
+// enum PrgBank { First, Second }
+// fn map_prg(addr: usize) -> PrgBank {
+//     match addr {
+//         0..0x4000      => PrgBank::First,
+//         0x4000..0x8000 => PrgBank::Second,
+//         _ => unreachable!()
+//     }
+// }
 
 const PRG_BANK_SIZE: usize = 16*1024;
 const CHR_BANK_SIZE: usize = 8*1024;

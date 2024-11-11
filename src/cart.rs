@@ -1,6 +1,6 @@
 use std::{cell::RefCell, fs, path::Path, rc::Rc};
 
-use crate::mapper::{new_mapper_from_id, CartMapper, NRom};
+use crate::mapper::{self, CartMapper, NRom};
 
 #[derive(Debug, Default, Clone)]
 pub struct CartHeader {
@@ -32,7 +32,7 @@ impl CartHeader {
     let magic_str = &rom[0..=3];
 
     if magic_str != NES_STR {
-      panic!("Not a valid NES rom");
+      //panic!("Not a valid iNES rom");
     }
 
     let prg_16kb_banks = rom[4] as usize;
@@ -81,7 +81,7 @@ impl CartHeader {
 }
 
 
-
+#[derive(Clone)]
 pub struct Cart {
   pub header: CartHeader,
   pub prg_rom: Vec<u8>,
@@ -100,7 +100,7 @@ impl Cart {
     let header = CartHeader::new(&rom[0..16]);
     println!("{:#?}", header);
     if header.is_nes_v2 {
-      panic!("Nes 2.0 formato not supported");
+      panic!("NES 2.0 format not supported");
     }
 
     let prg_start = HEADER_SIZE + if header.has_trainer { 512 } else { 0 };
@@ -109,7 +109,7 @@ impl Cart {
     let prg_rom = rom[prg_start..chr_start].to_vec();
     let chr_rom = rom[chr_start..chr_start+header.chr_size].to_vec();
 
-    let mapper = new_mapper_from_id(header.mapper);
+    let mapper = mapper::new_mapper_from_id(header.mapper);
     Cart { header, prg_rom, chr_rom, mapper }
   }
 
