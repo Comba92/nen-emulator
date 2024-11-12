@@ -163,7 +163,7 @@ mod ppu_test {
           // let palette_id = 16 + (attributes & 0b11) as usize * 4;
           // let palette = &emu.bus.ppu.palettes[palette_id..palette_id+4];
           // framebuf.set_tile(x as usize, y as usize, tile, palette);
-          let sprite = Tile::oam_sprite_from_idx(i, &emu.bus.ppu);
+          let _sprite = Tile::oam_sprite_from_idx(i, &emu.bus.ppu);
           //framebuf.set_tile(sprite);
         }
 
@@ -187,9 +187,9 @@ mod ppu_test {
       const RENDER_HEIGHT: f32 = 30.0;
       const SCALE: f32 = 3.0;
       
-      let mut sdl = Sdl2Context::new("Background", (8.0*RENDER_WIDTH*SCALE) as u32, (8.0*RENDER_HEIGHT*SCALE) as u32);
+      let mut sdl = Sdl2Context::new("Accurate", (8.0*RENDER_WIDTH*SCALE) as u32, (8.0*RENDER_HEIGHT*SCALE) as u32);
       // let rom_path = &Path::new("tests/nestest/nestest.nes");
-      let rom_path = &Path::new("roms/Super Mario Bros.nes");
+      let rom_path = &Path::new("roms/Ice Climber.nes");
       let cart = Cart::new(rom_path);
       let mut emu = Cpu::new(cart);
       
@@ -214,6 +214,7 @@ mod ppu_test {
         sdl.canvas.present();
       }
 
+      println!("PALETTES {:02X?}", emu.bus.ppu.palettes);
       println!("{:?}", emu.bus.ppu);
     }
 }

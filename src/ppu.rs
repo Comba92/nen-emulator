@@ -107,28 +107,26 @@ pub struct RenderData {
 pub struct ShiftersRegs {
   plane0: u16,
   plane1: u16,
-  palette_low: u16,
-  palette_high: u16,
+  plaette0: u16,
+  palette1: u16,
 }
 impl ShiftersRegs {
   pub fn update(&mut self) {
     self.plane0 <<= 1;
     self.plane1 <<= 1;
-    self.palette_low <<= 1;
-    self.palette_high <<= 1;
+    self.plaette0 <<= 1;
+    self.palette1 <<= 1;
   }
   pub fn load(&mut self, data: &RenderData) {
     self.plane0 = (self.plane0 & 0xFF00) | (data.tile_plane0 as u16);
     self.plane1 = (self.plane1 & 0xFF00) | (data.tile_plane1 as u16);
 
-    let plt_low_curr  = self.palette_low & 0xFF00;
-    let plt_high_curr = self.palette_high & 0xFF00;
+    let plt0_curr = self.plaette0  & 0xFF00;
+    let plt1_curr = self.palette1 & 0xFF00;
 
     let palette_id = data.palette_id as u16;
-    for i in 0..8 {
-      self.palette_low  = plt_low_curr  | ((palette_id & 0b01) >> 0 as u16) << i;
-      self.palette_high = plt_high_curr | ((palette_id & 0b10) >> 1 as u16) << i;
-    }
+    self.plaette0 = plt0_curr | (if (palette_id & 0b01) != 0 {0xFF} else { 0x00 });
+    self.palette1 = plt1_curr | (if (palette_id & 0b10) != 0 {0xFF} else { 0x00 });
   }
 
   pub fn get(&self, fine_x: u8) -> (u8, u8) {
@@ -136,11 +134,11 @@ impl ShiftersRegs {
 
     let bit1 = ((self.plane1 & shift_mask) != 0) as u8;
     let bit0 = ((self.plane0 & shift_mask) != 0) as u8;
-    let pixel = (bit0 << 1) | bit1;
+    let pixel = (bit1 << 1) | bit0;
     
-    let pal1 = ((self.palette_high & shift_mask) != 0) as u8;
-    let pal0 = ((self.palette_low & shift_mask) != 0) as u8;
-    let palette_id = (pal0 << 1) | pal1;
+    let pal1 = ((self.palette1  & shift_mask) != 0) as u8;
+    let pal0 = ((self.plaette0  & shift_mask) != 0) as u8;
+    let palette_id = (pal1 << 1) | pal0;
 
     (pixel as u8, palette_id as u8)
   }
@@ -172,8 +170,6 @@ pub struct Ppu {
   pub ctrl: PpuCtrl,
   pub mask: PpuMask,
   pub stat: PpuStat,
-  // TODO: remove this
-  pub scroll: (u8, u8),
   pub oam_addr: u8,
   
   pub mapper: CartMapper,
@@ -215,7 +211,6 @@ impl Ppu {
       ctrl: PpuCtrl::empty(),
       mask: PpuMask::empty(),
       stat: PpuStat::empty(),
-      scroll: (0, 0),
       mirroring,
 
       nmi_requested: None,
@@ -282,7 +277,7 @@ impl Ppu {
 
       // Visible frames + Pre-render line background fetches
       (1..=256 | 321..=336, 0..=239) | (321..=336, 261) => {
-        self.fetch_next_tile();
+        self.next_tile_fetch_step();
       }
 
       // Restore horizontal
@@ -304,10 +299,6 @@ impl Ppu {
     && self.scanline == 261 {
       self.cycle += 1;
     }
-
-    if self.is_spr0_hit() {
-      self.stat.insert(PpuStat::spr0_hit);
-    }
     
     self.cycle += 1;
     if self.cycle > 340 {
@@ -321,33 +312,33 @@ impl Ppu {
     }
   }
 
-  pub fn fetch_next_tile(&mut self) {
+  pub fn next_tile_fetch_step(&mut self) {
     self.shifters.update();
 
     // https://www.nesdev.org/wiki/PPU_scrolling#Tile_and_attribute_fetching
-    match (self.cycle-1) % 8 {
-      0 => {
+    match ((self.cycle-1) % 8) + 1 {
+      1 => {
         self.shifters.load(&self.render_data);
-        self.render_data.tile_id = self.vram_peek(0x2000 | self.v.nametbl_idx());
+        self.render_data.tile_id = self.vram_peek(0x2000 + self.v.nametbl_idx());
       }
-      2 => {
+      3 => {
         let attribute_addr = 0x23C0
           | ((self.v.nametbl() as u16) << 10)
           | ((self.v.coarse_y() as u16)/4) << 3
           | ((self.v.coarse_x() as u16)/4);
-
         let attribute = self.vram_peek(attribute_addr);
+
         let palette_id = match (self.v.coarse_x() % 4, self.v.coarse_y() % 4) {
           (0..2, 0..2) => (attribute & 0b0000_0011) >> 0 & 0b11,
           (2..4, 0..2) => (attribute & 0b0000_1100) >> 2 & 0b11,
           (0..2, 2..4) => (attribute & 0b0011_0000) >> 4 & 0b11,
           (2..4, 2..4) => (attribute & 0b1100_0000) >> 6 & 0b11,
           _ => unreachable!("mod 4 should always give value smaller than 4"),
-        } * 4;
+        };
 
         self.render_data.palette_id = palette_id;
       }
-      4 => {
+      5 => {
         let tile_addr  = self.ctrl.bg_ptrntbl_addr() 
           + (self.render_data.tile_id as u16) * 16
           + self.v.fine_y() as u16;
@@ -355,7 +346,7 @@ impl Ppu {
         let plane0 = self.vram_peek(tile_addr);
         self.render_data.tile_plane0 = plane0;
       }
-      6 => {
+      7 => {
         let tile_addr  = self.ctrl.bg_ptrntbl_addr() 
           + (self.render_data.tile_id as u16) * 16
           + self.v.fine_y() as u16;
@@ -363,7 +354,7 @@ impl Ppu {
         let plane1 = self.vram_peek(tile_addr + 8);
         self.render_data.tile_plane1 = plane1;
       }
-      7 => {
+      8 => {
         self.increase_coarse_x();
       }
       _ => {}
@@ -481,7 +472,7 @@ impl Ppu {
             self.t.set_coarse_x((val & 0b1111_1000) >> 3);
             self.x = val & 0b0000_0111;
             
-            self.scroll.0 = val;
+            // self.scroll.0 = val;
             self.w = WriteLatch::SecondWrite;
           }
           WriteLatch::SecondWrite => {
@@ -492,7 +483,7 @@ impl Ppu {
             self.t.set_coarse_y(high);
             self.t.set_fine_y(low);
 
-            self.scroll.1 = val;
+            // self.scroll.1 = val;
             self.w = WriteLatch::FirstWrite;
           }
         }
@@ -581,7 +572,7 @@ impl Ppu {
   }
 
   pub fn get_color_id(&self, pixel: u8, palette_id: u8) -> u8 {
-    self.palettes[palette_id as usize + pixel as usize]
+    self.palettes[((palette_id as usize) << 2) | pixel as usize]
   }
 
   pub fn mirror_nametbl(&self, addr: u16) -> u16 {
