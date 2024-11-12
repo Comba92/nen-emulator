@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::{cart::NametblMirroring, mapper::CartMapper, renderer::NesScreen, tile::Tile};
+use crate::{cart::NametblMirroring, mapper::CartMapper, renderer::NesScreen, tile::{OamEntry, Tile}};
 use bitfield_struct::bitfield;
 use bitflags::bitflags;
 use log::{info, warn};
@@ -103,41 +103,43 @@ pub struct RenderData {
   pub tile_plane1: u8
 }
 
-#[derive(Default)]
-pub struct ShiftersRegs {
-  plane0: u16,
-  plane1: u16,
-  plaette0: u16,
-  palette1: u16,
+#[bitfield(u16, order = Lsb)]
+pub struct ShiftReg {
+  #[bits(8)]
+  lo: u8,
+  #[bits(8)]
+  hi: u8
 }
-impl ShiftersRegs {
-  pub fn update(&mut self) {
-    self.plane0 <<= 1;
-    self.plane1 <<= 1;
-    self.plaette0 <<= 1;
-    self.palette1 <<= 1;
+
+#[derive(Default)]
+pub struct Shifters {
+  plane0: ShiftReg,
+  plane1: ShiftReg,
+  palette0: ShiftReg,
+  palette1: ShiftReg,
+}
+impl Shifters {
+    pub fn update(&mut self) {
+    self.plane0.0 <<= 1;
+    self.plane1.0 <<= 1;
+    self.palette0.0 <<= 1;
+    self.palette1.0 <<= 1;
   }
   pub fn load(&mut self, data: &RenderData) {
-    self.plane0 = (self.plane0 & 0xFF00) | (data.tile_plane0 as u16);
-    self.plane1 = (self.plane1 & 0xFF00) | (data.tile_plane1 as u16);
-
-    let plt0_curr = self.plaette0  & 0xFF00;
-    let plt1_curr = self.palette1 & 0xFF00;
-
-    let palette_id = data.palette_id as u16;
-    self.plaette0 = plt0_curr | (if (palette_id & 0b01) != 0 {0xFF} else { 0x00 });
-    self.palette1 = plt1_curr | (if (palette_id & 0b10) != 0 {0xFF} else { 0x00 });
+    self.plane0.set_lo(data.tile_plane0);
+    self.plane1.set_lo(data.tile_plane1);
+    self.palette0.set_lo(if (data.palette_id & 0b01) != 0 {0xFF} else { 0x00 });
+    self.palette1.set_lo(if (data.palette_id & 0b10) != 0 {0xFF} else { 0x00 });
   }
-
   pub fn get(&self, fine_x: u8) -> (u8, u8) {
-    let shift_mask = 0x8000 >> fine_x;
+    let mask = 0x8000 >> fine_x;
 
-    let bit1 = ((self.plane1 & shift_mask) != 0) as u8;
-    let bit0 = ((self.plane0 & shift_mask) != 0) as u8;
+    let bit1 = ((self.plane1.0 & mask) != 0) as u8;
+    let bit0 = ((self.plane0.0 & mask) != 0) as u8;
     let pixel = (bit1 << 1) | bit0;
     
-    let pal1 = ((self.palette1  & shift_mask) != 0) as u8;
-    let pal0 = ((self.plaette0  & shift_mask) != 0) as u8;
+    let pal1 = ((self.palette1.0  & mask) != 0) as u8;
+    let pal0 = ((self.palette0.0  & mask) != 0) as u8;
     let palette_id = (pal1 << 1) | pal0;
 
     (pixel as u8, palette_id as u8)
@@ -156,21 +158,22 @@ pub enum VramDst {
 pub struct Ppu {
   pub screen: NesScreen,
 
-  render_data: RenderData,
-  shifters: ShiftersRegs,
+  render_buf: RenderData,
+  shifters: Shifters,
+  scanline_buf: [OamEntry; 8],
 
   v: LoopyReg, // current vram address
   t: LoopyReg, // temporary vram address / topleft onscreen tile
   x: u8, // Fine X Scroll
   w: WriteLatch, // First or second write toggle
   data_buf: u8,
-  // TODO: do we need this?
   in_odd_frame: bool,
   
   pub ctrl: PpuCtrl,
   pub mask: PpuMask,
   pub stat: PpuStat,
   pub oam_addr: u8,
+  pub scroll: (u8, u8),
   
   pub mapper: CartMapper,
   pub patterns: Vec<u8>,
@@ -196,10 +199,14 @@ impl Ppu {
   pub fn new(chr_rom: Vec<u8>, mapper: CartMapper, mirroring: NametblMirroring) -> Self {
     Self {
       screen: NesScreen::new(),
-      render_data: RenderData::default(),
-      shifters: ShiftersRegs::default(),
+
+      shifters: Shifters::default(),
+      render_buf: RenderData::default(),
+      scanline_buf: [OamEntry::default(); 8],
+      
       v: LoopyReg::new(), t: LoopyReg::new(), 
       x: 0, w: WriteLatch::FirstWrite, 
+
       patterns: chr_rom,
       mapper,
       vram: [0; 0x1000], 
@@ -211,6 +218,8 @@ impl Ppu {
       ctrl: PpuCtrl::empty(),
       mask: PpuMask::empty(),
       stat: PpuStat::empty(),
+      scroll: (0, 0),
+      
       mirroring,
 
       nmi_requested: None,
@@ -249,7 +258,6 @@ impl Ppu {
         self.stat = PpuStat::empty();
         self.oam_addr = 0;
         self.scanline = 0;
-        self.cycle = 0;
       }
     }
   }
@@ -277,7 +285,10 @@ impl Ppu {
 
       // Visible frames + Pre-render line background fetches
       (1..=256 | 321..=336, 0..=239) | (321..=336, 261) => {
-        self.next_tile_fetch_step();
+        self.render_next_bg_pixel();
+        if (65..=256).contains(&self.cycle) {
+          self.render_spr_pixels();
+        }
       }
 
       // Restore horizontal
@@ -286,10 +297,10 @@ impl Ppu {
       (280..=304, 261)      => self.reset_render_y(),
 
       // Visible frames + Pre-render line sprite fetches
-      (257..=320, 0..=239 | 261) => {}
-      // Dummy unused nametable fetches
-      (337..=340, 0..=239 | 261) => {} 
-      
+      (257..=320, 0..=239 | 261) => {
+
+      }
+
       _ => {}
     }
     
@@ -312,14 +323,22 @@ impl Ppu {
     }
   }
 
-  pub fn next_tile_fetch_step(&mut self) {
+  pub fn evaluate_sprites(&mut self) {
+    
+  }
+
+  pub fn render_spr_pixels(&mut self) {
+    
+  }
+
+  pub fn render_next_bg_pixel(&mut self) {
     self.shifters.update();
 
     // https://www.nesdev.org/wiki/PPU_scrolling#Tile_and_attribute_fetching
     match ((self.cycle-1) % 8) + 1 {
       1 => {
-        self.shifters.load(&self.render_data);
-        self.render_data.tile_id = self.vram_peek(0x2000 + self.v.nametbl_idx());
+        self.shifters.load(&self.render_buf);
+        self.render_buf.tile_id = self.vram_peek(0x2000 + self.v.nametbl_idx());
       }
       3 => {
         let attribute_addr = 0x23C0
@@ -327,32 +346,25 @@ impl Ppu {
           | ((self.v.coarse_y() as u16)/4) << 3
           | ((self.v.coarse_x() as u16)/4);
         let attribute = self.vram_peek(attribute_addr);
+        let palette_id = self.get_palette_id(attribute);
 
-        let palette_id = match (self.v.coarse_x() % 4, self.v.coarse_y() % 4) {
-          (0..2, 0..2) => (attribute & 0b0000_0011) >> 0 & 0b11,
-          (2..4, 0..2) => (attribute & 0b0000_1100) >> 2 & 0b11,
-          (0..2, 2..4) => (attribute & 0b0011_0000) >> 4 & 0b11,
-          (2..4, 2..4) => (attribute & 0b1100_0000) >> 6 & 0b11,
-          _ => unreachable!("mod 4 should always give value smaller than 4"),
-        };
-
-        self.render_data.palette_id = palette_id;
+        self.render_buf.palette_id = palette_id;
       }
       5 => {
         let tile_addr  = self.ctrl.bg_ptrntbl_addr() 
-          + (self.render_data.tile_id as u16) * 16
+          + (self.render_buf.tile_id as u16) * 16
           + self.v.fine_y() as u16;
 
         let plane0 = self.vram_peek(tile_addr);
-        self.render_data.tile_plane0 = plane0;
+        self.render_buf.tile_plane0 = plane0;
       }
       7 => {
         let tile_addr  = self.ctrl.bg_ptrntbl_addr() 
-          + (self.render_data.tile_id as u16) * 16
+          + (self.render_buf.tile_id as u16) * 16
           + self.v.fine_y() as u16;
 
         let plane1 = self.vram_peek(tile_addr + 8);
-        self.render_data.tile_plane1 = plane1;
+        self.render_buf.tile_plane1 = plane1;
       }
       8 => {
         self.increase_coarse_x();
@@ -420,9 +432,9 @@ impl Ppu {
     let spr0_x = self.oam[3] as usize;
 
     // TODO: is this correct?
-    spr0_y == self.scanline &&
-    spr0_x <= self.cycle &&
-    self.mask.contains(PpuMask::spr_render_on)
+    self.is_rendering_on()
+      && spr0_y == self.scanline
+      && spr0_x <= self.cycle
   }
 
   pub fn is_rendering_on(&self) -> bool {
@@ -472,7 +484,7 @@ impl Ppu {
             self.t.set_coarse_x((val & 0b1111_1000) >> 3);
             self.x = val & 0b0000_0111;
             
-            // self.scroll.0 = val;
+            self.scroll.0 = val;
             self.w = WriteLatch::SecondWrite;
           }
           WriteLatch::SecondWrite => {
@@ -483,7 +495,7 @@ impl Ppu {
             self.t.set_coarse_y(high);
             self.t.set_fine_y(low);
 
-            // self.scroll.1 = val;
+            self.scroll.1 = val;
             self.w = WriteLatch::FirstWrite;
           }
         }
@@ -573,6 +585,16 @@ impl Ppu {
 
   pub fn get_color_id(&self, pixel: u8, palette_id: u8) -> u8 {
     self.palettes[((palette_id as usize) << 2) | pixel as usize]
+  }
+
+  pub fn get_palette_id(&self, attribute: u8) -> u8 {
+    match (self.v.coarse_x() % 4, self.v.coarse_y() % 4) {
+      (0..2, 0..2) => (attribute & 0b0000_0011) >> 0 & 0b11,
+      (2..4, 0..2) => (attribute & 0b0000_1100) >> 2 & 0b11,
+      (0..2, 2..4) => (attribute & 0b0011_0000) >> 4 & 0b11,
+      (2..4, 2..4) => (attribute & 0b1100_0000) >> 6 & 0b11,
+      _ => unreachable!("mod 4 should always give value smaller than 4"),
+    }
   }
 
   pub fn mirror_nametbl(&self, addr: u16) -> u16 {

@@ -3,7 +3,7 @@ mod ppu_test {
     use std::path::Path;
     #[allow(unused_imports)]
     use log::info;
-    use nen_emulator::{cart::Cart, cpu::Cpu, renderer::{FrameBuffer, Sdl2Context, GREYSCALE_PALETTE, handle_input}, tile::{SpritePriority, Tile}};
+    use nen_emulator::{cart::Cart, cpu::Cpu, renderer::{handle_input, FrameBuffer, NesScreen, Sdl2Context, GREYSCALE_PALETTE}, tile::{SpritePriority, Tile, SCREEN_HEIGHT, SCREEN_WIDTH}};
     use sdl2::{event::Event, pixels::PixelFormatEnum};
 
 
@@ -98,11 +98,12 @@ mod ppu_test {
       const RENDER_HEIGHT: f32 = 30.0;
       const SCALE: f32 = 3.0;
       
-      let mut sdl = Sdl2Context::new("Background", (8.0*RENDER_WIDTH*SCALE) as u32, (8.0*RENDER_HEIGHT*SCALE) as u32);
-      let mut framebuf = FrameBuffer::new(8*RENDER_WIDTH as usize, 8*RENDER_HEIGHT as usize);
-      
+      let mut sdl = Sdl2Context::new("Frame renderer", (8.0*RENDER_WIDTH*SCALE) as u32, (8.0*RENDER_HEIGHT*SCALE) as u32);
+      // let mut framebuf = FrameBuffer::new(8*RENDER_WIDTH as usize, 8*RENDER_HEIGHT as usize);
+      let mut framebuf = NesScreen::new();
+
       let mut texture = sdl.texture_creator
-      .create_texture_target(PixelFormatEnum::RGB24, framebuf.width as u32, framebuf.height as u32)
+      .create_texture_target(PixelFormatEnum::RGB24, framebuf.0.width as u32, framebuf.0.height as u32)
       .unwrap();
     
       // let rom_path = &Path::new("tests/nestest/nestest.nes");
@@ -143,8 +144,7 @@ mod ppu_test {
 
           // let palette = &emu.bus.ppu.palettes[palette_id..palette_id+4];
           //framebuf.set_tile(8*x as usize, 8*y as usize, tile, palette);
-          let tile = Tile::bg_sprite_from_idx(i, &emu.bus.ppu);
-          framebuf.set_tile(tile);
+          framebuf.render_background(&emu.bus.ppu);
         }
 
         // let spr_ptrntbl = emu.bus.ppu.ctrl.spr_ptrntbl_addr();
@@ -163,12 +163,14 @@ mod ppu_test {
           // let palette_id = 16 + (attributes & 0b11) as usize * 4;
           // let palette = &emu.bus.ppu.palettes[palette_id..palette_id+4];
           // framebuf.set_tile(x as usize, y as usize, tile, palette);
-          let _sprite = Tile::oam_sprite_from_idx(i, &emu.bus.ppu);
-          //framebuf.set_tile(sprite);
+          // let sprite = Tile::oam_sprite_from_idx(i, &emu.bus.ppu);
+          // if sprite.x < SCREEN_WIDTH*8 - 8 && sprite.y < SCREEN_HEIGHT*8 - 8 {
+          //   framebuf.set_tile(sprite);
+          // }
+          framebuf.render_sprites(&emu.bus.ppu);
         }
 
-
-        texture.update(None, &framebuf.buffer, framebuf.pitch()).unwrap();
+        texture.update(None, &framebuf.0.buffer, framebuf.0.pitch()).unwrap();
         sdl.canvas.copy(&texture, None, None).unwrap();
         sdl.canvas.present();
       }
@@ -187,9 +189,9 @@ mod ppu_test {
       const RENDER_HEIGHT: f32 = 30.0;
       const SCALE: f32 = 3.0;
       
-      let mut sdl = Sdl2Context::new("Accurate", (8.0*RENDER_WIDTH*SCALE) as u32, (8.0*RENDER_HEIGHT*SCALE) as u32);
+      let mut sdl = Sdl2Context::new("Pixel renderer", (8.0*RENDER_WIDTH*SCALE) as u32, (8.0*RENDER_HEIGHT*SCALE) as u32);
       // let rom_path = &Path::new("tests/nestest/nestest.nes");
-      let rom_path = &Path::new("roms/Ice Climber.nes");
+      let rom_path = &Path::new("roms/Pacman.nes");
       let cart = Cart::new(rom_path);
       let mut emu = Cpu::new(cart);
       

@@ -1,4 +1,4 @@
-use log::{debug, info};
+use log::debug;
 
 use crate::{cart::{Cart, CartHeader}, dev::Joypad, mapper::CartMapper, mem::Memory, ppu::Ppu};
 
@@ -17,30 +17,9 @@ pub struct Bus {
   pub joypad: Joypad,
 }
 
-fn map_address(addr: u16) -> (BusDst, usize) {
-  match addr {
-    0x0000..=0x1FFF => {
-      let ram_addr = addr & 0x07FF;
-      (BusDst::Ram, ram_addr as usize)
-    }
-    0x2000..=0x3FFF => {
-      let ppu_addr = addr & 0x2007;
-      (BusDst::Ppu, ppu_addr as usize)
-    }
-
-    0x4014 => (BusDst::Dma, addr as usize),
-    0x4016 => (BusDst::Joypad1, addr as usize),
-    0x4017 => (BusDst::Joypad2, addr as usize),
-
-    0x6000..=0x7FFF => (BusDst::SRam, addr as usize - 0x6000),
-    0x8000..=0xFFFF => (BusDst::Prg, addr as usize - 0x8000),
-    _ => (BusDst::NoImpl, addr as usize)
-  }
-}
-
 impl Memory for Bus {
   fn read(&mut self, addr: u16) -> u8 {
-    let (dst, addr) = map_address(addr);
+    let (dst, addr) = self.map_address(addr);
     match dst {
       BusDst::Ram => self.ram[addr],
       BusDst::Ppu => self.ppu.reg_read(addr as u16),
@@ -52,7 +31,7 @@ impl Memory for Bus {
   }
 
   fn write(&mut self, addr: u16, val: u8) {
-    let (dst, addr) = map_address(addr);
+    let (dst, addr) = self.map_address(addr);
     match dst {
       BusDst::Ram => self.ram[addr] = val,
       BusDst::Ppu => self.ppu.reg_write(addr as u16, val),
@@ -97,8 +76,29 @@ impl Bus {
     }
   }
 
+  fn map_address(&self, addr: u16) -> (BusDst, usize) {
+    match addr {
+      0x0000..=0x1FFF => {
+        let ram_addr = addr & 0x07FF;
+        (BusDst::Ram, ram_addr as usize)
+      }
+      0x2000..=0x3FFF => {
+        let ppu_addr = addr & 0x2007;
+        (BusDst::Ppu, ppu_addr as usize)
+      }
+  
+      0x4014 => (BusDst::Dma, addr as usize),
+      0x4016 => (BusDst::Joypad1, addr as usize),
+      0x4017 => (BusDst::Joypad2, addr as usize),
+  
+      0x6000..=0x7FFF => (BusDst::SRam, addr as usize - 0x6000),
+      0x8000..=0xFFFF => (BusDst::Prg, addr as usize - 0x8000),
+      _ => (BusDst::NoImpl, addr as usize)
+    }
+  }
+
   pub fn step(&mut self, cycles: usize) {
-    for _ in 0..cycles*3 { self.ppu.step_accurate(); }
+    for _ in 0..cycles*3 { self.ppu.step(); }
   }
   
   pub fn peek_vblank(&mut self) -> bool {

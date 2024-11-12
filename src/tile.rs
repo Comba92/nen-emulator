@@ -65,9 +65,9 @@ impl<'a> Tile<'a> {
   }
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum SpritePriority { Front, Behind, Background }
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Default, Clone, Copy)]
+pub enum SpritePriority { Front, #[default] Behind, Background }
+#[derive(Debug, Default, Clone, Copy)]
 pub struct OamEntry {
   pub y: usize,
   pub tile_id: u8,
