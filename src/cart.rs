@@ -13,7 +13,7 @@ pub struct CartHeader {
   pub has_alt_nametbl: bool,
   pub is_nes_v2: bool,
   pub tv_system: TvSystem,
-  pub nametbl_mirroring: NametblMirroring,
+  pub nametbl_mirroring: Mirroring,
   pub mapper: u8,
 }
 
@@ -23,7 +23,7 @@ const PRG_ROM_PAGE_SIZE: usize = 1024 * 16;
 const CHR_ROM_PAGE_SIZE: usize = 1024 * 8;
 
 #[derive(Debug, Default, Clone, Copy)]
-pub enum NametblMirroring { #[default] Horizontally, Vertically, FourScreen }
+pub enum Mirroring { #[default] Horizontally, Vertically, FourScreen }
 #[derive(Debug, Default, Clone, Copy)]
 pub enum TvSystem { #[default] NTSC, PAL }
 
@@ -44,9 +44,9 @@ impl CartHeader {
     let nametbl_mirroring = rom[6] & 1;
     let has_alt_nametbl = rom[6] & 0b0000_1000 != 0;
     let nametbl_layout = match (nametbl_mirroring, has_alt_nametbl)  {
-      (_, true)   => NametblMirroring::FourScreen,
-      (0, false)  => NametblMirroring::Horizontally,
-      (1, false)  => NametblMirroring::Vertically,
+      (_, true)   => Mirroring::FourScreen,
+      (0, false)  => Mirroring::Horizontally,
+      (1, false)  => Mirroring::Vertically,
       _ => unreachable!()
     };
 

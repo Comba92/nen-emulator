@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::{cart::NametblMirroring, mapper::CartMapper, renderer::NesScreen, tile::{OamEntry, Tile}};
+use crate::{cart::Mirroring, mapper::CartMapper, renderer::{NesScreen, SYS_PALETTES}, tile::{OamEntry, SpritePriority, Tile}};
 use bitfield_struct::bitfield;
 use bitflags::bitflags;
 use log::{info, warn};
@@ -64,6 +64,12 @@ impl PpuCtrl {
       true  => 0x1000
     }
   }
+  pub fn spr_height(&self) -> usize {
+    match self.contains(PpuCtrl::spr_size) {
+      false => 8,
+      true => 16
+    }
+  }
 }
 
 
@@ -110,15 +116,20 @@ pub struct ShiftReg {
   #[bits(8)]
   hi: u8
 }
+impl ShiftReg {
+  pub fn get(&self) -> u8 {
+    ((self.0 & 0x8000) != 0) as u8
+  }
+}
 
 #[derive(Default)]
-pub struct Shifters {
+pub struct BgShifters {
   plane0: ShiftReg,
   plane1: ShiftReg,
   palette0: ShiftReg,
   palette1: ShiftReg,
 }
-impl Shifters {
+impl BgShifters {
     pub fn update(&mut self) {
     self.plane0.0 <<= 1;
     self.plane1.0 <<= 1;
@@ -159,8 +170,9 @@ pub struct Ppu {
   pub screen: NesScreen,
 
   render_buf: RenderData,
-  shifters: Shifters,
-  scanline_buf: [OamEntry; 8],
+  bg_shifters: BgShifters,
+  spr_shifters: [(ShiftReg, ShiftReg); 8],
+  oam_secondary: Vec<OamEntry>,
 
   v: LoopyReg, // current vram address
   t: LoopyReg, // temporary vram address / topleft onscreen tile
@@ -183,7 +195,7 @@ pub struct Ppu {
   
   pub scanline: usize,
   pub cycle: usize,
-  pub mirroring: NametblMirroring,
+  pub mirroring: Mirroring,
 
   pub nmi_requested: Option<()>,
   pub vblank_started: Option<()>,
@@ -196,13 +208,14 @@ impl fmt::Debug for Ppu {
 }
 
 impl Ppu {
-  pub fn new(chr_rom: Vec<u8>, mapper: CartMapper, mirroring: NametblMirroring) -> Self {
+  pub fn new(chr_rom: Vec<u8>, mapper: CartMapper, mirroring: Mirroring) -> Self {
     Self {
       screen: NesScreen::new(),
 
-      shifters: Shifters::default(),
+      bg_shifters: BgShifters::default(),
+      spr_shifters: [(ShiftReg::new(), ShiftReg::new()); 8],
       render_buf: RenderData::default(),
-      scanline_buf: [OamEntry::default(); 8],
+      oam_secondary: Vec::with_capacity(8),
       
       v: LoopyReg::new(), t: LoopyReg::new(), 
       x: 0, w: WriteLatch::FirstWrite, 
@@ -272,8 +285,9 @@ impl Ppu {
 
       // Post-render line
       (1, 241) => {
+        if !self.mask.contains(PpuMask::spr_render_on) {  }
+        
         info!("VBLANK!!");
-
         self.vblank_started = Some(());
         self.stat.insert(PpuStat::vblank);
         self.stat.remove(PpuStat::spr0_hit);
@@ -285,20 +299,19 @@ impl Ppu {
 
       // Visible frames + Pre-render line background fetches
       (1..=256 | 321..=336, 0..=239) | (321..=336, 261) => {
-        self.render_next_bg_pixel();
-        if (65..=256).contains(&self.cycle) {
-          self.render_spr_pixels();
-        }
+        self.fetch_next_bg_pixel();
       }
 
       // Restore horizontal
       (257, 0..=239 | 261)  => self.reset_render_x(),
        // Restore vertical
-      (280..=304, 261)      => self.reset_render_y(),
+      //(280..=304, 261)      => self.reset_render_y(),
+      (280, 261)            => self.reset_render_y(),
+
 
       // Visible frames + Pre-render line sprite fetches
       (257..=320, 0..=239 | 261) => {
-
+        self.fetch_next_scanline_spr_pixel();
       }
 
       _ => {}
@@ -324,20 +337,78 @@ impl Ppu {
   }
 
   pub fn evaluate_sprites(&mut self) {
-    
+    let mut visible_sprites = 0;
+
+    for i in (0..256).step_by(4) {
+      let spr_y = self.oam[i];
+
+      // TODO: this is searching for sprites in the NEXT scanline, is this correct?
+      let dist = self.scanline.abs_diff(spr_y as usize);
+      if dist < self.ctrl.spr_height() {
+        if self.oam_secondary.len() < 8 {
+          let sprite = OamEntry::from_bytes(&self.oam[i..i+4]);
+          self.oam_secondary.push(sprite);
+        }
+        visible_sprites += 1;
+      }
+    }
+
+    self.stat.set(PpuStat::spr_overflow, visible_sprites > 8);
   }
 
-  pub fn render_spr_pixels(&mut self) {
-    
+  pub fn fetch_next_scanline_spr_pixel(&mut self) {
+    let current_spr = (self.cycle - 256) % 8; 
+
+    let sprite = self.oam_secondary.get(current_spr);
+    if sprite.is_none() { return; }
+
+    let sprite = sprite.unwrap();
+    let vertical_start = if sprite.flip_vertical { 7 } else { 0 };
+    let dist = self.scanline.abs_diff(sprite.y);
+
+    let spr_addr = match self.ctrl.spr_height() {
+      8 => self.ctrl.spr_ptrntbl_addr() 
+        + sprite.tile_id as u16 * 16
+        + (dist & 0x111).abs_diff(vertical_start) as u16,
+      16 => {
+        let bank = (sprite.tile_id & 1) as u16;
+        let tile_id = ((sprite.tile_id as u16) & 0b1111_1110) + if dist < 8 { 0 } else { 1 };
+        (bank << 12) 
+          + tile_id * 16 
+          + (dist & 0x111).abs_diff(vertical_start) as u16
+      }
+      _ => unreachable!("sprite heights are either 8 or 16")
+    };
+
+    match ((self.cycle-1) % 8) + 1 {
+      5 => {
+        let mut pattern_lo = self.vram_peek(spr_addr);
+        if sprite.flip_horizontal { pattern_lo = pattern_lo.reverse_bits(); }
+        self.spr_shifters[current_spr].0.set_hi(pattern_lo);
+      }
+      7 => {
+        let mut pattern_hi = self.vram_peek(spr_addr + 8);
+        if sprite.flip_horizontal { pattern_hi = pattern_hi.reverse_bits(); }
+        self.spr_shifters[current_spr].1.set_hi(pattern_hi);
+      }
+      _ => {}
+    }
   }
 
-  pub fn render_next_bg_pixel(&mut self) {
-    self.shifters.update();
+  pub fn fetch_next_bg_pixel(&mut self) {
+    self.bg_shifters.update();
+    for (i, sprite) in self.oam_secondary.iter_mut().enumerate() {
+      if sprite.x > 0 { sprite.x -= 1; }
+      else {
+        self.spr_shifters[i].0.0 <<= 1;
+        self.spr_shifters[i].1.0 <<= 1;
+      }
+    }
 
     // https://www.nesdev.org/wiki/PPU_scrolling#Tile_and_attribute_fetching
     match ((self.cycle-1) % 8) + 1 {
       1 => {
-        self.shifters.load(&self.render_buf);
+        self.bg_shifters.load(&self.render_buf);
         self.render_buf.tile_id = self.vram_peek(0x2000 + self.v.nametbl_idx());
       }
       3 => {
@@ -371,11 +442,31 @@ impl Ppu {
       }
       _ => {}
     }
+    if self.cycle == 1 { 
+      self.oam_secondary.clear();
+      // self.spr_shifters.fill((ShiftReg::new(), ShiftReg::new()));
+    }
+    if self.cycle == 65 { self.evaluate_sprites(); }
     if self.cycle == 256 { self.increase_coarse_y(); }
 
     if self.is_rendering_on() && self.cycle < 32*8 && self.scanline < 30*8 {
-      let (pixel, palette_id) = self.shifters.get(self.x);
-      self.screen.0.set_pixel(self.cycle-1, self.scanline, self.get_color_id(pixel, palette_id));
+      let (bg_pixel, palette_id) = self.bg_shifters.get(self.x);
+      
+      let sprite = self.oam_secondary.iter().enumerate().find(|(i, sprite)| {
+        let spr_pixel = (self.spr_shifters[*i].1.get() << 1) | self.spr_shifters[*i].0.get();
+        sprite.x == 0 && spr_pixel != 0
+      });
+
+      if let Some((i , sprite)) = sprite {
+        if sprite.priority == SpritePriority::Front {
+          let spr_pixel = (self.spr_shifters[i].1.get() << 1) | self.spr_shifters[i].0.get();
+
+          self.screen.0.set_pixel(self.cycle-1, self.scanline, self.get_color_id(spr_pixel, sprite.palette_id));
+        }
+      } else {
+        self.screen.0.set_pixel(self.cycle-1, self.scanline, self.get_color_id(bg_pixel, palette_id));
+      }
+
     }
   }
 
@@ -601,7 +692,7 @@ impl Ppu {
     let addr = addr - 0x2000;
     let nametbl_idx = addr / 0x400;
     
-    use NametblMirroring::*;
+    use Mirroring::*;
     let res = match (self.mirroring, nametbl_idx) {
       (Horizontally, 1) | (Horizontally, 2) => addr - 0x400,
       (Horizontally, 3) => addr - 0x400*2,

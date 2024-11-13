@@ -52,7 +52,8 @@ impl<'a> Tile<'a> {
     let spr_ptrntbl = ppu.ctrl.spr_ptrntbl_addr() as usize;
     let tile_start = spr_ptrntbl + (sprite.tile_id as usize) * 16;
     let tile = &ppu.patterns[tile_start..tile_start+16];
-    let palette = &ppu.palettes[sprite.palette_id..sprite.palette_id+4];
+    let palette_id = sprite.palette_id as usize;
+    let palette = &ppu.palettes[palette_id..palette_id+4];
     
     Self {
       x: sprite.x as usize,
@@ -71,7 +72,7 @@ pub enum SpritePriority { Front, #[default] Behind, Background }
 pub struct OamEntry {
   pub y: usize,
   pub tile_id: u8,
-  pub palette_id: usize,
+  pub palette_id: u8,
   pub priority: SpritePriority,
   pub flip_horizontal: bool,
   pub flip_vertical: bool,
@@ -82,7 +83,7 @@ impl OamEntry {
     let y = bytes[0] as usize;
     let tile = bytes[1];
     let attributes = bytes[2];
-    let palette = 16 + (attributes & 0b11) as usize * 4;
+    let palette = 16 + (attributes & 0b11) * 4;
     let priority  = match (attributes >> 5) & 1 == 0 {
       false => SpritePriority::Front,
       true => SpritePriority::Behind,

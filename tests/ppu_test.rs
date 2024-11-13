@@ -124,7 +124,7 @@ mod ppu_test {
         }
         
         // let bg_ptrntbl = emu.bus.ppu.ctrl.bg_ptrntbl_addr() as usize;
-        for i in 0..32*30 {
+        // for _ in 0..32*30 {
           // let tile_idx = emu.bus.ppu.vram[i];
           // let x = i as u32 % RENDER_WIDTH as u32;
           // let y = i as u32 / RENDER_WIDTH as u32;
@@ -144,11 +144,11 @@ mod ppu_test {
 
           // let palette = &emu.bus.ppu.palettes[palette_id..palette_id+4];
           //framebuf.set_tile(8*x as usize, 8*y as usize, tile, palette);
-          framebuf.render_background(&emu.bus.ppu);
-        }
+        // }
+        framebuf.render_background(&emu.bus.ppu);
 
         // let spr_ptrntbl = emu.bus.ppu.ctrl.spr_ptrntbl_addr();
-        for i in (0..256).step_by(4) {
+        // for i in (0..256).step_by(4) {
           // let tile_idx = emu.bus.ppu.oam[i + 1];
           // let attributes = emu.bus.ppu.oam[i + 2];
           // let x = emu.bus.ppu.oam[i + 3] as usize;
@@ -167,9 +167,10 @@ mod ppu_test {
           // if sprite.x < SCREEN_WIDTH*8 - 8 && sprite.y < SCREEN_HEIGHT*8 - 8 {
           //   framebuf.set_tile(sprite);
           // }
-          framebuf.render_sprites(&emu.bus.ppu);
-        }
+        // }
+        framebuf.render_sprites(&emu.bus.ppu);
 
+        sdl.canvas.clear();
         texture.update(None, &framebuf.0.buffer, framebuf.0.pitch()).unwrap();
         sdl.canvas.copy(&texture, None, None).unwrap();
         sdl.canvas.present();
@@ -191,7 +192,7 @@ mod ppu_test {
       
       let mut sdl = Sdl2Context::new("Pixel renderer", (8.0*RENDER_WIDTH*SCALE) as u32, (8.0*RENDER_HEIGHT*SCALE) as u32);
       // let rom_path = &Path::new("tests/nestest/nestest.nes");
-      let rom_path = &Path::new("roms/Pacman.nes");
+      let rom_path = &Path::new("roms/Donkey Kong.nes");
       let cart = Cart::new(rom_path);
       let mut emu = Cpu::new(cart);
       
