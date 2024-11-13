@@ -280,6 +280,8 @@ impl Ppu {
       // visible scanlines 
       if (1..=256).contains(&self.cycle) || (321..=336).contains(&self.cycle) {
         self.fetch_bg_step();
+      } else if (257..=320).contains(&self.cycle) {
+        self.fetch_spr_step();
       }
       
       if self.cycle == 64 {
@@ -287,11 +289,9 @@ impl Ppu {
       } else if self.cycle == 256 {
         self.increase_coarse_y();
         self.evaluate_sprites();
-        self.spr_scanline.fill(None);
       } else if self.cycle == 257 {
         self.reset_render_x();
-      } else if self.cycle == 320 {
-        self.fetch_spr_step();
+        self.spr_scanline.fill(None);
       }
     }
 
@@ -313,8 +313,8 @@ impl Ppu {
     }
 
     if self.in_odd_frame
-    && self.cycle == 339 
-    && self.scanline == 261 {
+      && self.cycle == 339 
+      && self.scanline == 261 {
       self.cycle += 1;
     }
     
@@ -337,18 +337,19 @@ impl Ppu {
       let spr_y = self.oam[i] as isize;
       let dist_from_scanline = self.scanline as isize - spr_y;
 
-      if dist_from_scanline >= 0 && dist_from_scanline < 8 {
-        self.oam_secondary.push(OamEntry::from_bytes(&self.oam[i..i+4]));
+      if dist_from_scanline >= 0 && dist_from_scanline < self.ctrl.spr_height() as isize {
+        if self.oam_secondary.len() < 8 {
+          self.oam_secondary.push(OamEntry::from_bytes(&self.oam[i..i+4]));
+        }
+        visible_sprites += 1;
       }
-
-      visible_sprites += 1;
     }
 
     self.stat.set(PpuStat::spr_overflow, visible_sprites > 8);
   }
 
   pub fn fetch_spr_step(&mut self) {
-    let current_spr = (self.cycle - 256) % 8;
+    let current_spr = (self.cycle - 257) % 8;
     let sprite = self.oam_secondary.get(current_spr);
     if sprite.is_none() { return; }
 
@@ -356,14 +357,31 @@ impl Ppu {
     let vertical_start: usize = if sprite.flip_vertical { 7 } else { 0 };
     let dist = self.scanline - sprite.y;
 
-    let spr_addr = self.ctrl.spr_ptrntbl_addr() + 16 * sprite.tile_id as u16 + dist as u16;
+    let spr_addr = match self.ctrl.spr_height() {
+      8 => self.ctrl.spr_ptrntbl_addr()
+        + sprite.tile_id as u16 * 16
+        + (dist).abs_diff(vertical_start) as u16,
+      16 => {
+        let bank = (sprite.tile_id & 1) as u16;
+        let tile_id = (((sprite.tile_id as u16) & 0b1111_1110) >> 1) + if dist < 8 { 0 } else { 1 };
+        (bank << 12) 
+          + tile_id * 16 
+          + (dist).abs_diff(vertical_start) as u16
+      }
+      _ => unreachable!("sprite heights are either 8 or 16")
+    };
 
-    let plane0 = self.vram_peek(spr_addr);
-    let plane1 = self.vram_peek(spr_addr + 8);
+    let mut plane0 = self.vram_peek(spr_addr);
+    let mut plane1 = self.vram_peek(spr_addr + 8);
+    if sprite.flip_horizontal { 
+      plane0 = plane0.reverse_bits(); 
+      plane1 = plane1.reverse_bits();
+    }
 
-    for i in (0..8).rev() {
-      let pixel = self.get_pixel_from_planes(i, plane0, plane1);
-      self.spr_scanline[sprite.x + i as usize] = Some((pixel, sprite.palette_id, sprite.priority));
+    for i in 0..8usize {
+      let pixel = self.get_pixel_from_planes(i.abs_diff(vertical_start) as u8, plane0, plane1);
+      if sprite.x + i as usize > 32*8 { continue; }
+      self.spr_scanline[sprite.x + i.abs_diff(vertical_start) as usize] = Some((pixel, sprite.palette_id, sprite.priority));
     }
   }
 
