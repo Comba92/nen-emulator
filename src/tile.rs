@@ -84,7 +84,7 @@ impl OamEntry {
     let tile = bytes[1];
     let attributes = bytes[2];
     let palette = 16 + (attributes & 0b11) * 4;
-    let priority  = match (attributes >> 5) & 1 == 0 {
+    let priority  = match (attributes >> 5) & 1 != 0 {
       false => SpritePriority::Front,
       true => SpritePriority::Behind,
     };

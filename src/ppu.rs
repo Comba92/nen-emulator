@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{array, collections::VecDeque, fmt, io::BufRead};
 
 use crate::{cart::Mirroring, mapper::CartMapper, renderer::{NesScreen, SYS_PALETTES}, tile::{OamEntry, SpritePriority, Tile}};
 use bitfield_struct::bitfield;
@@ -170,9 +170,9 @@ pub struct Ppu {
   pub screen: NesScreen,
 
   render_buf: RenderData,
-  bg_shifters: BgShifters,
-  spr_shifters: [(ShiftReg, ShiftReg); 8],
+  bg_fifo: VecDeque<(u8, u8)>,
   oam_secondary: Vec<OamEntry>,
+  spr_scanline: [Option<(u8, u8, SpritePriority)>; 32*8],
 
   v: LoopyReg, // current vram address
   t: LoopyReg, // temporary vram address / topleft onscreen tile
@@ -212,10 +212,10 @@ impl Ppu {
     Self {
       screen: NesScreen::new(),
 
-      bg_shifters: BgShifters::default(),
-      spr_shifters: [(ShiftReg::new(), ShiftReg::new()); 8],
+      bg_fifo: VecDeque::from([(0, 0)].repeat(8)),
       render_buf: RenderData::default(),
       oam_secondary: Vec::with_capacity(8),
+      spr_scanline: [None; 32*8],
       
       v: LoopyReg::new(), t: LoopyReg::new(), 
       x: 0, w: WriteLatch::FirstWrite, 
@@ -276,48 +276,42 @@ impl Ppu {
   }
 
   pub fn step_accurate(&mut self) {
-    match (self.cycle, self.scanline) {
-      // Pre-render line
-      (1, 261) => {
-        self.stat = PpuStat::empty();
-        self.oam_addr = 0;
+    if (0..=239).contains(&self.scanline) || self.scanline == 261 {
+      // visible scanlines 
+      if (1..=256).contains(&self.cycle) || (321..=336).contains(&self.cycle) {
+        self.fetch_bg_step();
       }
-
-      // Post-render line
-      (1, 241) => {
-        if !self.mask.contains(PpuMask::spr_render_on) {  }
-        
-        info!("VBLANK!!");
-        self.vblank_started = Some(());
-        self.stat.insert(PpuStat::vblank);
-        self.stat.remove(PpuStat::spr0_hit);
-
-        if self.ctrl.contains(PpuCtrl::vblank_nmi_on) {
-          self.nmi_requested = Some(());
-        }
+      
+      if self.cycle == 64 {
+        self.oam_secondary.clear();
+      } else if self.cycle == 256 {
+        self.increase_coarse_y();
+        self.evaluate_sprites();
+        self.spr_scanline.fill(None);
+      } else if self.cycle == 257 {
+        self.reset_render_x();
+      } else if self.cycle == 320 {
+        self.fetch_spr_step();
       }
-
-      // Visible frames + Pre-render line background fetches
-      (1..=256 | 321..=336, 0..=239) | (321..=336, 261) => {
-        self.fetch_next_bg_pixel();
-      }
-
-      // Restore horizontal
-      (257, 0..=239 | 261)  => self.reset_render_x(),
-       // Restore vertical
-      //(280..=304, 261)      => self.reset_render_y(),
-      (280, 261)            => self.reset_render_y(),
-
-
-      // Visible frames + Pre-render line sprite fetches
-      (257..=320, 0..=239 | 261) => {
-        self.fetch_next_scanline_spr_pixel();
-      }
-
-      _ => {}
     }
-    
-    // odd frame skip
+
+    if self.scanline == 241 && self.cycle == 1 {        
+      info!("VBLANK!!");
+      self.vblank_started = Some(());
+      self.stat.insert(PpuStat::vblank);
+      self.stat.remove(PpuStat::spr0_hit);
+
+      if self.ctrl.contains(PpuCtrl::vblank_nmi_on) {
+        self.nmi_requested = Some(());
+      }
+    }
+    else if self.scanline == 261 && self.cycle == 1 {
+      self.stat = PpuStat::empty();
+      self.oam_addr = 0;
+    } else if self.scanline == 261 && self.cycle == 304 {
+      self.reset_render_y();
+    }
+
     if self.in_odd_frame
     && self.cycle == 339 
     && self.scanline == 261 {
@@ -340,88 +334,70 @@ impl Ppu {
     let mut visible_sprites = 0;
 
     for i in (0..256).step_by(4) {
-      let spr_y = self.oam[i];
+      let spr_y = self.oam[i] as isize;
+      let dist_from_scanline = self.scanline as isize - spr_y;
 
-      // TODO: this is searching for sprites in the NEXT scanline, is this correct?
-      let dist = self.scanline.abs_diff(spr_y as usize);
-      if dist < self.ctrl.spr_height() {
-        if self.oam_secondary.len() < 8 {
-          let sprite = OamEntry::from_bytes(&self.oam[i..i+4]);
-          self.oam_secondary.push(sprite);
-        }
-        visible_sprites += 1;
+      if dist_from_scanline >= 0 && dist_from_scanline < 8 {
+        self.oam_secondary.push(OamEntry::from_bytes(&self.oam[i..i+4]));
       }
+
+      visible_sprites += 1;
     }
 
     self.stat.set(PpuStat::spr_overflow, visible_sprites > 8);
   }
 
-  pub fn fetch_next_scanline_spr_pixel(&mut self) {
-    let current_spr = (self.cycle - 256) % 8; 
-
+  pub fn fetch_spr_step(&mut self) {
+    let current_spr = (self.cycle - 256) % 8;
     let sprite = self.oam_secondary.get(current_spr);
     if sprite.is_none() { return; }
 
     let sprite = sprite.unwrap();
-    let vertical_start = if sprite.flip_vertical { 7 } else { 0 };
-    let dist = self.scanline.abs_diff(sprite.y);
+    let vertical_start: usize = if sprite.flip_vertical { 7 } else { 0 };
+    let dist = self.scanline - sprite.y;
 
-    let spr_addr = match self.ctrl.spr_height() {
-      8 => self.ctrl.spr_ptrntbl_addr() 
-        + sprite.tile_id as u16 * 16
-        + (dist & 0x111).abs_diff(vertical_start) as u16,
-      16 => {
-        let bank = (sprite.tile_id & 1) as u16;
-        let tile_id = ((sprite.tile_id as u16) & 0b1111_1110) + if dist < 8 { 0 } else { 1 };
-        (bank << 12) 
-          + tile_id * 16 
-          + (dist & 0x111).abs_diff(vertical_start) as u16
-      }
-      _ => unreachable!("sprite heights are either 8 or 16")
-    };
+    let spr_addr = self.ctrl.spr_ptrntbl_addr() + 16 * sprite.tile_id as u16 + dist as u16;
 
-    match ((self.cycle-1) % 8) + 1 {
-      5 => {
-        let mut pattern_lo = self.vram_peek(spr_addr);
-        if sprite.flip_horizontal { pattern_lo = pattern_lo.reverse_bits(); }
-        self.spr_shifters[current_spr].0.set_hi(pattern_lo);
-      }
-      7 => {
-        let mut pattern_hi = self.vram_peek(spr_addr + 8);
-        if sprite.flip_horizontal { pattern_hi = pattern_hi.reverse_bits(); }
-        self.spr_shifters[current_spr].1.set_hi(pattern_hi);
-      }
-      _ => {}
+    let plane0 = self.vram_peek(spr_addr);
+    let plane1 = self.vram_peek(spr_addr + 8);
+
+    for i in (0..8).rev() {
+      let pixel = self.get_pixel_from_planes(i, plane0, plane1);
+      self.spr_scanline[sprite.x + i as usize] = Some((pixel, sprite.palette_id, sprite.priority));
     }
   }
 
-  pub fn fetch_next_bg_pixel(&mut self) {
-    self.bg_shifters.update();
-    for (i, sprite) in self.oam_secondary.iter_mut().enumerate() {
-      if sprite.x > 0 { sprite.x -= 1; }
-      else {
-        self.spr_shifters[i].0.0 <<= 1;
-        self.spr_shifters[i].1.0 <<= 1;
-      }
+  pub fn load_bg_fifo(&mut self) {
+    for i in (0..8).rev() {
+      let pixel = self.get_pixel_from_planes(i, self.render_buf.tile_plane0, self.render_buf.tile_plane1);
+      self.bg_fifo.push_back((pixel, self.render_buf.palette_id));
     }
+  }
+
+  pub fn fetch_bg_step(&mut self) {
+    let step = ((self.cycle-1) % 8) + 1;
+    self.bg_fifo.pop_front();
 
     // https://www.nesdev.org/wiki/PPU_scrolling#Tile_and_attribute_fetching
-    match ((self.cycle-1) % 8) + 1 {
-      1 => {
-        self.bg_shifters.load(&self.render_buf);
-        self.render_buf.tile_id = self.vram_peek(0x2000 + self.v.nametbl_idx());
+    match step {
+      2 => {
+        self.load_bg_fifo();
+
+        let tile_addr = 0x2000 + self.v.nametbl_idx();
+        self.render_buf.tile_id = self.vram_peek(tile_addr);
       }
-      3 => {
+      4 => {
         let attribute_addr = 0x23C0
-          | ((self.v.nametbl() as u16) << 10)
-          | ((self.v.coarse_y() as u16)/4) << 3
-          | ((self.v.coarse_x() as u16)/4);
+          + ((self.v.nametbl() as u16) << 10)
+          + ((self.v.coarse_y() as u16)/4) * 8
+          + ((self.v.coarse_x() as u16)/4);
+
         let attribute = self.vram_peek(attribute_addr);
-        let palette_id = self.get_palette_id(attribute);
+        let palette_id = self.get_palette_from_attribute(attribute);
 
         self.render_buf.palette_id = palette_id;
       }
-      5 => {
+      6 => {
         let tile_addr  = self.ctrl.bg_ptrntbl_addr() 
           + (self.render_buf.tile_id as u16) * 16
           + self.v.fine_y() as u16;
@@ -437,38 +413,226 @@ impl Ppu {
         let plane1 = self.vram_peek(tile_addr + 8);
         self.render_buf.tile_plane1 = plane1;
       }
-      8 => {
-        self.increase_coarse_x();
-      }
+      8 => self.increase_coarse_x(),
       _ => {}
     }
-    if self.cycle == 1 { 
-      self.oam_secondary.clear();
-      // self.spr_shifters.fill((ShiftReg::new(), ShiftReg::new()));
-    }
-    if self.cycle == 65 { self.evaluate_sprites(); }
-    if self.cycle == 256 { self.increase_coarse_y(); }
 
-    if self.is_rendering_on() && self.cycle < 32*8 && self.scanline < 30*8 {
-      let (bg_pixel, palette_id) = self.bg_shifters.get(self.x);
-      
-      let sprite = self.oam_secondary.iter().enumerate().find(|(i, sprite)| {
-        let spr_pixel = (self.spr_shifters[*i].1.get() << 1) | self.spr_shifters[*i].0.get();
-        sprite.x == 0 && spr_pixel != 0
-      });
+    if self.is_rendering_on() && self.cycle <= 32*8 && self.scanline <= 30*8 {
+      let (bg_pixel, bg_palette_id) = self.bg_fifo.get(self.x as usize).unwrap().to_owned();
 
-      if let Some((i , sprite)) = sprite {
-        if sprite.priority == SpritePriority::Front {
-          let spr_pixel = (self.spr_shifters[i].1.get() << 1) | self.spr_shifters[i].0.get();
-
-          self.screen.0.set_pixel(self.cycle-1, self.scanline, self.get_color_id(spr_pixel, sprite.palette_id));
+      if let Some((spr_pixel, spr_palette, spr_priority)) = self.spr_scanline[self.cycle-1] {
+        if (spr_priority == SpritePriority::Front || bg_pixel == 0) && spr_pixel != 0 {
+          let color = self.get_color_from_palette(spr_pixel, spr_palette);
+          self.screen.0.set_pixel(self.cycle-1, self.scanline, color);
+        } else {
+          let color = self.get_color_from_palette(bg_pixel, bg_palette_id);
+          self.screen.0.set_pixel(self.cycle-1, self.scanline, color);
         }
       } else {
-        self.screen.0.set_pixel(self.cycle-1, self.scanline, self.get_color_id(bg_pixel, palette_id));
+        let color = self.get_color_from_palette(bg_pixel, bg_palette_id);
+        self.screen.0.set_pixel(self.cycle-1, self.scanline, color);
       }
-
     }
   }
+
+  // pub fn step_accurate_old(&mut self) {
+  //   match (self.cycle, self.scanline) {
+  //     // Pre-render line
+  //     (1, 261) => {
+  //       self.stat = PpuStat::empty();
+  //       self.oam_addr = 0;
+  //     }
+
+  //     // Post-render line
+  //     (1, 241) => {
+  //       if !self.mask.contains(PpuMask::spr_render_on) {  }
+        
+  //       info!("VBLANK!!");
+  //       self.vblank_started = Some(());
+  //       self.stat.insert(PpuStat::vblank);
+  //       self.stat.remove(PpuStat::spr0_hit);
+
+  //       if self.ctrl.contains(PpuCtrl::vblank_nmi_on) {
+  //         self.nmi_requested = Some(());
+  //       }
+  //     }
+
+  //     // Visible frames + Pre-render line background fetches
+  //     (1..=256 | 321..=336, 0..=239) | (321..=336, 261) => {
+  //       self.fetch_next_bg_pixel();
+  //     }
+
+  //     // Restore horizontal
+  //     (257, 0..=239 | 261)  => self.reset_render_x(),
+  //      // Restore vertical
+  //     //(280..=304, 261)      => self.reset_render_y(),
+  //     (280, 261)            => self.reset_render_y(),
+
+
+  //     // Visible frames + Pre-render line sprite fetches
+  //     (257..=320, 0..=239 | 261) => {
+  //       self.fetch_next_scanline_spr_pixel();
+  //     }
+
+  //     _ => {}
+  //   }
+    
+  //   // odd frame skip
+  //   if self.in_odd_frame
+  //   && self.cycle == 339 
+  //   && self.scanline == 261 {
+  //     self.cycle += 1;
+  //   }
+    
+  //   self.cycle += 1;
+  //   if self.cycle > 340 {
+  //     self.cycle = 0;
+  //     self.scanline += 1;
+
+  //     if self.scanline > 261 {
+  //       self.scanline = 0;
+  //       self.in_odd_frame = !self.in_odd_frame
+  //     }
+  //   }
+  // }
+
+  // pub fn evaluate_sprites(&mut self) {
+  //   let mut visible_sprites = 0;
+
+  //   for i in (0..256).step_by(4) {
+  //     let spr_y = self.oam[i];
+
+  //     // TODO: this is searching for sprites in the NEXT scanline, is this correct?
+  //     let dist = self.scanline.abs_diff(spr_y as usize);
+  //     if dist < self.ctrl.spr_height() {
+  //       if self.oam_secondary.len() < 8 {
+  //         let sprite = OamEntry::from_bytes(&self.oam[i..i+4]);
+  //         self.oam_secondary.push(sprite);
+  //       }
+  //       visible_sprites += 1;
+  //     }
+  //   }
+
+  //   self.stat.set(PpuStat::spr_overflow, visible_sprites > 8);
+  // }
+
+  // pub fn fetch_next_scanline_spr_pixel(&mut self) {
+  //   let current_spr = (self.cycle - 256) % 8; 
+
+  //   let sprite = self.oam_secondary.get(current_spr);
+  //   if sprite.is_none() { return; }
+
+  //   let sprite = sprite.unwrap();
+  //   let vertical_start = if sprite.flip_vertical { 7 } else { 0 };
+  //   let dist = self.scanline.abs_diff(sprite.y);
+
+  //   let spr_addr = match self.ctrl.spr_height() {
+  //     8 => self.ctrl.spr_ptrntbl_addr() 
+  //       + sprite.tile_id as u16 * 16
+  //       + (dist & 0x111).abs_diff(vertical_start) as u16,
+  //     16 => {
+  //       let bank = (sprite.tile_id & 1) as u16;
+  //       let tile_id = (((sprite.tile_id as u16) & 0b1111_1110) >> 1) + if dist < 8 { 0 } else { 1 };
+  //       (bank << 12) 
+  //         + tile_id * 16 
+  //         + (dist & 0x111).abs_diff(vertical_start) as u16
+  //     }
+  //     _ => unreachable!("sprite heights are either 8 or 16")
+  //   };
+
+  //   match ((self.cycle-1) % 8) + 1 {
+  //     5 => {
+  //       let mut pattern_lo = self.vram_peek(spr_addr);
+  //       if sprite.flip_horizontal { pattern_lo = pattern_lo.reverse_bits(); }
+  //       self.spr_shifters[current_spr].0.set_hi(pattern_lo);
+  //     }
+  //     7 => {
+  //       let mut pattern_hi = self.vram_peek(spr_addr + 8);
+  //       if sprite.flip_horizontal { pattern_hi = pattern_hi.reverse_bits(); }
+  //       self.spr_shifters[current_spr].1.set_hi(pattern_hi);
+  //     }
+  //     _ => {}
+  //   }
+  // }
+
+  // pub fn fetch_next_bg_pixel(&mut self) {
+
+  // }
+
+  // pub fn fetch_next_bg_pixel_old(&mut self) {
+  //   self.bg_shifters.update();
+  //   for (i, sprite) in self.oam_secondary.iter_mut().enumerate() {
+  //     if sprite.x > 0 { sprite.x -= 1; }
+  //     else {
+  //       self.spr_shifters[i].0.0 <<= 1;
+  //       self.spr_shifters[i].1.0 <<= 1;
+  //     }
+  //   }
+
+  //   // https://www.nesdev.org/wiki/PPU_scrolling#Tile_and_attribute_fetching
+  //   match ((self.cycle-1) % 8) + 1 {
+  //     1 => {
+  //       self.bg_shifters.load(&self.render_buf);
+  //       self.render_buf.tile_id = self.vram_peek(0x2000 + self.v.nametbl_idx());
+  //     }
+  //     3 => {
+  //       let attribute_addr = 0x23C0
+  //         | ((self.v.nametbl() as u16) << 10)
+  //         | ((self.v.coarse_y() as u16)/4) << 3
+  //         | ((self.v.coarse_x() as u16)/4);
+  //       let attribute = self.vram_peek(attribute_addr);
+  //       let palette_id = self.get_palette_id(attribute);
+
+  //       self.render_buf.palette_id = palette_id;
+  //     }
+  //     5 => {
+  //       let tile_addr  = self.ctrl.bg_ptrntbl_addr() 
+  //         + (self.render_buf.tile_id as u16) * 16
+  //         + self.v.fine_y() as u16;
+
+  //       let plane0 = self.vram_peek(tile_addr);
+  //       self.render_buf.tile_plane0 = plane0;
+  //     }
+  //     7 => {
+  //       let tile_addr  = self.ctrl.bg_ptrntbl_addr() 
+  //         + (self.render_buf.tile_id as u16) * 16
+  //         + self.v.fine_y() as u16;
+
+  //       let plane1 = self.vram_peek(tile_addr + 8);
+  //       self.render_buf.tile_plane1 = plane1;
+  //     }
+  //     8 => {
+  //       self.increase_coarse_x();
+  //     }
+  //     _ => {}
+  //   }
+  //   if self.cycle == 1 { 
+  //     self.oam_secondary.clear();
+  //     // self.spr_shifters.fill((ShiftReg::new(), ShiftReg::new()));
+  //   }
+  //   if self.cycle == 65 { self.evaluate_sprites(); }
+  //   if self.cycle == 256 { self.increase_coarse_y(); }
+
+  //   if self.is_rendering_on() && self.cycle < 32*8 && self.scanline < 30*8 {
+  //     let (bg_pixel, palette_id) = self.bg_shifters.get(self.x);
+      
+  //     let sprite = self.oam_secondary.iter().enumerate().find(|(i, sprite)| {
+  //       let spr_pixel = (self.spr_shifters[*i].1.get() << 1) | self.spr_shifters[*i].0.get();
+  //       sprite.x == 0 && spr_pixel != 0
+  //     });
+
+  //     if let Some((i , sprite)) = sprite {
+  //       if sprite.priority == SpritePriority::Front {
+  //         let spr_pixel = (self.spr_shifters[i].1.get() << 1) | self.spr_shifters[i].0.get();
+
+  //         self.screen.0.set_pixel(self.cycle-1, self.scanline, self.get_color_id(spr_pixel, sprite.palette_id));
+  //       }
+  //     } else {
+  //       self.screen.0.set_pixel(self.cycle-1, self.scanline, self.get_color_id(bg_pixel, palette_id));
+  //     }
+
+  //   }
+  // }
 
 
   // https://www.nesdev.org/wiki/PPU_scrolling#Wrapping_around
@@ -674,12 +838,18 @@ impl Ppu {
     self.increase_vram_address();
   }
 
-  pub fn get_color_id(&self, pixel: u8, palette_id: u8) -> u8 {
-    self.palettes[((palette_id as usize) << 2) | pixel as usize]
+  pub fn get_pixel_from_planes(&self, bit: u8, plane0: u8, plane1: u8) -> u8 {
+    let bit0 = (plane0 >> bit) & 1;
+    let bit1 = (plane1 >> bit) & 1;
+    (bit1 << 1) | bit0
   }
 
-  pub fn get_palette_id(&self, attribute: u8) -> u8 {
-    match (self.v.coarse_x() % 4, self.v.coarse_y() % 4) {
+  pub fn get_color_from_palette(&self, pixel: u8, palette_id: u8) -> u8 {
+    self.palettes[palette_id as usize + pixel as usize]
+  }
+
+  pub fn get_palette_from_attribute(&self, attribute: u8) -> u8 {
+    4 * match (self.v.coarse_x() % 4, self.v.coarse_y() % 4) {
       (0..2, 0..2) => (attribute & 0b0000_0011) >> 0 & 0b11,
       (2..4, 0..2) => (attribute & 0b0000_1100) >> 2 & 0b11,
       (0..2, 2..4) => (attribute & 0b0011_0000) >> 4 & 0b11,
