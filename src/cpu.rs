@@ -43,6 +43,7 @@ pub struct Cpu {
   pub x: u8,
   pub y: u8,
   pub cycles: usize,
+  pub paused: bool,
   pub jammed: bool,
   pub bus: Bus,
 }
@@ -72,6 +73,7 @@ impl Cpu {
       // At boot, only interrupt flag is enabled
       p: CpuFlags::from_bits_retain(STAT_RESET),
       cycles: 7,
+      paused: false,
       jammed: false,
       bus: Bus::new(cart),
     };
@@ -80,12 +82,20 @@ impl Cpu {
     cpu.pc = cpu.read16(PC_RESET);
     cpu
   }
+  pub fn empty() -> Self {
+    let mut cpu = Cpu::new(Cart::empty());
+    cpu.paused = true;
+    cpu
+  }
 
   pub fn reset(&mut self) { todo!() }
 
-  pub fn from_rom_path(rom_path: &Path) -> Self {
-    let cart = Cart::new(rom_path).unwrap();
-    Cpu::new(cart)
+  pub fn from_rom_path(rom_path: &Path) -> Result<Self, String> {
+    let cart = Cart::new(rom_path);
+    match cart {
+      Ok(cart) => Ok(Cpu::new(cart)),
+      Err(msg) => Err(msg.to_string())
+    }
   }
 
   fn set_carry(&mut self, res: u16) {
@@ -191,6 +201,8 @@ pub type InstrFn = fn(&mut Cpu, &mut Operand);
 
 impl Cpu {
   pub fn step(&mut self) {
+    if self.paused { return; }
+
     let cycles_at_start = self.cycles;
     let opcode = self.pc_fetch();
     
@@ -214,7 +226,7 @@ impl Cpu {
   pub fn step_until_vblank(&mut self) {
     loop {
       self.step();
-      if self.bus.peek_vblank() { break; }
+      if self.bus.peek_vblank() || self.paused { break; }
     }
   }
   

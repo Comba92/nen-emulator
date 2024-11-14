@@ -49,7 +49,7 @@ impl Memory for Bus {
         // TODO: this takes 513 CPU cycles, CPU is stalled during the transfer
       }
       BusDst::Joypad1 => self.joypad.write(val),
-      BusDst::Joypad2 => {} // TODO
+      BusDst::Joypad2 => {} // TODO: second joypad
       BusDst::SRam => self.sram[addr] = val,
       BusDst::Prg => self.mapper.borrow_mut().write_prg(addr, val),
       BusDst::NoImpl => debug!("Write to {addr:04X} not implemented")

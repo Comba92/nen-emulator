@@ -4,6 +4,7 @@ pub type CartMapper = Rc<RefCell<dyn Mapper>>;
 pub trait Mapper {
     // Default NRom PRG banking
     fn read_prg(&self, prg: &[u8], addr: usize) -> u8 {
+        // if it only has 16KiB, then mirror first bank
         if prg.len() == PRG_BANK_SIZE { prg[addr % (PRG_BANK_SIZE)] }
         else { prg[addr] }
     }
@@ -13,31 +14,26 @@ pub trait Mapper {
     fn read_chr(&self, chr: &[u8], addr: usize) -> u8 {
         chr[addr]
     }
-    fn write_chr(&mut self, _addr: usize, _val: u8) {}
-}
-
-pub fn new_mapper_from_id(id: u8) -> CartMapper {
-    match id {
-        0 => Rc::new(RefCell::new(NRom)),
-        1 => Rc::new(RefCell::new(Mmc1)),
-        2 => Rc::new(RefCell::new(UxRom::default())),
-        3 => Rc::new(RefCell::new(INesMapper003::default())),
-
-        _ => panic!("Mapper {id} not implemented, game can't be loaded correctly")
+    fn write_chr(&mut self, addr: usize, val: u8) -> (usize, u8) {
+        (addr, val)
     }
 }
 
-// enum PrgBank { First, Second }
-// fn map_prg(addr: usize) -> PrgBank {
-//     match addr {
-//         0..0x4000      => PrgBank::First,
-//         0x4000..0x8000 => PrgBank::Second,
-//         _ => unreachable!()
-//     }
-// }
+pub fn new_mapper_from_id(id: u8) -> Result<CartMapper, String> {
+    let mapper: CartMapper = match id {
+        0 => Rc::new(RefCell::new(NRom)),
+        // 1 => Rc::new(RefCell::new(Mmc1)),
+        2 => Rc::new(RefCell::new(UxRom::default())),
+        3 => Rc::new(RefCell::new(INesMapper003::default())),
 
-const PRG_BANK_SIZE: usize = 16*1024;
-const CHR_BANK_SIZE: usize = 8*1024;
+        _ => return Err(format!("Mapper {id} not implemented, game can't be loaded correctly"))
+    };
+
+    Ok(mapper)
+}
+
+const PRG_BANK_SIZE: usize = 16*1024; // 16 KiB
+const CHR_BANK_SIZE: usize = 8*1024; // 8 KiB
 
 const SECOND_PRG_BANK_START: usize = PRG_BANK_SIZE;
 const SECOND_PRG_BANK_END: usize = PRG_BANK_SIZE*2-1;
@@ -49,16 +45,13 @@ impl Mapper for Dummy {
 }
 
 pub struct NRom;
-impl Mapper for NRom {
-    fn read_prg(&self, prg: &[u8], addr: usize) -> u8 {
-        if prg.len() == PRG_BANK_SIZE { prg[addr % (PRG_BANK_SIZE)] }
-        else { prg[addr] }
-    }
-}
+impl Mapper for NRom {}
 
 pub struct Mmc1;
 impl Mapper for Mmc1 {}
 
+
+// TODO: REQUIRES NES 2.0 FORMAT FOR BIG GAMES
 #[derive(Default)]
 pub struct UxRom {
     prg_bank: usize,

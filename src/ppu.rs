@@ -151,7 +151,7 @@ pub struct Ppu {
   pub scroll: (u8, u8),
   
   pub mapper: CartMapper,
-  pub patterns: Vec<u8>,
+  pub chr: Vec<u8>,
   pub vram: [u8; 0x1000],
   pub palettes: [u8; 32],
   pub oam: [u8; 256],
@@ -185,9 +185,9 @@ impl Ppu {
       v: LoopyReg::new(), t: LoopyReg::new(), 
       x: 0, w: WriteLatch::FirstWrite, 
 
-      patterns: chr_rom,
+      chr: chr_rom,
       mapper,
-      vram: [0; 0x1000], 
+      vram: [0; 0x1000],
       palettes: [0; 32],
       oam: [0; 256],
       oam_addr: 0, data_buf: 0,
@@ -600,7 +600,7 @@ impl Ppu {
     let (dst, addr) = self.map_address(addr);
     match dst {
       VramDst::Patterntbl => self.mapper.as_ref().borrow()
-        .read_chr(&self.patterns, addr),
+        .read_chr(&self.chr, addr),
       VramDst::Nametbl => self.vram[addr],
       VramDst::Palettes => self.palettes[addr],
       VramDst::Unused => 0,
@@ -621,8 +621,14 @@ impl Ppu {
 
     let (dst, addr) = self.map_address(self.v.0);
     match dst {
-      VramDst::Patterntbl => self.mapper.as_ref().borrow_mut()
-        .write_chr(addr, val),
+      VramDst::Patterntbl => {
+        let (banked_addr, val_to_write) = self.mapper
+          .as_ref().borrow_mut()
+          .write_chr(addr, val);
+
+        // TODO: temporary hack for writes to chr ram
+        self.chr[banked_addr] = val_to_write;
+      }
       VramDst::Nametbl => self.vram[addr] = val,
       VramDst::Palettes => self.palettes[addr] = val,
       VramDst::Unused => {}

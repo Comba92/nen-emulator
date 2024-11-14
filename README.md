@@ -1,19 +1,20 @@
 # TODO
-1. Complete CPU
+[x] CPU COMPLETED
 - Better cycles counting?
 - Better operand handling?
 
-2. Implement Memory Bus, Interrupts, synchronization
+[x] Implement Memory Bus, Interrupts, synchronization
 - Better input
 
-3. Implement PPU
+[x] Implement PPU
 - PPU masking
 
-4. Mappers
+[] Mappers
+- WTF is chr ram?
 
-5. APU if i have the energy
+[] APU if i have the energy
 
-6. Support for NES 2.0
+[] Support for NES 2.0 format
 
 # Resources
 - https://www.nesdev.org/NESDoc.pdf

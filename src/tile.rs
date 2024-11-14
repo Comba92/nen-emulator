@@ -20,7 +20,7 @@ impl<'a> Tile<'a> {
     let tile_idx = ppu.vram[i] as usize;
     let bg_ptrntbl = ppu.ctrl.bg_ptrntbl_addr() as usize;
     let tile_start = bg_ptrntbl + tile_idx * 16;
-    let tile = &ppu.patterns[tile_start..tile_start+16];
+    let tile = &ppu.chr[tile_start..tile_start+16];
 
     let attribute_idx = (y/4 * 8) + (x/4);
     let attribute_addr = (0x2000 + 0x3C0 + attribute_idx) as u16;
@@ -51,7 +51,7 @@ impl<'a> Tile<'a> {
     
     let spr_ptrntbl = ppu.ctrl.spr_ptrntbl_addr() as usize;
     let tile_start = spr_ptrntbl + (sprite.tile_id as usize) * 16;
-    let tile = &ppu.patterns[tile_start..tile_start+16];
+    let tile = &ppu.chr[tile_start..tile_start+16];
     let palette_id = sprite.palette_id as usize;
     let palette = &ppu.palettes[palette_id..palette_id+4];
     

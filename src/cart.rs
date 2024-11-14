@@ -8,6 +8,7 @@ pub struct CartHeader {
   pub chr_8kb_banks: usize,
   pub prg_size: usize,
   pub chr_size: usize,
+  pub uses_chr_ram: bool,
   pub has_trainer: bool,
   pub has_battery_prg: bool,
   pub has_alt_nametbl: bool,
@@ -28,18 +29,19 @@ pub enum Mirroring { #[default] Horizontally, Vertically, FourScreen }
 pub enum TvSystem { #[default] NTSC, PAL }
 
 impl CartHeader {
-  pub fn new(rom: &[u8]) -> Self {
+  pub fn new(rom: &[u8]) -> Result<Self, &'static str> {
     let magic_str = &rom[0..=3];
 
     if magic_str != NES_STR {
-      //panic!("Not a valid iNES rom");
+      return Err("Not a valid iNES rom");
     }
 
     let prg_16kb_banks = rom[4] as usize;
     let chr_8kb_banks = rom[5] as usize;
+    let uses_chr_ram = chr_8kb_banks == 0;
 
     let prg_size = rom[4] as usize * PRG_ROM_PAGE_SIZE;
-    let chr_size = rom[5] as usize * CHR_ROM_PAGE_SIZE;
+    let chr_size = if rom[5] > 0 { rom[5] as usize * CHR_ROM_PAGE_SIZE} else { 8*1024 };
     
     let nametbl_mirroring = rom[6] & 1;
     let has_alt_nametbl = rom[6] & 0b0000_1000 != 0;
@@ -64,11 +66,12 @@ impl CartHeader {
       _ => unreachable!()
     };
 
-    CartHeader {
+    Ok(CartHeader {
       prg_16kb_banks,
       chr_8kb_banks,
       prg_size,
       chr_size,
+      uses_chr_ram,
       has_trainer,
       has_battery_prg,
       is_nes_v2,
@@ -76,7 +79,7 @@ impl CartHeader {
       nametbl_mirroring: nametbl_layout,
       has_alt_nametbl,
       mapper,
-    }
+    })
   }
 }
 
@@ -91,26 +94,29 @@ pub struct Cart {
 
 impl Cart {
   // TODO: should return a Result, this can fail
-  pub fn new(rom_path: &Path) -> Result<Self, &str> {
+  pub fn new(rom_path: &Path) -> Result<Self, String> {
     let rom = fs::read(rom_path)
       .expect(format!("Couldn't locate rom file at {:?}", rom_path).as_str());
     if rom.len() < HEADER_SIZE {
-      return Err("Rom file is too small");
+      return Err("Rom file is too small".to_string());
     }
     
-    let header = CartHeader::new(&rom[0..16]);
+    let header = CartHeader::new(&rom[0..16])?;
+
     println!("{:#?}", header);
-    // if header.is_nes_v2 {
-    //   return Err("NES 2.0 format not supported");
-    // }
+    if header.is_nes_v2 {
+      eprintln!("This rom has NES 2.0 format! Might not be run correctly...")
+      // return Err("NES 2.0 format not supported");
+    }
 
     let prg_start = HEADER_SIZE + if header.has_trainer { 512 } else { 0 };
     let chr_start = prg_start + header.prg_size as usize;
 
     let prg_rom = rom[prg_start..chr_start].to_vec();
-    let chr_rom = rom[chr_start..chr_start+header.chr_size].to_vec();
+    let chr_rom = if header.uses_chr_ram { [0; 8*1024].to_vec() }
+      else { rom[chr_start..chr_start+header.chr_size].to_vec() };
 
-    let mapper = mapper::new_mapper_from_id(header.mapper);
+    let mapper = mapper::new_mapper_from_id(header.mapper)?;
     Ok(Cart { header, prg_rom, chr_rom, mapper })
   }
 
