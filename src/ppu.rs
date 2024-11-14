@@ -212,7 +212,8 @@ impl Ppu {
     Self {
       screen: NesScreen::new(),
 
-      bg_fifo: VecDeque::from([(0, 0)].repeat(8)),
+      // WHY DOES THIS WORK?
+      bg_fifo: VecDeque::from([(0, 0)].repeat(13)),
       render_buf: RenderData::default(),
       oam_secondary: Vec::with_capacity(8),
       spr_scanline: [None; 32*8],
@@ -373,15 +374,16 @@ impl Ppu {
 
     let mut plane0 = self.vram_peek(spr_addr);
     let mut plane1 = self.vram_peek(spr_addr + 8);
-    if sprite.flip_horizontal { 
-      plane0 = plane0.reverse_bits(); 
+    // eventually fix this hack
+    if !sprite.flip_horizontal { 
+      plane0 = plane0.reverse_bits();
       plane1 = plane1.reverse_bits();
     }
 
-    for i in 0..8usize {
-      let pixel = self.get_pixel_from_planes(i.abs_diff(vertical_start) as u8, plane0, plane1);
-      if sprite.x + i as usize > 32*8 { continue; }
-      self.spr_scanline[sprite.x + i.abs_diff(vertical_start) as usize] = Some((pixel, sprite.palette_id, sprite.priority));
+    for i in (0..8usize).rev() {
+      let pixel = self.get_pixel_from_planes(i as u8, plane0, plane1);
+      if sprite.x + i >= 32*8 { continue; }
+      self.spr_scanline[sprite.x + i] = Some((pixel, sprite.palette_id, sprite.priority));
     }
   }
 
@@ -435,7 +437,7 @@ impl Ppu {
       _ => {}
     }
 
-    if self.is_rendering_on() && self.cycle <= 32*8 && self.scanline <= 30*8 {
+    if self.is_rendering_on() && self.cycle < 32*8 && self.scanline < 30*8 {
       let (bg_pixel, bg_palette_id) = self.bg_fifo.get(self.x as usize).unwrap().to_owned();
 
       if let Some((spr_pixel, spr_palette, spr_priority)) = self.spr_scanline[self.cycle-1] {

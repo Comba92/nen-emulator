@@ -58,7 +58,7 @@ mod ppu_test {
       .create_texture_target(PixelFormatEnum::RGB24, framebuf.width as u32, framebuf.height as u32)
       .unwrap();
 
-      let cart = Cart::new(Path::new("roms/Donkey Kong.nes"));
+      let cart = Cart::new(Path::new("roms/Ice Climber.nes"));
 
       for (i, tile) in cart.chr_rom.chunks(16).enumerate() {
         let x = i*8 % framebuf.width;
@@ -217,6 +217,7 @@ mod ppu_test {
         sdl.canvas.present();
       }
 
+      println!("OAM {:?}", emu.bus.ppu.oam);
       println!("PALETTES {:02X?}", emu.bus.ppu.palettes);
       println!("{:?}", emu.bus.ppu);
     }
