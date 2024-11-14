@@ -7,10 +7,7 @@
 - Better input
 
 3. Implement PPU
-- 16x16 tiles
-- Rendering on/off
-- Sprite priority
-- Scrolling
+- Sprite 0 hit
 
 4. Mappers
 

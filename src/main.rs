@@ -11,11 +11,6 @@ fn main() {
     let mut sdl = Sdl2Context::new("NenEmulator", WINDOW_WIDTH, WINDOW_HEIGHT);
     // Keep aspect ratio
     sdl.canvas.set_logical_size(SCREEN_WIDTH as u32, SCREEN_HEIGHT as u32).unwrap();
-    
-    let mut framebuf = NesScreen::new();
-    let mut texture = sdl.texture_creator.create_texture_target(
-        PixelFormatEnum::RGB24, framebuf.0.width as u32, framebuf.0.height as u32
-    ).unwrap();
 
     let filename = args().nth(1);
     let rom_path = if let Some(filename) = filename {
@@ -24,6 +19,9 @@ fn main() {
 
     let mut emu = Cpu::from_rom_path(&rom_path);
 
+    let mut texture = sdl.texture_creator.create_texture_target(
+        PixelFormatEnum::RGB24, emu.get_screen().width as u32, emu.get_screen().height as u32
+    ).unwrap();
 
     'running: loop {
         emu.step_until_vblank();
@@ -40,11 +38,8 @@ fn main() {
             }
         }
 
-        framebuf.render_background(&emu.bus.ppu);
-        framebuf.render_sprites(&emu.bus.ppu);
-
         sdl.canvas.clear();
-        texture.update(None, &framebuf.0.buffer, framebuf.0.pitch()).unwrap();
+        texture.update(None, &emu.get_screen().buffer, emu.get_screen().pitch()).unwrap();
         sdl.canvas.copy(&texture, None, None).unwrap();
         sdl.canvas.present();
     }

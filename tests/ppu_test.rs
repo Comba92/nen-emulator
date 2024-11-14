@@ -192,7 +192,7 @@ mod ppu_test {
       
       let mut sdl = Sdl2Context::new("Pixel renderer", (8.0*RENDER_WIDTH*SCALE) as u32, (8.0*RENDER_HEIGHT*SCALE) as u32);
       // let rom_path = &Path::new("tests/nestest/nestest.nes");
-      let rom_path = &Path::new("roms/Donkey Kong.nes");
+      let rom_path = &Path::new("roms/Super Mario Bros.nes");
       let cart = Cart::new(rom_path);
       let mut emu = Cpu::new(cart);
       

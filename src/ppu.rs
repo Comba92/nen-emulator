@@ -102,11 +102,19 @@ impl LoopyReg {
 }
 
 #[derive(Default)]
-pub struct RenderData {
+pub struct BgData {
   pub tile_id: u8,
   pub palette_id: u8,
   pub tile_plane0: u8,
   pub tile_plane1: u8
+}
+
+#[derive(Default, Clone)]
+pub struct SprData {
+  pub pixel: u8,
+  pub palette_id: u8,
+  pub priority: SpritePriority,
+  pub is_sprite0: bool,
 }
 
 #[bitfield(u16, order = Lsb)]
@@ -136,7 +144,7 @@ impl BgShifters {
     self.palette0.0 <<= 1;
     self.palette1.0 <<= 1;
   }
-  pub fn load(&mut self, data: &RenderData) {
+  pub fn load(&mut self, data: &BgData) {
     self.plane0.set_lo(data.tile_plane0);
     self.plane1.set_lo(data.tile_plane1);
     self.palette0.set_lo(if (data.palette_id & 0b01) != 0 {0xFF} else { 0x00 });
@@ -169,10 +177,12 @@ pub enum VramDst {
 pub struct Ppu {
   pub screen: NesScreen,
 
-  render_buf: RenderData,
+  render_buf: BgData,
   bg_fifo: VecDeque<(u8, u8)>,
   oam_secondary: Vec<OamEntry>,
-  spr_scanline: [Option<(u8, u8, SpritePriority)>; 32*8],
+  spr_scanline: [Option<SprData>; 32*8],
+  spr0_hit_possible: bool,
+  spr0_hit_detected: bool,
 
   v: LoopyReg, // current vram address
   t: LoopyReg, // temporary vram address / topleft onscreen tile
@@ -185,6 +195,7 @@ pub struct Ppu {
   pub mask: PpuMask,
   pub stat: PpuStat,
   pub oam_addr: u8,
+  // TODO: remove this
   pub scroll: (u8, u8),
   
   pub mapper: CartMapper,
@@ -214,9 +225,11 @@ impl Ppu {
 
       // WHY DOES THIS WORK?
       bg_fifo: VecDeque::from([(0, 0)].repeat(13)),
-      render_buf: RenderData::default(),
+      render_buf: BgData::default(),
       oam_secondary: Vec::with_capacity(8),
-      spr_scanline: [None; 32*8],
+      spr_scanline: [const { None }; 32*8],
+      spr0_hit_possible: false,
+      spr0_hit_detected: false,
       
       v: LoopyReg::new(), t: LoopyReg::new(), 
       x: 0, w: WriteLatch::FirstWrite, 
@@ -281,8 +294,6 @@ impl Ppu {
       // visible scanlines 
       if (1..=256).contains(&self.cycle) || (321..=336).contains(&self.cycle) {
         self.fetch_bg_step();
-      } else if (257..=320).contains(&self.cycle) {
-        self.fetch_spr_step();
       }
       
       if self.cycle == 64 {
@@ -293,6 +304,8 @@ impl Ppu {
       } else if self.cycle == 257 {
         self.reset_render_x();
         self.spr_scanline.fill(None);
+      } else if self.cycle == 320 && self.scanline != 261 {
+        self.fetch_sprites();
       }
     }
 
@@ -326,7 +339,9 @@ impl Ppu {
 
       if self.scanline > 261 {
         self.scanline = 0;
-        self.in_odd_frame = !self.in_odd_frame
+        self.in_odd_frame = !self.in_odd_frame;
+        self.spr0_hit_detected = false;
+        self.spr0_hit_possible = false;
       }
     }
   }
@@ -341,6 +356,7 @@ impl Ppu {
       if dist_from_scanline >= 0 && dist_from_scanline < self.ctrl.spr_height() as isize {
         if self.oam_secondary.len() < 8 {
           self.oam_secondary.push(OamEntry::from_bytes(&self.oam[i..i+4]));
+          if i == 0 { self.spr0_hit_possible = true; }
         }
         visible_sprites += 1;
       }
@@ -349,41 +365,44 @@ impl Ppu {
     self.stat.set(PpuStat::spr_overflow, visible_sprites > 8);
   }
 
-  pub fn fetch_spr_step(&mut self) {
-    let current_spr = (self.cycle - 257) % 8;
-    let sprite = self.oam_secondary.get(current_spr);
-    if sprite.is_none() { return; }
-
-    let sprite = sprite.unwrap();
-    let vertical_start: usize = if sprite.flip_vertical { 7 } else { 0 };
-    let dist = self.scanline - sprite.y;
-
-    let spr_addr = match self.ctrl.spr_height() {
-      8 => self.ctrl.spr_ptrntbl_addr()
-        + sprite.tile_id as u16 * 16
-        + (dist).abs_diff(vertical_start) as u16,
-      16 => {
-        let bank = (sprite.tile_id & 1) as u16;
-        let tile_id = (((sprite.tile_id as u16) & 0b1111_1110) >> 1) + if dist < 8 { 0 } else { 1 };
-        (bank << 12) 
-          + tile_id * 16 
-          + (dist).abs_diff(vertical_start) as u16
+  pub fn fetch_sprites(&mut self) {
+    for (spr_idx, sprite) in self.oam_secondary.iter().enumerate() {
+      let vertical_start: usize = if sprite.flip_vertical { 7 } else { 0 };
+      let dist = self.scanline - sprite.y;
+  
+      let spr_addr = match self.ctrl.spr_height() {
+        8 => self.ctrl.spr_ptrntbl_addr()
+          + sprite.tile_id as u16 * 16
+          + (dist).abs_diff(vertical_start) as u16,
+        16 => {
+          let bank = (sprite.tile_id & 1) as u16;
+          let tile_id = (((sprite.tile_id as u16) & 0b1111_1110) >> 1) + if dist < 8 { 0 } else { 1 };
+          (bank << 12) 
+            + tile_id * 16 
+            + (dist).abs_diff(vertical_start) as u16
+        }
+        _ => unreachable!("sprite heights are either 8 or 16")
+      };
+  
+      let mut plane0 = self.vram_peek(spr_addr);
+      let mut plane1 = self.vram_peek(spr_addr + 8);
+      // eventually fix this hack
+      if !sprite.flip_horizontal { 
+        plane0 = plane0.reverse_bits();
+        plane1 = plane1.reverse_bits();
       }
-      _ => unreachable!("sprite heights are either 8 or 16")
-    };
-
-    let mut plane0 = self.vram_peek(spr_addr);
-    let mut plane1 = self.vram_peek(spr_addr + 8);
-    // eventually fix this hack
-    if !sprite.flip_horizontal { 
-      plane0 = plane0.reverse_bits();
-      plane1 = plane1.reverse_bits();
-    }
-
-    for i in (0..8usize).rev() {
-      let pixel = self.get_pixel_from_planes(i as u8, plane0, plane1);
-      if sprite.x + i >= 32*8 { continue; }
-      self.spr_scanline[sprite.x + i] = Some((pixel, sprite.palette_id, sprite.priority));
+  
+      for i in (0..8usize).rev() {
+        if sprite.x + i >= 32*8 { continue; }
+  
+        // sprite with higher priority already there
+        if let Some(current_pixel) = &self.spr_scanline[sprite.x + i] { 
+          if current_pixel.pixel != 0 { continue; }
+        }
+        
+        let pixel = self.get_pixel_from_planes(i as u8, plane0, plane1);
+        self.spr_scanline[sprite.x + i] = Some(SprData { pixel, palette_id: sprite.palette_id, priority: sprite.priority, is_sprite0: spr_idx == 0 && self.spr0_hit_possible });
+      }
     }
   }
 
@@ -440,9 +459,16 @@ impl Ppu {
     if self.is_rendering_on() && self.cycle < 32*8 && self.scanline < 30*8 {
       let (bg_pixel, bg_palette_id) = self.bg_fifo.get(self.x as usize).unwrap().to_owned();
 
-      if let Some((spr_pixel, spr_palette, spr_priority)) = self.spr_scanline[self.cycle-1] {
-        if (spr_priority == SpritePriority::Front || bg_pixel == 0) && spr_pixel != 0 {
-          let color = self.get_color_from_palette(spr_pixel, spr_palette);
+      if let Some(spr_data) = &self.spr_scanline[self.cycle-1] {
+        if spr_data.is_sprite0 && spr_data.pixel != 0 && bg_pixel != 0 {
+          info!("SPRITE 0 HIT");
+          self.stat.insert(PpuStat::spr0_hit);
+          self.spr0_hit_detected = true;
+        }
+
+        // TODO: refactor this please....
+        if (spr_data.priority == SpritePriority::Front || bg_pixel == 0) && spr_data.pixel != 0 {
+          let color = self.get_color_from_palette(spr_data.pixel, spr_data.palette_id);
           self.screen.0.set_pixel(self.cycle-1, self.scanline, color);
         } else {
           let color = self.get_color_from_palette(bg_pixel, bg_palette_id);
@@ -454,130 +480,6 @@ impl Ppu {
       }
     }
   }
-
-  // pub fn step_accurate_old(&mut self) {
-  //   match (self.cycle, self.scanline) {
-  //     // Pre-render line
-  //     (1, 261) => {
-  //       self.stat = PpuStat::empty();
-  //       self.oam_addr = 0;
-  //     }
-
-  //     // Post-render line
-  //     (1, 241) => {
-  //       if !self.mask.contains(PpuMask::spr_render_on) {  }
-        
-  //       info!("VBLANK!!");
-  //       self.vblank_started = Some(());
-  //       self.stat.insert(PpuStat::vblank);
-  //       self.stat.remove(PpuStat::spr0_hit);
-
-  //       if self.ctrl.contains(PpuCtrl::vblank_nmi_on) {
-  //         self.nmi_requested = Some(());
-  //       }
-  //     }
-
-  //     // Visible frames + Pre-render line background fetches
-  //     (1..=256 | 321..=336, 0..=239) | (321..=336, 261) => {
-  //       self.fetch_next_bg_pixel();
-  //     }
-
-  //     // Restore horizontal
-  //     (257, 0..=239 | 261)  => self.reset_render_x(),
-  //      // Restore vertical
-  //     //(280..=304, 261)      => self.reset_render_y(),
-  //     (280, 261)            => self.reset_render_y(),
-
-
-  //     // Visible frames + Pre-render line sprite fetches
-  //     (257..=320, 0..=239 | 261) => {
-  //       self.fetch_next_scanline_spr_pixel();
-  //     }
-
-  //     _ => {}
-  //   }
-    
-  //   // odd frame skip
-  //   if self.in_odd_frame
-  //   && self.cycle == 339 
-  //   && self.scanline == 261 {
-  //     self.cycle += 1;
-  //   }
-    
-  //   self.cycle += 1;
-  //   if self.cycle > 340 {
-  //     self.cycle = 0;
-  //     self.scanline += 1;
-
-  //     if self.scanline > 261 {
-  //       self.scanline = 0;
-  //       self.in_odd_frame = !self.in_odd_frame
-  //     }
-  //   }
-  // }
-
-  // pub fn evaluate_sprites(&mut self) {
-  //   let mut visible_sprites = 0;
-
-  //   for i in (0..256).step_by(4) {
-  //     let spr_y = self.oam[i];
-
-  //     // TODO: this is searching for sprites in the NEXT scanline, is this correct?
-  //     let dist = self.scanline.abs_diff(spr_y as usize);
-  //     if dist < self.ctrl.spr_height() {
-  //       if self.oam_secondary.len() < 8 {
-  //         let sprite = OamEntry::from_bytes(&self.oam[i..i+4]);
-  //         self.oam_secondary.push(sprite);
-  //       }
-  //       visible_sprites += 1;
-  //     }
-  //   }
-
-  //   self.stat.set(PpuStat::spr_overflow, visible_sprites > 8);
-  // }
-
-  // pub fn fetch_next_scanline_spr_pixel(&mut self) {
-  //   let current_spr = (self.cycle - 256) % 8; 
-
-  //   let sprite = self.oam_secondary.get(current_spr);
-  //   if sprite.is_none() { return; }
-
-  //   let sprite = sprite.unwrap();
-  //   let vertical_start = if sprite.flip_vertical { 7 } else { 0 };
-  //   let dist = self.scanline.abs_diff(sprite.y);
-
-  //   let spr_addr = match self.ctrl.spr_height() {
-  //     8 => self.ctrl.spr_ptrntbl_addr() 
-  //       + sprite.tile_id as u16 * 16
-  //       + (dist & 0x111).abs_diff(vertical_start) as u16,
-  //     16 => {
-  //       let bank = (sprite.tile_id & 1) as u16;
-  //       let tile_id = (((sprite.tile_id as u16) & 0b1111_1110) >> 1) + if dist < 8 { 0 } else { 1 };
-  //       (bank << 12) 
-  //         + tile_id * 16 
-  //         + (dist & 0x111).abs_diff(vertical_start) as u16
-  //     }
-  //     _ => unreachable!("sprite heights are either 8 or 16")
-  //   };
-
-  //   match ((self.cycle-1) % 8) + 1 {
-  //     5 => {
-  //       let mut pattern_lo = self.vram_peek(spr_addr);
-  //       if sprite.flip_horizontal { pattern_lo = pattern_lo.reverse_bits(); }
-  //       self.spr_shifters[current_spr].0.set_hi(pattern_lo);
-  //     }
-  //     7 => {
-  //       let mut pattern_hi = self.vram_peek(spr_addr + 8);
-  //       if sprite.flip_horizontal { pattern_hi = pattern_hi.reverse_bits(); }
-  //       self.spr_shifters[current_spr].1.set_hi(pattern_hi);
-  //     }
-  //     _ => {}
-  //   }
-  // }
-
-  // pub fn fetch_next_bg_pixel(&mut self) {
-
-  // }
 
   // pub fn fetch_next_bg_pixel_old(&mut self) {
   //   self.bg_shifters.update();
@@ -635,22 +537,7 @@ impl Ppu {
 
   //   if self.is_rendering_on() && self.cycle < 32*8 && self.scanline < 30*8 {
   //     let (bg_pixel, palette_id) = self.bg_shifters.get(self.x);
-      
-  //     let sprite = self.oam_secondary.iter().enumerate().find(|(i, sprite)| {
-  //       let spr_pixel = (self.spr_shifters[*i].1.get() << 1) | self.spr_shifters[*i].0.get();
-  //       sprite.x == 0 && spr_pixel != 0
-  //     });
-
-  //     if let Some((i , sprite)) = sprite {
-  //       if sprite.priority == SpritePriority::Front {
-  //         let spr_pixel = (self.spr_shifters[i].1.get() << 1) | self.spr_shifters[i].0.get();
-
-  //         self.screen.0.set_pixel(self.cycle-1, self.scanline, self.get_color_id(spr_pixel, sprite.palette_id));
-  //       }
-  //     } else {
-  //       self.screen.0.set_pixel(self.cycle-1, self.scanline, self.get_color_id(bg_pixel, palette_id));
-  //     }
-
+  //     self.screen.0.set_pixel(self.cycle-1, self.scanline, self.get_color_id(bg_pixel, palette_id));
   //   }
   // }
 
