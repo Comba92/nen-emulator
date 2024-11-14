@@ -1,6 +1,6 @@
-use std::{array, collections::VecDeque, fmt, io::BufRead};
+use std::{collections::VecDeque, fmt};
 
-use crate::{cart::Mirroring, mapper::CartMapper, renderer::{NesScreen, SYS_PALETTES}, tile::{OamEntry, SpritePriority, Tile}};
+use crate::{cart::Mirroring, mapper::CartMapper, renderer::NesScreen, tile::{OamEntry, SpritePriority}};
 use bitfield_struct::bitfield;
 use bitflags::bitflags;
 use log::{info, warn};
@@ -165,6 +165,7 @@ impl BgShifters {
   }
 }
 
+
 #[derive(Debug)]
 pub enum WriteLatch {
   FirstWrite, SecondWrite
@@ -182,7 +183,6 @@ pub struct Ppu {
   oam_secondary: Vec<OamEntry>,
   spr_scanline: [Option<SprData>; 32*8],
   spr0_hit_possible: bool,
-  spr0_hit_detected: bool,
 
   v: LoopyReg, // current vram address
   t: LoopyReg, // temporary vram address / topleft onscreen tile
@@ -229,7 +229,6 @@ impl Ppu {
       oam_secondary: Vec::with_capacity(8),
       spr_scanline: [const { None }; 32*8],
       spr0_hit_possible: false,
-      spr0_hit_detected: false,
       
       v: LoopyReg::new(), t: LoopyReg::new(), 
       x: 0, w: WriteLatch::FirstWrite, 
@@ -340,7 +339,6 @@ impl Ppu {
       if self.scanline > 261 {
         self.scanline = 0;
         self.in_odd_frame = !self.in_odd_frame;
-        self.spr0_hit_detected = false;
         self.spr0_hit_possible = false;
       }
     }
@@ -414,9 +412,9 @@ impl Ppu {
   }
 
   pub fn fetch_bg_step(&mut self) {
-    let step = ((self.cycle-1) % 8) + 1;
     self.bg_fifo.pop_front();
-
+    
+    let step = ((self.cycle-1) % 8) + 1;
     // https://www.nesdev.org/wiki/PPU_scrolling#Tile_and_attribute_fetching
     match step {
       2 => {
@@ -459,22 +457,19 @@ impl Ppu {
     if self.is_rendering_on() && self.cycle < 32*8 && self.scanline < 30*8 {
       let (bg_pixel, bg_palette_id) = self.bg_fifo.get(self.x as usize).unwrap().to_owned();
 
-      if let Some(spr_data) = &self.spr_scanline[self.cycle-1] {
-        if spr_data.is_sprite0 && spr_data.pixel != 0 && bg_pixel != 0 {
-          info!("SPRITE 0 HIT");
-          self.stat.insert(PpuStat::spr0_hit);
-          self.spr0_hit_detected = true;
-        }
+      let spr_data = self.spr_scanline[self.cycle-1].clone().unwrap_or_default();
 
-        // TODO: refactor this please....
-        if (spr_data.priority == SpritePriority::Front || bg_pixel == 0) && spr_data.pixel != 0 {
-          let color = self.get_color_from_palette(spr_data.pixel, spr_data.palette_id);
-          self.screen.0.set_pixel(self.cycle-1, self.scanline, color);
-        } else {
-          let color = self.get_color_from_palette(bg_pixel, bg_palette_id);
-          self.screen.0.set_pixel(self.cycle-1, self.scanline, color);
-        }
-      } else {
+      if spr_data.is_sprite0 
+      && spr_data.pixel != 0 && bg_pixel != 0 
+      && self.cycle != 255 && !(0..=7).contains(&self.cycle) {
+        info!("SPRITE 0 HIT");
+        self.stat.insert(PpuStat::spr0_hit);
+      }
+
+      if self.mask.contains(PpuMask::spr_render_on) && (spr_data.priority == SpritePriority::Front || bg_pixel == 0) && spr_data.pixel != 0 {
+        let color = self.get_color_from_palette(spr_data.pixel, spr_data.palette_id);
+        self.screen.0.set_pixel(self.cycle-1, self.scanline, color);
+      } else if self.mask.contains(PpuMask::bg_render_on) {
         let color = self.get_color_from_palette(bg_pixel, bg_palette_id);
         self.screen.0.set_pixel(self.cycle-1, self.scanline, color);
       }
@@ -699,7 +694,7 @@ impl Ppu {
         (VramDst::Nametbl, mirrored as usize)
       }
       0x3F00..0x3FFF => {
-        let palette = (addr - 0x3F00) % 32;
+        let palette = self.mirror_palette(addr);
         (VramDst::Palettes, palette as usize)
       }
       _ => (VramDst::Unused, 0), 
@@ -752,7 +747,8 @@ impl Ppu {
   }
 
   pub fn get_color_from_palette(&self, pixel: u8, palette_id: u8) -> u8 {
-    self.palettes[palette_id as usize + pixel as usize]
+    if pixel == 0 { self.vram_peek(0x3F00) }
+    else { self.vram_peek(0x3F00 + (palette_id + pixel) as u16) }
   }
 
   pub fn get_palette_from_attribute(&self, attribute: u8) -> u8 {
@@ -778,5 +774,10 @@ impl Ppu {
     };
 
     res
+  }
+
+  pub fn mirror_palette(&self, addr: u16) -> u16 {
+    let addr = addr - 0x3F00;
+    if addr == 16 { 0 } else { addr % 32 }
   }
 }

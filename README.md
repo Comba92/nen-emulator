@@ -7,7 +7,6 @@
 - Better input
 
 3. Implement PPU
-- Sprite 0 hit
 
 4. Mappers
 

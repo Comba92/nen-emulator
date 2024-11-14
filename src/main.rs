@@ -1,6 +1,6 @@
-use std::{env::args, path::PathBuf};
+use std::{env::args, path::PathBuf, time::Duration};
 
-use nen_emulator::{cpu::Cpu, renderer::{handle_input, NesScreen, Sdl2Context}, tile::{SCREEN_HEIGHT, SCREEN_WIDTH}};
+use nen_emulator::{cart::Cart, cpu::Cpu, renderer::{handle_input, Sdl2Context}, tile::{SCREEN_HEIGHT, SCREEN_WIDTH}};
 use sdl2::{event::Event, pixels::PixelFormatEnum};
 
 fn main() {
@@ -17,7 +17,8 @@ fn main() {
         PathBuf::from(filename)
     } else { PathBuf::from("roms/Donkey Kong.nes") };
 
-    let mut emu = Cpu::from_rom_path(&rom_path);
+    // let mut emu = Cpu::from_rom_path(&rom_path);
+    let mut emu = Cpu::new(Cart::empty());
 
     let mut texture = sdl.texture_creator.create_texture_target(
         PixelFormatEnum::RGB24, emu.get_screen().width as u32, emu.get_screen().height as u32
@@ -42,6 +43,9 @@ fn main() {
         texture.update(None, &emu.get_screen().buffer, emu.get_screen().pitch()).unwrap();
         sdl.canvas.copy(&texture, None, None).unwrap();
         sdl.canvas.present();
+
+        // TODO: temporary solution to framerate
+        std::thread::sleep(Duration::from_millis(15));
     }
 
     println!("{:?}", emu.bus.ppu.palettes);

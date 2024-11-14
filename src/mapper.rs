@@ -42,6 +42,12 @@ const CHR_BANK_SIZE: usize = 8*1024;
 const SECOND_PRG_BANK_START: usize = PRG_BANK_SIZE;
 const SECOND_PRG_BANK_END: usize = PRG_BANK_SIZE*2-1;
 
+pub struct Dummy;
+impl Mapper for Dummy {
+    fn read_prg(&self, _prg: &[u8], _addr: usize) -> u8 { 0 }
+    fn read_chr(&self, _chr: &[u8], _addr: usize) -> u8 { 0 }
+}
+
 pub struct NRom;
 impl Mapper for NRom {
     fn read_prg(&self, prg: &[u8], addr: usize) -> u8 {

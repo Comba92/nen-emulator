@@ -1,6 +1,6 @@
 use std::{cell::RefCell, fs, path::Path, rc::Rc};
 
-use crate::mapper::{self, CartMapper, NRom};
+use crate::mapper::{self, CartMapper, Dummy};
 
 #[derive(Debug, Default, Clone)]
 pub struct CartHeader {
@@ -90,6 +90,7 @@ pub struct Cart {
 }
 
 impl Cart {
+  // TODO: should return a Result, this can fail
   pub fn new(rom_path: &Path) -> Self {
     let rom = fs::read(rom_path)
       .expect(format!("Couldn't locate rom file at {:?}", rom_path).as_str());
@@ -114,6 +115,6 @@ impl Cart {
   }
 
   pub fn empty() -> Self {
-    Cart { header: CartHeader::default(), prg_rom: Vec::new(), chr_rom: Vec::new(), mapper: Rc::new(RefCell::new(NRom)) }
+    Cart { header: CartHeader::default(), prg_rom: Vec::new(), chr_rom: Vec::new(), mapper: Rc::new(RefCell::new(Dummy)) }
   }
 }
