@@ -66,6 +66,7 @@ impl<'a> Tile<'a> {
   }
 }
 
+// TODO: eventually move out to ppu crate
 #[derive(Debug, PartialEq, Eq, Default, Clone, Copy)]
 pub enum SpritePriority { Front, #[default] Behind, Background }
 #[derive(Debug, Default, Clone, Copy)]

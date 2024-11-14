@@ -34,6 +34,7 @@ pub const NMI_ISR: u16 = 0xFFFA;
 pub const RESET_ISR: u16 = 0xFFFC;
 pub const IRQ_ISR: u16 = 0xFFFE;
 
+// TODO: add pausing and resetting
 pub struct Cpu {
   pub pc: u16,
   pub sp: u8,
@@ -83,7 +84,7 @@ impl Cpu {
   pub fn reset(&mut self) { todo!() }
 
   pub fn from_rom_path(rom_path: &Path) -> Self {
-    let cart = Cart::new(rom_path);
+    let cart = Cart::new(rom_path).unwrap();
     Cpu::new(cart)
   }
 

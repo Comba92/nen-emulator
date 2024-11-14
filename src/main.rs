@@ -1,4 +1,4 @@
-use std::{env::args, path::PathBuf, time::Duration};
+use std::{env::args, path::PathBuf};
 
 use nen_emulator::{cart::Cart, cpu::Cpu, renderer::{handle_input, Sdl2Context}, tile::{SCREEN_HEIGHT, SCREEN_WIDTH}};
 use sdl2::{event::Event, pixels::PixelFormatEnum};
@@ -13,7 +13,7 @@ fn main() {
     sdl.canvas.set_logical_size(SCREEN_WIDTH as u32, SCREEN_HEIGHT as u32).unwrap();
 
     let filename = args().nth(1);
-    let rom_path = if let Some(filename) = filename {
+    let _rom_path = if let Some(filename) = filename {
         PathBuf::from(filename)
     } else { PathBuf::from("roms/Donkey Kong.nes") };
 
@@ -24,7 +24,9 @@ fn main() {
         PixelFormatEnum::RGB24, emu.get_screen().width as u32, emu.get_screen().height as u32
     ).unwrap();
 
+
     'running: loop {
+        let ticks_since_start = sdl.timer.performance_counter();
         emu.step_until_vblank();
 
         for event in sdl.events.poll_iter() {
@@ -44,8 +46,10 @@ fn main() {
         sdl.canvas.copy(&texture, None, None).unwrap();
         sdl.canvas.present();
 
-        // TODO: temporary solution to framerate
-        std::thread::sleep(Duration::from_millis(15));
+        let elapsed_ms = (sdl.timer.performance_counter() - ticks_since_start) as f64 
+            / sdl.timer.performance_frequency() as f64
+            * 1000.0;
+        sdl.timer.delay(((1.0/59.94 * 1000.0) - elapsed_ms) as u32);
     }
 
     println!("{:?}", emu.bus.ppu.palettes);

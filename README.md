@@ -7,6 +7,7 @@
 - Better input
 
 3. Implement PPU
+- PPU masking
 
 4. Mappers
 

@@ -91,18 +91,18 @@ pub struct Cart {
 
 impl Cart {
   // TODO: should return a Result, this can fail
-  pub fn new(rom_path: &Path) -> Self {
+  pub fn new(rom_path: &Path) -> Result<Self, &str> {
     let rom = fs::read(rom_path)
       .expect(format!("Couldn't locate rom file at {:?}", rom_path).as_str());
     if rom.len() < HEADER_SIZE {
-      panic!("Rom file is too small");
+      return Err("Rom file is too small");
     }
     
     let header = CartHeader::new(&rom[0..16]);
     println!("{:#?}", header);
-    if header.is_nes_v2 {
-      panic!("NES 2.0 format not supported");
-    }
+    // if header.is_nes_v2 {
+    //   return Err("NES 2.0 format not supported");
+    // }
 
     let prg_start = HEADER_SIZE + if header.has_trainer { 512 } else { 0 };
     let chr_start = prg_start + header.prg_size as usize;
@@ -111,7 +111,7 @@ impl Cart {
     let chr_rom = rom[chr_start..chr_start+header.chr_size].to_vec();
 
     let mapper = mapper::new_mapper_from_id(header.mapper);
-    Cart { header, prg_rom, chr_rom, mapper }
+    Ok(Cart { header, prg_rom, chr_rom, mapper })
   }
 
   pub fn empty() -> Self {

@@ -1,6 +1,6 @@
 use std::sync::LazyLock;
 
-use sdl2::{event::Event, keyboard::Keycode, pixels::Color, render::{Canvas, TextureCreator}, video::{Window, WindowContext}, EventPump, Sdl, VideoSubsystem};
+use sdl2::{event::Event, keyboard::Keycode, pixels::Color, render::{Canvas, TextureCreator}, video::{Window, WindowContext}, EventPump, Sdl, TimerSubsystem, VideoSubsystem};
 
 use crate::{dev::{Joypad, JoypadStat}, ppu::{Ppu, PpuMask}, tile::{SpritePriority, Tile, SCREEN_HEIGHT, SCREEN_WIDTH}};
 
@@ -105,6 +105,7 @@ impl NesScreen {
 pub struct Sdl2Context {
     pub ctx: Sdl,
     pub video: VideoSubsystem,
+    pub timer: TimerSubsystem,
     pub canvas: Canvas<Window>,
     pub events: EventPump,
     pub texture_creator: TextureCreator<WindowContext>
@@ -120,12 +121,13 @@ impl Sdl2Context {
             .build().expect("Couldn't initialize window");
         let canvas = window
             .into_canvas()
-            .accelerated().present_vsync()
+            .accelerated() // .present_vsync()
             .build().expect("Couldn't initialize drawing canvas");
         let events = ctx.event_pump().expect("Couldn't get the event pump");
+        let timer = ctx.timer().expect("Couldn't initialize timer subsytem");
         let texture_creator = canvas.texture_creator();
 
-        Self { ctx, video, canvas, events, texture_creator }
+        Self { ctx, video, canvas, events, texture_creator, timer }
     }
 }
 

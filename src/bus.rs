@@ -162,7 +162,7 @@ use super::*;
 
   #[test]
   fn prg_read() {
-    let mut bus = Bus::new(Cart::new(&Path::new("./tests/nestest.nes")));
+    let mut bus = Bus::new(Cart::new(&Path::new("./tests/nestest.nes")).unwrap());
     
     let mut empty_bytes = 0;
     for i in 0x8000..0x8000+bus.cart.prg_size {

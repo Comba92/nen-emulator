@@ -117,54 +117,6 @@ pub struct SprData {
   pub is_sprite0: bool,
 }
 
-#[bitfield(u16, order = Lsb)]
-pub struct ShiftReg {
-  #[bits(8)]
-  lo: u8,
-  #[bits(8)]
-  hi: u8
-}
-impl ShiftReg {
-  pub fn get(&self) -> u8 {
-    ((self.0 & 0x8000) != 0) as u8
-  }
-}
-
-#[derive(Default)]
-pub struct BgShifters {
-  plane0: ShiftReg,
-  plane1: ShiftReg,
-  palette0: ShiftReg,
-  palette1: ShiftReg,
-}
-impl BgShifters {
-    pub fn update(&mut self) {
-    self.plane0.0 <<= 1;
-    self.plane1.0 <<= 1;
-    self.palette0.0 <<= 1;
-    self.palette1.0 <<= 1;
-  }
-  pub fn load(&mut self, data: &BgData) {
-    self.plane0.set_lo(data.tile_plane0);
-    self.plane1.set_lo(data.tile_plane1);
-    self.palette0.set_lo(if (data.palette_id & 0b01) != 0 {0xFF} else { 0x00 });
-    self.palette1.set_lo(if (data.palette_id & 0b10) != 0 {0xFF} else { 0x00 });
-  }
-  pub fn get(&self, fine_x: u8) -> (u8, u8) {
-    let mask = 0x8000 >> fine_x;
-
-    let bit1 = ((self.plane1.0 & mask) != 0) as u8;
-    let bit0 = ((self.plane0.0 & mask) != 0) as u8;
-    let pixel = (bit1 << 1) | bit0;
-    
-    let pal1 = ((self.palette1.0  & mask) != 0) as u8;
-    let pal0 = ((self.palette0.0  & mask) != 0) as u8;
-    let palette_id = (pal1 << 1) | pal0;
-
-    (pixel as u8, palette_id as u8)
-  }
-}
-
 
 #[derive(Debug)]
 pub enum WriteLatch {
@@ -223,7 +175,7 @@ impl Ppu {
     Self {
       screen: NesScreen::new(),
 
-      // WHY DOES THIS WORK?
+      // TODO: WHY DOES THIS WORK? eventually find out and fix it.
       bg_fifo: VecDeque::from([(0, 0)].repeat(13)),
       render_buf: BgData::default(),
       oam_secondary: Vec::with_capacity(8),
@@ -454,7 +406,7 @@ impl Ppu {
       _ => {}
     }
 
-    if self.is_rendering_on() && self.cycle < 32*8 && self.scanline < 30*8 {
+    if self.is_rendering_on() && self.cycle <= 32*8 && self.scanline <= 30*8 {
       let (bg_pixel, bg_palette_id) = self.bg_fifo.get(self.x as usize).unwrap().to_owned();
 
       let spr_data = self.spr_scanline[self.cycle-1].clone().unwrap_or_default();
@@ -475,67 +427,6 @@ impl Ppu {
       }
     }
   }
-
-  // pub fn fetch_next_bg_pixel_old(&mut self) {
-  //   self.bg_shifters.update();
-  //   for (i, sprite) in self.oam_secondary.iter_mut().enumerate() {
-  //     if sprite.x > 0 { sprite.x -= 1; }
-  //     else {
-  //       self.spr_shifters[i].0.0 <<= 1;
-  //       self.spr_shifters[i].1.0 <<= 1;
-  //     }
-  //   }
-
-  //   // https://www.nesdev.org/wiki/PPU_scrolling#Tile_and_attribute_fetching
-  //   match ((self.cycle-1) % 8) + 1 {
-  //     1 => {
-  //       self.bg_shifters.load(&self.render_buf);
-  //       self.render_buf.tile_id = self.vram_peek(0x2000 + self.v.nametbl_idx());
-  //     }
-  //     3 => {
-  //       let attribute_addr = 0x23C0
-  //         | ((self.v.nametbl() as u16) << 10)
-  //         | ((self.v.coarse_y() as u16)/4) << 3
-  //         | ((self.v.coarse_x() as u16)/4);
-  //       let attribute = self.vram_peek(attribute_addr);
-  //       let palette_id = self.get_palette_id(attribute);
-
-  //       self.render_buf.palette_id = palette_id;
-  //     }
-  //     5 => {
-  //       let tile_addr  = self.ctrl.bg_ptrntbl_addr() 
-  //         + (self.render_buf.tile_id as u16) * 16
-  //         + self.v.fine_y() as u16;
-
-  //       let plane0 = self.vram_peek(tile_addr);
-  //       self.render_buf.tile_plane0 = plane0;
-  //     }
-  //     7 => {
-  //       let tile_addr  = self.ctrl.bg_ptrntbl_addr() 
-  //         + (self.render_buf.tile_id as u16) * 16
-  //         + self.v.fine_y() as u16;
-
-  //       let plane1 = self.vram_peek(tile_addr + 8);
-  //       self.render_buf.tile_plane1 = plane1;
-  //     }
-  //     8 => {
-  //       self.increase_coarse_x();
-  //     }
-  //     _ => {}
-  //   }
-  //   if self.cycle == 1 { 
-  //     self.oam_secondary.clear();
-  //     // self.spr_shifters.fill((ShiftReg::new(), ShiftReg::new()));
-  //   }
-  //   if self.cycle == 65 { self.evaluate_sprites(); }
-  //   if self.cycle == 256 { self.increase_coarse_y(); }
-
-  //   if self.is_rendering_on() && self.cycle < 32*8 && self.scanline < 30*8 {
-  //     let (bg_pixel, palette_id) = self.bg_shifters.get(self.x);
-  //     self.screen.0.set_pixel(self.cycle-1, self.scanline, self.get_color_id(bg_pixel, palette_id));
-  //   }
-  // }
-
 
   // https://www.nesdev.org/wiki/PPU_scrolling#Wrapping_around
   pub fn increase_coarse_x(&mut self) {
