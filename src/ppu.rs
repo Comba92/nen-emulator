@@ -296,6 +296,29 @@ impl Ppu {
     }
   }
 
+  pub fn render_pixel(&mut self) {
+    if self.is_rendering_on() && self.cycle <= 32*8 && self.scanline <= 30*8 {
+      let (bg_pixel, bg_palette_id) = self.bg_fifo.get(self.x as usize).unwrap().to_owned();
+
+      let spr_data = self.spr_scanline[self.cycle-1].clone().unwrap_or_default();
+
+      if spr_data.is_sprite0 
+      && spr_data.pixel != 0 && bg_pixel != 0 
+      && self.cycle != 255 && !(0..=7).contains(&self.cycle) {
+        info!("SPRITE 0 HIT");
+        self.stat.insert(PpuStat::spr0_hit);
+      }
+
+      if self.mask.contains(PpuMask::spr_render_on) && (spr_data.priority == SpritePriority::Front || bg_pixel == 0) && spr_data.pixel != 0 {
+        let color = self.get_color_from_palette(spr_data.pixel, spr_data.palette_id);
+        self.screen.0.set_pixel(self.cycle-1, self.scanline, color);
+      } else if self.mask.contains(PpuMask::bg_render_on) {
+        let color = self.get_color_from_palette(bg_pixel, bg_palette_id);
+        self.screen.0.set_pixel(self.cycle-1, self.scanline, color);
+      }
+    }
+  }
+
   pub fn evaluate_sprites(&mut self) {
     let mut visible_sprites = 0;
 
@@ -356,13 +379,6 @@ impl Ppu {
     }
   }
 
-  pub fn load_bg_fifo(&mut self) {
-    for i in (0..8).rev() {
-      let pixel = self.get_pixel_from_planes(i, self.render_buf.tile_plane0, self.render_buf.tile_plane1);
-      self.bg_fifo.push_back((pixel, self.render_buf.palette_id));
-    }
-  }
-
   pub fn fetch_bg_step(&mut self) {
     self.bg_fifo.pop_front();
     
@@ -370,7 +386,11 @@ impl Ppu {
     // https://www.nesdev.org/wiki/PPU_scrolling#Tile_and_attribute_fetching
     match step {
       2 => {
-        self.load_bg_fifo();
+        // Load bg fifo
+        for i in (0..8).rev() {
+          let pixel = self.get_pixel_from_planes(i, self.render_buf.tile_plane0, self.render_buf.tile_plane1);
+          self.bg_fifo.push_back((pixel, self.render_buf.palette_id));
+        }
 
         let tile_addr = 0x2000 + self.v.nametbl_idx();
         self.render_buf.tile_id = self.vram_peek(tile_addr);
@@ -406,26 +426,7 @@ impl Ppu {
       _ => {}
     }
 
-    if self.is_rendering_on() && self.cycle <= 32*8 && self.scanline <= 30*8 {
-      let (bg_pixel, bg_palette_id) = self.bg_fifo.get(self.x as usize).unwrap().to_owned();
-
-      let spr_data = self.spr_scanline[self.cycle-1].clone().unwrap_or_default();
-
-      if spr_data.is_sprite0 
-      && spr_data.pixel != 0 && bg_pixel != 0 
-      && self.cycle != 255 && !(0..=7).contains(&self.cycle) {
-        info!("SPRITE 0 HIT");
-        self.stat.insert(PpuStat::spr0_hit);
-      }
-
-      if self.mask.contains(PpuMask::spr_render_on) && (spr_data.priority == SpritePriority::Front || bg_pixel == 0) && spr_data.pixel != 0 {
-        let color = self.get_color_from_palette(spr_data.pixel, spr_data.palette_id);
-        self.screen.0.set_pixel(self.cycle-1, self.scanline, color);
-      } else if self.mask.contains(PpuMask::bg_render_on) {
-        let color = self.get_color_from_palette(bg_pixel, bg_palette_id);
-        self.screen.0.set_pixel(self.cycle-1, self.scanline, color);
-      }
-    }
+    self.render_pixel();
   }
 
   // https://www.nesdev.org/wiki/PPU_scrolling#Wrapping_around

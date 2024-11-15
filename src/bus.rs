@@ -55,6 +55,10 @@ impl Memory for Bus {
       BusDst::NoImpl => debug!("Write to {addr:04X} not implemented")
     }
   }
+
+  fn poll_nmi(&mut self) -> bool {
+    self.ppu.nmi_requested.take().is_some()
+  }
 }
 
 impl Bus {
@@ -104,11 +108,6 @@ impl Bus {
   pub fn peek_vblank(&mut self) -> bool {
     self.ppu.vblank_started.take().is_some()
   }
-  pub fn poll_nmi(&mut self) -> bool {
-    self.ppu.nmi_requested.take().is_some()
-  }
-  // TODO
-  pub fn poll_irq(&mut self) -> bool { false }
 }
 
 #[cfg(test)]

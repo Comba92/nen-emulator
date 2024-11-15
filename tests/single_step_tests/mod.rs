@@ -1,7 +1,7 @@
 use core::fmt;
 use std::fs;
 
-use nen_emulator::{cpu::{Cpu, CpuFlags}, mem::Memory};
+use nen_emulator::{cpu::{Cpu, CpuFlags}, mem::{Memory, Ram64Kb}};
 use prettydiff::diff_words;
 use serde::Deserialize;
 
@@ -23,7 +23,7 @@ impl fmt::Display for CpuMock {
     }
 }
 impl CpuMock {
-  fn from_cpu(cpu: &Cpu) -> Self {
+  fn from_cpu(cpu: &Cpu<Ram64Kb>) -> Self {
     Self {
       pc: cpu.pc, sp: cpu.sp, a: cpu.a, x: cpu.x, y: cpu.y, 
       p: cpu.p.bits(), ram: Vec::new(),
@@ -60,7 +60,7 @@ fn cpu_test_one() {
     test[0].name, diff_words(&my_end.to_string(), &test[0].end.to_string()));
 }
 
-fn cpu_from_mock(mock: &CpuMock) -> Cpu {
+fn cpu_from_mock(mock: &CpuMock) -> Cpu<Ram64Kb> {
   let mut cpu = Cpu::with_ram64kb();
   cpu.a = mock.a;
   cpu.x = mock.x;

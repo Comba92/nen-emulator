@@ -1,7 +1,9 @@
-use std::{collections::HashMap, sync::LazyLock};
+use std::sync::LazyLock;
 use serde::{de::Visitor, Deserialize, Deserializer};
 
-use super::cpu::{Cpu, InstrFn};
+use crate::{cpu::Operand, mem::Memory};
+
+use super::cpu::Cpu;
 
 #[derive(Deserialize, Debug, Default, Clone)]
 #[serde(default, rename_all = "camelCase")]
@@ -96,89 +98,91 @@ fn get_instructions() -> [Instruction; 256] {
 
 
 pub static INSTRUCTIONS: LazyLock<[Instruction; 256]> = LazyLock::new(get_instructions);
-pub static INSTR_TO_FN: LazyLock<HashMap<&'static str, InstrFn>> = LazyLock::new(|| {
-  let mut map: HashMap<&'static str, InstrFn> = HashMap::new();
-  
-  map.insert("BRK", Cpu::brk);
-  map.insert("ORA", Cpu::ora);
-  map.insert("JAM", Cpu::jam);
-  map.insert("SLO", Cpu::slo);
-  map.insert("NOP", Cpu::nop);
-  map.insert("ASL", Cpu::asl);
-  map.insert("PHP", Cpu::php);
-  map.insert("ANC", Cpu::anc);
-  map.insert("BPL", Cpu::bpl);
-  map.insert("CLC", Cpu::clc);
-  map.insert("JSR", Cpu::jsr);
-  map.insert("AND", Cpu::and);
-  map.insert("RLA", Cpu::rla);
-  map.insert("BIT", Cpu::bit);
-  map.insert("ROL", Cpu::rol);
-  map.insert("PLP", Cpu::plp);
-  map.insert("BMI", Cpu::bmi);
-  map.insert("SEC", Cpu::sec);
-  map.insert("RTI", Cpu::rti);
-  map.insert("EOR", Cpu::eor);
-  map.insert("SRE", Cpu::sre);
-  map.insert("LSR", Cpu::lsr);
-  map.insert("PHA", Cpu::pha);
-  map.insert("ALR", Cpu::alr);
-  map.insert("JMP", Cpu::jmp);
-  map.insert("BVC", Cpu::bvc);
-  map.insert("CLI", Cpu::cli);
-  map.insert("RTS", Cpu::rts);
-  map.insert("ADC", Cpu::adc);
-  map.insert("RRA", Cpu::rra);
-  map.insert("ROR", Cpu::ror);
-  map.insert("PLA", Cpu::pla);
-  map.insert("ARR", Cpu::arr);
-  map.insert("BVS", Cpu::bvs);
-  map.insert("SEI", Cpu::sei);
-  map.insert("STA", Cpu::sta);
-  map.insert("SAX", Cpu::sax);
-  map.insert("STY", Cpu::sty);
-  map.insert("STX", Cpu::stx);
-  map.insert("DEY", Cpu::dey);
-  map.insert("TXA", Cpu::txa);
-  map.insert("ANE", Cpu::ane);
-  map.insert("BCC", Cpu::bcc);
-  map.insert("SHA", Cpu::sha);
-  map.insert("TYA", Cpu::tya);
-  map.insert("TXS", Cpu::txs);
-  map.insert("TAS", Cpu::tas);
-  map.insert("SHY", Cpu::shy);
-  map.insert("SHX", Cpu::shx);
-  map.insert("LDY", Cpu::ldy);
-  map.insert("LDA", Cpu::lda);
-  map.insert("LDX", Cpu::ldx);
-  map.insert("LAX", Cpu::lax);
-  map.insert("TAY", Cpu::tay);
-  map.insert("TAX", Cpu::tax);
-  map.insert("LXA", Cpu::lxa);
-  map.insert("BCS", Cpu::bcs);
-  map.insert("CLV", Cpu::clv);
-  map.insert("TSX", Cpu::tsx);
-  map.insert("LAS", Cpu::las);
-  map.insert("CPY", Cpu::cpy);
-  map.insert("CMP", Cpu::cmp);
-  map.insert("DCP", Cpu::dcp);
-  map.insert("DEC", Cpu::dec);
-  map.insert("INY", Cpu::iny);
-  map.insert("DEX", Cpu::dex);
-  map.insert("SBX", Cpu::sbx);
-  map.insert("BNE", Cpu::bne);
-  map.insert("CLD", Cpu::cld);
-  map.insert("CPX", Cpu::cpx);
-  map.insert("SBC", Cpu::sbc);
-  map.insert("ISC", Cpu::isc);
-  map.insert("INC", Cpu::inc);
-  map.insert("INX", Cpu::inx);
-  map.insert("USBC",Cpu::usbc);
-  map.insert("BEQ", Cpu::beq);
-  map.insert("SED", Cpu::sed);
 
-  map
-});
+impl<M: Memory> Cpu<M> {
+  pub fn execute(&mut self, code: u8, op: &mut Operand) {
+    match code {
+      0 => self.brk(op),
+      1 | 5 | 9 | 13 | 17 | 21 | 25 | 29 => self.ora(op),
+      2 | 18 | 34 | 50 | 66 | 82 | 98 | 114 | 146 | 178 | 210 | 242 => self.jam(op),
+      3 | 7 | 15 | 19 | 23 | 27 | 31 => self.slo(op),
+      4 | 12 | 20 | 26 | 28 | 52 | 58 | 60 | 68 | 84 | 90 | 92 | 100 | 116 | 122 | 124 |
+      128 | 130 | 137 | 194 | 212 | 218 | 220 | 226 | 234 | 244 | 250 | 252 => self.nop(op),
+      6 | 10 | 14 | 22 | 30 => self.asl(op),
+      8 => self.php(op),
+      11 | 43 => self.anc(op),
+      16 => self.bpl(op),
+      24 => self.clc(op),
+      32 => self.jsr(op),
+      33 | 37 | 41 | 45 | 49 | 53 | 57 | 61 => self.and(op),
+      35 | 39 | 47 | 51 | 55 | 59 | 63 => self.rla(op),
+      36 | 44 => self.bit(op),
+      38 | 42 | 46 | 54 | 62 => self.rol(op),
+      40 => self.plp(op),
+      48 => self.bmi(op),
+      56 => self.sec(op),
+      64 => self.rti(op),
+      65 | 69 | 73 | 77 | 81 | 85 | 89 | 93 => self.eor(op),
+      67 | 71 | 79 | 83 | 87 | 91 | 95 => self.sre(op),
+      70 | 74 | 78 | 86 | 94 => self.lsr(op),
+      72 => self.pha(op),
+      75 => self.alr(op),
+      76 | 108 => self.jmp(op),
+      80 => self.bvc(op),
+      88 => self.cli(op),
+      96 => self.rts(op),
+      97 | 101 | 105 | 109 | 113 | 117 | 121 | 125 => self.adc(op),
+      99 | 103 | 111 | 115 | 119 | 123 | 127 => self.rra(op),
+      102 | 106 | 110 | 118 | 126 => self.ror(op),
+      104 => self.pla(op),
+      107 => self.arr(op),
+      112 => self.bvs(op),
+      120 => self.sei(op),
+      129 | 133 | 141 | 145 | 149 | 153 | 157 => self.sta(op),
+      131 | 135 | 143 | 151 => self.sax(op),
+      132 | 140 | 148 => self.sty(op),
+      134 | 142 | 150 => self.stx(op),
+      136 => self.dey(op),
+      138 => self.txa(op),
+      139 => self.ane(op),
+      144 => self.bcc(op),
+      147 | 159 => self.sha(op),
+      152 => self.tya(op),
+      154 => self.txs(op),
+      155 => self.tas(op),
+      156 => self.shy(op),
+      158 => self.shx(op),
+      160 | 164 | 172 | 180 | 188 => self.ldy(op),
+      161 | 165 | 169 | 173 | 177 | 181 | 185 | 189 => self.lda(op),
+      162 | 166 | 174 | 182 | 190 => self.ldx(op),
+      163 | 167 | 175 | 179 | 183 | 191 => self.lax(op),
+      168 => self.tay(op),
+      170 => self.tax(op),
+      171 => self.lxa(op),
+      176 => self.bcs(op),
+      184 => self.clv(op),
+      186 => self.tsx(op),
+      187 => self.las(op),
+      192 | 196 | 204 => self.cpy(op),
+      193 | 197 | 201 | 205 | 209 | 213 | 217 | 221 => self.cmp(op),
+      195 | 199 | 207 | 211 | 215 | 219 | 223 => self.dcp(op),
+      198 | 206 | 214 | 222 => self.dec(op),
+      200 => self.iny(op),
+      202 => self.dex(op),
+      203 => self.sbx(op),
+      208 => self.bne(op),
+      216 => self.cld(op),
+      224 | 228 | 236 => self.cpx(op),
+      225 | 229 | 233 | 237 | 241 | 245 | 249 | 253 => self.sbc(op),
+      227 | 231 | 239 | 243 | 247 | 251 | 255 => self.isc(op),
+      230 | 238 | 246 | 254 => self.inc(op),
+      232 => self.inx(op),
+      235 => self.usbc(op),
+      240 => self.beq(op),
+      248 => self.sed(op),
+    }
+  }
+}
 
 
 #[cfg(test)]

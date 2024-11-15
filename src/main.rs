@@ -1,6 +1,6 @@
 use std::{env::args, path::PathBuf};
 
-use nen_emulator::{cart::Cart, cpu::Cpu, renderer::{handle_input, Sdl2Context}, tile::{SCREEN_HEIGHT, SCREEN_WIDTH}};
+use nen_emulator::{cart::Cart, renderer::{handle_input, Sdl2Context}, tile::{SCREEN_HEIGHT, SCREEN_WIDTH}, Emulator};
 use sdl2::{event::Event, keyboard::Keycode, pixels::PixelFormatEnum};
 
 fn main() {
@@ -18,11 +18,11 @@ fn main() {
     } else { PathBuf::from("") };
 
     
-    let mut emu = Cpu::empty();
+    let mut emu = Emulator::empty();
     if rom_path.exists() {
         let cart = Cart::new(&rom_path);
         if let Ok(cart) = cart {
-            emu = Cpu::new(cart);
+            emu = Emulator::new(cart);
         }
     }
 
@@ -35,7 +35,7 @@ fn main() {
         emu.step_until_vblank();
 
         for event in sdl.events.poll_iter() {
-            handle_input(&event, &mut emu.bus.joypad);
+            handle_input(&event, emu.get_joypad());
 
             match event {
                 Event::Quit { .. } => break 'running,
@@ -51,7 +51,7 @@ fn main() {
                     let rom_result = Cart::new(&rom_path);
 
                     match rom_result {
-                        Ok(cart) => emu = Cpu::new(cart),
+                        Ok(cart) => emu = Emulator::new(cart),
                         Err(msg) => eprintln!("Couldn't load the rom: {msg}"),
                     }
                 }

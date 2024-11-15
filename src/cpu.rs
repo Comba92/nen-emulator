@@ -3,7 +3,7 @@ use std::{cell::OnceCell, fmt, ops::{BitAnd, BitOr, BitXor, Not, Shl, Shr}, path
 use bitflags::bitflags;
 use log::{debug, trace};
 
-use crate::{bus::Bus, cart::Cart, instr::{AddressingMode, Instruction, INSTRUCTIONS, INSTR_TO_FN}, mem::Memory, renderer::FrameBuffer};
+use crate::{bus::Bus, cart::Cart, instr::{AddressingMode, Instruction, INSTRUCTIONS}, mem::{Memory, Ram64Kb}};
 
 bitflags! {
   #[derive(Debug, Clone, Copy)]
@@ -35,7 +35,7 @@ pub const RESET_ISR: u16 = 0xFFFC;
 pub const IRQ_ISR: u16 = 0xFFFE;
 
 // TODO: add pausing and resetting
-pub struct Cpu {
+pub struct Cpu<M: Memory> {
   pub pc: u16,
   pub sp: u8,
   pub p: CpuFlags,
@@ -43,12 +43,11 @@ pub struct Cpu {
   pub x: u8,
   pub y: u8,
   pub cycles: usize,
-  pub paused: bool,
   pub jammed: bool,
-  pub bus: Bus,
+  pub bus: M,
 }
 
-impl Memory for Cpu {
+impl<M: Memory> Memory for Cpu<M> {
   fn read(&mut self, addr: u16) -> u8 {
     self.bus.read(addr)
   }
@@ -58,13 +57,28 @@ impl Memory for Cpu {
   }
 }
 
-impl fmt::Debug for Cpu {
+impl<M: Memory> fmt::Debug for Cpu<M> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Cpu").field("pc", &self.pc).field("sp", &self.sp).field("sr", &self.p).field("a", &self.a).field("x", &self.x).field("y", &self.y).field("cycles", &self.cycles).finish()
     }
 }
 
-impl Cpu {
+impl Cpu<Ram64Kb> {
+  pub fn with_ram64kb() -> Self {
+    Self {
+      pc: PC_RESET,
+      sp: STACK_RESET,
+      a: 0, x: 0, y: 0,
+      // At boot, only interrupt flag is enabled
+      p: CpuFlags::from_bits_retain(STAT_RESET),
+      cycles: 7,
+      jammed: false,
+      bus: Ram64Kb { mem: [0; 64 * 1024] }
+    }
+  }
+}
+
+impl Cpu<Bus> {
   pub fn new(cart: Cart) -> Self {
     let mut cpu = Self {
       pc: PC_RESET,
@@ -73,7 +87,6 @@ impl Cpu {
       // At boot, only interrupt flag is enabled
       p: CpuFlags::from_bits_retain(STAT_RESET),
       cycles: 7,
-      paused: false,
       jammed: false,
       bus: Bus::new(cart),
     };
@@ -82,14 +95,7 @@ impl Cpu {
     cpu.pc = cpu.read16(PC_RESET);
     cpu
   }
-  pub fn empty() -> Self {
-    let mut cpu = Cpu::new(Cart::empty());
-    cpu.paused = true;
-    cpu
-  }
-
-  pub fn reset(&mut self) { todo!() }
-
+  
   pub fn from_rom_path(rom_path: &Path) -> Result<Self, String> {
     let cart = Cart::new(rom_path);
     match cart {
@@ -97,6 +103,10 @@ impl Cpu {
       Err(msg) => Err(msg.to_string())
     }
   }
+}
+
+impl<M: Memory> Cpu<M> {
+  pub fn reset(&mut self) { todo!() }
 
   fn set_carry(&mut self, res: u16) {
     self.p.set(CpuFlags::carry, res > u8::MAX as u16);
@@ -197,36 +207,25 @@ enum InstrDst {
   Acc, X, Y, Mem(u16)
 }
 
-pub type InstrFn = fn(&mut Cpu, &mut Operand);
-
-impl Cpu {
+impl<M: Memory> Cpu<M> {
   pub fn step(&mut self) {
-    if self.paused { return; }
-
-    let cycles_at_start = self.cycles;
-    let opcode = self.pc_fetch();
+    self.poll_interrupts();
     
+    let opcode = self.pc_fetch();
     let instr = &INSTRUCTIONS[opcode as usize];
     
     let mut op = self.get_operand_with_addressing(&instr);
     debug!("{:?} with op {:?} at cycle {}", instr, op, self.cycles);
     
-    let opname = instr.name.as_str();
-    let (_, instr_fn) = INSTR_TO_FN
-    .get_key_value(opname)
-    .expect(&format!("Op {opcode}({}) should be in map", instr.name));
-  
-    instr_fn(self, &mut op);
+    self.execute(opcode, &mut op);
     self.cycles += instr.cycles;
-    
-    self.bus.step(self.cycles - cycles_at_start);
-    self.poll_interrupts();
   }
 
-  pub fn step_until_vblank(&mut self) {
-    loop {
-      self.step();
-      if self.bus.peek_vblank() || self.paused { break; }
+  fn poll_interrupts(&mut self) {
+    if self.bus.poll_nmi() {
+      self.handle_interrupt(NMI_ISR);
+    } else if self.bus.poll_irq() && !self.p.contains(CpuFlags::irq_off) { 
+      self.handle_interrupt(IRQ_ISR);
     }
   }
   
@@ -237,18 +236,6 @@ impl Cpu {
     self.cycles = self.cycles.wrapping_add(2);
     self.p.insert(CpuFlags::irq_off);
     self.pc = self.read16(isr_addr);
-  }
-
-  fn poll_interrupts(&mut self) {
-    if self.bus.poll_nmi() {
-      self.handle_interrupt(NMI_ISR);
-    } else if self.bus.poll_irq() && !self.p.contains(CpuFlags::irq_off) { 
-      self.handle_interrupt(IRQ_ISR);
-    }
-  }
-
-  pub fn get_screen(&self) -> &FrameBuffer {
-    &self.bus.ppu.screen.0
   }
 
   fn get_zeropage_operand(&mut self, offset: u8) -> Operand {
@@ -618,12 +605,12 @@ impl Cpu {
     self.set_stat(CpuFlags::irq_off)
   }
 
-  pub fn brk(cpu: &mut Cpu, op: &mut Operand) {
+  pub fn brk(&mut self, op: &mut Operand) {
     // BRK IS 2 BYTES LONG!!
-    cpu.stack_push16(cpu.pc.wrapping_add(1));
-    cpu.php(op);
-    cpu.p.insert(CpuFlags::irq_off);
-    cpu.pc = cpu.read16(IRQ_ISR);
+    self.stack_push16(self.pc.wrapping_add(1));
+    self.php(op);
+    self.p.insert(CpuFlags::irq_off);
+    self.pc = self.read16(IRQ_ISR);
   }
 
   pub fn rti(&mut self, op: &mut Operand) {
@@ -633,7 +620,7 @@ impl Cpu {
   pub fn nop(&mut self, _: &mut Operand) {}
 }
 
-impl Cpu {
+impl<M: Memory> Cpu<M> {
   pub fn usbc(&mut self, op: &mut Operand) {
     self.sbc(op);
   }

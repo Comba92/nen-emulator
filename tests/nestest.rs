@@ -5,7 +5,7 @@ use std::{fs, io::{BufWriter, Write}, path::Path};
 use circular_buffer::CircularBuffer;
 use log::info;
 
-use nen_emulator::{cart::Cart, cpu::{Cpu, CpuFlags}, instr::{AddressingMode, INSTRUCTIONS}, mem::Memory};
+use nen_emulator::{bus::Bus, cart::Cart, cpu::{Cpu, CpuFlags}, instr::{AddressingMode, INSTRUCTIONS}, mem::Memory, Emulator};
 use prettydiff::{diff_lines, diff_words};
 
   #[derive(Debug, Eq, Clone)]
@@ -30,7 +30,7 @@ use prettydiff::{diff_lines, diff_words};
   }
 
   impl CpuMock {
-    fn from_cpu(cpu: &Cpu) -> Self {
+    fn from_cpu(cpu: &Cpu<Bus>) -> Self {
       CpuMock {
         pc: cpu.pc, sp: cpu.sp, a: cpu.a, x: cpu.x, y: cpu.y, p: cpu.p.bits(), 
         cpu_cycles: cpu.cycles,
@@ -83,7 +83,7 @@ use prettydiff::{diff_lines, diff_words};
     println!("{:?}", cart.header);
   }
 
-  fn debug_line(mock: &CpuMock, cpu: &mut Cpu) -> String {
+  fn debug_line(mock: &CpuMock, cpu: &mut Cpu<Bus>) -> String {
     let opcode = cpu.read(mock.pc);
     let instr = &INSTRUCTIONS[opcode as usize];
     
@@ -140,10 +140,10 @@ use prettydiff::{diff_lines, diff_words};
 
     let rom_path = Path::new("./tests/nestest/nestest.nes");
     let rom = Cart::new(rom_path).unwrap();
-    let mut emu = Cpu::new(rom);
+    let mut emu = Emulator::new(rom);
 
-    emu.pc = 0xC000;
-    emu.p = CpuFlags::from_bits_retain(0x24);
+    emu.cpu.pc = 0xC000;
+    emu.cpu.p = CpuFlags::from_bits_retain(0x24);
     //emu.write_data(0x8000, &cart.prg_rom[..0x4000]);
     //emu.write_data(0xC000, &cart.prg_rom[..0x4000]);
     
@@ -155,32 +155,32 @@ use prettydiff::{diff_lines, diff_words};
       
       if let None = next_line {
         info!("Reached end of input!!");
-        print_last_diffs(&most_recent_instr, &mut emu, line_count);
-        info!("Errors: ${:02X}", &emu.read(0x2));
-        info!("Results: ${:04X}", &emu.read16(0x2));
+        print_last_diffs(&most_recent_instr, &mut emu.cpu, line_count);
+        info!("Errors: ${:02X}", &emu.cpu.read(0x2));
+        info!("Results: ${:04X}", &emu.cpu.read16(0x2));
 
         break;
       }
 
       let line = next_line.unwrap();
-      let my_cpu = CpuMock::from_cpu(&emu);
+      let my_cpu = CpuMock::from_cpu(&emu.cpu);
       let log_cpu = CpuMock::from_log(line);
 
       if my_cpu != log_cpu {
-        print_last_diffs(&most_recent_instr, &mut emu, line_count);
+        print_last_diffs(&most_recent_instr, &mut emu.cpu, line_count);
         
-        let (my_line, log_line) = print_diff(&my_cpu, &log_cpu, &mut emu, line_count);
+        let (my_line, log_line) = print_diff(&my_cpu, &log_cpu, &mut emu.cpu, line_count);
         
         info!("{}", "-".repeat(50));
         info!("Incosistency at line {line_count}\n{}", diff_words(&my_line, &log_line));
         
         let my_p = format!("{:?}", CpuFlags::from_bits_retain(my_cpu.p));
         let log_p = format!("{:?}", CpuFlags::from_bits_retain(log_cpu.p));
-        info!("Stack: {}", &emu.stack_trace());
+        info!("Stack: {}", &emu.cpu.stack_trace());
         
         info!("Flags: {}", diff_lines(&my_p, &log_p));
-        info!("Errors: ${:02X}", &emu.read(0x2));
-        info!("Results: ${:04X}", &emu.read16(0x2));
+        info!("Errors: ${:02X}", &emu.cpu.read(0x2));
+        info!("Results: ${:04X}", &emu.cpu.read16(0x2));
         
         info!("{}", "-".repeat(50));
         
@@ -218,7 +218,7 @@ fn nestest_to_file() {
   }
 }
 
-fn print_diff(my_cpu: &CpuMock, log_cpu: &CpuMock, cpu: &mut Cpu, line_count: usize) -> (String, String) {
+fn print_diff(my_cpu: &CpuMock, log_cpu: &CpuMock, cpu: &mut Cpu<Bus>, line_count: usize) -> (String, String) {
     let my_line = debug_line(my_cpu, cpu);
     let log_line = debug_line(log_cpu, cpu);
     info!("{}|Mine -> {my_line}", line_count);
@@ -228,7 +228,7 @@ fn print_diff(my_cpu: &CpuMock, log_cpu: &CpuMock, cpu: &mut Cpu, line_count: us
     (my_line, log_line)
   }
   
-  fn print_last_diffs(most_recent_instr: &CircularBuffer<8, (CpuMock, CpuMock)>, cpu: &mut Cpu, line_count: usize) {
+  fn print_last_diffs(most_recent_instr: &CircularBuffer<8, (CpuMock, CpuMock)>, cpu: &mut Cpu<Bus>, line_count: usize) {
     let mut trace: Vec<(usize, &(CpuMock, CpuMock))> = most_recent_instr.iter().enumerate().collect::<Vec<_>>();
     trace.sort_by(|a, b| a.0.cmp(&b.0));
     

@@ -8,6 +8,9 @@ pub trait Memory {
     u16::from_le_bytes([low, high])
   }
 
+  fn poll_nmi(&mut self) -> bool { false }
+  fn poll_irq(&mut self) -> bool { false }
+
   fn wrapping_read16(&mut self, addr: u16) -> u16 {
     if addr & 0x00FF == 0x00FF {
       let page = addr & 0xFF00;
@@ -27,5 +30,19 @@ pub trait Memory {
     for (i , byte) in data.iter().enumerate() {
       self.write(start.wrapping_add(i as u16), *byte);
     }
+  }
+}
+
+pub struct Ram64Kb {
+  pub mem: [u8; 64*1024]
+}
+
+impl Memory for Ram64Kb {
+  fn read(&mut self, addr: u16) -> u8 {
+    self.mem[addr as usize]
+  }
+
+  fn write(&mut self, addr: u16, val: u8) {
+    self.mem[addr as usize] = val
   }
 }
