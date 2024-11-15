@@ -1,6 +1,6 @@
 use std::{collections::VecDeque, fmt};
 
-use crate::{cart::Mirroring, mapper::CartMapper, renderer::NesScreen, tile::{OamEntry, SpritePriority}};
+use crate::{cart::Mirroring, render::{NesScreen, OamEntry, SpritePriority}, mapper::CartMapper};
 use bitfield_struct::bitfield;
 use bitflags::bitflags;
 use log::{info, warn};
@@ -130,25 +130,21 @@ pub enum VramDst {
 pub struct Ppu {
   pub screen: NesScreen,
 
-  render_buf: BgData,
+  bg_buf: BgData,
   bg_fifo: VecDeque<(u8, u8)>,
-  oam_secondary: Vec<OamEntry>,
-  spr_scanline: [Option<SprData>; 32*8],
-  spr0_hit_possible: bool,
+  oam_buf: Vec<OamEntry>,
+  scanline_sprites: [Option<SprData>; 32*8],
 
   v: LoopyReg, // current vram address
   t: LoopyReg, // temporary vram address / topleft onscreen tile
   x: u8, // Fine X Scroll
   w: WriteLatch, // First or second write toggle
   data_buf: u8,
-  in_odd_frame: bool,
   
   pub ctrl: PpuCtrl,
   pub mask: PpuMask,
   pub stat: PpuStat,
   pub oam_addr: u8,
-  // TODO: remove this
-  pub scroll: (u8, u8),
   
   pub mapper: CartMapper,
   pub chr: Vec<u8>,
@@ -158,8 +154,10 @@ pub struct Ppu {
   
   pub scanline: usize,
   pub cycle: usize,
-  pub mirroring: Mirroring,
+  in_odd_frame: bool,
 
+  pub mirroring: Mirroring,
+  
   pub nmi_requested: Option<()>,
   pub vblank_started: Option<()>,
 }
@@ -177,10 +175,9 @@ impl Ppu {
 
       // TODO: WHY DOES THIS WORK? eventually find out and fix it.
       bg_fifo: VecDeque::from([(0, 0)].repeat(13)),
-      render_buf: BgData::default(),
-      oam_secondary: Vec::with_capacity(8),
-      spr_scanline: [const { None }; 32*8],
-      spr0_hit_possible: false,
+      bg_buf: BgData::default(),
+      oam_buf: Vec::with_capacity(8),
+      scanline_sprites: [const { None }; 32*8],
       
       v: LoopyReg::new(), t: LoopyReg::new(), 
       x: 0, w: WriteLatch::FirstWrite, 
@@ -196,7 +193,6 @@ impl Ppu {
       ctrl: PpuCtrl::empty(),
       mask: PpuMask::empty(),
       stat: PpuStat::empty(),
-      scroll: (0, 0),
       
       mirroring,
 
@@ -207,38 +203,48 @@ impl Ppu {
 
   pub fn reset() { todo!() }
 
-  pub fn step(&mut self) {
-    self.cycle += 1;
 
-    if self.is_spr0_hit() {
-      self.stat.insert(PpuStat::spr0_hit);
-    }
+  // pub fn is_spr0_hit(&self) -> bool {
+  //   let spr0_y = self.oam[0] as usize;
+  //   let spr0_x = self.oam[3] as usize;
 
-    if self.cycle == 341 {
-      self.cycle = 0;
-      self.scanline += 1;
+  //   self.is_rendering_on()
+  //     && spr0_y == self.scanline
+  //     && spr0_x <= self.cycle
+  // }
 
-      // Post-render scanline (240)
+  // pub fn step(&mut self) {
+  //   self.cycle += 1;
 
-      // Vertical blanking lines (241-260)
-      if self.scanline == 241 {
-        info!("VBLANK!!");
-        self.vblank_started = Some(());
-        self.stat.insert(PpuStat::vblank);
-        self.stat.remove(PpuStat::spr0_hit);
+  //   if self.is_spr0_hit() {
+  //     self.stat.insert(PpuStat::spr0_hit);
+  //   }
 
-        if self.ctrl.contains(PpuCtrl::vblank_nmi_on) {
-          self.nmi_requested = Some(());
-        }
+  //   if self.cycle == 341 {
+  //     self.cycle = 0;
+  //     self.scanline += 1;
 
-      // Pre-render scanline (261)
-      } else if self.scanline == 261 {
-        self.stat = PpuStat::empty();
-        self.oam_addr = 0;
-        self.scanline = 0;
-      }
-    }
-  }
+  //     // Post-render scanline (240)
+
+  //     // Vertical blanking lines (241-260)
+  //     if self.scanline == 241 {
+  //       info!("VBLANK!!");
+  //       self.vblank_started = Some(());
+  //       self.stat.insert(PpuStat::vblank);
+  //       self.stat.remove(PpuStat::spr0_hit);
+
+  //       if self.ctrl.contains(PpuCtrl::vblank_nmi_on) {
+  //         self.nmi_requested = Some(());
+  //       }
+
+  //     // Pre-render scanline (261)
+  //     } else if self.scanline == 261 {
+  //       self.stat = PpuStat::empty();
+  //       self.oam_addr = 0;
+  //       self.scanline = 0;
+  //     }
+  //   }
+  // }
 
   pub fn step_accurate(&mut self) {
     if (0..=239).contains(&self.scanline) || self.scanline == 261 {
@@ -248,13 +254,13 @@ impl Ppu {
       }
       
       if self.cycle == 64 {
-        self.oam_secondary.clear();
+        self.oam_buf.clear();
       } else if self.cycle == 256 {
         self.increase_coarse_y();
         self.evaluate_sprites();
       } else if self.cycle == 257 {
         self.reset_render_x();
-        self.spr_scanline.fill(None);
+        self.scanline_sprites.fill(None);
       } else if self.cycle == 320 && self.scanline != 261 {
         self.fetch_sprites();
       }
@@ -291,7 +297,6 @@ impl Ppu {
       if self.scanline > 261 {
         self.scanline = 0;
         self.in_odd_frame = !self.in_odd_frame;
-        self.spr0_hit_possible = false;
       }
     }
   }
@@ -300,7 +305,7 @@ impl Ppu {
     if self.is_rendering_on() && self.cycle <= 32*8 && self.scanline <= 30*8 {
       let (bg_pixel, bg_palette_id) = self.bg_fifo.get(self.x as usize).unwrap().to_owned();
 
-      let spr_data = self.spr_scanline[self.cycle-1].clone().unwrap_or_default();
+      let spr_data = self.scanline_sprites[self.cycle-1].clone().unwrap_or_default();
 
       if spr_data.is_sprite0 
       && spr_data.pixel != 0 && bg_pixel != 0 
@@ -327,9 +332,8 @@ impl Ppu {
       let dist_from_scanline = self.scanline as isize - spr_y;
 
       if dist_from_scanline >= 0 && dist_from_scanline < self.ctrl.spr_height() as isize {
-        if self.oam_secondary.len() < 8 {
-          self.oam_secondary.push(OamEntry::from_bytes(&self.oam[i..i+4]));
-          if i == 0 { self.spr0_hit_possible = true; }
+        if self.oam_buf.len() < 8 {
+          self.oam_buf.push(OamEntry::from_bytes(&self.oam[i..i+4], i));
         }
         visible_sprites += 1;
       }
@@ -339,7 +343,7 @@ impl Ppu {
   }
 
   pub fn fetch_sprites(&mut self) {
-    for (spr_idx, sprite) in self.oam_secondary.iter().enumerate() {
+    for sprite in self.oam_buf.iter() {
       let vertical_start: usize = if sprite.flip_vertical { 7 } else { 0 };
       let dist = self.scanline - sprite.y;
   
@@ -359,7 +363,7 @@ impl Ppu {
   
       let mut plane0 = self.vram_peek(spr_addr);
       let mut plane1 = self.vram_peek(spr_addr + 8);
-      // eventually fix this hack
+      // TODO: eventually fix this hack
       if !sprite.flip_horizontal { 
         plane0 = plane0.reverse_bits();
         plane1 = plane1.reverse_bits();
@@ -369,12 +373,17 @@ impl Ppu {
         if sprite.x + i >= 32*8 { continue; }
   
         // sprite with higher priority already there
-        if let Some(current_pixel) = &self.spr_scanline[sprite.x + i] { 
+        if let Some(current_pixel) = &self.scanline_sprites[sprite.x + i] { 
           if current_pixel.pixel != 0 { continue; }
         }
         
         let pixel = self.get_pixel_from_planes(i as u8, plane0, plane1);
-        self.spr_scanline[sprite.x + i] = Some(SprData { pixel, palette_id: sprite.palette_id, priority: sprite.priority, is_sprite0: spr_idx == 0 && self.spr0_hit_possible });
+        self.scanline_sprites[sprite.x + i] = Some(SprData {
+          pixel,
+          palette_id: sprite.palette_id, 
+          priority: sprite.priority, 
+          is_sprite0: sprite.index == 0
+        });
       }
     }
   }
@@ -388,12 +397,12 @@ impl Ppu {
       2 => {
         // Load bg fifo
         for i in (0..8).rev() {
-          let pixel = self.get_pixel_from_planes(i, self.render_buf.tile_plane0, self.render_buf.tile_plane1);
-          self.bg_fifo.push_back((pixel, self.render_buf.palette_id));
+          let pixel = self.get_pixel_from_planes(i, self.bg_buf.tile_plane0, self.bg_buf.tile_plane1);
+          self.bg_fifo.push_back((pixel, self.bg_buf.palette_id));
         }
 
         let tile_addr = 0x2000 + self.v.nametbl_idx();
-        self.render_buf.tile_id = self.vram_peek(tile_addr);
+        self.bg_buf.tile_id = self.vram_peek(tile_addr);
       }
       4 => {
         let attribute_addr = 0x23C0
@@ -404,29 +413,34 @@ impl Ppu {
         let attribute = self.vram_peek(attribute_addr);
         let palette_id = self.get_palette_from_attribute(attribute);
 
-        self.render_buf.palette_id = palette_id;
+        self.bg_buf.palette_id = palette_id;
       }
       6 => {
         let tile_addr  = self.ctrl.bg_ptrntbl_addr() 
-          + (self.render_buf.tile_id as u16) * 16
+          + (self.bg_buf.tile_id as u16) * 16
           + self.v.fine_y() as u16;
 
         let plane0 = self.vram_peek(tile_addr);
-        self.render_buf.tile_plane0 = plane0;
+        self.bg_buf.tile_plane0 = plane0;
       }
       7 => {
         let tile_addr  = self.ctrl.bg_ptrntbl_addr() 
-          + (self.render_buf.tile_id as u16) * 16
+          + (self.bg_buf.tile_id as u16) * 16
           + self.v.fine_y() as u16;
 
         let plane1 = self.vram_peek(tile_addr + 8);
-        self.render_buf.tile_plane1 = plane1;
+        self.bg_buf.tile_plane1 = plane1;
       }
       8 => self.increase_coarse_x(),
       _ => {}
     }
 
     self.render_pixel();
+  }
+
+  pub fn is_rendering_on(&self) -> bool {
+    self.mask.contains(PpuMask::bg_render_on) ||
+    self.mask.contains(PpuMask::spr_render_on)
   }
 
   // https://www.nesdev.org/wiki/PPU_scrolling#Wrapping_around
@@ -475,21 +489,6 @@ impl Ppu {
     self.v.set_fine_y(self.t.fine_y());
     self.v.set_nametbl_y(self.t.nametbl_y());
   }
-
-  pub fn is_spr0_hit(&self) -> bool {
-    let spr0_y = self.oam[0] as usize;
-    let spr0_x = self.oam[3] as usize;
-
-    // TODO: is this correct?
-    self.is_rendering_on()
-      && spr0_y == self.scanline
-      && spr0_x <= self.cycle
-  }
-
-  pub fn is_rendering_on(&self) -> bool {
-    self.mask.contains(PpuMask::bg_render_on) ||
-    self.mask.contains(PpuMask::spr_render_on)
-  }
   
   pub fn reg_read(&mut self, addr: u16) -> u8 {
     match addr {
@@ -510,7 +509,6 @@ impl Ppu {
       0x2000 => {
         let was_nmi_off = !self.ctrl.contains(PpuCtrl::vblank_nmi_on);
         self.ctrl = PpuCtrl::from_bits_retain(val);
-        // self.t = self.t | (((val & 0b11) as u16) << 11);
         self.t.set_nametbl_x(val & 0b01);
         self.t.set_nametbl_y((val & 0b10) >> 1);
 
@@ -529,22 +527,19 @@ impl Ppu {
       0x2005 => {
         match self.w {
           WriteLatch::FirstWrite => {
-            // self.t = self.t | (val & 0b1111_1000) as u16;
             self.t.set_coarse_x((val & 0b1111_1000) >> 3);
             self.x = val & 0b0000_0111;
             
-            self.scroll.0 = val;
+            // self.scroll.0 = val;
             self.w = WriteLatch::SecondWrite;
           }
           WriteLatch::SecondWrite => {
             let high = (val & 0b1111_1000) >> 3;
             let low = val & 0b0000_0111;
-            // let res = ((low as u16) << 13) | ((high as u16) << 6);
-            // self.t = self.t | res;
             self.t.set_coarse_y(high);
             self.t.set_fine_y(low);
 
-            self.scroll.1 = val;
+            // self.scroll.1 = val;
             self.w = WriteLatch::FirstWrite;
           }
         }
@@ -593,10 +588,6 @@ impl Ppu {
     }
   }
 
-  pub fn increase_vram_address(&mut self) {
-    self.v.0 = self.v.0.wrapping_add(self.ctrl.vram_addr_incr());
-  }
-
   pub fn vram_peek(&self, addr: u16) -> u8 {
     let (dst, addr) = self.map_address(addr);
     match dst {
@@ -606,6 +597,10 @@ impl Ppu {
       VramDst::Palettes => self.palettes[addr],
       VramDst::Unused => 0,
     }
+  }
+
+  pub fn increase_vram_address(&mut self) {
+    self.v.0 = self.v.0.wrapping_add(self.ctrl.vram_addr_incr());
   }
 
   pub fn vram_read(&mut self) -> u8 {
@@ -659,19 +654,24 @@ impl Ppu {
     }
   }
 
+  // Horizontal:
+  // 0x0800 [ B ]  [ A ] [ a ]
+  // 0x0400 [ A ]  [ B ] [ b ]
+ 
+  // Vertical:
+  // 0x0800 [ B ]  [ A ] [ B ]
+  // 0x0400 [ A ]  [ a ] [ b ]
   pub fn mirror_nametbl(&self, addr: u16) -> u16 {
     let addr = addr - 0x2000;
     let nametbl_idx = addr / 0x400;
     
     use Mirroring::*;
-    let res = match (self.mirroring, nametbl_idx) {
+    match (self.mirroring, nametbl_idx) {
       (Horizontally, 1) | (Horizontally, 2) => addr - 0x400,
       (Horizontally, 3) => addr - 0x400*2,
       (Vertically, 2) | (Vertically, 3) => addr - 0x400*2,
       (_, _) => addr,
-    };
-
-    res
+    }
   }
 
   pub fn mirror_palette(&self, addr: u16) -> u16 {

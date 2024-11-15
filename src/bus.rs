@@ -1,6 +1,5 @@
 use log::debug;
-
-use crate::{cart::{Cart, CartHeader}, dev::Joypad, mapper::CartMapper, mem::Memory, ppu::Ppu};
+use crate::{cart::{Cart, CartHeader}, joypad::Joypad, mapper::CartMapper, mem::Memory, ppu::Ppu};
 
 #[derive(Debug)]
 enum BusDst {

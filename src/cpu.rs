@@ -26,15 +26,15 @@ pub const STACK_END: usize = 0x0200;
 // SP is always initialized at itself minus 3
 // At boot, it is 0x00 - 0x03 = 0xFD
 // After every successive restart, it will be SP - 0x03
-const STACK_RESET: u8 = 0xFD;
+const SP_RESET: u8 = 0xFD;
 const PC_RESET: u16 = 0xFFFC;
-const STAT_RESET: u8 = 0x24;
+const _P_RESET_U8: u8 = 0x24;
+const P_RESET: CpuFlags = CpuFlags::irq_off.union(CpuFlags::unused);
 
 pub const NMI_ISR: u16 = 0xFFFA;
 pub const RESET_ISR: u16 = 0xFFFC;
 pub const IRQ_ISR: u16 = 0xFFFE;
 
-// TODO: add pausing and resetting
 pub struct Cpu<M: Memory> {
   pub pc: u16,
   pub sp: u8,
@@ -67,10 +67,10 @@ impl Cpu<Ram64Kb> {
   pub fn with_ram64kb() -> Self {
     Self {
       pc: PC_RESET,
-      sp: STACK_RESET,
+      sp: SP_RESET,
       a: 0, x: 0, y: 0,
       // At boot, only interrupt flag is enabled
-      p: CpuFlags::from_bits_retain(STAT_RESET),
+      p: P_RESET,
       cycles: 7,
       jammed: false,
       bus: Ram64Kb { mem: [0; 64 * 1024] }
@@ -82,10 +82,10 @@ impl Cpu<Bus> {
   pub fn new(cart: Cart) -> Self {
     let mut cpu = Self {
       pc: PC_RESET,
-      sp: STACK_RESET,
+      sp: SP_RESET,
       a: 0, x: 0, y: 0,
       // At boot, only interrupt flag is enabled
-      p: CpuFlags::from_bits_retain(STAT_RESET),
+      p: P_RESET,
       cycles: 7,
       jammed: false,
       bus: Bus::new(cart),
@@ -106,7 +106,11 @@ impl Cpu<Bus> {
 }
 
 impl<M: Memory> Cpu<M> {
-  pub fn reset(&mut self) { todo!() }
+  pub fn reset(&mut self) {
+    self.pc = self.read16(PC_RESET);
+    self.sp = self.sp.wrapping_sub(3);
+    self.p = P_RESET;
+  }
 
   fn set_carry(&mut self, res: u16) {
     self.p.set(CpuFlags::carry, res > u8::MAX as u16);
@@ -185,14 +189,14 @@ impl<M: Memory> Cpu<M> {
   }
 
   pub fn stack_trace(&mut self) -> String {
-    let mut s = String::new();
+    let mut trace = String::new();
     const RANGE: i16 = 5;
     for i in -RANGE..=0 {
       let addr = self.sp_addr().wrapping_add_signed(i);
-      s.push_str(&format!("${:02X}, ", self.read(addr)));
+      trace.push_str(&format!("${:02X}, ", self.read(addr)));
     }
 
-    s
+    trace
   }
 }
 

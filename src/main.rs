@@ -1,7 +1,6 @@
 use std::{env::args, path::PathBuf};
-
-use nen_emulator::{cart::Cart, renderer::{handle_input, Sdl2Context}, tile::{SCREEN_HEIGHT, SCREEN_WIDTH}, Emulator};
 use sdl2::{event::Event, keyboard::Keycode, pixels::PixelFormatEnum};
+use nen_emulator::{cart::Cart, render::{SCREEN_HEIGHT, SCREEN_WIDTH}, sdl2ctx::Sdl2Context, Emulator};
 
 fn main() {
     const SCALE: f32 = 3.5;
@@ -35,7 +34,7 @@ fn main() {
         emu.step_until_vblank();
 
         for event in sdl.events.poll_iter() {
-            handle_input(&event, emu.get_joypad());
+            emu.handle_input(&event);
 
             match event {
                 Event::Quit { .. } => break 'running,

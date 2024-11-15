@@ -93,10 +93,10 @@ pub struct Cart {
 }
 
 impl Cart {
-  // TODO: should return a Result, this can fail
   pub fn new(rom_path: &Path) -> Result<Self, String> {
     let rom = fs::read(rom_path)
-      .expect(format!("Couldn't locate rom file at {:?}", rom_path).as_str());
+      .map_err(|e| format!("Couldn't locate rom file at {:?}: {e}", rom_path))?;
+
     if rom.len() < HEADER_SIZE {
       return Err("Rom file is too small".to_string());
     }
@@ -105,7 +105,7 @@ impl Cart {
 
     println!("{:#?}", header);
     if header.is_nes_v2 {
-      eprintln!("This rom has NES 2.0 format! Might not be run correctly...")
+      eprintln!("This rom has NES 2.0 format! Might not run correctly...")
       // return Err("NES 2.0 format not supported");
     }
 

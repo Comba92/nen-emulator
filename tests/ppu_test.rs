@@ -3,7 +3,7 @@ mod ppu_test {
     use std::path::Path;
     #[allow(unused_imports)]
     use log::info;
-    use nen_emulator::{cart::Cart, renderer::{handle_input, FrameBuffer, NesScreen, Sdl2Context, GREYSCALE_PALETTE}, tile::{SpritePriority, Tile}, Emulator};
+    use nen_emulator::{cart::Cart, render::{FrameBuffer, NesScreen, SpritePriority, Tile, GREYSCALE_PALETTE}, sdl2ctx::Sdl2Context, Emulator};
     use sdl2::{event::Event, pixels::PixelFormatEnum};
 
 
@@ -120,7 +120,7 @@ mod ppu_test {
             _ => {}
           }
 
-          handle_input(&event, emu.get_joypad());
+          emu.handle_input(&event);
         }
         
         // let bg_ptrntbl = emu.bus.ppu.ctrl.bg_ptrntbl_addr() as usize;
@@ -209,7 +209,7 @@ mod ppu_test {
             _ => {}
           }
 
-          handle_input(&event, &mut emu.get_joypad());
+          emu.handle_input(&event);
         }
 
         texture.update(None, &emu.get_screen().buffer, emu.get_screen().pitch()).unwrap();

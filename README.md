@@ -5,6 +5,7 @@
 
 [x] Implement Memory Bus, Interrupts, synchronization
 - Better input
+- Controller support
 
 [x] Implement PPU
 - PPU masking
