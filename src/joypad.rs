@@ -2,7 +2,7 @@ use bitflags::bitflags;
 
 bitflags! {
   #[derive(Clone, Copy)]
-  pub struct JoypadStat: u8 {
+  pub struct JoypadButton: u8 {
     const RIGHT  = 0b1000_0000;
     const LEFT   = 0b0100_0000;
     const DOWN   = 0b0010_0000;
@@ -17,14 +17,14 @@ bitflags! {
 
 pub struct Joypad {
   pub strobe: bool,
-  pub button: JoypadStat,
+  pub buttons: JoypadButton,
   pub button_idx: usize,
 }
 impl Joypad {
   pub fn new() -> Self {
     Joypad {
         strobe: false, button_idx: 0,
-        button: JoypadStat::empty()
+        buttons: JoypadButton::empty()
     }
   }
 
@@ -38,7 +38,7 @@ impl Joypad {
   pub fn read(&mut self) -> u8 {
     if self.strobe { return 1; }
     
-    let res = (self.button.bits() 
+    let res = (self.buttons.bits() 
         >> self.button_idx) & 1; 
 
     self.button_idx = (self.button_idx + 1) % 8;

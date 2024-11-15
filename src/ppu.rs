@@ -201,8 +201,11 @@ impl Ppu {
     }
   }
 
-  pub fn reset() { todo!() }
-
+  pub fn reset(&mut self) { 
+    // TODO: better ppu resetting, this works for now
+    self.scanline = 0;
+    self.cycle = 0;
+  }
 
   // pub fn is_spr0_hit(&self) -> bool {
   //   let spr0_y = self.oam[0] as usize;

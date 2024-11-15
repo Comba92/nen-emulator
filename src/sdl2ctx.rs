@@ -1,4 +1,4 @@
-use sdl2::{controller::GameController, render::{Canvas, TextureCreator}, video::{Window, WindowContext}, EventPump, GameControllerSubsystem, JoystickSubsystem, Sdl, TimerSubsystem, VideoSubsystem};
+use sdl2::{controller::GameController, render::{Canvas, TextureCreator}, video::{Window, WindowContext}, EventPump, GameControllerSubsystem, Sdl, TimerSubsystem, VideoSubsystem};
 
 pub struct Sdl2Context {
   pub ctx: Sdl,

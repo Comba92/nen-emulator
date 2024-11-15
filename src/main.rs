@@ -1,5 +1,5 @@
 use std::{env::args, path::PathBuf};
-use sdl2::{event::Event, keyboard::Keycode, pixels::PixelFormatEnum};
+use sdl2::{event::Event, pixels::PixelFormatEnum};
 use nen_emulator::{cart::Cart, render::{SCREEN_HEIGHT, SCREEN_WIDTH}, sdl2ctx::Sdl2Context, Emulator};
 
 fn main() {
@@ -38,13 +38,6 @@ fn main() {
 
             match event {
                 Event::Quit { .. } => break 'running,
-                Event::KeyDown { keycode , .. } => {
-                    if let Some(keycode) = keycode {
-                        if keycode == Keycode::SPACE {
-                            emu.paused = !emu.paused;
-                        }
-                    }
-                }
                 Event::DropFile { filename, .. } => {
                     let rom_path = &PathBuf::from(filename);
                     let rom_result = Cart::new(&rom_path);
