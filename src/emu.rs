@@ -5,7 +5,7 @@ use wasm_bindgen::prelude::wasm_bindgen;
 #[wasm_bindgen]
 pub struct Emu {
   cpu: Cpu<Bus>,
-  pub paused: bool,
+  pub is_paused: bool,
 }
 
 #[wasm_bindgen]
@@ -21,7 +21,14 @@ impl Emu {
   pub fn empty() -> Self {
     Self {
       cpu: Cpu::new(Cart::empty()),
-      paused: true,
+      is_paused: true,
+    }
+  }
+
+  pub fn load_from_bytes(&mut self, bytes: &[u8]) {
+    if let Ok(cart) = Cart::new(bytes) {
+      self.cpu.load_cart(cart);
+      self.is_paused = false;
     }
   }
 
@@ -33,7 +40,7 @@ impl Emu {
 
   pub fn step_until_vblank(&mut self) {
     loop {
-      if self.paused { break; }
+      if self.is_paused { break; }
       if self.cpu.bus.peek_vblank() { break; }
       self.step();
     }
@@ -43,13 +50,17 @@ impl Emu {
     self.cpu.reset();
     self.cpu.bus.ppu.reset();
   }
+
+  pub fn get_raw_screen(&self) -> *const u8 {
+    self.cpu.bus.ppu.screen.0.buffer.as_ptr()
+  }
 }
 
 impl Emu {
   pub fn new(cart: Cart) -> Self {
     Self {
       cpu: Cpu::new(cart),
-      paused: false,
+      is_paused: false,
     }
   }
 

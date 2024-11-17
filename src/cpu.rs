@@ -96,6 +96,11 @@ impl Cpu<Bus> {
     cpu.pc = cpu.read16(PC_RESET);
     cpu
   }
+
+  pub fn load_cart(&mut self, cart: Cart) {
+    self.bus = Bus::new(cart);
+    self.reset();
+  }
 }
 
 impl<M: Memory> Cpu<M> {
