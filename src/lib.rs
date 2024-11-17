@@ -1,4 +1,4 @@
-pub mod nes;
+pub mod emu;
 pub mod render;
 
 pub mod cpu;
@@ -12,5 +12,3 @@ pub mod ppu;
 pub mod joypad;
 
 pub mod cart;
-
-pub mod wasm;

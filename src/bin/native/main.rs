@@ -1,5 +1,5 @@
 use std::{env::args, path::PathBuf};
-use nen_emulator::{cart::Cart, nes::Nes, render::{SCREEN_HEIGHT, SCREEN_WIDTH}};
+use nen_emulator::{cart::Cart, emu::Emu, render::{SCREEN_HEIGHT, SCREEN_WIDTH}};
 use sdl2::{pixels::PixelFormatEnum, event::Event};
 use sdl2ctx::{handle_input, Sdl2Context};
 
@@ -11,6 +11,7 @@ fn main() {
     const WINDOW_HEIGHT: u32  = (SCALE * SCREEN_HEIGHT as f32* 8.0) as u32;
 
     let mut sdl = Sdl2Context::new("NenEmulator", WINDOW_WIDTH, WINDOW_HEIGHT);
+    
     // Keep aspect ratio
     sdl.canvas.set_logical_size(SCREEN_WIDTH as u32, SCREEN_HEIGHT as u32).unwrap();
 
@@ -19,11 +20,11 @@ fn main() {
         PathBuf::from(filename)
     } else { PathBuf::from("") };
 
-    let mut emu = Nes::empty();
+    let mut emu = Emu::empty();
     if rom_path.exists() {
         let cart = Cart::from_file(&rom_path);
         if let Ok(cart) = cart {
-            emu = Nes::new(cart);
+            emu = Emu::new(cart);
         }
     }
 
@@ -45,7 +46,7 @@ fn main() {
                     let rom_result = Cart::from_file(&rom_path);
 
                     match rom_result {
-                        Ok(cart) => emu = Nes::new(cart),
+                        Ok(cart) => emu = Emu::new(cart),
                         Err(msg) => eprintln!("Couldn't load the rom: {msg}"),
                     }
                 }

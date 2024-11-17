@@ -6,7 +6,7 @@ use circular_buffer::CircularBuffer;
 use log::info;
 
 
-use nen_emulator::{bus::Bus, cart::Cart, cpu::{Cpu, CpuFlags}, instr::{AddressingMode, INSTRUCTIONS}, mem::Memory, nes::Nes};
+use nen_emulator::{bus::Bus, cart::Cart, cpu::{Cpu, CpuFlags}, instr::{AddressingMode, INSTRUCTIONS}, mem::Memory, emu::Emu};
 use prettydiff::{diff_lines, diff_words};
 
   #[derive(Debug, Eq, Clone)]
@@ -141,10 +141,10 @@ use prettydiff::{diff_lines, diff_words};
 
     let rom_path = Path::new("./tests/nestest/nestest.nes");
     let rom = Cart::from_file(rom_path).unwrap();
-    let mut emu = Nes::new(rom);
+    let mut emu = Emu::new(rom);
 
-    emu.cpu.pc = 0xC000;
-    emu.cpu.p = CpuFlags::from_bits_retain(0x24);
+    emu.get_cpu().pc = 0xC000;
+    emu.get_cpu().p = CpuFlags::from_bits_retain(0x24);
     //emu.write_data(0x8000, &cart.prg_rom[..0x4000]);
     //emu.write_data(0xC000, &cart.prg_rom[..0x4000]);
     
@@ -156,32 +156,32 @@ use prettydiff::{diff_lines, diff_words};
       
       if let None = next_line {
         info!("Reached end of input!!");
-        print_last_diffs(&most_recent_instr, &mut emu.cpu, line_count);
-        info!("Errors: ${:02X}", &emu.cpu.read(0x2));
-        info!("Results: ${:04X}", &emu.cpu.read16(0x2));
+        print_last_diffs(&most_recent_instr, &mut emu.get_cpu(), line_count);
+        info!("Errors: ${:02X}", &emu.get_cpu().read(0x2));
+        info!("Results: ${:04X}", &emu.get_cpu().read16(0x2));
 
         break;
       }
 
       let line = next_line.unwrap();
-      let my_cpu = CpuMock::from_cpu(&emu.cpu);
+      let my_cpu = CpuMock::from_cpu(&emu.get_cpu());
       let log_cpu = CpuMock::from_log(line);
 
       if my_cpu != log_cpu {
-        print_last_diffs(&most_recent_instr, &mut emu.cpu, line_count);
+        print_last_diffs(&most_recent_instr, &mut emu.get_cpu(), line_count);
         
-        let (my_line, log_line) = print_diff(&my_cpu, &log_cpu, &mut emu.cpu, line_count);
+        let (my_line, log_line) = print_diff(&my_cpu, &log_cpu, &mut emu.get_cpu(), line_count);
         
         info!("{}", "-".repeat(50));
         info!("Incosistency at line {line_count}\n{}", diff_words(&my_line, &log_line));
         
         let my_p = format!("{:?}", CpuFlags::from_bits_retain(my_cpu.p));
         let log_p = format!("{:?}", CpuFlags::from_bits_retain(log_cpu.p));
-        info!("Stack: {}", &emu.cpu.stack_trace());
+        info!("Stack: {}", &emu.get_cpu().stack_trace());
         
         info!("Flags: {}", diff_lines(&my_p, &log_p));
-        info!("Errors: ${:02X}", &emu.cpu.read(0x2));
-        info!("Results: ${:04X}", &emu.cpu.read16(0x2));
+        info!("Errors: ${:02X}", &emu.get_cpu().read(0x2));
+        info!("Results: ${:04X}", &emu.get_cpu().read16(0x2));
         
         info!("{}", "-".repeat(50));
         

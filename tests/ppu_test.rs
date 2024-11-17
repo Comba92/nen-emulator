@@ -3,7 +3,7 @@ mod ppu_test {
     use std::path::Path;
     #[allow(unused)]
     use log::info;
-    use nen_emulator::{nes::Nes, cart::Cart, render::{FrameBuffer, NesScreen, SpritePriority, Tile, GREYSCALE_PALETTE}};
+    use nen_emulator::{emu::Emu, cart::Cart, render::{FrameBuffer, NesScreen, SpritePriority, Tile, GREYSCALE_PALETTE}};
     #[path = "../../src/bin/native/sdl2ctx.rs"]
     mod sdl2ctx;
     use sdl2ctx::{Sdl2Context, handle_input};
@@ -112,7 +112,7 @@ mod ppu_test {
       // let rom_path = &Path::new("tests/nestest/nestest.nes");
       let rom_path = &Path::new("../roms/Mega Man (USA).nes");
       let cart = Cart::from_file(rom_path).unwrap();
-      let mut emu = Nes::new(cart);
+      let mut emu = Emu::new(cart);
 
       'running: loop {
         emu.step_until_vblank();
@@ -148,7 +148,7 @@ mod ppu_test {
           // let palette = &emu.bus.ppu.palettes[palette_id..palette_id+4];
           //framebuf.set_tile(8*x as usize, 8*y as usize, tile, palette);
         // }
-        framebuf.render_background(&emu.cpu.bus.ppu);
+        framebuf.render_background(&emu.get_cpu().bus.ppu);
 
         // let spr_ptrntbl = emu.bus.ppu.ctrl.spr_ptrntbl_addr();
         // for i in (0..256).step_by(4) {
@@ -171,7 +171,7 @@ mod ppu_test {
           //   framebuf.set_tile(sprite);
           // }
         // }
-        framebuf.render_sprites(&emu.cpu.bus.ppu);
+        framebuf.render_sprites(&emu.get_cpu().bus.ppu);
 
         sdl.canvas.clear();
         texture.update(None, &framebuf.0.buffer, framebuf.0.pitch()).unwrap();
@@ -179,11 +179,12 @@ mod ppu_test {
         sdl.canvas.present();
       }
 
-      println!("PALETTES {:?}", emu.cpu.bus.ppu.palettes);
-      println!("OAM {:?}", emu.cpu.bus.ppu.oam);
+      println!("PALETTES {:?}", emu.get_cpu().bus.ppu.palettes);
+      println!("OAM {:?}", emu.get_cpu().bus.ppu.oam);
 
-      // println!("VRAM {:?}", &emu.cpu.bus.ppu.vram);
-      println!("{:?} {:?} {:?}", emu.cpu, emu.cpu.bus.ppu, emu.cpu.bus.cart);
+      // println!("VRAM {:?}", &emu.cpu().bus.ppu.vram);
+      let cpu = emu.get_cpu();
+      println!("{:?} {:?} {:?}", cpu, cpu.bus.ppu, cpu.bus.cart);
     }
 
 
@@ -197,7 +198,7 @@ mod ppu_test {
       // let rom_path = &Path::new("tests/nestest/nestest.nes");
       let rom_path = &Path::new("../roms/Mega Man (USA).nes");
       let cart = Cart::from_file(rom_path).unwrap();
-      let mut emu = Nes::new(cart);
+      let mut emu = Emu::new(cart);
       
       let mut texture = sdl.texture_creator
       .create_texture_target(PixelFormatEnum::RGB24, emu.get_screen().width as u32, emu.get_screen().height as u32)
@@ -220,8 +221,8 @@ mod ppu_test {
         sdl.canvas.present();
       }
 
-      println!("OAM {:?}", emu.cpu.bus.ppu.oam);
-      println!("PALETTES {:02X?}", emu.cpu.bus.ppu.palettes);
-      println!("{:?}", emu.cpu.bus.ppu);
+      println!("OAM {:?}", emu.get_cpu().bus.ppu.oam);
+      println!("PALETTES {:02X?}", emu.get_cpu().bus.ppu.palettes);
+      println!("{:?}", emu.get_cpu().bus.ppu);
     }
 }

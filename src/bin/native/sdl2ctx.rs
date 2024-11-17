@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use nen_emulator::{joypad::JoypadButton, nes::Nes};
+use nen_emulator::{emu::Emu, joypad::JoypadButton};
 use sdl2::{controller::{Axis, Button, GameController}, event::Event, keyboard::Keycode, render::{Canvas, TextureCreator}, video::{Window, WindowContext}, EventPump, GameControllerSubsystem, Sdl, TimerSubsystem, VideoSubsystem};
 
 #[allow(unused)]
@@ -99,13 +99,15 @@ impl Keymaps {
   }
 }
 
-pub fn handle_input(keys: &Keymaps, event: &Event, emu: &mut Nes) {
+pub fn handle_input(keys: &Keymaps, event: &Event, emu: &mut Emu) {
+  let joypad = emu.get_joypad();
+
   match event {
     Event::KeyDown { keycode, .. } => {
       if let Some(keycode) = keycode {
         if let Some(action) = keys.keymap.get(keycode) {
           match action {
-            InputAction::Game(button) => emu.cpu.bus.joypad.buttons.insert(*button),
+            InputAction::Game(button) => joypad.buttons.insert(*button),
             InputAction::Pause => emu.paused = !emu.paused,
             InputAction::Reset => emu.reset(),
           }
@@ -115,14 +117,14 @@ pub fn handle_input(keys: &Keymaps, event: &Event, emu: &mut Nes) {
     Event::KeyUp { keycode, .. } => {
       if let Some(keycode) = keycode {
         if let Some(InputAction::Game(button)) = keys.keymap.get(keycode) {
-          emu.cpu.bus.joypad.buttons.remove(*button);
+          joypad.buttons.remove(*button);
         }
       }
     }
     Event::ControllerButtonDown { button, .. } => {
       if let Some(action) = keys.padmap.get(button) {
         match action {
-          InputAction::Game(action) => emu.cpu.bus.joypad.buttons.insert(*action),
+          InputAction::Game(action) => joypad.buttons.insert(*action),
           InputAction::Pause => emu.paused = !emu.paused,
           InputAction::Reset => emu.reset(),
         }
@@ -130,23 +132,23 @@ pub fn handle_input(keys: &Keymaps, event: &Event, emu: &mut Nes) {
     }
     Event::ControllerButtonUp { button, .. } => {
       if let Some(InputAction::Game(button)) = keys.padmap.get(button) {
-        emu.cpu.bus.joypad.buttons.remove(*button);
+        joypad.buttons.remove(*button);
       }
     }
     Event::ControllerAxisMotion { axis: Axis::LeftX, value, .. } => {
-      if *value > AXIS_DEAD_ZONE { emu.cpu.bus.joypad.buttons.insert(JoypadButton::RIGHT); }
-      else if *value < -AXIS_DEAD_ZONE { emu.cpu.bus.joypad.buttons.insert(JoypadButton::LEFT); }
+      if *value > AXIS_DEAD_ZONE { joypad.buttons.insert(JoypadButton::RIGHT); }
+      else if *value < -AXIS_DEAD_ZONE { joypad.buttons.insert(JoypadButton::LEFT); }
       else {
-        emu.cpu.bus.joypad.buttons.remove(JoypadButton::LEFT);
-        emu.cpu.bus.joypad.buttons.remove(JoypadButton::RIGHT);
+        joypad.buttons.remove(JoypadButton::LEFT);
+        joypad.buttons.remove(JoypadButton::RIGHT);
       }
     }
     Event::ControllerAxisMotion { axis: Axis::LeftY, value, .. } => {
-      if *value > AXIS_DEAD_ZONE { emu.cpu.bus.joypad.buttons.insert(JoypadButton::UP); }
-      else if *value < -AXIS_DEAD_ZONE { emu.cpu.bus.joypad.buttons.insert(JoypadButton::DOWN); }
+      if *value > AXIS_DEAD_ZONE { joypad.buttons.insert(JoypadButton::UP); }
+      else if *value < -AXIS_DEAD_ZONE { joypad.buttons.insert(JoypadButton::DOWN); }
       else {
-        emu.cpu.bus.joypad.buttons.remove(JoypadButton::UP);
-        emu.cpu.bus.joypad.buttons.remove(JoypadButton::DOWN);
+        joypad.buttons.remove(JoypadButton::UP);
+        joypad.buttons.remove(JoypadButton::DOWN);
       }
     }
     _ => {}
