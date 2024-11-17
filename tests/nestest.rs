@@ -80,7 +80,7 @@ use prettydiff::{diff_lines, diff_words};
   #[test]
   fn open_rom() {
     let rom_path = Path::new("roms/Donkey Kong.nes");
-    let cart = Cart::new(rom_path).unwrap();
+    let cart = Cart::from_file(rom_path).unwrap();
     println!("{:?}", cart.header);
   }
 
@@ -140,7 +140,7 @@ use prettydiff::{diff_lines, diff_words};
       .lines();
 
     let rom_path = Path::new("./tests/nestest/nestest.nes");
-    let rom = Cart::new(rom_path).unwrap();
+    let rom = Cart::from_file(rom_path).unwrap();
     let mut emu = Nes::new(rom);
 
     emu.cpu.pc = 0xC000;
@@ -201,7 +201,7 @@ fn nestest_to_file() {
   let mut buf = BufWriter::new(file);
 
   let rom_path = Path::new("tests/nestest/nestest.nes");
-  let rom = Cart::new(rom_path).unwrap();
+  let rom = Cart::from_file(rom_path).unwrap();
   let cart = rom.clone();
   let mut emu = Cpu::new(rom);
   emu.pc = 0xC000;

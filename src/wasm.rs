@@ -16,4 +16,8 @@ impl JSEmu {
   pub fn test(&self) -> String {
     format!("{:?}", self.cpu)
   }
+
+  pub fn screen(&self) -> *const u8 {
+    self.cpu.bus.ppu.screen.0.buffer.as_ptr()
+  }
 }

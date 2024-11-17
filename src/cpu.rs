@@ -1,4 +1,4 @@
-use std::{cell::OnceCell, fmt, ops::{BitAnd, BitOr, BitXor, Not, Shl, Shr}, path::Path};
+use std::{cell::OnceCell, fmt, ops::{BitAnd, BitOr, BitXor, Not, Shl, Shr}};
 
 use bitflags::bitflags;
 use log::{debug, trace};
@@ -95,14 +95,6 @@ impl Cpu<Bus> {
     // cpu should start by executing the reset subroutine
     cpu.pc = cpu.read16(PC_RESET);
     cpu
-  }
-  
-  pub fn from_rom_path(rom_path: &Path) -> Result<Self, String> {
-    let cart = Cart::new(rom_path);
-    match cart {
-      Ok(cart) => Ok(Cpu::new(cart)),
-      Err(msg) => Err(msg.to_string())
-    }
   }
 }
 

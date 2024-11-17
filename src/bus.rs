@@ -111,7 +111,7 @@ impl Bus {
 
 #[cfg(test)]
 mod bus_tests {
-  use std::path::Path;
+  use std::fs;
 
 use super::*;
 
@@ -160,7 +160,8 @@ use super::*;
 
   #[test]
   fn prg_read() {
-    let mut bus = Bus::new(Cart::new(&Path::new("./tests/nestest.nes")).unwrap());
+    let rom = fs::read("./tests/nestest.nes").unwrap();
+    let mut bus = Bus::new(Cart::new(&rom).unwrap());
     
     let mut empty_bytes = 0;
     for i in 0x8000..0x8000+bus.cart.prg_size {

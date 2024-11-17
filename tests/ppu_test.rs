@@ -18,7 +18,7 @@ mod ppu_test {
         0x01, 0x02, 0x04, 0x08, 0x16, 0x21, 0x42, 0x87
       ];
 
-      let cart = Cart::new(Path::new("tests/nestest/nestest.nes")).unwrap();
+      let cart = Cart::from_file(Path::new("tests/nestest/nestest.nes")).unwrap();
       
       for (i, tile) in cart.chr_rom.chunks(16).enumerate().take(100) {
         println!("Tile {i}");
@@ -61,7 +61,7 @@ mod ppu_test {
       .create_texture_target(PixelFormatEnum::RGB24, framebuf.width as u32, framebuf.height as u32)
       .unwrap();
 
-      let cart = Cart::new(Path::new("roms/Ice Climber.nes")).unwrap();
+      let cart = Cart::from_file(Path::new("roms/Ice Climber.nes")).unwrap();
 
       for (i, tile) in cart.chr_rom.chunks(16).enumerate() {
         let x = i*8 % framebuf.width;
@@ -111,7 +111,7 @@ mod ppu_test {
     
       // let rom_path = &Path::new("tests/nestest/nestest.nes");
       let rom_path = &Path::new("../roms/Mega Man (USA).nes");
-      let cart = Cart::new(rom_path).unwrap();
+      let cart = Cart::from_file(rom_path).unwrap();
       let mut emu = Nes::new(cart);
 
       'running: loop {
@@ -196,7 +196,7 @@ mod ppu_test {
       let mut sdl = Sdl2Context::new("Pixel renderer", (8.0*RENDER_WIDTH*SCALE) as u32, (8.0*RENDER_HEIGHT*SCALE) as u32);
       // let rom_path = &Path::new("tests/nestest/nestest.nes");
       let rom_path = &Path::new("../roms/Mega Man (USA).nes");
-      let cart = Cart::new(rom_path).unwrap();
+      let cart = Cart::from_file(rom_path).unwrap();
       let mut emu = Nes::new(cart);
       
       let mut texture = sdl.texture_creator

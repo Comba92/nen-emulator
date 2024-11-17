@@ -1,5 +1,4 @@
 use std::path::Path;
-
 use crate::{bus::Bus, cart::Cart, cpu::Cpu, render::FrameBuffer};
 
 pub struct Nes {
@@ -22,8 +21,8 @@ impl Nes {
     }
   }
 
-  pub fn from_rom_path(rom_path: &Path) -> Result<Self, String> {
-    let cart = Cart::new(rom_path);
+  pub fn from_file(rom_path: &Path) -> Result<Self, String> {
+    let cart = Cart::from_file(rom_path);
     match cart {
       Ok(cart) => Ok(Nes::new(cart)),
       Err(msg) => Err(msg.to_string())

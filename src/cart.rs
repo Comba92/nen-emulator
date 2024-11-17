@@ -93,10 +93,12 @@ pub struct Cart {
 }
 
 impl Cart {
-  pub fn new(rom_path: &Path) -> Result<Self, String> {
-    let rom = fs::read(rom_path)
-      .map_err(|e| format!("Couldn't locate rom file at {:?}: {e}", rom_path))?;
+  pub fn from_file(rom_path: &Path) -> Result<Self, String> {
+    let rom = fs::read(rom_path).map_err(|e| format!("Couldn't open rom: {e}"))?;
+    Cart::new(&rom)
+  }
 
+  pub fn new(rom: &[u8]) -> Result<Self, String> {
     if rom.len() < HEADER_SIZE {
       return Err("Rom file is too small".to_string());
     }

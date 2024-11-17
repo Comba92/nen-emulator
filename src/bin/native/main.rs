@@ -21,7 +21,7 @@ fn main() {
 
     let mut emu = Nes::empty();
     if rom_path.exists() {
-        let cart = Cart::new(&rom_path);
+        let cart = Cart::from_file(&rom_path);
         if let Ok(cart) = cart {
             emu = Nes::new(cart);
         }
@@ -42,7 +42,7 @@ fn main() {
                 Event::Quit { .. } => break 'running,
                 Event::DropFile { filename, .. } => {
                     let rom_path = &PathBuf::from(filename);
-                    let rom_result = Cart::new(&rom_path);
+                    let rom_result = Cart::from_file(&rom_path);
 
                     match rom_result {
                         Ok(cart) => emu = Nes::new(cart),

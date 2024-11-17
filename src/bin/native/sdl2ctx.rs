@@ -57,6 +57,7 @@ impl Sdl2Context {
   }
 }
 
+
 enum InputAction {
   Game(JoypadButton), Pause, Reset
 }
