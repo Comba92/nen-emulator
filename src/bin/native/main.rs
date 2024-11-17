@@ -1,6 +1,9 @@
 use std::{env::args, path::PathBuf};
-use sdl2::{event::Event, pixels::PixelFormatEnum};
-use nen_emulator::{cart::Cart, render::{SCREEN_HEIGHT, SCREEN_WIDTH}, sdl2ctx::Sdl2Context, Emulator};
+use nen_emulator::{cart::Cart, nes::Nes, render::{SCREEN_HEIGHT, SCREEN_WIDTH}};
+use sdl2::{pixels::PixelFormatEnum, event::Event};
+use sdl2ctx::{handle_input, Sdl2Context};
+
+pub mod sdl2ctx;
 
 fn main() {
     const SCALE: f32 = 3.5;
@@ -16,12 +19,11 @@ fn main() {
         PathBuf::from(filename)
     } else { PathBuf::from("") };
 
-    
-    let mut emu = Emulator::empty();
+    let mut emu = Nes::empty();
     if rom_path.exists() {
         let cart = Cart::new(&rom_path);
         if let Ok(cart) = cart {
-            emu = Emulator::new(cart);
+            emu = Nes::new(cart);
         }
     }
 
@@ -34,7 +36,7 @@ fn main() {
         emu.step_until_vblank();
 
         for event in sdl.events.poll_iter() {
-            emu.handle_input(&event);
+            handle_input(&sdl.keymaps, &event, &mut emu);
 
             match event {
                 Event::Quit { .. } => break 'running,
@@ -43,7 +45,7 @@ fn main() {
                     let rom_result = Cart::new(&rom_path);
 
                     match rom_result {
-                        Ok(cart) => emu = Emulator::new(cart),
+                        Ok(cart) => emu = Nes::new(cart),
                         Err(msg) => eprintln!("Couldn't load the rom: {msg}"),
                     }
                 }

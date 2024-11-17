@@ -1,16 +1,17 @@
 use std::sync::LazyLock;
-use sdl2::pixels::Color;
-
 use crate::ppu::{Ppu, PpuMask};
 
-pub static SYS_PALETTES: LazyLock<[Color; 64]> = LazyLock::new(|| {
+#[derive(Debug)]
+pub struct RGBColor(pub u8, pub u8, pub u8);
+
+pub static SYS_PALETTES: LazyLock<[RGBColor; 64]> = LazyLock::new(|| {
     let bytes = include_bytes!("../palettes/Composite_wiki.pal");
-  
-    let colors: Vec<Color> = bytes
+
+    let colors: Vec<RGBColor> = bytes
       .chunks(3)
       // we take only the first palette set of 64 colors, more might be in a .pal file
       .take(64)
-      .map(|rgb| Color::RGB(rgb[0], rgb[1], rgb[2]))
+      .map(|rgb| RGBColor(rgb[0], rgb[1], rgb[2]))
       .collect();
   
     colors.try_into().unwrap()
@@ -35,12 +36,11 @@ impl FrameBuffer {
     }
 
     pub fn set_pixel(&mut self, x: usize, y: usize, color_id: u8) {
-        let color = SYS_PALETTES[color_id as usize];
-        let (r, g, b) = color.rgb();
+        let color = &SYS_PALETTES[color_id as usize];
         let idx = (y*self.width + x) * 3;
-        self.buffer[idx + 0] = r;
-        self.buffer[idx + 1] = g;
-        self.buffer[idx + 2] = b;
+        self.buffer[idx + 0] = color.0;
+        self.buffer[idx + 1] = color.1;
+        self.buffer[idx + 2] = color.2;
     }
 
     pub fn set_tile(&mut self, tile: Tile) {

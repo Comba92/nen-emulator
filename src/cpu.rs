@@ -63,6 +63,7 @@ impl<M: Memory> fmt::Debug for Cpu<M> {
     }
 }
 
+
 impl Cpu<Ram64Kb> {
   pub fn with_ram64kb() -> Self {
     Self {

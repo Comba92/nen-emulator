@@ -5,7 +5,8 @@ use std::{fs, io::{BufWriter, Write}, path::Path};
 use circular_buffer::CircularBuffer;
 use log::info;
 
-use nen_emulator::{bus::Bus, cart::Cart, cpu::{Cpu, CpuFlags}, instr::{AddressingMode, INSTRUCTIONS}, mem::Memory, Emulator};
+
+use nen_emulator::{bus::Bus, cart::Cart, cpu::{Cpu, CpuFlags}, instr::{AddressingMode, INSTRUCTIONS}, mem::Memory, nes::Nes};
 use prettydiff::{diff_lines, diff_words};
 
   #[derive(Debug, Eq, Clone)]
@@ -140,7 +141,7 @@ use prettydiff::{diff_lines, diff_words};
 
     let rom_path = Path::new("./tests/nestest/nestest.nes");
     let rom = Cart::new(rom_path).unwrap();
-    let mut emu = Emulator::new(rom);
+    let mut emu = Nes::new(rom);
 
     emu.cpu.pc = 0xC000;
     emu.cpu.p = CpuFlags::from_bits_retain(0x24);

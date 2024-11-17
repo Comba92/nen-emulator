@@ -1,9 +1,7 @@
 use std::sync::LazyLock;
 use serde::{de::Visitor, Deserialize, Deserializer};
 
-use crate::{cpu::Operand, mem::Memory};
-
-use super::cpu::Cpu;
+use crate::{cpu::{Cpu, Operand}, mem::Memory};
 
 #[derive(Deserialize, Debug, Default, Clone)]
 #[serde(default, rename_all = "camelCase")]

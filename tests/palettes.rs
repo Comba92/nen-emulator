@@ -1,16 +1,16 @@
-use sdl2::pixels::Color;
+use nen_emulator::render::RGBColor;
 
 #[test]
 fn load_palette() {
   let palette = include_bytes!("../palettes/Composite_wiki.pal");
 
   println!("{:?}", palette);
-  let colors: Vec<Color> = palette
+  let colors: Vec<RGBColor> = palette
     .chunks(3)
     .take(32)
-    .map(|rgb| Color::RGB(rgb[0], rgb[1], rgb[2]))
+    .map(|rgb| RGBColor(rgb[0], rgb[1], rgb[2]))
     .collect();
 
-  let array: [Color; 32] = colors.try_into().unwrap();
+  let array: [RGBColor; 32] = colors.try_into().unwrap();
   println!("{:?}", array);
 }

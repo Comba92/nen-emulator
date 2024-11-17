@@ -43,7 +43,7 @@ struct Test {
 
 #[test]
 fn cpu_test_one() {
-  let json = include_str!("./tests/00.json");
+  let json = include_str!("./single_step_tests/tests/00.json");
   let test: Vec<Test> = serde_json::from_str(json).unwrap();
 
   let mut cpu = cpu_from_mock(&test[0].start);
@@ -78,7 +78,7 @@ fn cpu_from_mock(mock: &CpuMock) -> Cpu<Ram64Kb> {
 
 #[test]
 fn cpu_test() {
-  let mut dir = fs::read_dir("./tests/single_step_tests/tests")
+  let mut dir = fs::read_dir("./tests/single_step_tests/tests/")
     .expect("directory not found")
     .enumerate();
 

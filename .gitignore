@@ -1,3 +1,5 @@
 /target
 /src_old
 *.nes
+*.lib
+*.dll

@@ -1,11 +1,14 @@
 #[cfg(test)]
 mod ppu_test {
     use std::path::Path;
-    #[allow(unused_imports)]
+    #[allow(unused)]
     use log::info;
-    use nen_emulator::{cart::Cart, render::{FrameBuffer, NesScreen, SpritePriority, Tile, GREYSCALE_PALETTE}, sdl2ctx::Sdl2Context, Emulator};
+    use nen_emulator::{nes::Nes, cart::Cart, render::{FrameBuffer, NesScreen, SpritePriority, Tile, GREYSCALE_PALETTE}};
+    #[path = "../../src/bin/native/sdl2ctx.rs"]
+    mod sdl2ctx;
+    use sdl2ctx::{Sdl2Context, handle_input};
+    
     use sdl2::{event::Event, pixels::PixelFormatEnum};
-
 
     #[test]
     #[ignore]
@@ -107,9 +110,9 @@ mod ppu_test {
       .unwrap();
     
       // let rom_path = &Path::new("tests/nestest/nestest.nes");
-      let rom_path = &Path::new("roms/Mega Man (USA).nes");
+      let rom_path = &Path::new("../roms/Mega Man (USA).nes");
       let cart = Cart::new(rom_path).unwrap();
-      let mut emu = Emulator::new(cart);
+      let mut emu = Nes::new(cart);
 
       'running: loop {
         emu.step_until_vblank();
@@ -120,7 +123,7 @@ mod ppu_test {
             _ => {}
           }
 
-          emu.handle_input(&event);
+          handle_input(&sdl.keymaps, &event, &mut emu);
         }
         
         // let bg_ptrntbl = emu.bus.ppu.ctrl.bg_ptrntbl_addr() as usize;
@@ -192,9 +195,9 @@ mod ppu_test {
       
       let mut sdl = Sdl2Context::new("Pixel renderer", (8.0*RENDER_WIDTH*SCALE) as u32, (8.0*RENDER_HEIGHT*SCALE) as u32);
       // let rom_path = &Path::new("tests/nestest/nestest.nes");
-      let rom_path = &Path::new("roms/Mega Man (USA).nes");
+      let rom_path = &Path::new("../roms/Mega Man (USA).nes");
       let cart = Cart::new(rom_path).unwrap();
-      let mut emu = Emulator::new(cart);
+      let mut emu = Nes::new(cart);
       
       let mut texture = sdl.texture_creator
       .create_texture_target(PixelFormatEnum::RGB24, emu.get_screen().width as u32, emu.get_screen().height as u32)
@@ -209,7 +212,7 @@ mod ppu_test {
             _ => {}
           }
 
-          emu.handle_input(&event);
+          handle_input(&sdl.keymaps, &event, &mut emu);
         }
 
         texture.update(None, &emu.get_screen().buffer, emu.get_screen().pitch()).unwrap();
