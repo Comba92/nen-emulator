@@ -59,8 +59,8 @@ impl Emu {
 impl Emu {
   pub fn with_cart(cart: Cart) -> Self {
     Self {
-      cpu: Cpu::new(cart),
-      paused: false,
+      cpu: Cpu::with_cart(cart),
+      is_paused: false,
     }
   }
 

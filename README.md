@@ -17,6 +17,8 @@
 
 [] Support for NES 2.0 format
 
+[] Consider making the core lib no_std
+
 # Resources
 - https://www.nesdev.org/NESDoc.pdf
 

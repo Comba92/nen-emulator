@@ -19,18 +19,9 @@ inputRom.addEventListener('change', async event => {
 
 function renderLoop() {
     if (!emu.paused) emu.step_until_vblank()
-    let frame = new Uint8Array(instance.memory.buffer, screen, 32*8*30*8*3)
-
-    for (let row=0; row<32*8; row++) {
-        for (let col=0; col<32*8; col++) {
-            let idx = (row*32*8 + col)*3;
-            let r = frame[idx]
-            let g = frame[idx+1]
-            let b = frame[idx+2]
-            ctx.fillStyle = 'rgb(' + [r,g,b].join(' ') + ')' 
-            ctx.fillRect(col, row, 1, 1)
-        }
-    }
+    let frame = new Uint8ClampedArray(instance.memory.buffer, screen, canvas.width*canvas.height*4)
+    let image = new ImageData(frame, canvas.width, canvas.height) 
+    ctx.putImageData(image, 0, 0)
     requestAnimationFrame(renderLoop)
 }
 

@@ -108,7 +108,7 @@ pub fn handle_input(keys: &Keymaps, event: &Event, emu: &mut Emu) {
         if let Some(action) = keys.keymap.get(keycode) {
           match action {
             InputAction::Game(button) => joypad.buttons.insert(*button),
-            InputAction::Pause => emu.paused = !emu.paused,
+            InputAction::Pause => emu.is_paused = !emu.is_paused,
             InputAction::Reset => emu.reset(),
           }
         }
@@ -125,7 +125,7 @@ pub fn handle_input(keys: &Keymaps, event: &Event, emu: &mut Emu) {
       if let Some(action) = keys.padmap.get(button) {
         match action {
           InputAction::Game(action) => joypad.buttons.insert(*action),
-          InputAction::Pause => emu.paused = !emu.paused,
+          InputAction::Pause => emu.is_paused = !emu.is_paused,
           InputAction::Reset => emu.reset(),
         }
       }

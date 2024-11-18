@@ -29,7 +29,7 @@ fn main() {
     }
 
     let mut texture = sdl.texture_creator.create_texture_target(
-        PixelFormatEnum::RGB24, emu.get_screen().width as u32, emu.get_screen().height as u32
+        PixelFormatEnum::RGBA32, emu.get_screen().width as u32, emu.get_screen().height as u32
     ).unwrap();
 
     'running: loop {
@@ -68,6 +68,7 @@ fn main() {
         sdl.canvas.copy(&texture, None, None).unwrap();
         sdl.canvas.present();
 
+        // TODO: fix fps capping
         let elapsed_ms = (sdl.timer.performance_counter() - ticks_since_start) as f64 
             / sdl.timer.performance_frequency() as f64
             * 1000.0;
