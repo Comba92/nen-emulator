@@ -9,6 +9,7 @@ fn main() {
     const SCALE: f32 = 3.5;
     const WINDOW_WIDTH:  u32  = (SCALE * SCREEN_WIDTH  as f32* 8.0) as u32;
     const WINDOW_HEIGHT: u32  = (SCALE * SCREEN_HEIGHT as f32* 8.0) as u32;
+    const FRAME_MS: f64 = (1.0 / 60.0) * 1000.0;
 
     let mut sdl = Sdl2Context::new("NenEmulator", WINDOW_WIDTH, WINDOW_HEIGHT);
     
@@ -33,7 +34,7 @@ fn main() {
     ).unwrap();
 
     'running: loop {
-        let ticks_since_start = sdl.timer.performance_counter();
+        let ms_since_start = sdl.timer.ticks64();
         emu.step_until_vblank();
 
         for event in sdl.events.poll_iter() {
@@ -68,10 +69,15 @@ fn main() {
         sdl.canvas.copy(&texture, None, None).unwrap();
         sdl.canvas.present();
 
-        // TODO: fix fps capping
-        let elapsed_ms = (sdl.timer.performance_counter() - ticks_since_start) as f64 
-            / sdl.timer.performance_frequency() as f64
-            * 1000.0;
-        sdl.timer.delay(((1.0/59.94 * 1000.0) - elapsed_ms) as u32);
+        // let elapsed_ms = (sdl.timer.performance_counter() - ticks_since_start) as f64 
+        //     / sdl.timer.performance_frequency() as f64
+        //     * 1000.0;
+        // sdl.timer.delay(((1.0/59.94 * 1000.0) - elapsed_ms) as u32);
+
+        let ms_elapsed = (sdl.timer.ticks64() - ms_since_start) as f64;
+        let delay = FRAME_MS - ms_elapsed;
+        if delay > 0.0 {
+            sdl.timer.delay(delay as u32);
+        }
     }
 }

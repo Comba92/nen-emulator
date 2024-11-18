@@ -8,10 +8,12 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 sdl = ["sdl2"]
+sdl-static = ["sdl2/bundled"]
 
 [[bin]]
 name = "native"
 required-features = ["sdl"]
+
 
 [dependencies]
 bitflags = "2.6.0"
