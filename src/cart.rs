@@ -1,4 +1,5 @@
-use std::{cell::RefCell, fs, path::Path, rc::Rc};
+use core::cell::RefCell;
+use std::{fs, path::Path, rc::Rc};
 
 use crate::mapper::{self, CartMapper, Dummy};
 
@@ -93,11 +94,6 @@ pub struct Cart {
 }
 
 impl Cart {
-  pub fn from_file(rom_path: &Path) -> Result<Self, String> {
-    let rom = fs::read(rom_path).map_err(|e| format!("Couldn't open rom: {e}"))?;
-    Cart::new(&rom)
-  }
-
   pub fn new(rom: &[u8]) -> Result<Self, String> {
     if rom.len() < HEADER_SIZE {
       return Err("Rom file is too small".to_string());
@@ -105,10 +101,8 @@ impl Cart {
     
     let header = CartHeader::new(&rom[0..16])?;
 
-    println!("{:#?}", header);
     if header.is_nes_v2 {
-      eprintln!("This rom has NES 2.0 format! Might not run correctly...")
-      // return Err("NES 2.0 format not supported");
+      return Err("NES 2.0 format not supported".to_string());
     }
 
     let prg_start = HEADER_SIZE + if header.has_trainer { 512 } else { 0 };
@@ -122,6 +116,11 @@ impl Cart {
     Ok(Cart { header, prg_rom, chr_rom, mapper })
   }
 
+  pub fn from_file(rom_path: &Path) -> Result<Self, String> {
+    let rom = fs::read(rom_path).map_err(|e| format!("Couldn't open rom: {e}"))?;
+    Cart::new(&rom)
+  }
+  
   pub fn empty() -> Self {
     Cart { header: CartHeader::default(), prg_rom: Vec::new(), chr_rom: Vec::new(), mapper: Rc::new(RefCell::new(Dummy)) }
   }

@@ -8,12 +8,14 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 sdl = ["sdl2"]
-sdl-static = ["sdl2/bundled"]
+sdl-static = ["sdl", "sdl2/bundled", "sdl2/static-link"]
 
 [[bin]]
 name = "native"
 required-features = ["sdl"]
 
+[profile.release]
+lto = true
 
 [dependencies]
 bitflags = "2.6.0"
@@ -23,7 +25,6 @@ sdl2 = { version = "0.37.0", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 wasm-bindgen = "0.2.95"
-
 
 # [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # sdl2 = { version = "0.37.0", optional = true }

@@ -1,4 +1,4 @@
-use std::{cell::OnceCell, fmt, ops::{BitAnd, BitOr, BitXor, Not, Shl, Shr}};
+use core::{cell::OnceCell, fmt, ops::{BitAnd, BitOr, BitXor, Not, Shl, Shr}};
 
 use bitflags::bitflags;
 use log::{debug, trace};
@@ -58,7 +58,7 @@ impl<M: Memory> Memory for Cpu<M> {
 }
 
 impl<M: Memory> fmt::Debug for Cpu<M> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Cpu").field("pc", &self.pc).field("sp", &self.sp).field("sr", &self.p).field("a", &self.a).field("x", &self.x).field("y", &self.y).field("cycles", &self.cycles).finish()
     }
 }

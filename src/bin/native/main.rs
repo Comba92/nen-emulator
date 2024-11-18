@@ -1,5 +1,5 @@
 use std::{env::args, path::PathBuf};
-use nen_emulator::{cart::Cart, emu::Emu, render::{SCREEN_HEIGHT, SCREEN_WIDTH}};
+use nen_emulator::{emu::Emu, cart::Cart, render::{SCREEN_HEIGHT, SCREEN_WIDTH}};
 use sdl2::{pixels::PixelFormatEnum, event::Event};
 use sdl2ctx::{handle_input, Sdl2Context};
 
@@ -29,6 +29,8 @@ fn main() {
         }
     }
 
+    println!("{:?}", emu.get_cart());
+
     let mut texture = sdl.texture_creator.create_texture_target(
         PixelFormatEnum::RGBA32, emu.get_screen().width as u32, emu.get_screen().height as u32
     ).unwrap();
@@ -47,7 +49,10 @@ fn main() {
                     let rom_result = Cart::from_file(&rom_path);
 
                     match rom_result {
-                        Ok(cart) => emu = Emu::with_cart(cart),
+                        Ok(cart) => {
+                            emu.load_cart(cart);
+                            println!("{:?}", emu.get_cart());
+                        }
                         Err(msg) => eprintln!("Couldn't load the rom: {msg}"),
                     }
                 }
@@ -79,5 +84,7 @@ fn main() {
         if delay > 0.0 {
             sdl.timer.delay(delay as u32);
         }
+
+        if !emu.is_paused { println!("FPS: {}", 1.0 / ms_elapsed * 1000.0) }
     }
 }

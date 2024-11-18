@@ -1,3 +1,4 @@
+use core::fmt;
 use std::sync::LazyLock;
 use serde::{de::Visitor, Deserialize, Deserializer};
 
@@ -11,7 +12,7 @@ pub struct Instruction {
   pub addressing: AddressingMode,
   #[serde(alias = "mnemonics")]
   #[serde(deserialize_with = "get_instr_first_name")]
-  pub name: String,
+  pub name: &'static str,
   #[serde(skip_deserializing)]
   pub bytes: usize, 
   pub cycles: usize,
@@ -43,21 +44,21 @@ pub enum AddressingMode {
 }
 
 // https://www.reddit.com/r/learnrust/comments/15cq66f/can_you_partial_deserialize_a_vec/
-fn get_instr_first_name<'de, D>(deserializer: D) -> Result<String, D::Error> where D: Deserializer<'de> {
+fn get_instr_first_name<D>(deserializer: D) -> Result<&'static str, D::Error> where D: Deserializer<'static> {
   struct FirstElement;
 
-  impl<'de> Visitor<'de> for FirstElement {
-    type Value = String;
+  impl Visitor<'static> for FirstElement {
+    type Value = &'static str;
 
-    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         formatter.write_str("an array of strings")
     }
 
     fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
         where
-            A: serde::de::SeqAccess<'de>, {
+            A: serde::de::SeqAccess<'static>, {
       let first = seq.next_element()?;
-      while let Some(_) = seq.next_element::<String>()? {}
+      while let Some(_) = seq.next_element::<&'static str>()? {}
 
       Ok(first.unwrap())
     }

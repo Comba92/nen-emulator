@@ -5,8 +5,10 @@ use std::{fs, io::{BufWriter, Write}, path::Path};
 use circular_buffer::CircularBuffer;
 use log::info;
 
+#[path = "../../src/bin/native/sdl2ctx.rs"]
+mod sdl2ctx;
 
-use nen_emulator::{bus::Bus, cart::Cart, cpu::{Cpu, CpuFlags}, instr::{AddressingMode, INSTRUCTIONS}, mem::Memory, emu::Emu};
+use nen_emulator::{bus::Bus, cart::Cart, cpu::{Cpu, CpuFlags}, emu::Emu, instr::{AddressingMode, INSTRUCTIONS}, mem::Memory};
 use prettydiff::{diff_lines, diff_words};
 
   #[derive(Debug, Eq, Clone)]

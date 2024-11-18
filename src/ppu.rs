@@ -1,4 +1,5 @@
-use std::{collections::VecDeque, fmt};
+use core::fmt;
+use std::collections::VecDeque;
 
 use crate::{cart::Mirroring, render::{NesScreen, OamEntry, SpritePriority}, mapper::CartMapper};
 use bitfield_struct::bitfield;
@@ -308,8 +309,14 @@ impl Ppu {
     if self.is_rendering_on() && self.cycle <= 32*8 && self.scanline <= 30*8 {
       let (bg_pixel, bg_palette_id) = self.bg_fifo.get(self.x as usize).unwrap().to_owned();
 
-      let spr_data = self.scanline_sprites[self.cycle-1].clone().unwrap_or_default();
+      let spr_data = self.scanline_sprites[self.cycle-1].as_ref();
+      if let None = spr_data {
+        let color = self.get_color_from_palette(bg_pixel, bg_palette_id);
+        self.screen.0.set_pixel(self.cycle-1, self.scanline, color);
+        return;
+      }
 
+      let spr_data = spr_data.unwrap();
       if spr_data.is_sprite0 
       && spr_data.pixel != 0 && bg_pixel != 0 
       && self.cycle != 255 && !(0..=7).contains(&self.cycle) {

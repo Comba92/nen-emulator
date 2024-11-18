@@ -6,7 +6,7 @@ mod ppu_test {
     use nen_emulator::{emu::Emu, cart::Cart, render::{FrameBuffer, NesScreen, SpritePriority, Tile, GREYSCALE_PALETTE}};
     #[path = "../../src/bin/native/sdl2ctx.rs"]
     mod sdl2ctx;
-    use sdl2ctx::{Sdl2Context, handle_input};
+    use sdl2ctx::{handle_input, Sdl2Context};
     
     use sdl2::{event::Event, pixels::PixelFormatEnum};
 

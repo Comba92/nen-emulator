@@ -1,21 +1,24 @@
 use std::sync::LazyLock;
+
 use crate::ppu::{Ppu, PpuMask};
 
 #[derive(Debug)]
 pub struct RGBColor(pub u8, pub u8, pub u8);
 
-pub static SYS_PALETTES: LazyLock<[RGBColor; 64]> = LazyLock::new(|| {
-    let bytes = include_bytes!("../palettes/Composite_wiki.pal");
 
-    let colors: Vec<RGBColor> = bytes
-      .chunks(3)
-      // we take only the first palette set of 64 colors, more might be in a .pal file
-      .take(64)
-      .map(|rgb| RGBColor(rgb[0], rgb[1], rgb[2]))
-      .collect();
-  
-    colors.try_into().unwrap()
+pub static SYS_PALETTES: LazyLock<[RGBColor; 64]> = LazyLock::new(|| {
+  let bytes = include_bytes!("../palettes/Composite_wiki.pal");
+
+  let colors: Vec<RGBColor> = bytes
+    .chunks(3)
+    // we take only the first palette set of 64 colors, more might be in a .pal file
+    .take(64)
+    .map(|rgb| RGBColor(rgb[0], rgb[1], rgb[2]))
+    .collect();
+
+  colors.try_into().unwrap()
 });
+
 
 pub const GREYSCALE_PALETTE: [u8; 4] = [0x3F, 0x00, 0x10, 0x20];
 
