@@ -7,9 +7,11 @@
 
 [x] Implement PPU
 - PPU masking
+- PPU 16x8 sprites not working
+- Castlevania weird flickering (probably wrong sprite0 hit)
 
 [] Mappers
-- WTF is chr ram?
+- Mappers contain additional data, such ad nametable mirroring
 
 [] APU if i have the energy
 

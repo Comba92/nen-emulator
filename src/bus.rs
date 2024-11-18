@@ -50,7 +50,7 @@ impl Memory for Bus {
       BusDst::Joypad1 => self.joypad.write(val),
       BusDst::Joypad2 => {} // TODO: second joypad
       BusDst::SRam => self.sram[addr] = val,
-      BusDst::Prg => self.mapper.borrow_mut().write_prg(addr, val),
+      BusDst::Prg => self.mapper.borrow_mut().write_prg(&mut self.prg, addr, val),
       BusDst::NoImpl => debug!("Write to {addr:04X} not implemented")
     }
   }

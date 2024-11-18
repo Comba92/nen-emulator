@@ -313,10 +313,12 @@ impl Ppu {
       if let None = spr_data {
         let color = self.get_color_from_palette(bg_pixel, bg_palette_id);
         self.screen.0.set_pixel(self.cycle-1, self.scanline, color);
+        
         return;
       }
 
       let spr_data = spr_data.unwrap();
+
       if spr_data.is_sprite0 
       && spr_data.pixel != 0 && bg_pixel != 0 
       && self.cycle != 255 && !(0..=7).contains(&self.cycle) {
@@ -363,9 +365,9 @@ impl Ppu {
           + (dist).abs_diff(vertical_start) as u16,
         16 => {
           let bank = (sprite.tile_id & 1) as u16;
-          let tile_id = (((sprite.tile_id as u16) & 0b1111_1110) >> 1) + if dist < 8 { 0 } else { 1 };
-          (bank << 12) 
-            + tile_id * 16 
+          let tile_id = (sprite.tile_id as u16 & 0b1111_1110) + if dist < 8 { 0 } else { 1 };
+          (bank << 12)
+            + tile_id * 16
             + (dist).abs_diff(vertical_start) as u16
         }
         _ => unreachable!("sprite heights are either 8 or 16")
@@ -601,7 +603,7 @@ impl Ppu {
   pub fn vram_peek(&self, addr: u16) -> u8 {
     let (dst, addr) = self.map_address(addr);
     match dst {
-      VramDst::Patterntbl => self.mapper.as_ref().borrow()
+      VramDst::Patterntbl => self.mapper.borrow()
         .read_chr(&self.chr, addr),
       VramDst::Nametbl => self.vram[addr],
       VramDst::Palettes => self.palettes[addr],
@@ -627,14 +629,8 @@ impl Ppu {
 
     let (dst, addr) = self.map_address(self.v.0);
     match dst {
-      VramDst::Patterntbl => {
-        let (banked_addr, val_to_write) = self.mapper
-          .as_ref().borrow_mut()
-          .write_chr(addr, val);
-
-        // TODO: temporary hack for writes to chr ram
-        self.chr[banked_addr] = val_to_write;
-      }
+      VramDst::Patterntbl => self.mapper.borrow_mut()
+        .write_chr(&mut self.chr, addr, val),
       VramDst::Nametbl => self.vram[addr] = val,
       VramDst::Palettes => self.palettes[addr] = val,
       VramDst::Unused => {}
