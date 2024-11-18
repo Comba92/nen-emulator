@@ -88,7 +88,7 @@ fn get_instructions() -> [Instruction; 256] {
   deserialized.sort_by(|a, b| a.opcode.cmp(&b.opcode));
   
   for instr in deserialized.iter_mut() {
-    instr.bytes = get_instr_len(&instr);
+    instr.bytes = get_instr_len(instr);
   }
   
   deserialized.try_into().unwrap()

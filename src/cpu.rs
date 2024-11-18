@@ -80,7 +80,7 @@ impl Cpu<Ram64Kb> {
 }
 
 impl Cpu<Bus> {
-  pub fn new(cart: Cart) -> Self {
+  pub fn with_cart(cart: Cart) -> Self {
     let mut cpu = Self {
       pc: PC_RESET,
       sp: SP_RESET,
@@ -211,7 +211,7 @@ impl<M: Memory> Cpu<M> {
     let opcode = self.pc_fetch();
     let instr = &INSTRUCTIONS[opcode as usize];
     
-    let mut op = self.get_operand_with_addressing(&instr);
+    let mut op = self.get_operand_with_addressing(instr);
     debug!("{:?} with op {:?} at cycle {}", instr, op, self.cycles);
     
     self.execute(opcode, &mut op);
@@ -256,7 +256,7 @@ impl<M: Memory> Cpu<M> {
     let mode = instr.addressing;
     use AddressingMode::*;
     
-    let res = match mode {
+    match mode {
       Implicit => Operand::Imm(0),
       Accumulator => Operand::Acc,
       Immediate | Relative => Operand::Imm(self.pc_fetch()),
@@ -292,9 +292,7 @@ impl<M: Memory> Cpu<M> {
         }
         Operand::fetchable(addr_effective)
       }
-    };
-
-    res
+    }
   }
 
   fn set_instr_result(&mut self, dst: InstrDst, res: u8) {

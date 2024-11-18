@@ -13,14 +13,14 @@ impl Emu {
   pub fn from_bytes(rom: &[u8]) -> Self {
     let cart = Cart::new(rom);
     match cart {
-      Ok(cart) => Emu::new(cart),
+      Ok(cart) => Emu::with_cart(cart),
       Err(_) => Emu::empty(),
     }
   }
 
   pub fn empty() -> Self {
     Self {
-      cpu: Cpu::new(Cart::empty()),
+      cpu: Cpu::with_cart(Cart::empty()),
       paused: true,
     }
   }
@@ -46,9 +46,9 @@ impl Emu {
 }
 
 impl Emu {
-  pub fn new(cart: Cart) -> Self {
+  pub fn with_cart(cart: Cart) -> Self {
     Self {
-      cpu: Cpu::new(cart),
+      cpu: Cpu::with_cart(cart),
       paused: false,
     }
   }
@@ -56,7 +56,7 @@ impl Emu {
   pub fn from_file(rom_path: &Path) -> Result<Self, String> {
     let cart = Cart::from_file(rom_path);
     match cart {
-      Ok(cart) => Ok(Emu::new(cart)),
+      Ok(cart) => Ok(Emu::with_cart(cart)),
       Err(msg) => Err(msg.to_string())
     }
   }

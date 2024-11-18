@@ -112,7 +112,7 @@ mod ppu_test {
       // let rom_path = &Path::new("tests/nestest/nestest.nes");
       let rom_path = &Path::new("../roms/Mega Man (USA).nes");
       let cart = Cart::from_file(rom_path).unwrap();
-      let mut emu = Emu::new(cart);
+      let mut emu = Emu::with_cart(cart);
 
       'running: loop {
         emu.step_until_vblank();
@@ -198,7 +198,7 @@ mod ppu_test {
       // let rom_path = &Path::new("tests/nestest/nestest.nes");
       let rom_path = &Path::new("../roms/Mega Man (USA).nes");
       let cart = Cart::from_file(rom_path).unwrap();
-      let mut emu = Emu::new(cart);
+      let mut emu = Emu::with_cart(cart);
       
       let mut texture = sdl.texture_creator
       .create_texture_target(PixelFormatEnum::RGB24, emu.get_screen().width as u32, emu.get_screen().height as u32)

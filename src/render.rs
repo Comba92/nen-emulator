@@ -158,8 +158,8 @@ impl<'a> Tile<'a> {
     let palette = &ppu.palettes[palette_id..palette_id+4];
     
     Self {
-      x: sprite.x as usize,
-      y: sprite.y as usize,
+      x: sprite.x,
+      y: sprite.y,
       pixels: tile, palette,
       priority: sprite.priority,
       flip_horizontal: sprite.flip_horizontal,

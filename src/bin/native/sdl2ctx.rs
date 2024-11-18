@@ -31,25 +31,25 @@ impl Sdl2Context {
     let texture_creator = canvas.texture_creator();
     let controller_subsystem = ctx.game_controller().expect("Couldn't initialize controller subsytem");
     
-    let mut controllers = Vec::new();
-    let controllers_avaible = controller_subsystem.num_joysticks().expect("Couldn't get number of joysticks avaible");
+    let controllers = Vec::new();
+    // let controllers_avaible = controller_subsystem.num_joysticks().expect("Couldn't get number of joysticks avaible");
 
-    eprintln!("Found {} joypads", controllers_avaible);
-    for i in 0..controllers_avaible {
-      if !controller_subsystem.is_game_controller(i) { continue; }
+    // eprintln!("Found {} joypads", controllers_avaible);
+    // for i in 0..controllers_avaible {
+    //   if !controller_subsystem.is_game_controller(i) { continue; }
       
-      match controller_subsystem.open(i) {
-        Ok(controller) => {
-          eprintln!("Found controller: {}", controller.name());
-          controllers.push(controller);
-        }
-        Err(e) => eprintln!("Couldn't open controller {i}: {e}"),
-      }
-    }
+    //   match controller_subsystem.open(i) {
+    //     Ok(controller) => {
+    //       eprintln!("Found controller: {}", controller.name());
+    //       controllers.push(controller);
+    //     }
+    //     Err(e) => eprintln!("Couldn't open controller {i}: {e}"),
+    //   }
+    // }
 
-    if controllers.is_empty() {
-      eprintln!("No game controllers found");
-    }
+    // if controllers.is_empty() {
+    //   eprintln!("No game controllers found");
+    // }
     
     let events = ctx.event_pump().expect("Couldn't get the event pump");
     let keymaps = Keymaps::new();

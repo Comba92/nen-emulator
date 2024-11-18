@@ -112,7 +112,7 @@ impl Cart {
     }
 
     let prg_start = HEADER_SIZE + if header.has_trainer { 512 } else { 0 };
-    let chr_start = prg_start + header.prg_size as usize;
+    let chr_start = prg_start + header.prg_size;
 
     let prg_rom = rom[prg_start..chr_start].to_vec();
     let chr_rom = if header.uses_chr_ram { [0; 8*1024].to_vec() }

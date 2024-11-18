@@ -141,7 +141,7 @@ use prettydiff::{diff_lines, diff_words};
 
     let rom_path = Path::new("./tests/nestest/nestest.nes");
     let rom = Cart::from_file(rom_path).unwrap();
-    let mut emu = Emu::new(rom);
+    let mut emu = Emu::with_cart(rom);
 
     emu.get_cpu().pc = 0xC000;
     emu.get_cpu().p = CpuFlags::from_bits_retain(0x24);
@@ -203,7 +203,7 @@ fn nestest_to_file() {
   let rom_path = Path::new("tests/nestest/nestest.nes");
   let rom = Cart::from_file(rom_path).unwrap();
   let cart = rom.clone();
-  let mut emu = Cpu::new(rom);
+  let mut emu = Cpu::with_cart(rom);
   emu.pc = 0xC000;
   emu.write_data(0x8000, &cart.prg_rom[..0x4000]);
   emu.write_data(0xC000, &cart.prg_rom[..0x4000]);
