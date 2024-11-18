@@ -1,5 +1,5 @@
 use log::debug;
-use crate::{cart::{Cart, CartHeader}, joypad::Joypad, mapper::CartMapper, mem::Memory, ppu::Ppu};
+use crate::{cart::{Cart, INesHeader}, joypad::Joypad, mapper::CartMapper, mem::Memory, ppu::Ppu};
 
 #[derive(Debug)]
 enum BusDst {
@@ -10,7 +10,7 @@ pub struct Bus {
   ram: [u8; 0x800],
   sram: [u8; 0x2000],
   prg: Vec<u8>,
-  pub cart: CartHeader,
+  pub cart: INesHeader,
   pub mapper: CartMapper,
   pub ppu: Ppu,
   pub joypad: Joypad,

@@ -93,7 +93,7 @@ inputRom.addEventListener('change', async event => {
 
 pauseBtn.addEventListener('click', event => {
     emu.is_paused = !emu.is_paused
-    pauseBtn.innerText = emu.is_paused ? '⏵︎' : '⏸︎' 
+    pauseBtn.innerText = emu.is_paused ? '▶️' : '⏸️' 
 })
 
 resetBtn.addEventListener('click', event => {

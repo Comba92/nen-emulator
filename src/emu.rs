@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::{bus::Bus, cart::{Cart, CartHeader}, cpu::Cpu, joypad::{Joypad, JoypadButton}, render::FrameBuffer};
+use crate::{bus::Bus, cart::{Cart, INesHeader}, cpu::Cpu, joypad::{Joypad, JoypadButton}, render::FrameBuffer};
 use wasm_bindgen::prelude::wasm_bindgen;
 
 #[wasm_bindgen]
@@ -86,7 +86,7 @@ impl Emu {
     &mut self.cpu
   }
 
-  pub fn get_cart(&self) -> &CartHeader {
+  pub fn get_cart(&self) -> &INesHeader {
     &self.cpu.bus.cart
   }
 

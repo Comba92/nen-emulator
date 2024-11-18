@@ -9,7 +9,7 @@ fn main() {
     const SCALE: f32 = 3.5;
     const WINDOW_WIDTH:  u32  = (SCALE * SCREEN_WIDTH  as f32* 8.0) as u32;
     const WINDOW_HEIGHT: u32  = (SCALE * SCREEN_HEIGHT as f32* 8.0) as u32;
-    const FRAME_MS: f64 = (1.0 / 60.0) * 1000.0;
+    const FRAME_MS: f64 = (1.0 / 58.0) * 1000.0;
 
     let mut sdl = Sdl2Context::new("NenEmulator", WINDOW_WIDTH, WINDOW_HEIGHT);
     
@@ -26,10 +26,9 @@ fn main() {
         let cart = Cart::from_file(&rom_path);
         if let Ok(cart) = cart {
             emu = Emu::with_cart(cart);
+            println!("{:?}", emu.get_cart());
         }
     }
-
-    println!("{:?}", emu.get_cart());
 
     let mut texture = sdl.texture_creator.create_texture_target(
         PixelFormatEnum::RGBA32, emu.get_screen().width as u32, emu.get_screen().height as u32
@@ -85,6 +84,6 @@ fn main() {
             sdl.timer.delay(delay as u32);
         }
 
-        if !emu.is_paused { println!("FPS: {}", 1.0 / ms_elapsed * 1000.0) }
+        // if !emu.is_paused { println!("FPS: {}", 1.0 / ms_elapsed * 1000.0) }
     }
 }
