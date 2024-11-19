@@ -24,7 +24,7 @@ impl Memory for Bus {
       BusDst::Ppu => self.ppu.reg_read(addr as u16),
       BusDst::Joypad1 => self.joypad.read(),
       BusDst::SRam => self.sram[addr],
-      BusDst::Prg => self.mapper.borrow().read_prg(&self.prg, addr),
+      BusDst::Prg => self.mapper.borrow_mut().read_prg(&self.prg, addr),
       _ => { debug!("Read to {addr:04X} not implemented"); 0 }
     }
   }

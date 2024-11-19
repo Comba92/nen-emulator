@@ -12,7 +12,7 @@
 
 [] Mappers
 - Mappers contain additional data, such ad nametable mirroring
-- AxRom not working
+- Mmc2 not working
 
 [] APU if i have the energy
 

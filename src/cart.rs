@@ -45,8 +45,8 @@ impl INesHeader {
     let chr_8kb_banks = if rom[5] > 0 { rom[5] } else { 1 } as usize;
     let uses_chr_ram = rom[5] == 0;
 
-    let mut prg_size = rom[4] as usize * PRG_ROM_PAGE_SIZE;
-    let mut chr_size = if !uses_chr_ram { rom[5] as usize * CHR_ROM_PAGE_SIZE} else { CHR_ROM_PAGE_SIZE };
+    let prg_size = rom[4] as usize * PRG_ROM_PAGE_SIZE;
+    let chr_size = if !uses_chr_ram { rom[5] as usize * CHR_ROM_PAGE_SIZE} else { CHR_ROM_PAGE_SIZE };
     
     let nametbl_mirroring = rom[6] & 1;
     let has_alt_nametbl = rom[6] & 0b0000_1000 != 0;
@@ -78,22 +78,6 @@ impl INesHeader {
       _ => unreachable!()
     };
 
-    if is_nes_v2 {
-      if rom[9] & 0b1111 == 0b1111 || rom[9] >> 4 == 0b1111 {
-        return Err("NES 2.0 'exponent-multiplier' notation for rom sizes not implemented")
-      }
-
-      let prg_extended = ((rom[9] as usize & 0b1111) << 8) + prg_16kb_banks as usize; 
-      let chr_extended = ((rom[9] as usize >> 4) << 8) + chr_8kb_banks as usize;
-
-      prg_size = prg_extended * PRG_ROM_PAGE_SIZE;
-      chr_size = chr_extended * CHR_ROM_PAGE_SIZE;
-    }
-
-    let nes20_header = if is_nes_v2 {
-      Some(Nes20Header::new(rom))
-    } else { None };
-
     Ok(INesHeader {
       prg_16kb_banks,
       chr_8kb_banks,
@@ -108,7 +92,7 @@ impl INesHeader {
       nametbl_mirroring: nametbl_layout,
       has_alt_nametbl,
       mapper,
-      nes20_header,
+      nes20_header: if is_nes_v2 { Some(Nes20Header::new(rom)?) } else { None },
     })
   }
 }
@@ -117,6 +101,8 @@ impl INesHeader {
 #[derive(Debug, Default, Clone)]
 pub struct Nes20Header {
   submapper: u8,
+  prg_rom_size: usize,
+  chr_rom_size: usize,
   prg_ram_size: usize,
   eeprom_size: usize,
   chr_ram_size: usize,
@@ -124,17 +110,27 @@ pub struct Nes20Header {
 }
 
 impl Nes20Header {
-  pub fn new(rom: &[u8]) -> Self {
+  pub fn new(rom: &[u8]) -> Result<Self, &'static str> {
     let submapper = rom[8] >> 4;
     
+    if rom[9] & 0b1111 == 0b1111 || rom[9] >> 4 == 0b1111 {
+      return Err("NES 2.0 'exponent-multiplier' notation for rom sizes not implemented")
+    }
+
+    let prg_extended = ((rom[9] as usize & 0b1111) << 8) + rom[4] as usize; 
+    let chr_extended = ((rom[9] as usize >> 4) << 8) + rom[5] as usize;
+
+    let prg_rom_size = prg_extended * PRG_ROM_PAGE_SIZE;
+    let chr_rom_size = chr_extended * CHR_ROM_PAGE_SIZE;
+
     let prg_ram_size = if rom[10] & 0b0000_1111 == 0 { 0 } else {64 << (rom[10] & 0b0000_1111)};
     let eeprom_size = if rom[10] & 0b1111_0000 == 0 { 0 } else {64 << (rom[10] >> 4)};
     let chr_ram_size = if rom[11] & 0b0000_1111 == 0 { 0 } else {64 << (rom[11] & 0b0000_1111)};
     let chr_nvram_size = if rom[11] & 0b1111_0000 == 0 { 0 } else {64 << (rom[11] >> 4)};
 
-    Nes20Header {
-      submapper, prg_ram_size, eeprom_size, chr_ram_size, chr_nvram_size,
-    }
+    Ok(Nes20Header {
+      submapper, prg_rom_size, chr_rom_size, prg_ram_size, eeprom_size, chr_ram_size, chr_nvram_size,
+    })
   }
 }
 

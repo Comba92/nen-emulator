@@ -26,7 +26,7 @@ fn main() {
         let cart = Cart::from_file(&rom_path);
         if let Ok(cart) = cart {
             emu = Emu::with_cart(cart);
-            println!("{:?}\n", emu.get_cart());
+            println!("{:#?}\n", emu.get_cart());
         }
     }
 
@@ -50,7 +50,7 @@ fn main() {
                     match rom_result {
                         Ok(cart) => {
                             emu.load_cart(cart);
-                            println!("{:?}\n", emu.get_cart());
+                            println!("{:#?}\n", emu.get_cart());
                         }
                         Err(msg) => eprintln!("Couldn't load the rom: {msg}\n"),
                     }

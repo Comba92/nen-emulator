@@ -8,7 +8,7 @@ use crate::cart::Mirroring;
 pub type CartMapper = Rc<RefCell<dyn Mapper>>;
 pub trait Mapper {
     // Default NRom PRG banking
-    fn read_prg(&self, prg: &[u8], addr: usize) -> u8 {
+    fn read_prg(&mut self, prg: &[u8], addr: usize) -> u8 {
         // if it only has 16KiB, then mirror first bank
         if prg.len() == PRG_BANK_SIZE { prg[addr % (PRG_BANK_SIZE)] }
         else { prg[addr] }
@@ -16,7 +16,7 @@ pub trait Mapper {
     fn write_prg(&mut self, _prg: &mut[u8], _addr: usize, _val: u8) {}
 
     // Default NRom CHR banking
-    fn read_chr(&self, chr: &[u8], addr: usize) -> u8 {
+    fn read_chr(&mut self, chr: &[u8], addr: usize) -> u8 {
         chr[addr]
     }
     fn write_chr(&mut self, chr: &mut[u8], addr: usize, val: u8) {
@@ -33,11 +33,8 @@ pub fn new_mapper_from_id(id: u8) -> Result<CartMapper, String> {
         2 => Rc::new(RefCell::new(UxRom::default())),
         3 => Rc::new(RefCell::new(INesMapper003::default())),
         // 4 => Rc::new(RefCell::new(Mmc3))
-        // NOT WORKING
-        // 7 => Rc::new(RefCell::new(AxRom::default())),
-        // NOT WORKING
-        // 9 => Rc::new(RefCell::new(Mmc2::default())),
-        //10 => Rc::new(RefCell::new(Mmc4::default())),
+        7 => Rc::new(RefCell::new(AxRom::default())),
+        9 => Rc::new(RefCell::new(Mmc2::default())),
         11 => Rc::new(RefCell::new(ColorDreams::default())),
         66 => Rc::new(RefCell::new(GxRom::default())),
         _ => return Err(format!("Mapper {id} not implemented"))
@@ -48,10 +45,6 @@ pub fn new_mapper_from_id(id: u8) -> Result<CartMapper, String> {
 
 const PRG_BANK_SIZE: usize = 16*1024; // 16 KiB
 const CHR_BANK_SIZE: usize = 8*1024; // 8 KiB
-
-const FIRST_PRG_BANK_END: usize = PRG_BANK_SIZE-1;
-const SECOND_PRG_BANK_START: usize = PRG_BANK_SIZE;
-const SECOND_PRG_BANK_END: usize = PRG_BANK_SIZE*2-1;
 
 // enum PrgBank { First, Second }
 // fn map_prg(addr: usize) -> PrgBank {
@@ -64,8 +57,8 @@ const SECOND_PRG_BANK_END: usize = PRG_BANK_SIZE*2-1;
 
 pub struct Dummy;
 impl Mapper for Dummy {
-    fn read_prg(&self, _prg: &[u8], _addr: usize) -> u8 { 0 }
-    fn read_chr(&self, _chr: &[u8], _addr: usize) -> u8 { 0 }
+    fn read_prg(&mut self, _prg: &[u8], _addr: usize) -> u8 { 0 }
+    fn read_chr(&mut self, _chr: &[u8], _addr: usize) -> u8 { 0 }
 }
 
 // Mapper 0 https://www.nesdev.org/wiki/NROM
@@ -123,7 +116,7 @@ pub struct Mmc1 {
 }
 
 impl Mapper for Mmc1 {
-    fn read_prg(&self, prg: &[u8], addr: usize) -> u8 {
+    fn read_prg(&mut self, prg: &[u8], addr: usize) -> u8 {
         match self.ctrl.prg_mode() {
             Mmc1PrgMode::Bank32kb => {
                 let bank_start = (self.prg_bank_select >> 1) * PRG_BANK_SIZE*2;
@@ -148,7 +141,7 @@ impl Mapper for Mmc1 {
         }
     }
 
-    fn read_chr(&self, chr: &[u8], addr: usize) -> u8 {
+    fn read_chr(&mut self, chr: &[u8], addr: usize) -> u8 {
         match self.ctrl.chr_mode() {
             Mmc1ChrMode::Bank8kb => {
                 let bank_start = (self.chr_bank0_select >> 1) * CHR_BANK_SIZE;
@@ -206,8 +199,8 @@ pub struct UxRom {
     prg_bank_select: usize,
 }
 impl Mapper for UxRom {
-    fn read_prg(&self, prg: &[u8], addr: usize) -> u8 {
-        if (SECOND_PRG_BANK_START..=SECOND_PRG_BANK_END).contains(&addr) {
+    fn read_prg(&mut self, prg: &[u8], addr: usize) -> u8 {
+        if (0x4000..=0x7FFF).contains(&addr) {
             let last_bank_start = prg.len() - PRG_BANK_SIZE;
             prg[last_bank_start + (addr % PRG_BANK_SIZE)]
         } else {
@@ -226,7 +219,7 @@ pub struct INesMapper003 {
     chr_bank_select: usize,
 }
 impl Mapper for INesMapper003 {
-    fn read_chr(&self, chr: &[u8], addr: usize) -> u8 {
+    fn read_chr(&mut self, chr: &[u8], addr: usize) -> u8 {
         chr[self.chr_bank_select + (addr % CHR_BANK_SIZE)]
     }
 
@@ -243,10 +236,9 @@ pub struct AxRom {
     pub mirroring_page: Mirroring,
 }
 
-// TODO: NOT WORKING
 impl Mapper for AxRom {
-    fn read_prg(&self, prg: &[u8], addr: usize) -> u8 {
-        prg[self.prg_bank_select + (addr % PRG_BANK_SIZE*2)]
+    fn read_prg(&mut self, prg: &[u8], addr: usize) -> u8 {
+        prg[self.prg_bank_select + (addr % (PRG_BANK_SIZE*2))]
     }
 
     fn write_prg(&mut self, _prg: &mut[u8], _addr: usize, val: u8) {
@@ -254,8 +246,8 @@ impl Mapper for AxRom {
         self.prg_bank_select = (val & 0b0000_0111) as usize * PRG_BANK_SIZE*2;
         
         self.mirroring_page = match val & 0b0001_0000 != 0 {
-            false => Mirroring::SingleScreenFirstPage,
-            true => Mirroring::SingleScreenSecondPage,
+            false   => Mirroring::SingleScreenFirstPage,
+            true    => Mirroring::SingleScreenSecondPage,
         };
     }
 
@@ -271,11 +263,11 @@ pub struct GxRom {
     pub chr_bank_select: usize,
 }
 impl Mapper for GxRom {
-    fn read_prg(&self, prg: &[u8], addr: usize) -> u8 {
+    fn read_prg(&mut self, prg: &[u8], addr: usize) -> u8 {
         prg[self.prg_bank_select + (addr % (PRG_BANK_SIZE*2))]
     }
 
-    fn read_chr(&self, chr: &[u8], addr: usize) -> u8 {
+    fn read_chr(&mut self, chr: &[u8], addr: usize) -> u8 {
         chr[self.chr_bank_select + (addr % CHR_BANK_SIZE)]
     }
 
@@ -286,35 +278,84 @@ impl Mapper for GxRom {
     }
 }
 
+#[derive(Default, Clone, Copy)]
+pub enum Mmc2Latch { FD, #[default] FE }
 // Mapper 9 https://www.nesdev.org/wiki/MMC2
 #[derive(Default)]
 pub struct Mmc2 {
     pub prg_bank_select: usize,
-    pub chr_bank_select: usize,
+    pub chr_bank0_select: usize,
+    pub chr_bank1_select: [usize; 2],
+    pub latch: Mmc2Latch,
     pub mirroring: Mirroring,
 }
 impl Mapper for Mmc2 {
-    fn read_prg(&self, prg: &[u8], addr: usize) -> u8 {
+    fn read_prg(&mut self, prg: &[u8], addr: usize) -> u8 {
         // last three 8kb prg banks
-        if (0x2000..=SECOND_PRG_BANK_END).contains(&addr) {
-            let last_three_banks = prg.len() - CHR_BANK_SIZE*3;
-            prg[last_three_banks + (addr - CHR_BANK_SIZE*3)]
+        if (0x2000..=0x7FFF).contains(&addr) {
+            let last_three_banks = prg.len() - (CHR_BANK_SIZE*3);
+            prg[last_three_banks + (addr % (CHR_BANK_SIZE*3))]
         } else {
-            prg[self.prg_bank_select + (addr % (CHR_BANK_SIZE*3))]
+            prg[self.prg_bank_select + (addr % CHR_BANK_SIZE)]
         }
     }
 
-    fn read_chr(&self, _chr: &[u8], addr: usize) -> u8 {
+    fn read_chr(&mut self, chr: &[u8], addr: usize) -> u8 {
         // last two switchable chr banks
-        if (0x1000..=0x1FFF).contains(&addr) {
-            0
+        let mapped = if (0x1000..=0x1FFF).contains(&addr) {
+            self.chr_bank1_select[self.latch as usize]
         } else {
-            0
+            self.chr_bank0_select
+        };
+
+        // match addr {
+        //     0x0FD8 => self.latch = Mmc2Latch::FD,
+        //     0x0FE8 => self.latch = Mmc2Latch::FE,
+        //     0x1FD8..=0x1FDF => self.latch = Mmc2Latch::FD,
+        //     0x1FE8..=0x1FEF => self.latch = Mmc2Latch::FE,
+        //     _ => {}
+        // }
+
+        match addr {
+            (0xFD0..=0xFDF) | (0x1FD0..=0x1FDF) => self.latch = Mmc2Latch::FD,
+            (0xFE0..=0xFEF) | (0x1FE0..=0x1FEF) => self.latch = Mmc2Latch::FE,
+            _ => {}
         }
+
+        chr[mapped * (CHR_BANK_SIZE/2) + (addr % (CHR_BANK_SIZE/2))]
     }
 
-    fn write_prg(&mut self, _prg: &mut[u8], _addr: usize, _val: u8) {
-        
+    fn write_prg(&mut self, _prg: &mut[u8], addr: usize, val: u8) {
+        let val = val as usize & 0b1_1111;
+
+        match addr {
+            0x2000..=0x2FFF => self.prg_bank_select = (val & 0b1111) * CHR_BANK_SIZE,
+            // 0x3000..=0x3FFF => {
+            //     // set 0xFD/0 bank select
+            //     self.chr_bank0_select[0] = val * (CHR_BANK_SIZE/2);
+            // }
+            // 0x4000..=0x4FFF => {
+            //     // set 0xFE/0 bank select
+            //     self.chr_bank0_select[1] = val * (CHR_BANK_SIZE/2);
+            // }
+            0x3000..=0x4FFF => {
+                self.chr_bank0_select = val;
+            }
+            0x5000..=0x5FFF => {
+                self.chr_bank1_select[0] = val;
+            }
+            0x6000..=0x6FFF => {
+                self.chr_bank1_select[1] = val;
+            }
+            0x7000..=0x7FFF => {
+                self.mirroring = match val & 1 {
+                    0 => Mirroring::Vertically,
+                    1 => Mirroring::Horizontally,
+                    _ => unreachable!()
+                };
+            }
+            _ => unreachable!()
+        }
     }
 
     fn mirroring(&self) -> Option<Mirroring> {
@@ -330,11 +371,11 @@ pub struct ColorDreams {
     pub chr_bank_select: usize,
 }
 impl Mapper for ColorDreams {
-    fn read_prg(&self, prg: &[u8], addr: usize) -> u8 {
+    fn read_prg(&mut self, prg: &[u8], addr: usize) -> u8 {
         prg[self.prg_bank_select + (addr % (PRG_BANK_SIZE*2))]
     }
 
-    fn read_chr(&self, chr: &[u8], addr: usize) -> u8 {
+    fn read_chr(&mut self, chr: &[u8], addr: usize) -> u8 {
         chr[self.chr_bank_select + (addr % CHR_BANK_SIZE)]
     }
 
