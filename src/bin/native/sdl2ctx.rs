@@ -144,8 +144,8 @@ pub fn handle_input(keys: &Keymaps, event: &Event, emu: &mut Emu) {
       }
     }
     Event::ControllerAxisMotion { axis: Axis::LeftY, value, .. } => {
-      if *value > AXIS_DEAD_ZONE { joypad.buttons.insert(JoypadButton::UP); }
-      else if *value < -AXIS_DEAD_ZONE { joypad.buttons.insert(JoypadButton::DOWN); }
+      if *value > AXIS_DEAD_ZONE { joypad.buttons.insert(JoypadButton::DOWN); }
+      else if *value < -AXIS_DEAD_ZONE { joypad.buttons.insert(JoypadButton::UP); }
       else {
         joypad.buttons.remove(JoypadButton::UP);
         joypad.buttons.remove(JoypadButton::DOWN);

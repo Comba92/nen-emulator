@@ -21,22 +21,13 @@ pub struct INesHeader {
   pub nes20_header: Option<Nes20Header>,
 }
 
-#[derive(Debug, Default, Clone)]
-pub struct Nes20Header {
-  submapper: u8,
-  prg_ram_size: usize,
-  eeprom_size: usize,
-  chr_ram_size: usize,
-  chr_nvram_size: usize,
-}
-
 const NES_STR: [u8; 4] = [0x4E, 0x45, 0x53, 0x1A];
 const HEADER_SIZE: usize = 16;
 const PRG_ROM_PAGE_SIZE: usize = 1024 * 16;
 const CHR_ROM_PAGE_SIZE: usize = 1024 * 8;
 
 #[derive(Debug, Default, Clone, Copy)]
-pub enum Mirroring { #[default] Horizontally, Vertically, FourScreen }
+pub enum Mirroring { #[default] Horizontally, Vertically, SingleScreenFirstPage, SingleScreenSecondPage, FourScreen }
 #[derive(Debug, Default, Clone, Copy)]
 pub enum TvSystem { #[default] NTSC, PAL }
 #[derive(Debug, Default, Clone, Copy)]
@@ -51,11 +42,11 @@ impl INesHeader {
     }
 
     let prg_16kb_banks = rom[4] as usize;
-    let chr_8kb_banks = rom[5] as usize;
-    let uses_chr_ram = chr_8kb_banks == 0;
+    let chr_8kb_banks = if rom[5] > 0 { rom[5] } else { 1 } as usize;
+    let uses_chr_ram = rom[5] == 0;
 
     let mut prg_size = rom[4] as usize * PRG_ROM_PAGE_SIZE;
-    let mut chr_size = if rom[5] > 0 { rom[5] as usize * CHR_ROM_PAGE_SIZE} else { 8*1024 };
+    let mut chr_size = if !uses_chr_ram { rom[5] as usize * CHR_ROM_PAGE_SIZE} else { CHR_ROM_PAGE_SIZE };
     
     let nametbl_mirroring = rom[6] & 1;
     let has_alt_nametbl = rom[6] & 0b0000_1000 != 0;
@@ -92,8 +83,8 @@ impl INesHeader {
         return Err("NES 2.0 'exponent-multiplier' notation for rom sizes not implemented")
       }
 
-      let prg_extended = ((rom[9] as usize) << 8) + prg_16kb_banks as usize; 
-      let chr_extended = ((rom[9] as usize) << 8) + chr_8kb_banks as usize;
+      let prg_extended = ((rom[9] as usize & 0b1111) << 8) + prg_16kb_banks as usize; 
+      let chr_extended = ((rom[9] as usize >> 4) << 8) + chr_8kb_banks as usize;
 
       prg_size = prg_extended * PRG_ROM_PAGE_SIZE;
       chr_size = chr_extended * CHR_ROM_PAGE_SIZE;
@@ -122,14 +113,24 @@ impl INesHeader {
   }
 }
 
+#[allow(dead_code)]
+#[derive(Debug, Default, Clone)]
+pub struct Nes20Header {
+  submapper: u8,
+  prg_ram_size: usize,
+  eeprom_size: usize,
+  chr_ram_size: usize,
+  chr_nvram_size: usize,
+}
+
 impl Nes20Header {
   pub fn new(rom: &[u8]) -> Self {
-    let submapper = rom[7] >> 4;
+    let submapper = rom[8] >> 4;
     
-    let prg_ram_size = if rom[10] & 0b0000_1111 == 0 { 0 } else {64 << rom[10] & 0b0000_1111};
+    let prg_ram_size = if rom[10] & 0b0000_1111 == 0 { 0 } else {64 << (rom[10] & 0b0000_1111)};
     let eeprom_size = if rom[10] & 0b1111_0000 == 0 { 0 } else {64 << (rom[10] >> 4)};
-    let chr_ram_size = if rom[11] & 0b0000_1111 == 0 { 0 } else {64 << rom[11] & 0b0000_1111};
-    let chr_nvram_size: usize = if rom[11] & 0b1111_0000 == 0 { 0 } else {64 << (rom[11] >> 4)};
+    let chr_ram_size = if rom[11] & 0b0000_1111 == 0 { 0 } else {64 << (rom[11] & 0b0000_1111)};
+    let chr_nvram_size = if rom[11] & 0b1111_0000 == 0 { 0 } else {64 << (rom[11] >> 4)};
 
     Nes20Header {
       submapper, prg_ram_size, eeprom_size, chr_ram_size, chr_nvram_size,

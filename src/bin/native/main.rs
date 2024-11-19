@@ -26,7 +26,7 @@ fn main() {
         let cart = Cart::from_file(&rom_path);
         if let Ok(cart) = cart {
             emu = Emu::with_cart(cart);
-            println!("{:?}", emu.get_cart());
+            println!("{:?}\n", emu.get_cart());
         }
     }
 
@@ -50,18 +50,18 @@ fn main() {
                     match rom_result {
                         Ok(cart) => {
                             emu.load_cart(cart);
-                            println!("{:?}", emu.get_cart());
+                            println!("{:?}\n", emu.get_cart());
                         }
-                        Err(msg) => eprintln!("Couldn't load the rom: {msg}"),
+                        Err(msg) => eprintln!("Couldn't load the rom: {msg}\n"),
                     }
                 }
                 Event::ControllerDeviceAdded { which , .. } => {
                     match sdl.controller_subsystem.open(which) {
                         Ok(controller) => {
-                            eprintln!("Found controller: {}", controller.name());
+                            eprintln!("Found controller: {}\n", controller.name());
                             sdl.controllers.push(controller);
                         }
-                        Err(_) => eprintln!("A controller was connected, but I couldn't initialize it")
+                        Err(_) => eprintln!("A controller was connected, but I couldn't initialize it\n")
                     }
                 }
                 _ => {}

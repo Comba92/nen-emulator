@@ -111,6 +111,7 @@ mod ppu_test {
     
       // let rom_path = &Path::new("tests/nestest/nestest.nes");
       let rom_path = &Path::new("../roms/Mega Man (USA).nes");
+      // let rom_path = Path::new("d:/roms/_ROMS_DATABASE/nes/56. Wizards & Warriors (USA).nes");
       let cart = Cart::from_file(rom_path).unwrap();
       let mut emu = Emu::with_cart(cart);
 

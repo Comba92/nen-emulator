@@ -110,7 +110,7 @@ function renderLoop() {
     
     emu.step_until_vblank()
     let frame = new Uint8ClampedArray(instance.memory.buffer, screen, nesScreen.width*nesScreen.height*4)
-    let image = new ImageData(frame, nesScreen.width, nesScreen.height) 
+    let image = new ImageData(frame, nesScreen.width, nesScreen.height)
     nesCtx.putImageData(image, 0, 0)
     webViewport.drawImage(nesScreen, 0, 0, webScreen.width, webScreen.height)
     

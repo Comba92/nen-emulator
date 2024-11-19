@@ -4,6 +4,7 @@
 - Better operand handling?
 
 [x] Implement Memory Bus, Interrupts, synchronization
+- Sram should be a mirrored vec
 
 [x] Implement PPU
 - PPU masking
@@ -12,10 +13,12 @@
 
 [] Mappers
 - Mappers contain additional data, such ad nametable mirroring
+- AxRom not working
 
 [] APU if i have the energy
 
-[] Support for NES 2.0 format
+[x] Support for NES 2.0 format
+- missing correct prg and chr sizes parsing
 
 [] Consider making the core lib no_std
 

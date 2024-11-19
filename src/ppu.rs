@@ -1,7 +1,7 @@
 use core::fmt;
 use std::collections::VecDeque;
 
-use crate::{cart::Mirroring, render::{NesScreen, OamEntry, SpritePriority}, mapper::CartMapper};
+use crate::{cart::Mirroring, mapper::CartMapper, render::{NesScreen, OamEntry, SpritePriority}};
 use bitfield_struct::bitfield;
 use bitflags::bitflags;
 use log::{info, warn};
@@ -149,7 +149,7 @@ pub struct Ppu {
   
   pub mapper: CartMapper,
   pub chr: Vec<u8>,
-  pub vram: [u8; 0x1000],
+  pub vram: [u8; 0x800],
   pub palettes: [u8; 32],
   pub oam: [u8; 256],
   
@@ -171,6 +171,8 @@ impl fmt::Debug for Ppu {
 
 impl Ppu {
   pub fn new(chr_rom: Vec<u8>, mapper: CartMapper, mirroring: Mirroring) -> Self {
+    let mapper_mirroring = mapper.borrow().mirroring();
+    
     Self {
       screen: NesScreen::new(),
 
@@ -185,7 +187,7 @@ impl Ppu {
 
       chr: chr_rom,
       mapper,
-      vram: [0; 0x1000],
+      vram: [0; 0x800],
       palettes: [0; 32],
       oam: [0; 256],
       oam_addr: 0, data_buf: 0,
@@ -195,7 +197,7 @@ impl Ppu {
       mask: PpuMask::empty(),
       stat: PpuStat::empty(),
       
-      mirroring,
+      mirroring: if let Some(mapper_mirroring) =  mapper_mirroring { mapper_mirroring } else { mirroring },
 
       nmi_requested: None,
       vblank_started: None,
@@ -667,16 +669,28 @@ impl Ppu {
   // Vertical:
   // 0x0800 [ B ]  [ A ] [ B ]
   // 0x0400 [ A ]  [ a ] [ b ]
+
+  // Single-page: (based on mapper register)
+  // 0x0800 [ B ]  [ A ] [ a ]    [ B ] [ b ]
+  // 0x0400 [ A ]  [ a ] [ a ] or [ b ] [ b ]
   pub fn mirror_nametbl(&self, addr: u16) -> u16 {
     let addr = addr - 0x2000;
     let nametbl_idx = addr / 0x400;
     
     use Mirroring::*;
-    match (self.mirroring, nametbl_idx) {
+    let mirroring = if let Some(mirroring) = self.mapper.borrow().mirroring() {
+      mirroring
+    } else { self.mirroring };
+
+    match (mirroring, nametbl_idx) {
       (Horizontally, 1) | (Horizontally, 2) => addr - 0x400,
       (Horizontally, 3) => addr - 0x400*2,
       (Vertically, 2) | (Vertically, 3) => addr - 0x400*2,
-      (_, _) => addr,
+      // TODO: probably broken
+      (SingleScreenFirstPage, _) => addr % 0x400,
+      (SingleScreenSecondPage, _) => (addr % 0x400) + 0x400,
+      (FourScreen, _) => todo!("Four screen mirroring not implemented"),
+      _ => addr
     }
   }
 
