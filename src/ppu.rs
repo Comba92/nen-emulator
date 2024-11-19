@@ -611,7 +611,7 @@ impl Ppu {
   pub fn vram_peek(&self, addr: u16) -> u8 {
     let (dst, addr) = self.map_address(addr);
     match dst {
-      VramDst::Patterntbl => self.mapper.borrow()
+      VramDst::Patterntbl => self.mapper.borrow_mut()
         .read_chr(&self.chr, addr),
       VramDst::Nametbl => self.vram[addr],
       VramDst::Palettes => self.palettes[addr],

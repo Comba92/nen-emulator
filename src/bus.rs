@@ -58,6 +58,10 @@ impl Memory for Bus {
   fn poll_nmi(&mut self) -> bool {
     self.ppu.nmi_requested.take().is_some()
   }
+
+  fn poll_irq(&mut self) -> bool {
+      self.mapper.borrow_mut().poll_irq()
+  }
 }
 
 impl Bus {

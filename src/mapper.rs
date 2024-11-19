@@ -24,6 +24,7 @@ pub trait Mapper {
     }
 
     fn mirroring(&self) -> Option<Mirroring> { None }
+    fn poll_irq(&mut self) -> bool { false }
 }
 
 pub fn new_mapper_from_id(id: u8) -> Result<CartMapper, String> {
@@ -32,7 +33,7 @@ pub fn new_mapper_from_id(id: u8) -> Result<CartMapper, String> {
         1 => Rc::new(RefCell::new(Mmc1::default())),
         2 => Rc::new(RefCell::new(UxRom::default())),
         3 => Rc::new(RefCell::new(INesMapper003::default())),
-        // 4 => Rc::new(RefCell::new(Mmc3))
+        4 => Rc::new(RefCell::new(Mmc3::default())),
         7 => Rc::new(RefCell::new(AxRom::default())),
         9 => Rc::new(RefCell::new(Mmc2::default())),
         11 => Rc::new(RefCell::new(ColorDreams::default())),
@@ -45,15 +46,6 @@ pub fn new_mapper_from_id(id: u8) -> Result<CartMapper, String> {
 
 const PRG_BANK_SIZE: usize = 16*1024; // 16 KiB
 const CHR_BANK_SIZE: usize = 8*1024; // 8 KiB
-
-// enum PrgBank { First, Second }
-// fn map_prg(addr: usize) -> PrgBank {
-//     match addr {
-//         (0..=FIRST_PRG_BANK_END) => PrgBank::First,
-//         (SECOND_PRG_BANK_START..=SECOND_PRG_BANK_END) => PrgBank::Second,
-//         _ => unreachable!("addr can't be bigger than ROM size"),
-//     }
-// }
 
 pub struct Dummy;
 impl Mapper for Dummy {
@@ -110,6 +102,7 @@ pub struct Mmc1 {
     shift_reg: u8,
     shift_writes: usize,
     ctrl: Mmc1Ctrl,
+
     chr_bank0_select: usize,
     chr_bank1_select: usize,
     prg_bank_select: usize,
@@ -189,9 +182,183 @@ impl Mapper for Mmc1 {
     }
 }
 
+
+bitflags! {
+    #[derive(Default, Clone)]
+    pub struct Mmc3Select: u8 {
+        const bank_update   = 0b0000_0111;
+        const prg_bank_mode = 0b0100_0000;
+        const chr_bank_mode = 0b1000_0000;
+    }
+}
+impl Mmc3Select {
+    pub fn prg_mode(&self) -> Mmc3PrgMode {
+        match self.contains(Mmc3Select::prg_bank_mode) {
+            false => Mmc3PrgMode::BankFirst,
+            true  => Mmc3PrgMode::BankLast,
+        }
+    }
+
+    pub fn chr_mode(&self) -> Mmc3ChrMode {
+        match self.contains(Mmc3Select::chr_bank_mode) {
+            false => Mmc3ChrMode::BiggerFirst,
+            true  => Mmc3ChrMode::BiggerLast,
+        }
+    }
+}
+
+#[derive(Default)]
+pub enum Mmc3PrgMode { #[default] BankFirst, BankLast }
+#[derive(Default)]
+pub enum Mmc3ChrMode { #[default] BiggerFirst, BiggerLast }
 // Mapper 4 https://www.nesdev.org/wiki/MMC3
-pub struct Mmc3;
-impl Mapper for Mmc3 {}
+pub struct Mmc3 {
+    pub bank_select: Mmc3Select,
+    pub mirroring: Mirroring,
+
+    pub bank_regs: [usize; 8],
+
+    pub prg_ram_read_on: bool,
+    pub prg_ram_write_on: bool,
+
+    pub irq_counter: u8,
+    pub irq_latch: u8,
+    pub irq_on: bool,
+}
+impl Default for Mmc3 {
+    fn default() -> Self {
+        Self { bank_select: Mmc3Select::prg_bank_mode, mirroring: Default::default(), bank_regs: Default::default(), prg_ram_read_on: Default::default(), prg_ram_write_on: Default::default(), irq_counter: Default::default(), irq_latch: Default::default(), irq_on: Default::default() }
+    }
+} 
+impl Mapper for Mmc3 {
+    fn read_prg(&mut self, prg: &[u8], addr: usize) -> u8 {
+        use Mmc3PrgMode::*;
+        let bank_start = match (addr, self.bank_select.prg_mode()) {
+            (0x0000..=0x1FFF, BankFirst) => {
+                self.bank_regs[6] * PRG_BANK_SIZE
+            }
+            (0x0000..=0x1FFF, BankLast) => {
+                prg.len() - PRG_BANK_SIZE*2
+            }
+            (0x2000..=0x3FFF, _) => {
+                self.bank_regs[7] * PRG_BANK_SIZE
+            }
+            (0x4000..=0x5FFF, BankFirst) => {
+                prg.len() - PRG_BANK_SIZE*2
+            }
+            (0x4000..=0x5FFF, BankLast) => {
+                self.bank_regs[6] * PRG_BANK_SIZE
+            }
+            (0x6000..=0x7FFF, _) => {
+                prg.len() - PRG_BANK_SIZE
+            }
+            _ => unreachable!()
+        };
+
+        prg[bank_start + (addr % CHR_BANK_SIZE)]
+    }
+    
+    fn read_chr(&mut self, chr: &[u8], addr: usize) -> u8 {
+        use Mmc3ChrMode::*;
+        let bank_start = match (addr, self.bank_select.chr_mode()) {
+            (0x0000..=0x03FF, BiggerFirst) => {
+                self.bank_regs[0]
+            }
+            (0x0400..=0x07FF, BiggerFirst) => {
+                self.bank_regs[0] + 1
+            }
+            (0x0800..=0x0BFF, BiggerFirst) => {
+                self.bank_regs[1]
+            }
+            (0x0C00..=0x0FFF, BiggerFirst) => {
+                self.bank_regs[1] + 1
+            }
+            (0x1000..=0x13FF, BiggerFirst) => {
+                self.bank_regs[2]
+            }
+            (0x1400..=0x17FF, BiggerFirst) => {
+                self.bank_regs[3]
+            }
+            (0x1800..=0x1BFF, BiggerFirst) => {
+                self.bank_regs[4]
+            }
+            (0x1C00..=0x1FFF, BiggerFirst) => {
+                self.bank_regs[5]
+            }
+
+            (0x0000..=0x03FF, BiggerLast) => {
+                self.bank_regs[2] 
+            }
+            (0x0400..=0x07FF, BiggerLast) => {
+                self.bank_regs[3] 
+            }
+            (0x0800..=0x0BFF, BiggerLast) => {
+                self.bank_regs[4]
+            }
+            (0x0C00..=0x0FFF, BiggerLast) => {
+                self.bank_regs[5]
+            }
+            (0x1000..=0x13FF, BiggerLast) => {
+                self.bank_regs[0]
+            }
+            (0x1400..=0x17FF, BiggerLast) => {
+                self.bank_regs[0] + 1
+            }
+            (0x1800..=0x1BFF, BiggerLast) => {
+                self.bank_regs[1]
+            }
+            (0x1C00..=0x1FFF, BiggerLast) => {
+                self.bank_regs[1] + 1
+            }
+            _ => {unreachable!()}
+        };
+
+        chr[bank_start * CHR_BANK_SIZE + (addr % CHR_BANK_SIZE)]
+    }
+
+    fn write_prg(&mut self, _prg: &mut[u8], addr: usize, val: u8) {
+        let addr_even = addr % 2 == 0;
+        match (addr, addr_even) {
+            (0x0000..=0x1FFE, true) => {
+                self.bank_select = Mmc3Select::from_bits_retain(val);
+            }
+            (0x0001..=0x1FFF, false) => {
+                let reg = self.bank_select.clone()
+                    .intersection(Mmc3Select::bank_update)
+                    .bits();
+                self.bank_regs[reg as usize] = val as usize;
+            }
+            (0x2000..=0x3FFE, true) => {
+                self.mirroring = match val & 1 != 0{
+                    true  => Mirroring::Horizontally,
+                    false => Mirroring::Vertically
+                };
+            }
+            (0x2001..=0x3FFF, false) => {
+                self.prg_ram_write_on = val & 0b0100_0000 == 0;
+                self.prg_ram_read_on  = val & 0b1000_0000 != 0;
+            }
+            (0x4000..=0x5FFE, true) => {
+                self.irq_latch = val;
+            }
+            (0x4001..=0x5FFF, false) => {
+                self.irq_counter = 0;
+            }
+            (0x6000..=0x7FFE, true) => {
+                self.irq_on = false;
+                // acknowledge any pending interrupts
+            }
+            (0x6001..=0x7FFF, false) => {
+                self.irq_on = true;
+            }
+            _ => unreachable!()
+        }
+    }
+
+    fn mirroring(&self) -> Option<Mirroring> {
+        Some(self.mirroring)
+    }
+}
 
 // Mapper 2 https://www.nesdev.org/wiki/UxROM
 #[derive(Default)]
@@ -281,6 +448,7 @@ impl Mapper for GxRom {
 #[derive(Default, Clone, Copy)]
 pub enum Mmc2Latch { FD, #[default] FE }
 // Mapper 9 https://www.nesdev.org/wiki/MMC2
+// TODO: not working
 #[derive(Default)]
 pub struct Mmc2 {
     pub prg_bank_select: usize,
