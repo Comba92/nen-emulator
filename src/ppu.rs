@@ -359,24 +359,30 @@ impl Ppu {
   pub fn fetch_sprites(&mut self) {
     for sprite in self.oam_buf.iter() {
       let vertical_start: usize = if sprite.flip_vertical { 7 } else { 0 };
-      let dist = self.scanline - sprite.y;
+      let dist_from_scanline = self.scanline - sprite.y;
   
       let spr_addr = match self.ctrl.spr_height() {
         8 => self.ctrl.spr_ptrntbl_addr()
           + sprite.tile_id as u16 * 16
-          + (dist).abs_diff(vertical_start) as u16,
+          + (dist_from_scanline).abs_diff(vertical_start) as u16,
         16 => {
-          let bank = (sprite.tile_id & 1) as u16;
-          let tile_id = (sprite.tile_id as u16 & 0b1111_1110) + if dist < 8 { 0 } else { 1 };
-          (bank << 12)
+          let tbl = (sprite.tile_id & 1) as u16;
+          let mut tile_id = sprite.tile_id as u16 & 0b1111_1110;
+          tile_id += match sprite.flip_vertical {
+            false =>  if dist_from_scanline >= 8 { 1 } else { 0 }
+            true  =>  if dist_from_scanline >= 8 { 0 } else { 1 }
+          };
+
+          (tbl << 12)
             + tile_id * 16
-            + (dist).abs_diff(vertical_start) as u16
+            + (dist_from_scanline % 8).abs_diff(vertical_start) as u16
         }
         _ => unreachable!("sprite heights are either 8 or 16")
       };
-  
+
       let mut plane0 = self.vram_peek(spr_addr);
       let mut plane1 = self.vram_peek(spr_addr + 8);
+
       // TODO: eventually fix this hack
       if !sprite.flip_horizontal { 
         plane0 = plane0.reverse_bits();
@@ -394,7 +400,7 @@ impl Ppu {
         let pixel = self.get_pixel_from_planes(i as u8, plane0, plane1);
         self.scanline_sprites[sprite.x + i] = Some(SprData {
           pixel,
-          palette_id: sprite.palette_id, 
+          palette_id: sprite.palette_id,
           priority: sprite.priority, 
           is_sprite0: sprite.index == 0
         });
@@ -594,7 +600,7 @@ impl Ppu {
         let mirrored = self.mirror_nametbl(addr);
         (VramDst::Nametbl, mirrored as usize)
       }
-      0x3F00..0x3FFF => {
+      0x3F00..=0x3FFF => {
         let palette = self.mirror_palette(addr);
         (VramDst::Palettes, palette as usize)
       }
@@ -634,7 +640,7 @@ impl Ppu {
       VramDst::Patterntbl => self.mapper.borrow_mut()
         .write_chr(&mut self.chr, addr, val),
       VramDst::Nametbl => self.vram[addr] = val,
-      VramDst::Palettes => self.palettes[addr] = val,
+      VramDst::Palettes => self.palettes[addr] = val & 0b0011_1111,
       VramDst::Unused => {}
     }
 
