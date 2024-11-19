@@ -85,8 +85,8 @@ impl Mmc1Ctrl {
         match self.clone().intersection(Mmc1Ctrl::nametbl_mirror).bits() {
             0 => Mirroring::SingleScreenFirstPage,
             1 => Mirroring::SingleScreenSecondPage,
-            2 => Mirroring::Horizontally,
-            3 => Mirroring::Vertically,
+            2 => Mirroring::Vertically,
+            3 => Mirroring::Horizontally,
             _ => unreachable!()
         }
     }
@@ -131,7 +131,7 @@ impl Mapper for Mmc1 {
             }
             Mmc1PrgMode::BankLast16kb => {
                 let bank_select = match addr {
-                    0..=0x3FFF => 0,
+                    0x0000..=0x3FFF => 0,
                     0x4000..=0x7FFF => self.prg_bank_select * PRG_BANK_SIZE,
                     _ => unreachable!()
                 };
@@ -139,7 +139,7 @@ impl Mapper for Mmc1 {
             }
             Mmc1PrgMode::BankFirst16kb => {
                 let bank_select = match addr {
-                    0..=0x3FFF => self.prg_bank_select * PRG_BANK_SIZE,
+                    0x0000..=0x3FFF => self.prg_bank_select * PRG_BANK_SIZE,
                     0x4000..=0x7FFF => prg.len() - PRG_BANK_SIZE,
                     _ => unreachable!()
                 };
@@ -156,12 +156,12 @@ impl Mapper for Mmc1 {
             }
             Mmc1ChrMode::Bank4kb => {
                 let bank_select = match addr {
-                    0..=0x0FFF => self.chr_bank0_select,
+                    0x0000..=0x0FFF => self.chr_bank0_select,
                     0x1000..=0x1FFF => self.chr_bank1_select,
                     _ => unreachable!()
                 };
 
-                chr[bank_select * CHR_BANK_SIZE/2 + (addr % (CHR_BANK_SIZE/2))]
+                chr[bank_select * (CHR_BANK_SIZE/2) + (addr % (CHR_BANK_SIZE/2))]
             }
         }
     }

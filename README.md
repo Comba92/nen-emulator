@@ -8,7 +8,6 @@
 
 [x] Implement PPU
 - PPU masking
-- PPU 16x8 sprites not working
 - Castlevania weird flickering (probably wrong sprite0 hit)
 
 [] Mappers
