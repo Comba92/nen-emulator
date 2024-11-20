@@ -5,6 +5,7 @@
 
 [x] Implement Memory Bus, Interrupts, synchronization
 - Sram should be a mirrored vec
+- Fix all memory problems (some games expect more memory than provided, or start with the wrong mapper configuration)
 
 [x] Implement PPU
 - Palette mirroring seems wrong
@@ -14,7 +15,8 @@
 - Rendering toggling delay (battletoads)
 - Castlevania weird flickering (probably wrong sprite0 hit)
 
-[] Mappers
+[x] Mappers
+- Mmc3 ok, irq not implemented
 - Mmc2 not working
 
 [] APU if i have the energy

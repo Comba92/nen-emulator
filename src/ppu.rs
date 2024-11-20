@@ -257,12 +257,6 @@ impl Ppu {
   // }
 
   pub fn step_accurate(&mut self) {
-    self.mask_update_delay += 1;
-    if self.mask_update_delay > 1 {
-      self.mask = PpuMask::from_bits_retain(self.mask_buf);
-      self.mask_update_delay = 0;
-    }
-
     if (0..=239).contains(&self.scanline) || self.scanline == 261 {
       // visible scanlines 
       if (1..=256).contains(&self.cycle) || (321..=336).contains(&self.cycle) {
@@ -514,8 +508,8 @@ impl Ppu {
         }
       }
       0x2001 => {
-        // self.mask = PpuMask::from_bits_retain(val);
-        self.mask_buf = val;
+        self.mask = PpuMask::from_bits_retain(val);
+        // self.mask_buf = val;
       }
       0x2003 => self.oam_addr = val,
       0x2004 => {

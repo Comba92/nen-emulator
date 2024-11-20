@@ -235,33 +235,35 @@ impl Default for Mmc3 {
     fn default() -> Self {
         Self { bank_select: Mmc3Select::prg_bank_mode, mirroring: Default::default(), bank_regs: Default::default(), prg_ram_read_on: Default::default(), prg_ram_write_on: Default::default(), irq_counter: Default::default(), irq_latch: Default::default(), irq_on: Default::default() }
     }
-} 
+}
+
+// TODO: probably can be done better! What about storing the banks start in an array?
 impl Mapper for Mmc3 {
     fn read_prg(&mut self, prg: &[u8], addr: usize) -> u8 {
         use Mmc3PrgMode::*;
         let bank_start = match (addr, self.bank_select.prg_mode()) {
             (0x0000..=0x1FFF, BankFirst) => {
-                self.bank_regs[6] * PRG_BANK_SIZE
+                self.bank_regs[6] * (PRG_BANK_SIZE/2)
             }
             (0x0000..=0x1FFF, BankLast) => {
-                prg.len() - PRG_BANK_SIZE*2
+                prg.len() - (PRG_BANK_SIZE/2)*2
             }
             (0x2000..=0x3FFF, _) => {
-                self.bank_regs[7] * PRG_BANK_SIZE
+                self.bank_regs[7] * (PRG_BANK_SIZE/2)
             }
             (0x4000..=0x5FFF, BankFirst) => {
-                prg.len() - PRG_BANK_SIZE*2
+                prg.len() - (PRG_BANK_SIZE/2)*2
             }
             (0x4000..=0x5FFF, BankLast) => {
-                self.bank_regs[6] * PRG_BANK_SIZE
+                self.bank_regs[6] * (PRG_BANK_SIZE/2)
             }
             (0x6000..=0x7FFF, _) => {
-                prg.len() - PRG_BANK_SIZE
+                prg.len() - (PRG_BANK_SIZE/2)
             }
             _ => unreachable!()
         };
 
-        prg[bank_start + (addr % CHR_BANK_SIZE)]
+        prg[bank_start + (addr % (PRG_BANK_SIZE/2))]
     }
     
     fn read_chr(&mut self, chr: &[u8], addr: usize) -> u8 {
@@ -319,7 +321,7 @@ impl Mapper for Mmc3 {
             _ => {unreachable!()}
         };
 
-        chr[bank_start * CHR_BANK_SIZE + (addr % CHR_BANK_SIZE)]
+        chr[bank_start * (1024) + (addr % 1024)]
     }
 
     fn write_prg(&mut self, _prg: &mut[u8], addr: usize, val: u8) {
