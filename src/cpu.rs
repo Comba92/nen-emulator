@@ -29,7 +29,7 @@ pub const STACK_END: usize = 0x0200;
 const SP_RESET: u8 = 0xFD;
 const PC_RESET: u16 = 0xFFFC;
 const _P_RESET_U8: u8 = 0x24;
-const P_RESET: CpuFlags = CpuFlags::irq_off.union(CpuFlags::unused);
+const P_RESET: CpuFlags = CpuFlags::irq_off.union(CpuFlags::brkpush);
 
 pub const NMI_ISR: u16 = 0xFFFA;
 pub const RESET_ISR: u16 = 0xFFFC;
@@ -107,7 +107,7 @@ impl<M: Memory> Cpu<M> {
   pub fn reset(&mut self) {
     self.pc = self.read16(PC_RESET);
     self.sp = self.sp.wrapping_sub(3);
-    self.p = P_RESET;
+    self.p = self.p.clone().union(CpuFlags::irq_off);
   }
 
   fn set_carry(&mut self, res: u16) {
@@ -251,6 +251,8 @@ impl<M: Memory> Cpu<M> {
 
     // page crossing check
     if instr.page_boundary_cycle && addr_effective & 0xFF00 != addr_base & 0xFF00 {
+      // dummy read: should read the previous page at effective low address
+      self.read((addr_base & 0xFF00) | (addr_effective & 0x00FF));
       self.cycles = self.cycles.wrapping_add(1);
     }
 
@@ -293,6 +295,8 @@ impl<M: Memory> Cpu<M> {
         // page crossing check
         if instr.page_boundary_cycle && addr_effective & 0xFF00 != addr_base & 0xFF00 {
           trace!(" | Boundary crossed at cycle {}", self.cycles);
+          // dummy read: Should read the previous page at effective low address
+          self.read((addr_base & 0xFF00) | (addr_effective & 0x00FF));
           self.cycles = self.cycles.wrapping_add(1);
         }
         Operand::fetchable(addr_effective)
@@ -467,6 +471,8 @@ impl<M: Memory> Cpu<M> {
     let val = self.get_operand_value(op);
     let res = self.increase(val, u8::wrapping_add);
     if let Operand::Addr(dst, _) = op {
+      // dummy write
+      self.write(*dst, val);
       self.write(*dst, res);
       *op = Operand::Addr(*dst, OnceCell::from(res));
     } else { unreachable!("inc should always have an address destination, got {op:?}") }
@@ -481,6 +487,8 @@ impl<M: Memory> Cpu<M> {
     let val = self.get_operand_value(op);
     let res = self.increase(val, u8::wrapping_sub);
     if let Operand::Addr(dst, _) = op {
+      // dummy write
+      self.write(*dst, val);
       self.write(*dst, res);
       *op = Operand::Addr(*dst, OnceCell::from(res));
     } else { unreachable!("dec should always have an address destination, got {op:?}") }
@@ -501,6 +509,8 @@ impl<M: Memory> Cpu<M> {
     match op {
       Operand::Acc | Operand::Imm(_) => self.a = res,
       Operand::Addr(dst, _) => {
+        // dummy write
+        self.write(*dst, val);
         self.write(*dst, res);
         *op = Operand::Addr(*dst, OnceCell::from(res))
       }
@@ -630,25 +640,21 @@ impl<M: Memory> Cpu<M> {
     self.lsr(&mut Operand::Acc);
   }
 
-  // FIXME
   pub fn slo(&mut self, op: &mut Operand) {
     self.asl(op);
     self.ora(op);
   }
 
-  // FIXME
   pub fn sre(&mut self, op: &mut Operand) {
     self.lsr(op);
     self.eor(op);
   }
 
-  // FIXME
   pub fn rla(&mut self, op: &mut Operand) {
     self.rol(op);
     self.and(op);
   }
 
-  // FIXME
   pub fn rra(&mut self, op: &mut Operand) {
     self.ror(op);
     self.adc(op);
@@ -659,7 +665,6 @@ impl<M: Memory> Cpu<M> {
     self.p.set(CpuFlags::carry, self.p.contains(CpuFlags::negative));
   }
 
-  // FIXME
   pub fn arr(&mut self, op: &mut Operand) {
     self.and(op);
     self.ror(&mut Operand::Acc);
@@ -670,13 +675,11 @@ impl<M: Memory> Cpu<M> {
     self.p.set(CpuFlags::overflow, bit6 ^ bit5);
   }
 
-  // FIXME
   pub fn dcp(&mut self, op: &mut Operand) {
     self.dec(op);
     self.cmp(op);
   }
 
-  // FIXME
   pub fn isc(&mut self, op: &mut Operand) {
     self.inc(op);
     self.sbc(op); 
@@ -691,13 +694,12 @@ impl<M: Memory> Cpu<M> {
     self.set_zn(res);
   }
 
-  // FIXME
   pub fn lax(&mut self, op: &mut Operand) {
     self.lda(op);
     self.ldx(op);
   }
 
-  // also called AXS, SAX
+  // also called AXS, SAX, currently NOT WORKING
   pub fn sbx(&mut self, op: &mut Operand) {
     let val = self.get_operand_value(op);
     let res = (self.a & self.x).wrapping_sub(val);
@@ -729,12 +731,14 @@ impl<M: Memory> Cpu<M> {
     self.high_addr_bitand(op, res);
   }
 
-  // also called SXA, XAS
+  // also called SXA, XAS, currently NOT WORKING
+  // FIXME
   pub fn shx(&mut self, op: &mut Operand) {
     self.high_addr_bitand(op, self.x);
   }
 
-  // also called A11m SYA, SAY
+  // also called A11m SYA, SAY, currently NOT WORKING
+  // FIXME
   pub fn shy(&mut self, op: &mut Operand) {
     self.high_addr_bitand(op, self.y);
   }
@@ -750,7 +754,8 @@ impl<M: Memory> Cpu<M> {
     self.and(op);
   }
 
-  // also called LAXI
+  // also called LAXI, currently NOT WORKING
+  // FIXME
   pub fn lxa(&mut self, op: &mut Operand) {
     let val = self.get_operand_value(op);
     let res = self.a & val;

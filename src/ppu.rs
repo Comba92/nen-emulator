@@ -144,6 +144,8 @@ pub struct Ppu {
   
   pub ctrl: PpuCtrl,
   pub mask: PpuMask,
+  pub mask_update_delay: usize,
+  pub mask_buf: u8,
   pub stat: PpuStat,
   pub oam_addr: u8,
   
@@ -195,6 +197,8 @@ impl Ppu {
       scanline: 0, cycle: 21,
       ctrl: PpuCtrl::empty(),
       mask: PpuMask::empty(),
+      mask_update_delay: 0,
+      mask_buf: 0,
       stat: PpuStat::empty(),
       
       mirroring: if let Some(mapper_mirroring) =  mapper_mirroring { mapper_mirroring } else { mirroring },
@@ -253,6 +257,12 @@ impl Ppu {
   // }
 
   pub fn step_accurate(&mut self) {
+    self.mask_update_delay += 1;
+    if self.mask_update_delay > 1 {
+      self.mask = PpuMask::from_bits_retain(self.mask_buf);
+      self.mask_update_delay = 0;
+    }
+
     if (0..=239).contains(&self.scanline) || self.scanline == 261 {
       // visible scanlines 
       if (1..=256).contains(&self.cycle) || (321..=336).contains(&self.cycle) {
@@ -272,7 +282,7 @@ impl Ppu {
       }
     }
 
-    if self.scanline == 241 && self.cycle == 1 {        
+    if self.scanline == 241 && self.cycle == 0 {        
       info!("VBLANK!!");
       self.vblank_started = Some(());
       self.stat.insert(PpuStat::vblank);
@@ -290,6 +300,7 @@ impl Ppu {
     }
 
     if self.in_odd_frame
+      && !self.is_rendering_on()
       && self.cycle == 339 
       && self.scanline == 261 {
       self.cycle += 1;
@@ -307,8 +318,12 @@ impl Ppu {
     }
   }
 
+
+  // TODO: Clean this shit up...
   pub fn render_pixel(&mut self) {
-    if self.is_rendering_on() && self.cycle <= 32*8 && self.scanline <= 30*8 {
+    if !self.is_rendering_on() && self.cycle <= 32*8 && self.scanline <= 30*8 {
+      self.screen.0.set_pixel(self.cycle-1, self.scanline, self.get_color_from_palette(0, 0));
+    } else if self.is_rendering_on() && self.cycle <= 32*8 && self.scanline <= 30*8 {
       let (bg_pixel, bg_palette_id) = self.bg_fifo.get(self.x as usize).unwrap().to_owned();
 
       let spr_data = self.scanline_sprites[self.cycle-1]
@@ -340,6 +355,8 @@ impl Ppu {
   }
 
   pub fn evaluate_sprites(&mut self) {
+    if !self.is_rendering_on() { return; }
+
     let mut visible_sprites = 0;
 
     for i in (0..256).step_by(4) {
@@ -355,7 +372,8 @@ impl Ppu {
       }
     }
 
-    let spr_overflow = self.stat.contains(PpuStat::spr_overflow) || (self.is_rendering_on()  && visible_sprites > 8);
+    let spr_overflow = self.stat.contains(PpuStat::spr_overflow)
+      || (self.is_rendering_on() && visible_sprites > 8);
     self.stat.set(PpuStat::spr_overflow, spr_overflow);
   }
 
@@ -461,56 +479,10 @@ impl Ppu {
     self.render_pixel();
   }
 
+  // https://forums.nesdev.org/viewtopic.php?t=15926
   pub fn is_rendering_on(&self) -> bool {
     self.mask.contains(PpuMask::bg_render_on) ||
     self.mask.contains(PpuMask::spr_render_on)
-  }
-
-  // https://www.nesdev.org/wiki/PPU_scrolling#Wrapping_around
-  pub fn increase_coarse_x(&mut self) {
-    if !self.is_rendering_on() { return; }
-
-    if self.v.coarse_x() == 31 {
-      self.v.set_coarse_x(0);
-      self.v.set_nametbl_x(self.v.nametbl_x() ^ 1); // flip horizontal nametbl
-    } else { self.v.set_coarse_x(self.v.coarse_x() + 1); }
-  }
-
-  // https://www.nesdev.org/wiki/PPU_scrolling#Wrapping_around
-  pub fn increase_coarse_y(&mut self) {
-    if !self.is_rendering_on() { return; }
-
-    if self.v.fine_y() < 7 {
-      self.v.set_fine_y(self.v.fine_y() + 1);
-    } else {
-      self.v.set_fine_y(0);
-      let mut y = self.v.coarse_y();
-      if y == 29 {
-        y = 0;
-        self.v.set_nametbl_y(self.v.nametbl_y() ^ 1); // flip vertical nametbl
-      } else if y == 31 {
-        y = 0;
-      } else { y += 1; }
-
-      self.v.set_coarse_y(y);
-    }
-  }
-
-  // https://forums.nesdev.org/viewtopic.php?p=5578#p5578
-  pub fn reset_render_x(&mut self) {
-    if !self.is_rendering_on() { return; }
-
-    self.v.set_coarse_x(self.t.coarse_x());
-    self.v.set_nametbl_x(self.t.nametbl_x());
-  }
-
-  // https://forums.nesdev.org/viewtopic.php?p=229928#p229928
-  pub fn reset_render_y(&mut self) {
-    if !self.is_rendering_on() { return; }
-
-    self.v.set_coarse_y(self.t.coarse_y());
-    self.v.set_fine_y(self.t.fine_y());
-    self.v.set_nametbl_y(self.t.nametbl_y());
   }
   
   pub fn reg_read(&mut self, addr: u16) -> u8 {
@@ -541,7 +513,10 @@ impl Ppu {
           self.nmi_requested = Some(());
         }
       }
-      0x2001 => self.mask = PpuMask::from_bits_retain(val),
+      0x2001 => {
+        // self.mask = PpuMask::from_bits_retain(val);
+        self.mask_buf = val;
+      }
       0x2003 => self.oam_addr = val,
       0x2004 => {
         self.oam[self.oam_addr as usize] = val;
@@ -629,7 +604,11 @@ impl Ppu {
   pub fn vram_read(&mut self) -> u8 {
     info!("PPU_DATA READ at {:04X}", self.v.0);
 
-    let res = self.data_buf;
+    // palettes shouldn't be buffered
+    let res = if self.v.0 >= 0x3F00 {
+      self.vram_peek(self.v.0)
+    } else { self.data_buf };
+
     self.data_buf = self.vram_peek(self.v.0);
     self.increase_vram_address();
     res
@@ -707,4 +686,54 @@ impl Ppu {
     let addr = addr - 0x3F00;
     if addr == 16 { 0 } else { addr % 32 }
   }
+}
+
+
+impl Ppu {
+    // https://www.nesdev.org/wiki/PPU_scrolling#Wrapping_around
+    pub fn increase_coarse_x(&mut self) {
+      if !self.is_rendering_on() { return; }
+  
+      if self.v.coarse_x() == 31 {
+        self.v.set_coarse_x(0);
+        self.v.set_nametbl_x(self.v.nametbl_x() ^ 1); // flip horizontal nametbl
+      } else { self.v.set_coarse_x(self.v.coarse_x() + 1); }
+    }
+  
+    // https://www.nesdev.org/wiki/PPU_scrolling#Wrapping_around
+    pub fn increase_coarse_y(&mut self) {
+      if !self.is_rendering_on() { return; }
+  
+      if self.v.fine_y() < 7 {
+        self.v.set_fine_y(self.v.fine_y() + 1);
+      } else {
+        self.v.set_fine_y(0);
+        let mut y = self.v.coarse_y();
+        if y == 29 {
+          y = 0;
+          self.v.set_nametbl_y(self.v.nametbl_y() ^ 1); // flip vertical nametbl
+        } else if y == 31 {
+          y = 0;
+        } else { y += 1; }
+  
+        self.v.set_coarse_y(y);
+      }
+    }
+  
+    // https://forums.nesdev.org/viewtopic.php?p=5578#p5578
+    pub fn reset_render_x(&mut self) {
+      if !self.is_rendering_on() { return; }
+  
+      self.v.set_coarse_x(self.t.coarse_x());
+      self.v.set_nametbl_x(self.t.nametbl_x());
+    }
+  
+    // https://forums.nesdev.org/viewtopic.php?p=229928#p229928
+    pub fn reset_render_y(&mut self) {
+      if !self.is_rendering_on() { return; }
+  
+      self.v.set_coarse_y(self.t.coarse_y());
+      self.v.set_fine_y(self.t.fine_y());
+      self.v.set_nametbl_y(self.t.nametbl_y());
+    }
 }

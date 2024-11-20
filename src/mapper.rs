@@ -97,7 +97,7 @@ pub enum Mmc1PrgMode { Bank32kb, BankFirst16kb, BankLast16kb }
 pub enum Mmc1ChrMode { Bank8kb, Bank4kb }
 
 // Mapper 1 https://www.nesdev.org/wiki/MMC1
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Mmc1 {
     shift_reg: u8,
     shift_writes: usize,
@@ -106,6 +106,12 @@ pub struct Mmc1 {
     chr_bank0_select: usize,
     chr_bank1_select: usize,
     prg_bank_select: usize,
+}
+
+impl Default for Mmc1 {
+    fn default() -> Self {
+        Self { shift_reg: Default::default(), shift_writes: Default::default(), ctrl: Mmc1Ctrl::from_bits_retain(0xC), chr_bank0_select: Default::default(), chr_bank1_select: Default::default(), prg_bank_select: Default::default() }
+    }
 }
 
 impl Mapper for Mmc1 {

@@ -25,6 +25,8 @@ fn main() {
     if rom_path.exists() {
         let cart = Cart::from_file(&rom_path);
         if let Ok(cart) = cart {
+            let rom_name =  rom_path.file_name().unwrap().to_str().unwrap_or("NenEmulator");
+            sdl.canvas.window_mut().set_title(rom_name).expect("Couldn't rename window title");
             emu = Emu::with_cart(cart);
             println!("{:#?}\n", emu.get_cart());
         }
@@ -49,6 +51,8 @@ fn main() {
 
                     match rom_result {
                         Ok(cart) => {
+                            let rom_name =  rom_path.file_name().unwrap().to_str().unwrap_or("NenEmulator");
+                            sdl.canvas.window_mut().set_title(rom_name).expect("Couldn't rename window title");
                             emu.load_cart(cart);
                             println!("{:#?}\n", emu.get_cart());
                         }

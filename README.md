@@ -7,12 +7,14 @@
 - Sram should be a mirrored vec
 
 [x] Implement PPU
+- Palette mirroring seems wrong
+- Vblank is cleared too late?
+- Investigate Spr0 Hit and Vblank more
 - PPU masking
 - Rendering toggling delay (battletoads)
 - Castlevania weird flickering (probably wrong sprite0 hit)
 
 [] Mappers
-- Mappers contain additional data, such ad nametable mirroring
 - Mmc2 not working
 
 [] APU if i have the energy
