@@ -8,6 +8,7 @@
 
 [x] Implement PPU
 - PPU masking
+- Rendering toggling delay (battletoads)
 - Castlevania weird flickering (probably wrong sprite0 hit)
 
 [] Mappers

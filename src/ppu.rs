@@ -311,27 +311,28 @@ impl Ppu {
     if self.is_rendering_on() && self.cycle <= 32*8 && self.scanline <= 30*8 {
       let (bg_pixel, bg_palette_id) = self.bg_fifo.get(self.x as usize).unwrap().to_owned();
 
-      let spr_data = self.scanline_sprites[self.cycle-1].as_ref();
-      if let None = spr_data {
-        let color = self.get_color_from_palette(bg_pixel, bg_palette_id);
-        self.screen.0.set_pixel(self.cycle-1, self.scanline, color);
-        
-        return;
-      }
+      let spr_data = self.scanline_sprites[self.cycle-1]
+        .clone().unwrap_or_default();
 
-      let spr_data = spr_data.unwrap();
-
-      if spr_data.is_sprite0 
+      if spr_data.is_sprite0
       && spr_data.pixel != 0 && bg_pixel != 0 
-      && self.cycle != 255 && !(0..=7).contains(&self.cycle) {
+      && self.scanline < 239
+      // Should check for 255, but we're putting pixel on the previous current cycle
+      && self.cycle != 256
+      && !(self.cycle <= 8 && (!self.mask.contains(PpuMask::spr_lstrip) || !self.mask.contains(PpuMask::bg_lstrip)))
+      && self.mask.contains(PpuMask::bg_render_on) 
+      && self.mask.contains(PpuMask::spr_render_on) {
         info!("SPRITE 0 HIT");
         self.stat.insert(PpuStat::spr0_hit);
       }
 
-      if self.mask.contains(PpuMask::spr_render_on) && (spr_data.priority == SpritePriority::Front || bg_pixel == 0) && spr_data.pixel != 0 {
+      if self.mask.contains(PpuMask::spr_render_on)
+      && !(self.cycle <= 8 && !self.mask.contains(PpuMask::spr_lstrip))
+      && (spr_data.priority == SpritePriority::Front || bg_pixel == 0) 
+      && spr_data.pixel != 0 {
         let color = self.get_color_from_palette(spr_data.pixel, spr_data.palette_id);
         self.screen.0.set_pixel(self.cycle-1, self.scanline, color);
-      } else if self.mask.contains(PpuMask::bg_render_on) {
+      } else if self.mask.contains(PpuMask::bg_render_on) && !(self.cycle <= 8 && !self.mask.contains(PpuMask::bg_lstrip)) {
         let color = self.get_color_from_palette(bg_pixel, bg_palette_id);
         self.screen.0.set_pixel(self.cycle-1, self.scanline, color);
       }
@@ -343,6 +344,7 @@ impl Ppu {
 
     for i in (0..256).step_by(4) {
       let spr_y = self.oam[i] as isize;
+      if spr_y >= 30*8 { continue; }
       let dist_from_scanline = self.scanline as isize - spr_y;
 
       if dist_from_scanline >= 0 && dist_from_scanline < self.ctrl.spr_height() as isize {
@@ -353,7 +355,8 @@ impl Ppu {
       }
     }
 
-    self.stat.set(PpuStat::spr_overflow, visible_sprites > 8);
+    let spr_overflow = self.stat.contains(PpuStat::spr_overflow) || (self.is_rendering_on()  && visible_sprites > 8);
+    self.stat.set(PpuStat::spr_overflow, spr_overflow);
   }
 
   pub fn fetch_sprites(&mut self) {

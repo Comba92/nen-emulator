@@ -35,16 +35,14 @@ impl Memory for Bus {
       BusDst::Ram => self.ram[addr] = val,
       BusDst::Ppu => self.ppu.reg_write(addr as u16, val),
       BusDst::Dma => {
-        let mut page = [0; 256];
         let start = (val as u16) << 8;
         for offset in 0..256 {
-          page[offset] = self.read(
+          let to_write = self.read(
             start.wrapping_add(offset as u16)
           );
+          self.ppu.reg_write(0x2004, to_write);
         }
-        self.ppu.oam_dma(&page);
 
-        // TODO: write to OAM_DATA instead of manually writing oam
         // TODO: this takes 513 CPU cycles, CPU is stalled during the transfer
       }
       BusDst::Joypad1 => self.joypad.write(val),
