@@ -9,6 +9,7 @@ crate-type = ["cdylib", "rlib"]
 [features]
 sdl = ["sdl2"]
 sdl-static = ["sdl", "sdl2/bundled", "sdl2/static-link"]
+sdl2 = ["dep:sdl2"]
 
 [[bin]]
 name = "native"

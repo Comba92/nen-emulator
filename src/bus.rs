@@ -1,9 +1,9 @@
 use log::debug;
-use crate::{cart::{Cart, INesHeader}, joypad::Joypad, mapper::CartMapper, mem::Memory, ppu::Ppu};
+use crate::{apu::Apu, cart::{Cart, INesHeader}, joypad::Joypad, mapper::CartMapper, mem::Memory, ppu::Ppu};
 
 #[derive(Debug)]
 enum BusDst {
-  Ram, Ppu, Dma, SRam, Prg, Joypad1, Joypad2, NoImpl
+  Ram, Ppu, Apu, Dma, SRam, Prg, Joypad1, Joypad2, NoImpl
 }
 
 pub struct Bus {
@@ -13,6 +13,7 @@ pub struct Bus {
   pub cart: INesHeader,
   pub mapper: CartMapper,
   pub ppu: Ppu,
+  pub apu: Apu,
   pub joypad: Joypad,
 }
 
@@ -22,6 +23,7 @@ impl Memory for Bus {
     match dst {
       BusDst::Ram => self.ram[addr],
       BusDst::Ppu => self.ppu.reg_read(addr as u16),
+      BusDst::Apu => self.apu.reg_read(addr as u16),
       BusDst::Joypad1 => self.joypad.read(),
       BusDst::SRam => self.sram[addr],
       BusDst::Prg => self.mapper.borrow_mut().read_prg(&self.prg, addr),
@@ -34,6 +36,7 @@ impl Memory for Bus {
     match dst {
       BusDst::Ram => self.ram[addr] = val,
       BusDst::Ppu => self.ppu.reg_write(addr as u16, val),
+      BusDst::Apu => self.apu.reg_write(addr as u16, val),
       BusDst::Dma => {
         let start = (val as u16) << 8;
         for offset in 0..256 {
@@ -59,6 +62,7 @@ impl Memory for Bus {
 
   fn poll_irq(&mut self) -> bool {
       self.mapper.borrow_mut().poll_irq()
+      || self.apu.irq_requested.take().is_some()
   }
 }
 
@@ -74,6 +78,7 @@ impl Bus {
       ram: [0; 0x800], 
       sram: [0; 0x2000],
       ppu, 
+      apu: Apu::new(),
       cart: cart.header,
       prg: cart.prg_rom,
       mapper: cart.mapper,
@@ -92,20 +97,17 @@ impl Bus {
         (BusDst::Ppu, ppu_addr as usize)
       }
   
+      0x4000..=0x4013 | 0x4015 | 0x4017 => (BusDst::Apu, addr as usize),
       0x4014 => (BusDst::Dma, addr as usize),
       0x4016 => (BusDst::Joypad1, addr as usize),
-      0x4017 => (BusDst::Joypad2, addr as usize),
+      // 0x4017 => (BusDst::Joypad2, addr as usize),
   
       0x6000..=0x7FFF => (BusDst::SRam, addr as usize - 0x6000),
       0x8000..=0xFFFF => (BusDst::Prg, addr as usize - 0x8000),
       _ => (BusDst::NoImpl, addr as usize)
     }
   }
-
-  pub fn step(&mut self, cycles: usize) {
-    for _ in 0..cycles*3 { self.ppu.step_accurate(); }
-  }
-  
+    
   pub fn peek_vblank(&mut self) -> bool {
     self.ppu.vblank_started.take().is_some()
   }

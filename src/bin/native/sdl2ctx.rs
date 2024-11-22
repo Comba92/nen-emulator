@@ -1,12 +1,13 @@
 use std::collections::HashMap;
 use nen_emulator::{emu::Emu, joypad::JoypadButton};
-use sdl2::{controller::{Axis, Button, GameController}, event::Event, keyboard::Keycode, render::{Canvas, TextureCreator}, video::{Window, WindowContext}, EventPump, GameControllerSubsystem, Sdl, TimerSubsystem, VideoSubsystem};
+use sdl2::{controller::{Axis, Button, GameController}, event::Event, keyboard::Keycode, render::{Canvas, TextureCreator}, video::{Window, WindowContext}, AudioSubsystem, EventPump, GameControllerSubsystem, Sdl, TimerSubsystem, VideoSubsystem};
 
 #[allow(unused)]
 pub struct Sdl2Context {
   pub ctx: Sdl,
   pub timer: TimerSubsystem,
-  pub video_subsytem: VideoSubsystem,
+  pub video_subsystem: VideoSubsystem,
+  pub audio_subsystem: AudioSubsystem,
   pub canvas: Canvas<Window>,
   pub texture_creator: TextureCreator<WindowContext>,
   pub events: EventPump,
@@ -20,6 +21,7 @@ impl Sdl2Context {
     let ctx = sdl2::init().expect("Couldn't initialize SDL2");
     let timer = ctx.timer().expect("Couldn't initialize timer subsytem");
     let video_subsystem= ctx.video().expect("Couldn't initialize video subsystem");
+    let audio_subsystem = ctx.audio().expect("Couldn't initialize audio subsystem");
     let window = video_subsystem.window(name, width, height)
         .position_centered()
         .resizable()
@@ -53,7 +55,7 @@ impl Sdl2Context {
     
     let events = ctx.event_pump().expect("Couldn't get the event pump");
     let keymaps = Keymaps::new();
-    Self { ctx, video_subsytem: video_subsystem, canvas, events, texture_creator, timer, controller_subsystem, controllers, keymaps }
+    Self { ctx, video_subsystem, audio_subsystem, canvas, events, texture_creator, timer, controller_subsystem, controllers, keymaps }
   }
 }
 

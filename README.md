@@ -56,6 +56,9 @@ Correct XAA
 - https://mapper.nes.science/
 - https://bumbershootsoft.wordpress.com/2022/10/22/nes-beyond-40kb/
 
+## APU
+- https://emudev.de/nes-emulator/charming-sound-the-apu/
+
 ### Tests
 - https://www.nesdev.org/wiki/Emulator_tests
 Nestest:
