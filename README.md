@@ -6,6 +6,7 @@
 [x] Implement Memory Bus, Interrupts, synchronization
 - Sram should be a mirrored vec
 - Fix all memory problems (some games expect more memory than provided, or start with the wrong mapper configuration)
+(games like Bubble Bobble, TMNT 2 and Batman crash at startup for this reason)
 
 [x] Implement PPU
 - Palette mirroring seems wrong
@@ -21,10 +22,11 @@
 
 [] APU if i have the energy
 
-[x] Support for NES 2.0 format
+[] Support for NES 2.0 format
 - missing correct prg and chr sizes parsing
 
 [] Consider making the core lib no_std
+[] Game info fetcher from online db
 
 # Resources
 - https://www.nesdev.org/NESDoc.pdf
