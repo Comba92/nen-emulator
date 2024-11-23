@@ -84,12 +84,14 @@ inputRom.addEventListener('change', async event => {
     try {
         emu.load_from_bytes(bytes)
         screen = emu.get_raw_screen()
+        pauseBtn.innerText = '⏸️'
         animationId = renderLoop()
     } catch(err) {
         console.log(err)
         emu.is_paused = true
     }
 })
+
 
 pauseBtn.addEventListener('click', event => {
     emu.is_paused = !emu.is_paused
@@ -99,7 +101,10 @@ pauseBtn.addEventListener('click', event => {
 resetBtn.addEventListener('click', event => {
     emu.reset()
     emu.is_paused = false
+    pauseBtn.innerText = '⏸️'
 })
+
+const FRAME_MS = (1.0 / 60.0) * 1000
 
 // https://developer.mozilla.org/en-US/docs/Web/API/Canvas_API/Tutorial/Pixel_manipulation_with_canvas
 function renderLoop() {
@@ -107,6 +112,7 @@ function renderLoop() {
         cancelAnimationFrame(animationId)
         return
     }
+    let start = performance.now()
     
     emu.step_until_vblank()
     let frame = new Uint8ClampedArray(instance.memory.buffer, screen, nesScreen.width*nesScreen.height*4)
@@ -114,5 +120,12 @@ function renderLoop() {
     nesCtx.putImageData(image, 0, 0)
     webViewport.drawImage(nesScreen, 0, 0, webScreen.width, webScreen.height)
     
-    animationId = requestAnimationFrame(renderLoop)
+    let elapsed_ms = performance.now() - start
+    let delay = FRAME_MS - elapsed_ms
+
+    setTimeout(
+        () => { animationId = requestAnimationFrame(renderLoop) },
+        delay > 0 ? delay : 0
+    )
+    
 }

@@ -9,7 +9,7 @@ fn main() {
     const SCALE: f32 = 3.5;
     const WINDOW_WIDTH:  u32  = (SCALE * SCREEN_WIDTH  as f32* 8.0) as u32;
     const WINDOW_HEIGHT: u32  = (SCALE * SCREEN_HEIGHT as f32* 8.0) as u32;
-    const FRAME_MS: f64 = (1.0 / 58.0) * 1000.0;
+    const FRAME_MS: u64 = ((1.0 / 58.0) * 1000.0) as u64;
 
     let mut sdl = Sdl2Context::new("NenEmulator", WINDOW_WIDTH, WINDOW_HEIGHT);
     
@@ -82,9 +82,9 @@ fn main() {
         //     * 1000.0;
         // sdl.timer.delay(((1.0/59.94 * 1000.0) - elapsed_ms) as u32);
 
-        let ms_elapsed = (sdl.timer.ticks64() - ms_since_start) as f64;
+        let ms_elapsed = sdl.timer.ticks64() - ms_since_start;
         let delay = FRAME_MS - ms_elapsed;
-        if delay > 0.0 {
+        if delay > 0 {
             sdl.timer.delay(delay as u32);
         }
 

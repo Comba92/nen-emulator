@@ -4,6 +4,8 @@ pub mod render;
 pub mod cpu;
 pub mod instr;
 
+pub mod apu;
+
 pub mod mem;
 pub mod bus;
 pub mod mapper;

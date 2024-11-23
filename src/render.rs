@@ -6,7 +6,7 @@ use crate::ppu::{Ppu, PpuMask};
 pub struct RGBColor(pub u8, pub u8, pub u8);
 
 
-pub static SYS_PALETTES: LazyLock<[RGBColor; 64]> = LazyLock::new(|| {
+pub static SYS_COLORS: LazyLock<[RGBColor; 64]> = LazyLock::new(|| {
   let bytes = include_bytes!("../palettes/Composite_wiki.pal");
 
   let colors: Vec<RGBColor> = bytes
@@ -40,7 +40,7 @@ impl FrameBuffer {
     }
 
     pub fn set_pixel(&mut self, x: usize, y: usize, color_id: u8) {
-        let color = &SYS_PALETTES[color_id as usize];
+        let color = &SYS_COLORS[color_id as usize];
         let idx = (y*self.width + x) * PIXEL_BYTES;
         self.buffer[idx + 0] = color.0;
         self.buffer[idx + 1] = color.1;
