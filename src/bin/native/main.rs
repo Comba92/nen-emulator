@@ -1,9 +1,8 @@
 use std::{env::args, path::PathBuf};
 use nen_emulator::{emu::Emu, cart::Cart, render::{SCREEN_HEIGHT, SCREEN_WIDTH}};
 use sdl2::{event::Event, pixels::PixelFormatEnum};
+mod sdl2ctx;
 use sdl2ctx::{handle_input, Sdl2Context};
-
-pub mod sdl2ctx;
 
 fn main() {
     const SCALE: f32 = 3.5;

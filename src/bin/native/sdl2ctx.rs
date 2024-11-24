@@ -8,7 +8,7 @@ pub struct Sdl2Context {
   pub timer: TimerSubsystem,
   pub video_subsystem: VideoSubsystem,
   pub audio_subsystem: AudioSubsystem,
-  pub audio_queue: AudioQueue<f32>,
+  pub audio_queue: AudioQueue<i16>,
   pub canvas: Canvas<Window>,
   pub texture_creator: TextureCreator<WindowContext>,
   pub events: EventPump,
@@ -62,7 +62,7 @@ impl Sdl2Context {
     };
 
     let audio_queue = audio_subsystem
-        .open_queue::<f32, _>(None, &desired_spec).expect("Couldn't open audio queue");
+        .open_queue::<i16, _>(None, &desired_spec).expect("Couldn't open audio queue");
     audio_queue.resume();
     
     let events = ctx.event_pump().expect("Couldn't get the event pump");
