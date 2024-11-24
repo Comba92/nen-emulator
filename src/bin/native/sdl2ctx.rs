@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use nen_emulator::{emu::Emu, joypad::JoypadButton};
-use sdl2::{controller::{Axis, Button, GameController}, event::Event, keyboard::Keycode, render::{Canvas, TextureCreator}, video::{Window, WindowContext}, AudioSubsystem, EventPump, GameControllerSubsystem, Sdl, TimerSubsystem, VideoSubsystem};
+use sdl2::{audio::{AudioQueue, AudioSpecDesired}, controller::{Axis, Button, GameController}, event::Event, keyboard::Keycode, render::{Canvas, TextureCreator}, video::{Window, WindowContext}, AudioSubsystem, EventPump, GameControllerSubsystem, Sdl, TimerSubsystem, VideoSubsystem};
 
 #[allow(unused)]
 pub struct Sdl2Context {
@@ -8,6 +8,7 @@ pub struct Sdl2Context {
   pub timer: TimerSubsystem,
   pub video_subsystem: VideoSubsystem,
   pub audio_subsystem: AudioSubsystem,
+  pub audio_queue: AudioQueue<f32>,
   pub canvas: Canvas<Window>,
   pub texture_creator: TextureCreator<WindowContext>,
   pub events: EventPump,
@@ -16,6 +17,7 @@ pub struct Sdl2Context {
   pub keymaps: Keymaps,
 }
 
+// TODO: refactor to return an error
 impl Sdl2Context {
   pub fn new(name: &str, width: u32, height: u32) -> Self {
     let ctx = sdl2::init().expect("Couldn't initialize SDL2");
@@ -52,10 +54,20 @@ impl Sdl2Context {
     // if controllers.is_empty() {
     //   eprintln!("No game controllers found");
     // }
+
+    let desired_spec = AudioSpecDesired {
+        freq: Some(44100),
+        channels: Some(2),
+        samples: None,
+    };
+
+    let audio_queue = audio_subsystem
+        .open_queue::<f32, _>(None, &desired_spec).expect("Couldn't open audio queue");
+    audio_queue.resume();
     
     let events = ctx.event_pump().expect("Couldn't get the event pump");
     let keymaps = Keymaps::new();
-    Self { ctx, video_subsystem, audio_subsystem, canvas, events, texture_creator, timer, controller_subsystem, controllers, keymaps }
+    Self { ctx, video_subsystem, audio_subsystem, audio_queue, canvas, events, texture_creator, timer, controller_subsystem, controllers, keymaps }
   }
 }
 
@@ -105,38 +117,33 @@ pub fn handle_input(keys: &Keymaps, event: &Event, emu: &mut Emu) {
   let joypad = emu.get_joypad();
 
   match event {
-    Event::KeyDown { keycode, .. } => {
+    Event::KeyDown { keycode, .. } 
+    | Event::KeyUp { keycode, .. } => {
       if let Some(keycode) = keycode {
         if let Some(action) = keys.keymap.get(keycode) {
-          match action {
-            InputAction::Game(button) => joypad.buttons.insert(*button),
-            InputAction::Pause => emu.is_paused = !emu.is_paused,
-            InputAction::Reset => emu.reset(),
+          match (action, event) {
+            (InputAction::Game(button), Event::KeyDown {..}) => joypad.buttons.insert(*button),
+            (InputAction::Game(button), Event::KeyUp {..}) => joypad.buttons.remove(*button),
+            (InputAction::Pause, Event::KeyDown {..}) => emu.is_paused = !emu.is_paused,
+            (InputAction::Reset, Event::KeyDown {..}) => emu.reset(),
+            _ => {}
           }
         }
       }
     }
-    Event::KeyUp { keycode, .. } => {
-      if let Some(keycode) = keycode {
-        if let Some(InputAction::Game(button)) = keys.keymap.get(keycode) {
-          joypad.buttons.remove(*button);
-        }
-      }
-    }
-    Event::ControllerButtonDown { button, .. } => {
+    Event::ControllerButtonDown { button, .. } 
+    | Event::ControllerButtonUp { button, .. }  => {
       if let Some(action) = keys.padmap.get(button) {
-        match action {
-          InputAction::Game(action) => joypad.buttons.insert(*action),
-          InputAction::Pause => emu.is_paused = !emu.is_paused,
-          InputAction::Reset => emu.reset(),
+        match (action, event) {
+          (InputAction::Game(button), Event::ControllerButtonDown {..}) => joypad.buttons.insert(*button),
+          (InputAction::Game(button), Event::ControllerButtonUp {..}) => joypad.buttons.remove(*button),
+          (InputAction::Pause, Event::ControllerButtonDown {..}) => emu.is_paused = !emu.is_paused,
+          (InputAction::Reset, Event::ControllerButtonDown {..}) => emu.reset(),
+          _ => {}
         }
       }
     }
-    Event::ControllerButtonUp { button, .. } => {
-      if let Some(InputAction::Game(button)) = keys.padmap.get(button) {
-        joypad.buttons.remove(*button);
-      }
-    }
+
     Event::ControllerAxisMotion { axis: Axis::LeftX, value, .. } => {
       if *value > AXIS_DEAD_ZONE { joypad.buttons.insert(JoypadButton::RIGHT); }
       else if *value < -AXIS_DEAD_ZONE { joypad.buttons.insert(JoypadButton::LEFT); }

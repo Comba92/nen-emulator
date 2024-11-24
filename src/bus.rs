@@ -46,6 +46,7 @@ impl Memory for Bus {
           self.ppu.reg_write(0x2004, to_write);
         }
 
+        // https://www.nesdev.org/wiki/DMA
         // TODO: this takes 513 CPU cycles, CPU is stalled during the transfer
       }
       BusDst::Joypad1 => self.joypad.write(val),

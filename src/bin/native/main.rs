@@ -1,6 +1,6 @@
 use std::{env::args, path::PathBuf};
 use nen_emulator::{emu::Emu, cart::Cart, render::{SCREEN_HEIGHT, SCREEN_WIDTH}};
-use sdl2::{pixels::PixelFormatEnum, event::Event};
+use sdl2::{event::Event, pixels::PixelFormatEnum};
 use sdl2ctx::{handle_input, Sdl2Context};
 
 pub mod sdl2ctx;
@@ -9,7 +9,7 @@ fn main() {
     const SCALE: f32 = 3.5;
     const WINDOW_WIDTH:  u32  = (SCALE * SCREEN_WIDTH  as f32* 8.0) as u32;
     const WINDOW_HEIGHT: u32  = (SCALE * SCREEN_HEIGHT as f32* 8.0) as u32;
-    const FRAME_MS: u64 = ((1.0 / 58.0) * 1000.0) as u64;
+    const FRAME_MS: i64 = ((1.0 / 58.0) * 1000.0) as i64;
 
     let mut sdl = Sdl2Context::new("NenEmulator", WINDOW_WIDTH, WINDOW_HEIGHT);
     
@@ -39,9 +39,12 @@ fn main() {
     'running: loop {
         let ms_since_start = sdl.timer.ticks64();
         emu.step_until_vblank();
+        sdl.audio_queue.queue_audio(&emu.get_apu().samples_queue).unwrap();
+        emu.get_apu().samples_queue.clear();
 
         for event in sdl.events.poll_iter() {
             handle_input(&sdl.keymaps, &event, &mut emu);
+            emu.get_cpu().bus.apu.samples_queue.clear();
 
             match event {
                 Event::Quit { .. } => break 'running,
@@ -83,7 +86,7 @@ fn main() {
         // sdl.timer.delay(((1.0/59.94 * 1000.0) - elapsed_ms) as u32);
 
         let ms_elapsed = sdl.timer.ticks64() - ms_since_start;
-        let delay = FRAME_MS - ms_elapsed;
+        let delay = FRAME_MS - ms_elapsed as i64;
         if delay > 0 {
             sdl.timer.delay(delay as u32);
         }

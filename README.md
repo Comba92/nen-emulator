@@ -21,6 +21,7 @@
 - Mmc2 not working
 
 [] APU if i have the energy
+- PAL support?
 
 [] Support for NES 2.0 format
 - missing correct prg and chr sizes parsing
