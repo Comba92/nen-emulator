@@ -1,4 +1,4 @@
-use std::ops::Neg;
+use std::{collections::VecDeque, ops::Neg};
 
 use bitflags::bitflags;
 
@@ -461,7 +461,7 @@ pub struct Apu {
   pub frame_irq_on: bool,
   pub interrupts_off: bool,
   pub irq_requested: Option<()>,
-  pub samples_queue: Vec<i16>,
+  pub samples_queue: VecDeque<i16>,
 
   pub cycles: usize,
 }
@@ -481,7 +481,7 @@ impl Apu {
       interrupts_off: false,
       irq_requested: None,
 
-      samples_queue: Vec::new(),
+      samples_queue: VecDeque::new(),
       cycles: 0,
     };
 
@@ -591,9 +591,10 @@ impl Apu {
 
     let pulse_out = 0.00752 * (pulse1 + pulse2) as f32;
     let tnd_out = 0.00851 * triangle as f32; //+ 0.00494 * noise as f32;
+    let tnd_out = 0.0;
 
     let output = ((pulse_out + tnd_out) * u16::MAX as f32).clamp(0.0, u16::MAX as f32);
-    self.samples_queue.push(output as i16);
+    self.samples_queue.push_back(output as i16);
   }
 
   pub fn reg_read(&mut self, addr: u16) -> u8 {

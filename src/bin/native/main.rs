@@ -1,6 +1,7 @@
-use std::{env::args, path::PathBuf};
+use std::{collections::VecDeque, env::args, path::PathBuf};
 use nen_emulator::{emu::Emu, cart::Cart, render::{SCREEN_HEIGHT, SCREEN_WIDTH}};
-use sdl2::{event::Event, pixels::PixelFormatEnum};
+use sdl2::{audio::{AudioCallback, AudioSpecDesired}, event::Event, pixels::PixelFormatEnum};
+use std::time::{Duration, Instant};
 mod sdl2ctx;
 use sdl2ctx::{handle_input, Sdl2Context};
 
@@ -8,7 +9,7 @@ fn main() {
     const SCALE: f32 = 3.5;
     const WINDOW_WIDTH:  u32  = (SCALE * SCREEN_WIDTH  as f32* 8.0) as u32;
     const WINDOW_HEIGHT: u32  = (SCALE * SCREEN_HEIGHT as f32* 8.0) as u32;
-    const FRAME_MS: i64 = ((1.0 / 58.0) * 1000.0) as i64;
+    let ms_frame: Duration = Duration::from_secs_f64(1.0 / 60.0);
 
     let mut sdl = Sdl2Context::new("NenEmulator", WINDOW_WIDTH, WINDOW_HEIGHT);
     
@@ -35,15 +36,45 @@ fn main() {
         PixelFormatEnum::RGBA32, emu.get_screen().width as u32, emu.get_screen().height as u32
     ).unwrap();
 
+    let desired_spec = AudioSpecDesired {
+        freq: Some(44100),
+        channels: Some(1),
+        samples: Some(1024),
+    };
+
+    // let mut frames = 0;
+    
+    let audio_dev = sdl.audio_subsystem.open_playback(None, &desired_spec, |_| {
+        struct AudioVec<'a>(&'a mut VecDeque<i16>);
+
+        impl AudioCallback for AudioVec<'_> {
+            type Channel = i16;
+        
+            fn callback(&mut self, out: &mut [Self::Channel]) {
+                if self.0.len() < out.len() { return; }
+                for x in out {
+                    *x = self.0.pop_front().unwrap();
+                }
+            }
+        }
+
+        AudioVec(&mut emu.get_apu().samples_queue)
+    }).expect("Couldn't initialize audio callback");
+
+    println!("{:?}", audio_dev.spec());
+    audio_dev.resume();
+
     'running: loop {
-        let ms_since_start = sdl.timer.ticks64();
+        // frames += 1;
+        // let ms_since_start = sdl.timer.ticks64();
+        let ms_since_start = Instant::now();
         emu.step_until_vblank();
-        sdl.audio_queue.queue_audio(&emu.get_apu().samples_queue).unwrap();
-        emu.get_apu().samples_queue.clear();
+        // sdl.audio_queue.queue_audio(&emu.get_apu().samples_queue).unwrap();
+        // println!("Mine: {:?} Sdl: {:?}", emu.get_apu().samples_queue.len(), sdl.audio_queue.size());
+        // emu.get_apu().samples_queue.clear();
 
         for event in sdl.events.poll_iter() {
             handle_input(&sdl.keymaps, &event, &mut emu);
-            emu.get_cpu().bus.apu.samples_queue.clear();
 
             match event {
                 Event::Quit { .. } => break 'running,
@@ -84,10 +115,9 @@ fn main() {
         //     * 1000.0;
         // sdl.timer.delay(((1.0/59.94 * 1000.0) - elapsed_ms) as u32);
 
-        let ms_elapsed = sdl.timer.ticks64() - ms_since_start;
-        let delay = FRAME_MS - ms_elapsed as i64;
-        if delay > 0 {
-            sdl.timer.delay(delay as u32);
+        let ms_elapsed = Instant::now() - ms_since_start;
+        if ms_frame > ms_elapsed {
+            std::thread::sleep(ms_frame - ms_elapsed);
         }
 
         // if !emu.is_paused { println!("FPS: {}", 1.0 / ms_elapsed * 1000.0) }

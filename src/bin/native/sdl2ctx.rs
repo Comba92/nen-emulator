@@ -8,7 +8,6 @@ pub struct Sdl2Context {
   pub timer: TimerSubsystem,
   pub video_subsystem: VideoSubsystem,
   pub audio_subsystem: AudioSubsystem,
-  pub audio_queue: AudioQueue<i16>,
   pub canvas: Canvas<Window>,
   pub texture_creator: TextureCreator<WindowContext>,
   pub events: EventPump,
@@ -54,20 +53,10 @@ impl Sdl2Context {
     // if controllers.is_empty() {
     //   eprintln!("No game controllers found");
     // }
-
-    let desired_spec = AudioSpecDesired {
-        freq: Some(44100),
-        channels: Some(2),
-        samples: None,
-    };
-
-    let audio_queue = audio_subsystem
-        .open_queue::<i16, _>(None, &desired_spec).expect("Couldn't open audio queue");
-    audio_queue.resume();
     
     let events = ctx.event_pump().expect("Couldn't get the event pump");
     let keymaps = Keymaps::new();
-    Self { ctx, video_subsystem, audio_subsystem, audio_queue, canvas, events, texture_creator, timer, controller_subsystem, controllers, keymaps }
+    Self { ctx, video_subsystem, audio_subsystem, canvas, events, texture_creator, timer, controller_subsystem, controllers, keymaps }
   }
 }
 
