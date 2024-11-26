@@ -126,12 +126,12 @@ use prettydiff::{diff_lines, diff_words};
     )
   }
 
-  const LINES_RANGE: usize = 8;
+  const LINES_RANGE: usize = 5;
 
   #[test]
   fn nestest() {
     let mut builder = colog::basic_builder();
-    builder.filter_level(log::LevelFilter::Info);
+    builder.filter_level(log::LevelFilter::Trace);
     builder.init();
 
     let log_str = include_str!("nestest/nestest.log");
@@ -146,8 +146,10 @@ use prettydiff::{diff_lines, diff_words};
     emu.get_cpu().p = CpuFlags::from_bits_retain(0x24);
     //emu.write_data(0x8000, &cart.prg_rom[..0x4000]);
     //emu.write_data(0xC000, &cart.prg_rom[..0x4000]);
-    
-    let mut most_recent_instr = CircularBuffer::<LINES_RANGE, (CpuMock, CpuMock)>::new();
+
+    eprintln!("{}", emu.get_cpu().cycles);
+
+    let mut most_recent_instrs = CircularBuffer::<LINES_RANGE, (CpuMock, CpuMock)>::new();
     let mut line_count = 1;
 
     loop {
@@ -155,7 +157,7 @@ use prettydiff::{diff_lines, diff_words};
       
       if let None = next_line {
         info!("Reached end of input!!");
-        print_last_diffs(&most_recent_instr, &mut emu.get_cpu(), line_count);
+        print_last_diffs(&most_recent_instrs, &mut emu.get_cpu(), line_count);
         info!("Errors: ${:02X}", &emu.get_cpu().read(0x2));
         info!("Results: ${:04X}", &emu.get_cpu().read16(0x2));
 
@@ -167,7 +169,7 @@ use prettydiff::{diff_lines, diff_words};
       let log_cpu = CpuMock::from_log(line);
 
       if my_cpu != log_cpu {
-        print_last_diffs(&most_recent_instr, &mut emu.get_cpu(), line_count);
+        print_last_diffs(&most_recent_instrs, &mut emu.get_cpu(), line_count);
         
         let (my_line, log_line) = print_diff(&my_cpu, &log_cpu, &mut emu.get_cpu(), line_count);
         
@@ -187,7 +189,7 @@ use prettydiff::{diff_lines, diff_words};
         panic!("Instruction inconsistency")
       }
       
-      most_recent_instr.push_back((my_cpu, log_cpu));
+      most_recent_instrs.push_back((my_cpu, log_cpu));
 
       line_count+=1;
       emu.step();
@@ -228,7 +230,7 @@ fn print_diff(my_cpu: &CpuMock, log_cpu: &CpuMock, cpu: &mut Cpu<Bus>, line_coun
     (my_line, log_line)
   }
   
-  fn print_last_diffs(most_recent_instr: &CircularBuffer<8, (CpuMock, CpuMock)>, cpu: &mut Cpu<Bus>, line_count: usize) {
+  fn print_last_diffs(most_recent_instr: &CircularBuffer<LINES_RANGE, (CpuMock, CpuMock)>, cpu: &mut Cpu<Bus>, line_count: usize) {
     let mut trace: Vec<(usize, &(CpuMock, CpuMock))> = most_recent_instr.iter().enumerate().collect::<Vec<_>>();
     trace.sort_by(|a, b| a.0.cmp(&b.0));
     

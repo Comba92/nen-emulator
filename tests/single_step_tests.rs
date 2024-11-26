@@ -1,7 +1,7 @@
 use core::fmt;
 use std::fs;
 
-use nen_emulator::{cpu::{Cpu, CpuFlags}, mem::{Memory, Ram64Kb}};
+use nen_emulator::{cpu::{Cpu, CpuFlags}, instr::INSTRUCTIONS, mem::{Memory, Ram64Kb}};
 use prettydiff::diff_words;
 use serde::Deserialize;
 
@@ -101,7 +101,7 @@ fn cpu_test() {
 
       if my_end != test.end {
         let mut builder = colog::basic_builder();
-        builder.filter_level(log::LevelFilter::Trace);
+        builder.filter_level(log::LevelFilter::Debug);
         builder.init();
 
         let mut log_cpu = cpu_from_mock(&test.start);
@@ -109,6 +109,7 @@ fn cpu_test() {
           log_cpu.step();
           if log_cpu.jammed { continue 'testing; }
         }
+
         panic!("Found error in file {:?}, test {:?}\n{}",
           f.file_name(), test.name, diff_words(&my_end.to_string(), &test.end.to_string())
         );

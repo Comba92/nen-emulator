@@ -97,6 +97,11 @@ fn get_instructions() -> [Instruction; 256] {
 
 
 pub static INSTRUCTIONS: LazyLock<[Instruction; 256]> = LazyLock::new(get_instructions);
+pub const WRITE_INSTRS: [&'static str; 18] = [
+  "ASL", "LSR", "ROL", "ROR", "INC", "DEC",
+  "SLO", "SRE", "RLA", "RRA", "ISB", "DCP",
+  "STA", "STX", "STY", "SHA", "SHX", "SHY"
+];
 
 impl<M: Memory> Cpu<M> {
   pub fn execute(&mut self, code: u8, op: &mut Operand) {

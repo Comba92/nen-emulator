@@ -3,7 +3,7 @@ use crate::{apu::Apu, cart::{Cart, INesHeader}, joypad::Joypad, mapper::CartMapp
 
 #[derive(Debug)]
 enum BusDst {
-  Ram, Ppu, Apu, Dma, SRam, Prg, Joypad1, Joypad2, NoImpl
+  Ram, Ppu, Apu, Dma, SRam, Prg, Joypad1, NoImpl
 }
 
 pub struct Bus {
@@ -18,6 +18,10 @@ pub struct Bus {
 }
 
 impl Memory for Bus {
+  fn tick(&mut self) {
+      for _ in 0..3 { self.ppu.step_accurate(); }
+  }
+
   fn read(&mut self, addr: u16) -> u8 {
     let (dst, addr) = self.map_address(addr);
     match dst {
@@ -50,7 +54,7 @@ impl Memory for Bus {
         // TODO: this takes 513 CPU cycles, CPU is stalled during the transfer
       }
       BusDst::Joypad1 => self.joypad.write(val),
-      BusDst::Joypad2 => {} // TODO: second joypad
+      // BusDst::Joypad2 => {} // TODO: second joypad
       BusDst::SRam => self.sram[addr] = val,
       BusDst::Prg => self.mapper.borrow_mut().write_prg(&mut self.prg, addr, val),
       BusDst::NoImpl => debug!("Write to {addr:04X} not implemented")

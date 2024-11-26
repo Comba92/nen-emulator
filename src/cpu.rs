@@ -3,7 +3,7 @@ use core::{cell::OnceCell, fmt, ops::{BitAnd, BitOr, BitXor, Not, Shl, Shr}};
 use bitflags::bitflags;
 use log::{debug, trace};
 
-use crate::{bus::Bus, cart::Cart, instr::{AddressingMode, Instruction, INSTRUCTIONS}, mem::{Memory, Ram64Kb}};
+use crate::{bus::Bus, cart::Cart, instr::{AddressingMode, Instruction, INSTRUCTIONS, WRITE_INSTRS}, mem::{Memory, Ram64Kb}};
 
 bitflags! {
   #[derive(Debug, Clone, Copy)]
@@ -43,17 +43,26 @@ pub struct Cpu<M: Memory> {
   pub x: u8,
   pub y: u8,
   pub cycles: usize,
+  pub stalled: bool,
   pub jammed: bool,
   pub bus: M,
 }
 
 impl<M: Memory> Memory for Cpu<M> {
   fn read(&mut self, addr: u16) -> u8 {
-    self.bus.read(addr)
+    let res = self.bus.read(addr);
+    self.tick();
+    res
   }
 
   fn write(&mut self, addr: u16, val: u8) {
     self.bus.write(addr, val);
+    self.tick();
+  }
+
+  fn tick(&mut self) {
+    self.cycles += 1;
+    self.bus.tick();
   }
 }
 
@@ -72,7 +81,8 @@ impl Cpu<Ram64Kb> {
       a: 0, x: 0, y: 0,
       // At boot, only interrupt flag is enabled
       p: P_RESET,
-      cycles: 7,
+      cycles: 0,
+      stalled: false,
       jammed: false,
       bus: Ram64Kb { mem: [0; 64 * 1024] }
     }
@@ -87,11 +97,13 @@ impl Cpu<Bus> {
       a: 0, x: 0, y: 0,
       // At boot, only interrupt flag is enabled
       p: P_RESET,
-      cycles: 7,
+      cycles: 5,
+      stalled: false,
       jammed: false,
       bus: Bus::new(cart),
     };
 
+    // TODO: is this correct?
     // cpu should start by executing the reset subroutine
     cpu.pc = cpu.read16(PC_RESET);
     // cpu.jmp(&mut Operand::fetchable(PC_RESET));
@@ -161,9 +173,9 @@ impl<M: Memory> Cpu<M> {
   }
 
   pub fn stack_push(&mut self, val: u8) {
-    debug!("-> Pushing ${:02X} to stack at cycle {}", val, self.cycles);
+    // debug!("-> Pushing ${:02X} to stack at cycle {}", val, self.cycles);
     self.write(self.sp_addr(), val);
-    debug!("\t{}", self.stack_trace());
+    // debug!("\t{}", self.stack_trace());
     self.sp = self.sp.wrapping_sub(1);
   }
 
@@ -175,8 +187,8 @@ impl<M: Memory> Cpu<M> {
 
   pub fn stack_pull(&mut self) -> u8 {
     self.sp = self.sp.wrapping_add(1);
-    debug!("<- Pulling ${:02X} from stack at cycle {}", self.read(self.sp_addr()), self.cycles);
-    debug!("\t{}", self.stack_trace());
+    // debug!("<- Pulling ${:02X} from stack at cycle {}", self.read(self.sp_addr()), self.cycles);
+    // debug!("\t{}", self.stack_trace());
     self.read(self.sp_addr())
   }
 
@@ -217,11 +229,13 @@ impl<M: Memory> Cpu<M> {
     let opcode = self.pc_fetch();
     let instr = &INSTRUCTIONS[opcode as usize];
     
+    
     let mut op = self.get_operand_with_addressing(instr);
-    debug!("{:?} with op {:?} at cycle {}", instr, op, self.cycles);
+    // debug!("{:?} with op {:?} at cycle {}", instr, op, self.cycles);
     
     self.execute(opcode, &mut op);
-    self.cycles += instr.cycles;
+
+    // self.cycles += instr.cycles;
   }
 
   fn poll_interrupts(&mut self) {
@@ -233,32 +247,38 @@ impl<M: Memory> Cpu<M> {
   }
   
   fn handle_interrupt(&mut self, isr_addr: u16) {
+    self.pc_fetch();
+    self.pc_fetch();
+
     self.stack_push16(self.pc);
     let pushable = self.p.clone().union(CpuFlags::brkpush);
     self.stack_push(pushable.bits());
-    self.cycles += 2;
     self.p.insert(CpuFlags::irq_off);
+    
     self.pc = self.read16(isr_addr);
   }
 
-  fn get_zeropage_operand(&mut self, offset: u8) -> Operand {
-    let zero_addr = (self.pc_fetch().wrapping_add(offset)) as u16;
-    Operand::fetchable(zero_addr)
+  fn get_zeropage_operand(&mut self, offset: u8, instr: &Instruction) -> Operand {
+    let zero_addr = self.pc_fetch();
+
+    if instr.addressing != AddressingMode::ZeroPage {
+      self.read(zero_addr as u16);
+    }
+
+    Operand::fetchable(zero_addr.wrapping_add(offset) as u16)
   }
 
   fn get_absolute_operand(&mut self, offset: u8, instr: &Instruction) -> Operand {
     let addr_base = self.pc_fetch16();
     let addr_effective = addr_base.wrapping_add(offset as u16);
-
+    
     // page crossing check
-    if instr.page_boundary_cycle && addr_effective & 0xFF00 != addr_base & 0xFF00 {
+    if instr.addressing != AddressingMode::Absolute 
+    && (addr_effective & 0xFF00 != addr_base & 0xFF00 || WRITE_INSTRS.contains(&instr.name)) {
+      // TODO: can we do a little better? Perhaps, pass the intermediate address to the instr function...
+
       // dummy read: should read the previous page at effective low address
-      self.read((addr_base & 0xFF00) | (addr_effective & 0x00FF));
-      self.cycles += 1;
-    } else if instr.addressing == AddressingMode::AbsoluteX
-    && (instr.opcode ==  62 || instr.opcode == 157) {
-      // STA abs,x and ROL abs,x dummy read
-      self.read((addr_base & 0xFF00) | (addr_effective & 0x00FF));
+      self.read((addr_base & 0xFF00) | (addr_effective & 0x00FF)); 
     }
 
     Operand::fetchable(addr_effective)
@@ -269,12 +289,20 @@ impl<M: Memory> Cpu<M> {
     use AddressingMode::*;
     
     match mode {
-      Implicit => Operand::Imm(0),
-      Accumulator => Operand::Acc,
+      Implicit => {
+        // dummy read
+        self.read(self.pc + 1);
+        Operand::Imm(0)
+      },
+      Accumulator => {
+        // dummy read
+        self.read(self.pc + 1);
+        Operand::Acc
+      },
       Immediate | Relative => Operand::Imm(self.pc_fetch()),
-      ZeroPage => self.get_zeropage_operand(0),
-      ZeroPageX => self.get_zeropage_operand(self.x),
-      ZeroPageY => self.get_zeropage_operand(self.y),
+      ZeroPage => self.get_zeropage_operand(0, instr),
+      ZeroPageX => self.get_zeropage_operand(self.x, instr),
+      ZeroPageY => self.get_zeropage_operand(self.y, instr),
       Absolute => self.get_absolute_operand(0, instr),
       AbsoluteX => self.get_absolute_operand(self.x, instr),
       AbsoluteY => self.get_absolute_operand(self.y, instr),
@@ -284,26 +312,31 @@ impl<M: Memory> Cpu<M> {
         Operand::fetchable(addr_effective)
       }
       IndirectX => {
-        let zero_addr = (self.pc_fetch().wrapping_add(self.x)) as u16;
-        let addr_effective = self.wrapping_read16(zero_addr);
-        trace!("[IndirectX] ZeroAddr: {zero_addr:02X}, Effective: {addr_effective:04X}");
+        // important to keep it as u8
+        let zero_addr = self.pc_fetch();
+        self.read(zero_addr as u16);
+        let addr_base = zero_addr.wrapping_add(self.x) as u16;
+        let addr_effective = self.wrapping_read16(addr_base);
+
+        // trace!("[IndirectX] ZeroAddr: {zero_addr:02X}, Effective: {addr_effective:04X}");
         Operand::fetchable(addr_effective)
       }
       IndirectY => {
         let zero_addr = self.pc_fetch() as u16;
         let addr_base = self.wrapping_read16(zero_addr);
         let addr_effective = addr_base.wrapping_add(self.y as u16);
-
-        trace!("[IndirectY] ZeroAddr: {zero_addr:04X}, BaseAddr: {addr_base:04X}, Effective: {addr_effective:04X}");
-        trace!(" | Has crossed boundaries? {}", addr_effective & 0xFF00 != addr_base & 0xFF00);
+        
+        // trace!("[IndirectY] ZeroAddr: {zero_addr:04X}, BaseAddr: {addr_base:04X}, Effective: {addr_effective:04X}");
+        // trace!(" | Has crossed boundaries? {}", addr_effective & 0xFF00 != addr_base & 0xFF00);
         
         // page crossing check
-        if instr.page_boundary_cycle && addr_effective & 0xFF00 != addr_base & 0xFF00 {
-          trace!(" | Boundary crossed at cycle {}", self.cycles);
+        if addr_effective & 0xFF00 != addr_base & 0xFF00 {
+          // trace!(" | Boundary crossed at cycle {}", self.cycles);
+
           // dummy read: Should read the previous page at effective low address
           self.read((addr_base & 0xFF00) | (addr_effective & 0x00FF));
-          self.cycles += 1;
         } else if instr.opcode == 145 {
+          // TODO: can we do a little better? Perhaps, pass the intermediate address to the instr function...
           // STA (zp),y dummy read
           self.read((addr_base & 0xFF00) | (addr_effective & 0x00FF));
         }
@@ -331,7 +364,7 @@ impl<M: Memory> Cpu<M> {
   }
 
   fn load (&mut self, op: &mut Operand, dst: InstrDst) {
-    trace!("[LOAD] {op:?} at cycle {}", self.cycles);
+    // trace!("[LOAD] {op:?} at cycle {}", self.cycles);
 
     let val = self.get_operand_value(op);
     self.set_zn(val);
@@ -382,7 +415,7 @@ impl<M: Memory> Cpu<M> {
     self.transfer(self.x, InstrDst::Acc)
   }
   pub fn txs(&mut self, _: &mut Operand) {
-    debug!("SP changed from ${:02X} to ${:02X}", self.sp, self.x);
+    // debug!("SP changed from ${:02X} to ${:02X}", self.sp, self.x);
     self.sp = self.x;
   }
   pub fn tya(&mut self, _: &mut Operand) {
@@ -390,28 +423,32 @@ impl<M: Memory> Cpu<M> {
   }
 
   pub fn pha(&mut self, _: &mut Operand) {
-    trace!("[PHA] Pushing ${:02X} to stack at cycle {}", self.a, self.cycles);
+    // trace!("[PHA] Pushing ${:02X} to stack at cycle {}", self.a, self.cycles);
     self.stack_push(self.a);
   }
   pub fn pla(&mut self, _: &mut Operand) {
+    // pulling takes 2 cycles, 1 to increment sp, 1 to read
+    self.tick();
     let res = self.stack_pull();
     self.set_zn(res);
     self.a = res;
-    trace!("[PLA] Pulled ${:02X} from stack at cycle {}", self.a, self.cycles);
+    // trace!("[PLA] Pulled ${:02X} from stack at cycle {}", self.a, self.cycles);
   }
   pub fn php(&mut self, _: &mut Operand) {
     // Brk is always 1 on pushes
     let pushable = self.p.clone().union(CpuFlags::brkpush);
-    trace!("[PHP] Pushing {pushable:?} (${:02X}) to stack at cycle {}", pushable.bits(), self.cycles);
+    // trace!("[PHP] Pushing {pushable:?} (${:02X}) to stack at cycle {}", pushable.bits(), self.cycles);
     self.stack_push(pushable.bits());
   }
   pub fn plp(&mut self, _: &mut Operand) {
+    // pulling takes 2 cycles, 1 to increment sp, 1 to read
+    self.tick();
     let res = self.stack_pull();
     // Brk is always 0 on pulls, but unused is always 1
     self.p = CpuFlags::from_bits_retain(res)
       .difference(CpuFlags::brk)
       .union(CpuFlags::unused);
-    trace!("[PLP] Pulled {:?} (${:02X}) from stack at cycle {}", self.p, self.p.bits(), self.cycles);
+    // trace!("[PLP] Pulled {:?} (${:02X}) from stack at cycle {}", self.p, self.p.bits(), self.cycles);
   }
 
   fn logical(&mut self, op: &mut Operand, bitop: fn(u8, u8) -> u8) {
@@ -549,24 +586,29 @@ impl<M: Memory> Cpu<M> {
   pub fn jsr(&mut self, op: &mut Operand) {
     self.stack_push16(self.pc - 1);
     self.jmp(op);
+    self.tick();
   }
   pub fn rts(&mut self, _: &mut Operand) {
+    // pulling takes 2 cycles, 1 to increment sp, 1 to read
+    self.tick();
     self.pc = self.stack_pull16() + 1;
+    // pc increments takes 1 cycle
+    self.tick();
   }
 
   fn branch(&mut self, op: &mut Operand, cond: bool) {
     if cond {
       let offset = self.get_operand_value(op) as i8;
       let new_pc = self.pc.wrapping_add_signed(offset as i16);
-      
+
       // page boundary cross check
       if self.pc & 0xFF00 != new_pc & 0xFF00 {
         // page cross branch costs 2
-        self.cycles += 2;
-      } else {
-        // same page branch costs 1
-        self.cycles += 1;
+        self.tick();
       }
+
+      // same page branch costs 1
+      self.tick();
 
       self.pc = new_pc;
     }
@@ -625,7 +667,6 @@ impl<M: Memory> Cpu<M> {
   }
 
   pub fn brk(&mut self, op: &mut Operand) {
-    // BRK IS 2 BYTES LONG!!
     self.stack_push16(self.pc.wrapping_add(1));
     self.php(op);
     self.p.insert(CpuFlags::irq_off);
@@ -636,7 +677,10 @@ impl<M: Memory> Cpu<M> {
     self.plp(op);
     self.pc = self.stack_pull16();
   }
-  pub fn nop(&mut self, _: &mut Operand) {}
+  pub fn nop(&mut self, op: &mut Operand) {
+    // if it is an undocumented nop, it reads the operand and discards it
+    self.get_operand_value(op);
+  }
 }
 
 impl<M: Memory> Cpu<M> {

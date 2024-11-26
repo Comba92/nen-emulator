@@ -1,6 +1,7 @@
 pub trait Memory {
   fn read(&mut self, addr: u16) -> u8;
   fn write(&mut self, addr: u16, val: u8);
+  fn tick(&mut self);
 
   fn read16(&mut self, addr: u16) -> u16 {
     let low = self.read(addr);
@@ -8,6 +9,7 @@ pub trait Memory {
     u16::from_le_bytes([low, high])
   }
 
+  // TODO: should these be kept here?
   fn poll_nmi(&mut self) -> bool { false }
   fn poll_irq(&mut self) -> bool { false }
 
@@ -38,6 +40,8 @@ pub struct Ram64Kb {
 }
 
 impl Memory for Ram64Kb {
+  fn tick(&mut self) {}
+
   fn read(&mut self, addr: u16) -> u8 {
     self.mem[addr as usize]
   }

@@ -1,3 +1,4 @@
+#![allow(unused)]
 use std::{collections::VecDeque, ops::Neg};
 
 use bitflags::bitflags;
