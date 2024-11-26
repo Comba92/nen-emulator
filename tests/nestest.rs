@@ -5,9 +5,6 @@ use std::{fs, io::{BufWriter, Write}, path::Path};
 use circular_buffer::CircularBuffer;
 use log::info;
 
-#[path = "../../src/bin/native/sdl2ctx.rs"]
-mod sdl2ctx;
-
 use nen_emulator::{bus::Bus, cart::Cart, cpu::{Cpu, CpuFlags}, emu::Emu, instr::{AddressingMode, INSTRUCTIONS}, mem::Memory};
 use prettydiff::{diff_lines, diff_words};
 
@@ -124,7 +121,7 @@ use prettydiff::{diff_lines, diff_words};
       A:{a:02X} X:{x:02X} Y:{y:02X} P:{p:02X} SP:{sp:02X} \
       PPU:{scanline:>3},{pixel:>3} CYC:{cyc}",
       mock.pc,
-      instr=instr.name, scanline=0, pixel=0,
+      instr=instr.name, scanline=mock.scanlines, pixel=mock.ppu_cycles,
       a=mock.a, x=mock.x, y=mock.y, p=mock.p, sp=mock.sp, cyc=mock.cpu_cycles
     )
   }

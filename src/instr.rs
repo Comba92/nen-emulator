@@ -20,7 +20,7 @@ pub struct Instruction {
   pub illegal: bool,
 }
 
-#[derive(Deserialize, Debug, Default, Clone, Copy)]
+#[derive(Deserialize, Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum AddressingMode {
   #[default]

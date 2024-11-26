@@ -94,6 +94,7 @@ impl Cpu<Bus> {
 
     // cpu should start by executing the reset subroutine
     cpu.pc = cpu.read16(PC_RESET);
+    // cpu.jmp(&mut Operand::fetchable(PC_RESET));
     cpu
   }
 
@@ -235,7 +236,7 @@ impl<M: Memory> Cpu<M> {
     self.stack_push16(self.pc);
     let pushable = self.p.clone().union(CpuFlags::brkpush);
     self.stack_push(pushable.bits());
-    self.cycles = self.cycles.wrapping_add(2);
+    self.cycles += 2;
     self.p.insert(CpuFlags::irq_off);
     self.pc = self.read16(isr_addr);
   }
@@ -253,7 +254,11 @@ impl<M: Memory> Cpu<M> {
     if instr.page_boundary_cycle && addr_effective & 0xFF00 != addr_base & 0xFF00 {
       // dummy read: should read the previous page at effective low address
       self.read((addr_base & 0xFF00) | (addr_effective & 0x00FF));
-      self.cycles = self.cycles.wrapping_add(1);
+      self.cycles += 1;
+    } else if instr.addressing == AddressingMode::AbsoluteX
+    && (instr.opcode ==  62 || instr.opcode == 157) {
+      // STA abs,x and ROL abs,x dummy read
+      self.read((addr_base & 0xFF00) | (addr_effective & 0x00FF));
     }
 
     Operand::fetchable(addr_effective)
@@ -297,8 +302,12 @@ impl<M: Memory> Cpu<M> {
           trace!(" | Boundary crossed at cycle {}", self.cycles);
           // dummy read: Should read the previous page at effective low address
           self.read((addr_base & 0xFF00) | (addr_effective & 0x00FF));
-          self.cycles = self.cycles.wrapping_add(1);
+          self.cycles += 1;
+        } else if instr.opcode == 145 {
+          // STA (zp),y dummy read
+          self.read((addr_base & 0xFF00) | (addr_effective & 0x00FF));
         }
+
         Operand::fetchable(addr_effective)
       }
     }
@@ -553,10 +562,10 @@ impl<M: Memory> Cpu<M> {
       // page boundary cross check
       if self.pc & 0xFF00 != new_pc & 0xFF00 {
         // page cross branch costs 2
-        self.cycles = self.cycles.wrapping_add(2);
+        self.cycles += 2;
       } else {
         // same page branch costs 1
-        self.cycles = self.cycles.wrapping_add(1);
+        self.cycles += 1;
       }
 
       self.pc = new_pc;
