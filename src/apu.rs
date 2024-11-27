@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, ops::Neg};
+use std::{collections::VecDeque, f32::consts::PI, ops::Neg};
 
 use bitflags::bitflags;
 
@@ -36,27 +36,27 @@ impl From<u8> for PulseDutyMode {
 
 #[derive(Default, Clone, Copy, PartialEq, Eq)]
 pub enum EnvelopeMode {
-  #[default] OneShot, Infinite
+  #[default] OneShot, Loop
 }
 impl From<u8> for EnvelopeMode {
   fn from(value: u8) -> Self {
     match value {
       0 => EnvelopeMode::OneShot,
-      1 => EnvelopeMode::Infinite,
+      1 => EnvelopeMode::Loop,
       _ => unreachable!("envelope mode is either 0 or 1")
     }
   }
 }
 
-#[derive(Default, Clone, Copy)]
-pub enum PulseVolumeMode {
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
+pub enum VolumeMode {
   #[default] Envelope, Constant
 }
-impl From<u8> for PulseVolumeMode {
+impl From<u8> for VolumeMode {
     fn from(value: u8) -> Self {
         match value {
-          0 => PulseVolumeMode::Envelope,
-          1 => PulseVolumeMode::Constant,
+          0 => VolumeMode::Envelope,
+          1 => VolumeMode::Constant,
           _ => unreachable!("volume mode is either 0 or 1")
         }
     }
@@ -99,10 +99,10 @@ pub struct LengthCounter {
 }
 impl LengthCounter {
   pub fn reload(&mut self, val: u8) {
-    if !self.halted {
+    //if !self.halted {
       let length_idx = val as usize >> 3;
       self.count = LENGTH_TABLE[length_idx];
-    }
+    // }
   }
 
   pub fn step(&mut self) {
@@ -127,7 +127,8 @@ pub struct Envelope {
   pub volume_and_envelope: u8,
   envelope_count: u8,
   pub decay_count: u8,
-  pub mode: EnvelopeMode
+  pub envelope_mode: EnvelopeMode,
+  pub volume_mode: VolumeMode,
 }
 impl Envelope {
   pub fn step(&mut self) {
@@ -142,10 +143,17 @@ impl Envelope {
 
       if self.decay_count > 0 {
         self.decay_count -= 1;
-      } else if self.mode == EnvelopeMode::Infinite {
+      } else if self.envelope_mode == EnvelopeMode::Loop {
         self.decay_count = 15;
       }
     }
+  }
+
+  pub fn volume(&self) -> u8 {
+      match self.volume_mode {
+        VolumeMode::Envelope => self.decay_count,
+        VolumeMode::Constant => self.volume_and_envelope,
+      }
   }
 }
 
@@ -155,7 +163,7 @@ trait Channel {
   fn step_timer(&mut self);
   fn step_length(&mut self) {}
   fn step_envelope(&mut self) {}
-  fn step_sweep(&mut self) {}
+  fn step_sweep(&mut self, complement: bool) {}
   fn step_linear(&mut self) {}
 
   fn is_enabled(&self) -> bool;
@@ -179,7 +187,6 @@ const PULSE_SEQUENCES: [[u8; 8]; 4] = [
 pub struct Pulse {
   duty_mode: PulseDutyMode,
   envelope: Envelope,
-  volume_mode: PulseVolumeMode,
   
   sweep_on: bool,
   sweep_reload: bool,
@@ -197,8 +204,8 @@ impl Pulse {
   pub fn set_ctrl(&mut self, val: u8) {
     self.duty_mode = PulseDutyMode::from((val >> 6) & 11);
     self.length.halted = (val >> 5) & 1 == 1;
-    self.envelope.mode = EnvelopeMode::from((val >> 5) & 1);
-    self.volume_mode = PulseVolumeMode::from((val >> 4) & 1);
+    self.envelope.envelope_mode = EnvelopeMode::from((val >> 5) & 1);
+    self.envelope.volume_mode = VolumeMode::from((val >> 4) & 1);
     self.envelope.volume_and_envelope = val & 0b1111;
   }
 
@@ -217,15 +224,6 @@ impl Pulse {
     self.timer.set_period_high(val);
     self.envelope.start = true;
     self.duty_idx = 0;
-
-    // TODO: reload length counter, restart envelope and phase
-  }
-
-  pub fn volume(&self) -> u8 {
-    match self.volume_mode {
-      PulseVolumeMode::Envelope => self.envelope.decay_count,
-      PulseVolumeMode::Constant => self.envelope.volume_and_envelope,
-    }
   }
 
   pub fn is_muted(&self) -> bool {
@@ -253,27 +251,47 @@ impl Channel for Pulse {
     self.envelope.step();
   }
 
-  fn step_sweep(&mut self) {
-    if self.sweep_on 
-    && self.sweep_count == 0
-    && self.sweep_shift != 0 
-    && !self.is_muted() {
-      let mut change_amount = (self.timer.period >> self.sweep_shift) as i16;
-      if self.sweep_negate {
-        // TODO: pulse 1 adds the one's complement (-c-1)
-        // while pulse 2 adds the two's complement (-c)
-        change_amount = change_amount.neg();
+  // TODO: clean this shit up
+  fn step_sweep(&mut self, complement: bool) {
+    if self.sweep_reload {
+      if self.sweep_on && self.sweep_count == 0 {
+        let mut change_amount = (self.timer.period >> self.sweep_shift) as i16;
+        if self.sweep_negate {
+          change_amount = change_amount.neg();
+          if !complement {
+            change_amount = change_amount.wrapping_sub(1);
+          }
+        }
+  
+        let target_period = self.timer.period
+          .checked_add_signed(change_amount)
+          .unwrap_or(0);
+  
+        self.timer.period = target_period;
       }
-      let target_period = self.timer.period
-        .checked_add_signed(change_amount)
-        .unwrap_or(0);
 
-      self.timer.period = target_period;
-    } else if self.sweep_count == 0 || self.sweep_reload {
       self.sweep_count = self.sweep_period + 1;
       self.sweep_reload = false;
-    } else {
+    } else if self.sweep_count > 0 {
       self.sweep_count -= 1;
+    } else {
+      if self.sweep_on {
+        let mut change_amount = (self.timer.period >> self.sweep_shift) as i16;
+        if self.sweep_negate {
+          change_amount = change_amount.neg();
+          if !complement {
+            change_amount = change_amount.wrapping_sub(1);
+          }
+        }
+  
+        let target_period = self.timer.period
+          .checked_add_signed(change_amount)
+          .unwrap_or(0);
+  
+        self.timer.period = target_period;
+      }
+
+      self.sweep_count = self.sweep_period + 1;
     }
   }
 
@@ -281,7 +299,7 @@ impl Channel for Pulse {
   fn disable(&mut self) { self.length.disable(); }
 
   fn get_sample(&self) -> u8 {
-    if self.can_sample() { self.volume() } else { 0 }
+    if self.can_sample() { self.envelope.volume() } else { 0 }
   }
 }
 
@@ -310,14 +328,12 @@ impl Triangle {
 
   pub fn set_timer_low(&mut self, val: u8) {
     self.timer.period = self.timer.period & 0xFF00
-      | val as u16;
+    | val as u16;
   }
 
   pub fn set_timer_high(&mut self, val: u8) {
-    if !self.count_off {
-      let length_idx = val as usize >> 3;
-      self.length_count = LENGTH_TABLE[length_idx];
-    }
+    let length_idx = val as usize >> 3;
+    self.length_count = LENGTH_TABLE[length_idx];
 
     self.timer.period = self.timer.period & 0x00FF
     | ((val as u16 & 0b111) << 8);
@@ -335,12 +351,13 @@ impl Channel for Triangle {
  }
 
   fn step_linear(&mut self) {
-    if !self.count_off { self.linear_reload = false; }
-    else if self.linear_reload {
+    if self.linear_reload {
       self.linear_count = self.linear_period;
     } else if self.linear_count > 0 {
       self.linear_count -= 1;
     }
+
+    if !self.count_off { self.linear_reload = false; }
   }
 
   fn step_length(&mut self) {
@@ -360,7 +377,7 @@ impl Channel for Triangle {
   }
 
   fn is_enabled(&self) -> bool {
-    !self.count_off && self.length_count != 0
+    !self.count_off && self.length_count != 0 && self.length_count != 0
   }
 }
 
@@ -368,28 +385,35 @@ const NOISE_SEQUENCE: [u16; 16] = [
   4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068,
 ];
 
-#[derive(Default)]
 pub struct Noise {
   envelope: Envelope,
   mode: bool,
-  duty_idx: usize,
   timer: Timer,
   // TODO: Should be init at 1
   shift_reg: u16,
   length: LengthCounter,
+  envelope_on: bool,
 }
+
+impl Default for Noise {
+    fn default() -> Self {
+        Self { envelope_on: false, envelope: Default::default(), mode: Default::default(), timer: Default::default(), shift_reg: 1, length: Default::default() }
+    }
+}
+
 impl Noise {
   pub fn set_ctrl(&mut self, val: u8) {
     self.length.halted = (val >> 5) & 1 != 0;
-    self.envelope.mode = EnvelopeMode::from((val >> 4) & 1);
+    self.envelope.envelope_mode = EnvelopeMode::from((val >> 4) & 1);
     self.envelope.volume_and_envelope = val & 0b1111;
+    self.envelope_on = (val >> 4) & 1 != 0;
   }
-
+  
   pub fn set_noise(&mut self, val: u8) {
     self.mode = (val >> 7) & 1 != 0;
-    self.duty_idx = val as usize & 0b1111;
+    self.timer.period = NOISE_SEQUENCE[val as usize & 0b1111];
   }
-
+  
   pub fn set_length(&mut self, val: u8) {
     self.length.reload(val);
     self.envelope.start = true;
@@ -398,14 +422,14 @@ impl Noise {
 impl Channel for Noise {
     fn step_timer(&mut self) {
       self.timer.step(|timer| {
-        timer.period = NOISE_SEQUENCE[self.duty_idx];
+        timer.count = timer.period;
 
-        let feedback = (self.shift_reg & 1) ^ match self.mode {
-          false => 1,
-          true => (self.shift_reg >> 5) & 1
-        };
+        let feedback = (self.shift_reg & 1) ^ (match self.mode {
+          false => (self.shift_reg >> 1) & 1,
+          true => (self.shift_reg >> 6) & 1
+        });
         self.shift_reg >>= 1;
-        self.shift_reg = (feedback << 14) | (self.shift_reg & 0x1FFF);
+        self.shift_reg |= (feedback << 14) // | (self.shift_reg & 0x3FFF);
       });
     }
 
@@ -413,13 +437,19 @@ impl Channel for Noise {
       self.envelope.step();
     }
 
+    fn step_length(&mut self) {
+      self.length.step();
+    }
+
     fn is_enabled(&self) -> bool { self.length.is_enabled() }
 
-    fn disable(&mut self) { self.length.disable(); }
+    fn disable(&mut self) { self.length.disable(); self.envelope_on = false; }
 
     fn get_sample(&self) -> u8 {
-      if self.shift_reg & 1 != 1 && self.length.count > 0 {
-        self.envelope.volume_and_envelope
+      if (self.shift_reg & 1) != 1 && self.length.count != 0
+      && self.envelope.volume_mode == VolumeMode::Envelope
+      && self.envelope_on {
+        self.envelope.volume()
       } else { 0 }
     }
 }
@@ -463,6 +493,10 @@ pub struct Apu {
   pub irq_requested: Option<()>,
   pub samples_queue: VecDeque<i16>,
 
+  pub low_pass_filter: LowPassFilter,
+  pub high_pass_filters: [HighPassFilter; 2],
+  pub current_sample: f32,
+
   pub cycles: usize,
 }
 
@@ -482,6 +516,13 @@ impl Apu {
       irq_requested: None,
 
       samples_queue: VecDeque::new(),
+      low_pass_filter: LowPassFilter::new(44_100.0, 14_000.0),
+      high_pass_filters: [
+        HighPassFilter::new(44_100.0, 90.0),
+        HighPassFilter::new(44_100.0, 440.0),
+      ],
+      current_sample: 0.0,
+
       cycles: 0,
     };
 
@@ -494,9 +535,8 @@ impl Apu {
     // We have 60 frames per second.
     // Meaning for a single frame we need 44100 / 60 = 735 samples.
     // Then, we have to output a sample every 29780 / 735 = 40 cycles!
-    if self.cycles % 40 == 0 {
-      self.mix_channels();
-    }
+
+    self.mix_channels();
     
     self.triangle.step_timer();
     if self.cycles % 2 == 1 {
@@ -531,15 +571,13 @@ impl Apu {
         self.pulse1.step_envelope();
         self.pulse2.step_envelope();
         self.triangle.step_linear();
-        self.triangle.step_length();
         self.noise.step_envelope();
-        self.noise.step_length();
       }
       (7465, _) => {
         self.pulse1.step_envelope();
         self.pulse2.step_envelope();
-        self.pulse1.step_sweep();
-        self.pulse2.step_sweep();
+        self.pulse1.step_sweep(false);
+        self.pulse2.step_sweep(true);
         self.pulse1.step_length();
         self.pulse2.step_length();
         self.triangle.step_linear();
@@ -550,8 +588,8 @@ impl Apu {
       (14914, FrameCounterMode::Step4) => {
         self.pulse1.step_envelope();
         self.pulse2.step_envelope();
-        self.pulse1.step_sweep();
-        self.pulse2.step_sweep();
+        self.pulse1.step_sweep(false);
+        self.pulse2.step_sweep(true);
         self.pulse1.step_length();
         self.pulse2.step_length();
         self.triangle.step_linear();
@@ -568,12 +606,14 @@ impl Apu {
       (18640, FrameCounterMode::Step5) => {
         self.pulse1.step_envelope();
         self.pulse2.step_envelope();
-        self.pulse1.step_sweep();
-        self.pulse2.step_sweep();
+        self.pulse1.step_sweep(false);
+        self.pulse2.step_sweep(true);
         self.pulse1.step_length();
         self.pulse2.step_length();
         self.triangle.step_linear();
         self.triangle.step_length();
+        self.noise.step_envelope();
+        self.noise.step_length();
         
         if !self.interrupts_off && self.frame_irq_on {
           self.irq_requested = Some(())
@@ -590,11 +630,20 @@ impl Apu {
     let noise = self.noise.get_sample();
 
     let pulse_out = 0.00752 * (pulse1 + pulse2) as f32;
-    let tnd_out = 0.00851 * triangle as f32; //+ 0.00494 * noise as f32;
-    let tnd_out = 0.0;
+    let tnd_out = 0.00851 * triangle as f32 + 0.00494 * noise as f32;
 
-    let output = ((pulse_out + tnd_out) * u16::MAX as f32).clamp(0.0, u16::MAX as f32);
-    self.samples_queue.push_back(output as i16);
+    let sum = (pulse_out + tnd_out);
+    let mut filtered = self.high_pass_filters[0].process(sum);
+    filtered = self.high_pass_filters[1].process(filtered);
+    filtered = self.low_pass_filter.process(sum);
+    self.current_sample += filtered;
+
+    if self.cycles % 40 == 0 {
+      self.current_sample /= 40.0;
+      let output = (filtered * u16::MAX as f32).clamp(0.0, u16::MAX as f32);
+      self.samples_queue.push_back(output as i16);
+    }
+
   }
 
   pub fn reg_read(&mut self, addr: u16) -> u8 {
@@ -661,8 +710,8 @@ impl Apu {
         if self.frame_mode == FrameCounterMode::Step5 {
           self.pulse1.step_envelope();
           self.pulse2.step_envelope();
-          self.pulse1.step_sweep();
-          self.pulse2.step_sweep();
+          self.pulse1.step_sweep(false);
+          self.pulse2.step_sweep(true);
           self.pulse1.step_length();
           self.pulse2.step_length();
           self.triangle.step_linear();
@@ -673,5 +722,65 @@ impl Apu {
       }
     _ => {}
     }
+  }
+}
+
+pub struct LowPassFilter {
+  b0: f32,
+  b1: f32,
+  a1: f32,
+  prev_x: f32,
+  prev_y: f32,
+}
+
+impl LowPassFilter {
+  pub fn new(sample_rate: f32, cutoff: f32) -> Self {
+      let c = sample_rate / PI / cutoff;
+      let a0i = 1.0 / (1.0 + c);
+
+      Self {
+          b0: a0i,
+          b1: a0i,
+          a1: (1.0 - c) * a0i,
+          prev_x: 0.0,
+          prev_y: 0.0,
+      }
+  }
+
+  fn process(&mut self, signal: f32) -> f32 {
+    let y = self.b0 * signal + self.b1 * self.prev_x - self.a1 * self.prev_y;
+    self.prev_y = y;
+    self.prev_x = signal;
+    y
+  }
+}
+
+pub struct HighPassFilter {
+  b0: f32,
+  b1: f32,
+  a1: f32,
+  prev_x: f32,
+  prev_y: f32,
+}
+
+impl HighPassFilter {
+  pub fn new(sample_rate: f32, cutoff: f32) -> Self {
+      let c = sample_rate / PI / cutoff;
+      let a0i = 1.0 / (1.0 + c);
+
+      Self {
+          b0: c * a0i,
+          b1: -c * a0i,
+          a1: (1.0 - c) * a0i,
+          prev_x: 0.0,
+          prev_y: 0.0,
+      }
+  }
+
+  fn process(&mut self, signal: f32) -> f32 {
+      let y = self.b0 * signal + self.b1 * self.prev_x - self.a1 * self.prev_y;
+      self.prev_y = y;
+      self.prev_x = signal;
+      y
   }
 }
