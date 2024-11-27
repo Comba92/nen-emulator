@@ -1,7 +1,7 @@
 use core::{cell::OnceCell, fmt, ops::{BitAnd, BitOr, BitXor, Not, Shl, Shr}};
 
 use bitflags::bitflags;
-use log::{debug, trace};
+use log::{debug, info, trace};
 
 use crate::{bus::Bus, cart::Cart, instr::{AddressingMode, Instruction, INSTRUCTIONS}, mem::{Memory, Ram64Kb}};
 
@@ -226,6 +226,7 @@ impl<M: Memory> Cpu<M> {
 
   fn poll_interrupts(&mut self) {
     if self.bus.poll_nmi() {
+      info!("NMI HANDLING");
       self.handle_interrupt(NMI_ISR);
     } else if self.bus.poll_irq() && !self.p.contains(CpuFlags::irq_off) { 
       self.handle_interrupt(IRQ_ISR);
@@ -457,7 +458,7 @@ impl<M: Memory> Cpu<M> {
   fn compare(&mut self, reg: u8, op: &mut Operand) {
     let val = self.get_operand_value(op);
     let res = reg.wrapping_sub(val);
-    self.set_czn(res as u16);
+    self.set_zn(res);
     self.p.set(CpuFlags::carry, reg >= val);
   }
 
@@ -708,11 +709,11 @@ impl<M: Memory> Cpu<M> {
     self.ldx(op);
   }
 
-  // also called AXS, SAX, currently NOT WORKING
+  // also called AXS, SAX
   pub fn sbx(&mut self, op: &mut Operand) {
     let val = self.get_operand_value(op);
+    self.compare(self.a & self.x, op);
     let res = (self.a & self.x).wrapping_sub(val);
-    self.set_czn(res as u16);
     self.x = res;
   }
 
@@ -724,12 +725,13 @@ impl<M: Memory> Cpu<M> {
     }
   }
 
-  // FIXME (we're doing a mem read twice)
   fn high_addr_bitand(&mut self, op: &mut Operand, val: u8) {
     if let Operand::Addr(dst, _) = op {
-      let addr = self.read(self.pc.wrapping_sub(1));
-      let res = val & addr.wrapping_add(1);
-      self.set_instr_result(InstrDst::Mem(*dst), res);
+      let addr_hi = (*dst >> 8) as u8;
+      let addr_lo = (*dst & 0xFF) as u8; 
+      let res = val & addr_hi.wrapping_add(1);
+      let dst = (((val & (addr_hi.wrapping_add(1))) as u16) << 8) | addr_lo as u16;
+      self.set_instr_result(InstrDst::Mem(dst), res);
     }
   }
 
@@ -740,14 +742,12 @@ impl<M: Memory> Cpu<M> {
     self.high_addr_bitand(op, res);
   }
 
-  // also called SXA, XAS, currently NOT WORKING
-  // FIXME
+  // also called SXA, XAS
   pub fn shx(&mut self, op: &mut Operand) {
     self.high_addr_bitand(op, self.x);
   }
 
-  // also called A11m SYA, SAY, currently NOT WORKING
-  // FIXME
+  // also called A11m SYA, SAY
   pub fn shy(&mut self, op: &mut Operand) {
     self.high_addr_bitand(op, self.y);
   }
@@ -763,13 +763,12 @@ impl<M: Memory> Cpu<M> {
     self.and(op);
   }
 
-  // also called LAXI, currently NOT WORKING
-  // FIXME
+  // also called LAXI
   pub fn lxa(&mut self, op: &mut Operand) {
     let val = self.get_operand_value(op);
-    let res = self.a & val;
-    self.set_zn(res);
-    self.x = res;
+    self.set_zn(val);
+    self.a = val;
+    self.x = val;
   }
 
   // also called KIL, HLT
