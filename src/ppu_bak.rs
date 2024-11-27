@@ -91,18 +91,18 @@ pub struct LoopyReg {
   __: u8,
 }
 impl LoopyReg {
-  pub fn nametbl(&self) -> u8 {
+  pub fn base_nametbl_idx(&self) -> u8 {
     (self.nametbl_y() << 1) | self.nametbl_x()
   }
 
-  pub fn nametbl_idx(&self) -> u16 {
-    ((self.nametbl() as u16) << 10) 
+  pub fn bg_tile_addr(&self) -> u16 {
+    ((self.base_nametbl_idx() as u16) << 10) 
     | ((self.coarse_y() as u16) << 5)
     | (self.coarse_x() as u16)
   }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct BgData {
   pub tile_id: u8,
   pub palette_id: u8,
@@ -148,6 +148,8 @@ pub struct Ppu {
   pub mask_buf: u8,
   pub stat: PpuStat,
   pub oam_addr: u8,
+  vblank_suppress: bool,
+
   
   pub mapper: CartMapper,
   pub chr: Vec<u8>,
@@ -179,7 +181,7 @@ impl Ppu {
       screen: NesScreen::new(),
 
       // TODO: WHY DOES THIS WORK? eventually find out and fix it.
-      bg_fifo: VecDeque::from([(0, 0)].repeat(13)),
+      bg_fifo: VecDeque::from([(0, 0)].repeat(9)),
       bg_buf: BgData::default(),
       oam_buf: Vec::with_capacity(8),
       scanline_sprites: [const { None }; 32*8],
@@ -194,12 +196,13 @@ impl Ppu {
       oam: [0; 256],
       oam_addr: 0, data_buf: 0,
       in_odd_frame: false,
-      scanline: 0, cycle: 21,
+      scanline: 261, cycle: 0,
       ctrl: PpuCtrl::empty(),
       mask: PpuMask::empty(),
       mask_update_delay: 0,
       mask_buf: 0,
       stat: PpuStat::empty(),
+      vblank_suppress: false,
       
       mirroring: if let Some(mapper_mirroring) =  mapper_mirroring { mapper_mirroring } else { mirroring },
 
@@ -257,7 +260,7 @@ impl Ppu {
   // }
 
   pub fn step(&mut self) {
-    if (0..=239).contains(&self.scanline) || self.scanline == 261 {
+    if (0..=239).contains(&self.scanline)  {
       // visible scanlines 
       if (1..=256).contains(&self.cycle) || (321..=336).contains(&self.cycle) {
         self.fetch_bg_step();
@@ -276,15 +279,20 @@ impl Ppu {
       }
     }
 
-    if self.scanline == 241 && self.cycle == 0 {        
+    if self.scanline == 241 && self.cycle == 1 {
       info!("VBLANK!!");
       self.vblank_started = Some(());
-      self.stat.insert(PpuStat::vblank);
+      
+      if !self.vblank_suppress {
+        self.stat.insert(PpuStat::vblank);
+      }
       self.stat.remove(PpuStat::spr0_hit);
-
-      if self.ctrl.contains(PpuCtrl::vblank_nmi_on) {
+      
+      if self.ctrl.contains(PpuCtrl::vblank_nmi_on) && !self.vblank_suppress {
         self.nmi_requested = Some(());
       }
+
+      self.vblank_suppress = false;
     }
     else if self.scanline == 261 && self.cycle == 1 {
       self.stat = PpuStat::empty();
@@ -294,7 +302,7 @@ impl Ppu {
     }
 
     if self.in_odd_frame
-      && !self.is_rendering_on()
+      && self.is_rendering_on()
       && self.cycle == 339 
       && self.scanline == 261 {
       self.cycle += 1;
@@ -311,7 +319,6 @@ impl Ppu {
       }
     }
   }
-
 
   // TODO: Clean this shit up...
   pub fn render_pixel(&mut self) {
@@ -330,7 +337,8 @@ impl Ppu {
       && self.cycle != 256
       && !(self.cycle <= 8 && (!self.mask.contains(PpuMask::spr_lstrip) || !self.mask.contains(PpuMask::bg_lstrip)))
       && self.mask.contains(PpuMask::bg_render_on) 
-      && self.mask.contains(PpuMask::spr_render_on) {
+      && self.mask.contains(PpuMask::spr_render_on)
+      && !self.stat.contains(PpuStat::spr0_hit) {
         info!("SPRITE 0 HIT");
         self.stat.insert(PpuStat::spr0_hit);
       }
@@ -436,12 +444,12 @@ impl Ppu {
           self.bg_fifo.push_back((pixel, self.bg_buf.palette_id));
         }
 
-        let tile_addr = 0x2000 + self.v.nametbl_idx();
+        let tile_addr = 0x2000 + self.v.bg_tile_addr();
         self.bg_buf.tile_id = self.vram_peek(tile_addr);
       }
       4 => {
         let attribute_addr = 0x23C0
-          + ((self.v.nametbl() as u16) << 10)
+          + ((self.v.base_nametbl_idx() as u16) << 10)
           + ((self.v.coarse_y() as u16)/4) * 8
           + ((self.v.coarse_x() as u16)/4);
 
@@ -466,7 +474,9 @@ impl Ppu {
         let plane1 = self.vram_peek(tile_addr + 8);
         self.bg_buf.tile_plane1 = plane1;
       }
-      8 => self.increase_coarse_x(),
+      8 => {
+        self.increase_coarse_x();
+      }
       _ => {}
     }
 
@@ -482,8 +492,13 @@ impl Ppu {
   pub fn reg_read(&mut self, addr: u16) -> u8 {
     match addr {
       0x2002 => {
-        let old_stat = self.stat.bits();
         self.w = WriteLatch::FirstWrite;
+
+        if self.scanline == 241 && (0..=2).contains(&self.cycle) {
+          self.vblank_suppress = true;
+        }
+
+        let old_stat = self.stat.bits();
         self.stat.remove(PpuStat::vblank);
         old_stat
       }
@@ -728,6 +743,6 @@ impl Ppu {
   
       self.v.set_coarse_y(self.t.coarse_y());
       self.v.set_fine_y(self.t.fine_y());
-      self.v.set_nametbl_y(self.t.nametbl_y());
+      // self.v.set_nametbl_y(self.t.nametbl_y());
     }
 }

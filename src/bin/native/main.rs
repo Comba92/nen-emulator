@@ -39,7 +39,7 @@ fn main() {
     let desired_spec = AudioSpecDesired {
         freq: Some(44100),
         channels: Some(1),
-        samples: Some(1024),
+        samples: Some(512),
     };
 
     // let mut frames = 0;
@@ -52,6 +52,7 @@ fn main() {
         
             fn callback(&mut self, out: &mut [Self::Channel]) {
                 if self.0.len() < out.len() { return; }
+
                 for x in out {
                     *x = self.0.pop_front().unwrap();
                 }

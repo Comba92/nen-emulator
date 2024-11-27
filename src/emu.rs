@@ -30,12 +30,12 @@ impl Emu {
   }
 
   pub fn step(&mut self) {
-    // let cycles_at_start = self.cpu.cycles;
+    let cycles_at_start = self.cpu.cycles;
     self.cpu.step();
 
-    // let step_cycles = self.cpu.cycles - cycles_at_start;
-    // for _ in 0..step_cycles*3 { self.cpu.bus.ppu.step_accurate(); }
-    // for _ in 0..step_cycles { self.cpu.bus.apu.step(); }
+    let step_cycles = self.cpu.cycles - cycles_at_start;
+    for _ in 0..step_cycles*3 { self.cpu.bus.ppu.step(); }
+    for _ in 0..step_cycles { self.cpu.bus.apu.step(); }
   }
 
   pub fn step_until_vblank(&mut self) {

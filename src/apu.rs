@@ -37,13 +37,13 @@ impl From<u8> for PulseDutyMode {
 
 #[derive(Default, Clone, Copy, PartialEq, Eq)]
 pub enum EnvelopeMode {
-  #[default] OneShot, Infinite
+  #[default] OneShot, Loop
 }
 impl From<u8> for EnvelopeMode {
   fn from(value: u8) -> Self {
     match value {
       0 => EnvelopeMode::OneShot,
-      1 => EnvelopeMode::Infinite,
+      1 => EnvelopeMode::Loop,
       _ => unreachable!("envelope mode is either 0 or 1")
     }
   }
@@ -100,10 +100,10 @@ pub struct LengthCounter {
 }
 impl LengthCounter {
   pub fn reload(&mut self, val: u8) {
-    if !self.halted {
+    //if !self.halted {
       let length_idx = val as usize >> 3;
       self.count = LENGTH_TABLE[length_idx];
-    }
+    // }
   }
 
   pub fn step(&mut self) {
@@ -143,7 +143,7 @@ impl Envelope {
 
       if self.decay_count > 0 {
         self.decay_count -= 1;
-      } else if self.mode == EnvelopeMode::Infinite {
+      } else if self.mode == EnvelopeMode::Loop {
         self.decay_count = 15;
       }
     }
@@ -156,7 +156,7 @@ trait Channel {
   fn step_timer(&mut self);
   fn step_length(&mut self) {}
   fn step_envelope(&mut self) {}
-  fn step_sweep(&mut self) {}
+  fn step_sweep(&mut self, complement: bool) {}
   fn step_linear(&mut self) {}
 
   fn is_enabled(&self) -> bool;
@@ -218,8 +218,6 @@ impl Pulse {
     self.timer.set_period_high(val);
     self.envelope.start = true;
     self.duty_idx = 0;
-
-    // TODO: reload length counter, restart envelope and phase
   }
 
   pub fn volume(&self) -> u8 {
@@ -254,17 +252,25 @@ impl Channel for Pulse {
     self.envelope.step();
   }
 
-  fn step_sweep(&mut self) {
-    if self.sweep_on 
+  fn step_sweep(&mut self, complement: bool) {
+    if self.sweep_on
     && self.sweep_count == 0
-    && self.sweep_shift != 0 
-    && !self.is_muted() {
+    && self.sweep_shift != 0 {
+      if self.is_muted() {
+
+      }
+
       let mut change_amount = (self.timer.period >> self.sweep_shift) as i16;
       if self.sweep_negate {
         // TODO: pulse 1 adds the one's complement (-c-1)
         // while pulse 2 adds the two's complement (-c)
+
         change_amount = change_amount.neg();
+        if !complement {
+          change_amount = change_amount.wrapping_sub(1);
+        }
       }
+
       let target_period = self.timer.period
         .checked_add_signed(change_amount)
         .unwrap_or(0);
@@ -273,8 +279,6 @@ impl Channel for Pulse {
     } else if self.sweep_count == 0 || self.sweep_reload {
       self.sweep_count = self.sweep_period + 1;
       self.sweep_reload = false;
-    } else {
-      self.sweep_count -= 1;
     }
   }
 
@@ -539,8 +543,8 @@ impl Apu {
       (7465, _) => {
         self.pulse1.step_envelope();
         self.pulse2.step_envelope();
-        self.pulse1.step_sweep();
-        self.pulse2.step_sweep();
+        self.pulse1.step_sweep(false);
+        self.pulse2.step_sweep(true);
         self.pulse1.step_length();
         self.pulse2.step_length();
         self.triangle.step_linear();
@@ -551,8 +555,8 @@ impl Apu {
       (14914, FrameCounterMode::Step4) => {
         self.pulse1.step_envelope();
         self.pulse2.step_envelope();
-        self.pulse1.step_sweep();
-        self.pulse2.step_sweep();
+        self.pulse1.step_sweep(false);
+        self.pulse2.step_sweep(true);
         self.pulse1.step_length();
         self.pulse2.step_length();
         self.triangle.step_linear();
@@ -569,8 +573,8 @@ impl Apu {
       (18640, FrameCounterMode::Step5) => {
         self.pulse1.step_envelope();
         self.pulse2.step_envelope();
-        self.pulse1.step_sweep();
-        self.pulse2.step_sweep();
+        self.pulse1.step_sweep(false);
+        self.pulse2.step_sweep(true);
         self.pulse1.step_length();
         self.pulse2.step_length();
         self.triangle.step_linear();
@@ -591,8 +595,8 @@ impl Apu {
     let noise = self.noise.get_sample();
 
     let pulse_out = 0.00752 * (pulse1 + pulse2) as f32;
-    let tnd_out = 0.00851 * triangle as f32; //+ 0.00494 * noise as f32;
-    let tnd_out = 0.0;
+    let tnd_out = 0.00851 * triangle as f32 + 0.00494 * noise as f32;
+
 
     let output = ((pulse_out + tnd_out) * u16::MAX as f32).clamp(0.0, u16::MAX as f32);
     self.samples_queue.push_back(output as i16);
@@ -662,8 +666,8 @@ impl Apu {
         if self.frame_mode == FrameCounterMode::Step5 {
           self.pulse1.step_envelope();
           self.pulse2.step_envelope();
-          self.pulse1.step_sweep();
-          self.pulse2.step_sweep();
+          self.pulse1.step_sweep(false);
+          self.pulse2.step_sweep(true);
           self.pulse1.step_length();
           self.pulse2.step_length();
           self.triangle.step_linear();
