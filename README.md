@@ -9,18 +9,19 @@
 (games like Bubble Bobble, TMNT 2 and Batman crash at startup for this reason)
 
 [x] Implement PPU
+- Castlevania weird flickering (probably wrong sprite0 hit)
+- DMA is NOT implemented correctly: it should fix the Castlevania flickering
 - Palette mirroring seems wrong
 - Vblank is cleared too late?
-- Investigate Spr0 Hit and Vblank more
 - PPU masking
 - Rendering toggling delay (battletoads)
-- Castlevania weird flickering (probably wrong sprite0 hit)
 
 [x] Mappers
 - Mmc3 ok, irq not implemented
 - Mmc2 not working
 
 [] APU if i have the energy
+- It's buggy
 - PAL support?
 
 [] Support for NES 2.0 format
