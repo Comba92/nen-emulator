@@ -679,7 +679,7 @@ impl Ppu {
 
   pub fn mirror_palette(&self, addr: u16) -> u16 {
     let addr = addr - 0x3F00;
-    if addr == 16 { 0 } else { addr % 32 }
+    if addr >= 16 && addr % 4 == 0 { addr - 16 } else { addr % 32 }
   }
 }
 

@@ -341,14 +341,13 @@ pub struct UxRom {
 }
 impl Mapper for UxRom {
     fn read_prg(&mut self, prg: &[u8], addr: usize) -> u8 {
-        let prg_addr = if (0xC000..=0xFFFF).contains(&addr) {
-            let last_bank = self.last_prg_bank(prg);
-            self.addr_from_prg_bank(last_bank, addr)
+        let bank = if (0xC000..=0xFFFF).contains(&addr) {
+            self.last_prg_bank(prg)
         } else {
-            self.addr_from_prg_bank(self.prg_bank_select, addr)
+            self.prg_bank_select
         };
 
-        prg[prg_addr]
+        prg[self.addr_from_prg_bank(bank, addr)]
     }
 
     fn write_prg(&mut self, _prg: &mut[u8], _addr: usize, val: u8) {
@@ -426,74 +425,66 @@ impl Mapper for GxRom {
 #[derive(Default, Clone, Copy)]
 pub enum Mmc2Latch { FD, #[default] FE }
 // Mapper 9 https://www.nesdev.org/wiki/MMC2
-// TODO: not working
 #[derive(Default)]
 pub struct Mmc2 {
     pub prg_bank_select: usize,
-    pub chr_bank0_select: usize,
+    pub chr_bank0_select: [usize; 2],
     pub chr_bank1_select: [usize; 2],
-    pub latch: Mmc2Latch,
+    pub latch: [Mmc2Latch; 2],
     pub mirroring: Mirroring,
 }
 impl Mapper for Mmc2 {
+    fn prg_bank_size(&self) -> usize { DEFAULT_PRG_BANK_SIZE/2 }
+    fn chr_bank_size(&self) -> usize { DEFAULT_CHR_BANK_SIZE/2 }
+
     fn read_prg(&mut self, prg: &[u8], addr: usize) -> u8 {
-        // last three 8kb prg banks
-        if (0x2000..=0x7FFF).contains(&addr) {
-            let last_three_banks = prg.len() - (DEFAULT_CHR_BANK_SIZE*3);
-            prg[last_three_banks + (addr % (DEFAULT_CHR_BANK_SIZE*3))]
-        } else {
-            prg[self.prg_bank_select + (addr % DEFAULT_CHR_BANK_SIZE)]
-        }
+        let bank = match addr {
+            0x8000..=0x9FFF => self.prg_bank_select,
+            0xA000..=0xBFFF => self.last_prg_bank(prg)-2,
+            0xC000..=0xDFFF => self.last_prg_bank(prg)-1,
+            0xE000..=0xFFFF => self.last_prg_bank(prg),
+            _ => unreachable!()
+        };
+
+        prg[self.addr_from_prg_bank(bank, addr)]
     }
 
     fn read_chr(&mut self, chr: &[u8], addr: usize) -> u8 {
-        // last two switchable chr banks
-        let mapped = if (0x1000..=0x1FFF).contains(&addr) {
-            self.chr_bank1_select[self.latch as usize]
-        } else {
-            self.chr_bank0_select
+        let bank = match addr {
+            0x0000..=0x0FFF => self.chr_bank0_select[self.latch[0] as usize],
+            0x1000..=0x1FFF => self.chr_bank1_select[self.latch[1] as usize],
+            _ => unreachable!()
         };
-
-        // match addr {
-        //     0x0FD8 => self.latch = Mmc2Latch::FD,
-        //     0x0FE8 => self.latch = Mmc2Latch::FE,
-        //     0x1FD8..=0x1FDF => self.latch = Mmc2Latch::FD,
-        //     0x1FE8..=0x1FEF => self.latch = Mmc2Latch::FE,
-        //     _ => {}
-        // }
-
+        
         match addr {
-            (0xFD0..=0xFDF) | (0x1FD0..=0x1FDF) => self.latch = Mmc2Latch::FD,
-            (0xFE0..=0xFEF) | (0x1FE0..=0x1FEF) => self.latch = Mmc2Latch::FE,
+            0x0FD8 => self.latch[0] = Mmc2Latch::FD,
+            0x0FE8 => self.latch[0] = Mmc2Latch::FE,
+            0x1FD8..=0x1FDF => self.latch[1] = Mmc2Latch::FD,
+            0x1FE8..=0x1FEF => self.latch[1] = Mmc2Latch::FE,
             _ => {}
         }
 
-        chr[mapped * (DEFAULT_CHR_BANK_SIZE/2) + (addr % (DEFAULT_CHR_BANK_SIZE/2))]
+        chr[self.addr_from_chr_bank(bank, addr)]
     }
 
     fn write_prg(&mut self, _prg: &mut[u8], addr: usize, val: u8) {
         let val = val as usize & 0b1_1111;
 
         match addr {
-            0x2000..=0x2FFF => self.prg_bank_select = (val & 0b1111) * DEFAULT_CHR_BANK_SIZE,
-            // 0x3000..=0x3FFF => {
-            //     // set 0xFD/0 bank select
-            //     self.chr_bank0_select[0] = val * (CHR_BANK_SIZE/2);
-            // }
-            // 0x4000..=0x4FFF => {
-            //     // set 0xFE/0 bank select
-            //     self.chr_bank0_select[1] = val * (CHR_BANK_SIZE/2);
-            // }
-            0x3000..=0x4FFF => {
-                self.chr_bank0_select = val;
+            0xA000..=0xAFFF => self.prg_bank_select = val & 0b1111,
+            0xB000..=0xBFFF => {
+                self.chr_bank0_select[0] = val;
             }
-            0x5000..=0x5FFF => {
+            0xC000..=0xCFFF => {
+                self.chr_bank0_select[1] = val;
+            }
+            0xD000..=0xDFFF => {
                 self.chr_bank1_select[0] = val;
             }
-            0x6000..=0x6FFF => {
+            0xE000..=0xEFFF => {
                 self.chr_bank1_select[1] = val;
             }
-            0x7000..=0x7FFF => {
+            0xF000..=0xFFFF => {
                 self.mirroring = match val & 1 {
                     0 => Mirroring::Vertically,
                     1 => Mirroring::Horizontally,
