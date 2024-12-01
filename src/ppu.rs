@@ -668,7 +668,6 @@ impl Ppu {
       (Horizontally, 1) | (Horizontally, 2) => addr - 0x400,
       (Horizontally, 3) => addr - 0x400*2,
       (Vertically, 2) | (Vertically, 3) => addr - 0x400*2,
-      // TODO: probably broken
       (SingleScreenFirstPage, _) => addr % 0x400,
       (SingleScreenSecondPage, _) => (addr % 0x400) + 0x400,
       (FourScreen, _) => todo!("Four screen mirroring not implemented"),

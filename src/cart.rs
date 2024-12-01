@@ -5,6 +5,7 @@ use crate::mapper::{self, CartMapper, Dummy};
 
 #[derive(Debug, Default, Clone)]
 pub struct INesHeader {
+  pub title: String,
   pub prg_16kb_banks: usize,
   pub chr_8kb_banks: usize,
   pub prg_size: usize,
@@ -31,7 +32,9 @@ pub enum Mirroring { #[default] Horizontally, Vertically, SingleScreenFirstPage,
 #[derive(Debug, Default, Clone, Copy)]
 pub enum TvSystem { #[default] NTSC, PAL }
 #[derive(Debug, Default, Clone, Copy)]
-pub enum ConsoleType { #[default] NES, VsSystem, Playchoice, Other }
+pub enum ConsoleType { #[default] NES, VsSystem, Playchoice10, Other }
+#[derive(Debug, Default, Clone, Copy)]
+pub enum ConsoleTiming { #[default] NTSC, PAL, World, Dendy }
 
 impl INesHeader {
   pub fn new(rom: &[u8]) -> Result<Self, &'static str> {
@@ -67,9 +70,10 @@ impl INesHeader {
     let console_type = match rom[7] & 11 {
       0 => ConsoleType::NES,
       1 => ConsoleType::VsSystem,
-      2 => ConsoleType::Playchoice,
+      2 => ConsoleType::Playchoice10,
       _ => ConsoleType::Other,
     };
+
     let is_nes_v2 = rom[7] & 0b0000_1100 == 0x8;
 
     let tv_system = match rom[9] & 1 {
@@ -78,7 +82,14 @@ impl INesHeader {
       _ => unreachable!()
     };
 
+    let title = String::from_utf8_lossy(&rom[rom.len()-128..])
+      .to_string()
+      .chars()
+      .filter(|c| c.is_alphanumeric())
+      .collect();
+
     Ok(INesHeader {
+      title,
       prg_16kb_banks,
       chr_8kb_banks,
       prg_size,
@@ -107,6 +118,7 @@ pub struct Nes20Header {
   eeprom_size: usize,
   chr_ram_size: usize,
   chr_nvram_size: usize,
+  timing: ConsoleTiming,
 }
 
 impl Nes20Header {
@@ -128,8 +140,16 @@ impl Nes20Header {
     let chr_ram_size = if rom[11] & 0b0000_1111 == 0 { 0 } else {64 << (rom[11] & 0b0000_1111)};
     let chr_nvram_size = if rom[11] & 0b1111_0000 == 0 { 0 } else {64 << (rom[11] >> 4)};
 
+    let timing = match rom[12] & 0b11 {
+      0 => ConsoleTiming::NTSC,
+      1 => ConsoleTiming::PAL,
+      2 => ConsoleTiming::World,
+      3 => ConsoleTiming::Dendy,
+      _ => unreachable!()
+    };
+
     Ok(Nes20Header {
-      submapper, prg_rom_size, chr_rom_size, prg_ram_size, eeprom_size, chr_ram_size, chr_nvram_size,
+      submapper, prg_rom_size, chr_rom_size, prg_ram_size, eeprom_size, chr_ram_size, chr_nvram_size, timing
     })
   }
 }
@@ -148,7 +168,7 @@ impl Cart {
       return Err("Rom file is too small".to_string());
     }
     
-    let header = INesHeader::new(&rom[0..16])?;
+    let header = INesHeader::new(&rom)?;
 
     let prg_start = HEADER_SIZE + if header.has_trainer { 512 } else { 0 };
     let chr_start = prg_start + header.prg_size;

@@ -3,7 +3,7 @@ use crate::{apu::Apu, cart::{Cart, INesHeader}, joypad::Joypad, mapper::CartMapp
 
 #[derive(Debug)]
 enum BusDst {
-  Ram, Ppu, Apu, Dma, SRam, Prg, Joypad1, Joypad2, NoImpl
+  Ram, Ppu, Apu, SRam, Prg, Joypad1, Joypad2, NoImpl
 }
 
 pub struct Bus {
@@ -37,18 +37,6 @@ impl Memory for Bus {
       BusDst::Ram => self.ram[addr] = val,
       BusDst::Ppu => self.ppu.reg_write(addr as u16, val),
       BusDst::Apu => self.apu.reg_write(addr as u16, val),
-      BusDst::Dma => {
-        let start = (val as u16) << 8;
-        for offset in 0..256 {
-          let to_write = self.read(
-            start.wrapping_add(offset as u16)
-          );
-          self.ppu.reg_write(0x2004, to_write);
-        }
-
-        // https://www.nesdev.org/wiki/DMA
-        // TODO: this takes 513 CPU cycles, CPU is stalled during the transfer
-      }
       BusDst::Joypad1 => self.joypad.write(val),
       BusDst::Joypad2 => {} // TODO: second joypad
       BusDst::SRam => self.sram[addr] = val,
@@ -62,8 +50,8 @@ impl Memory for Bus {
   }
 
   fn poll_irq(&mut self) -> bool {
-      self.mapper.borrow_mut().poll_irq()
-      || self.apu.irq_requested.take().is_some()
+    self.mapper.borrow_mut().poll_irq()
+    || self.apu.irq_requested.take().is_some()
   }
 }
 
@@ -99,7 +87,6 @@ impl Bus {
       }
   
       0x4000..=0x4013 | 0x4015 | 0x4017 => (BusDst::Apu, addr as usize),
-      0x4014 => (BusDst::Dma, addr as usize),
       0x4016 => (BusDst::Joypad1, addr as usize),
       // 0x4017 => (BusDst::Joypad2, addr as usize),
   
@@ -109,16 +96,19 @@ impl Bus {
     }
   }
     
-  pub fn peek_vblank(&mut self) -> bool {
+  pub fn poll_vblank(&mut self) -> bool {
     self.ppu.vblank_started.take().is_some()
+  }
+
+  pub fn poll_sample(&mut self) -> Option<i16> {
+    self.apu.current_sample.take()
   }
 }
 
 #[cfg(test)]
 mod bus_tests {
   use std::fs;
-
-use super::*;
+  use super::*;
 
   #[test]
   fn ram_read() {

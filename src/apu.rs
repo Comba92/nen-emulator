@@ -163,7 +163,7 @@ trait Channel {
   fn step_timer(&mut self);
   fn step_length(&mut self) {}
   fn step_envelope(&mut self) {}
-  fn step_sweep(&mut self, complement: bool) {}
+  fn step_sweep(&mut self, _complement: bool) {}
   fn step_linear(&mut self) {}
 
   fn is_enabled(&self) -> bool;
@@ -429,7 +429,7 @@ impl Channel for Noise {
           true => (self.shift_reg >> 6) & 1
         });
         self.shift_reg >>= 1;
-        self.shift_reg |= (feedback << 14) // | (self.shift_reg & 0x3FFF);
+        self.shift_reg |= feedback << 14 // | (self.shift_reg & 0x3FFF);
       });
     }
 
@@ -490,12 +490,13 @@ pub struct Apu {
   pub dmc_irq_on: bool,
   pub frame_irq_on: bool,
   pub interrupts_off: bool,
-  pub irq_requested: Option<()>,
-  pub samples_queue: VecDeque<i16>,
+  pub audio_buf: Vec<i16>,
 
-  pub low_pass_filter: LowPassFilter,
-  pub high_pass_filters: [HighPassFilter; 2],
-  pub current_sample: f32,
+  pub irq_requested: Option<()>,
+  pub current_sample: Option<i16>,
+
+  // pub low_pass_filter: LowPassFilter,
+  // pub high_pass_filters: [HighPassFilter; 2],
 
   pub cycles: usize,
 }
@@ -513,20 +514,25 @@ impl Apu {
       dmc_irq_on: false,
       frame_irq_on: false,
       interrupts_off: false,
+      audio_buf: Vec::new(),
+      
+      current_sample: None,
       irq_requested: None,
 
-      samples_queue: VecDeque::new(),
-      low_pass_filter: LowPassFilter::new(44_100.0, 14_000.0),
-      high_pass_filters: [
-        HighPassFilter::new(44_100.0, 90.0),
-        HighPassFilter::new(44_100.0, 440.0),
-      ],
-      current_sample: 0.0,
+      // low_pass_filter: LowPassFilter::new(44_100.0, 14_000.0),
+      // high_pass_filters: [
+      //   HighPassFilter::new(44_100.0, 90.0),
+      //   HighPassFilter::new(44_100.0, 440.0),
+      // ],
 
       cycles: 0,
     };
 
     apu
+  }
+
+  pub fn reset(&mut self) {
+    // TODO: reset APU
   }
 
   pub fn step(&mut self) {
@@ -535,8 +541,9 @@ impl Apu {
     // We have 60 frames per second.
     // Meaning for a single frame we need 44100 / 60 = 735 samples.
     // Then, we have to output a sample every 29780 / 735 = 40 cycles!
-
-    self.mix_channels();
+    if self.cycles % 40 == 0 {
+      self.mix_channels();
+    }
     
     self.triangle.step_timer();
     if self.cycles % 2 == 1 {
@@ -624,26 +631,22 @@ impl Apu {
   }
 
   pub fn mix_channels(&mut self) {
-    let pulse1 = self.pulse1.get_sample();
-    let pulse2 = self.pulse2.get_sample();
+    let pulse1   = self.pulse1.get_sample();
+    let pulse2   = self.pulse2.get_sample();
     let triangle = self.triangle.get_sample();
-    let noise = self.noise.get_sample();
+    let noise    = self.noise.get_sample();
 
     let pulse_out = 0.00752 * (pulse1 + pulse2) as f32;
-    let tnd_out = 0.00851 * triangle as f32 + 0.00494 * noise as f32;
+    let tnd_out = 0.00851 * triangle as f32; // + 0.00494 * noise as f32;
 
-    let sum = (pulse_out + tnd_out);
-    let mut filtered = self.high_pass_filters[0].process(sum);
-    filtered = self.high_pass_filters[1].process(filtered);
-    filtered = self.low_pass_filter.process(sum);
-    self.current_sample += filtered;
+    let sum = pulse_out + tnd_out;
+    // let mut filtered = self.high_pass_filters[0].process(sum);
+    // filtered = self.high_pass_filters[1].process(filtered);
+    // filtered = self.low_pass_filter.process(filtered);
 
-    if self.cycles % 40 == 0 {
-      self.current_sample /= 40.0;
-      let output = (filtered * u16::MAX as f32).clamp(0.0, u16::MAX as f32);
-      self.samples_queue.push_back(output as i16);
-    }
-
+    let output = (sum * u16::MAX as f32).clamp(0.0, u16::MAX as f32) as i16;
+    // self.audio_buf.push(output as i16);
+    self.current_sample = Some(output);
   }
 
   pub fn reg_read(&mut self, addr: u16) -> u8 {
@@ -725,62 +728,62 @@ impl Apu {
   }
 }
 
-pub struct LowPassFilter {
-  b0: f32,
-  b1: f32,
-  a1: f32,
-  prev_x: f32,
-  prev_y: f32,
-}
+// pub struct LowPassFilter {
+//   b0: f32,
+//   b1: f32,
+//   a1: f32,
+//   prev_x: f32,
+//   prev_y: f32,
+// }
 
-impl LowPassFilter {
-  pub fn new(sample_rate: f32, cutoff: f32) -> Self {
-      let c = sample_rate / PI / cutoff;
-      let a0i = 1.0 / (1.0 + c);
+// impl LowPassFilter {
+//   pub fn new(sample_rate: f32, cutoff: f32) -> Self {
+//       let c = sample_rate / PI / cutoff;
+//       let a0i = 1.0 / (1.0 + c);
 
-      Self {
-          b0: a0i,
-          b1: a0i,
-          a1: (1.0 - c) * a0i,
-          prev_x: 0.0,
-          prev_y: 0.0,
-      }
-  }
+//       Self {
+//           b0: a0i,
+//           b1: a0i,
+//           a1: (1.0 - c) * a0i,
+//           prev_x: 0.0,
+//           prev_y: 0.0,
+//       }
+//   }
 
-  fn process(&mut self, signal: f32) -> f32 {
-    let y = self.b0 * signal + self.b1 * self.prev_x - self.a1 * self.prev_y;
-    self.prev_y = y;
-    self.prev_x = signal;
-    y
-  }
-}
+//   fn process(&mut self, signal: f32) -> f32 {
+//     let y = self.b0 * signal + self.b1 * self.prev_x - self.a1 * self.prev_y;
+//     self.prev_y = y;
+//     self.prev_x = signal;
+//     y
+//   }
+// }
 
-pub struct HighPassFilter {
-  b0: f32,
-  b1: f32,
-  a1: f32,
-  prev_x: f32,
-  prev_y: f32,
-}
+// pub struct HighPassFilter {
+//   b0: f32,
+//   b1: f32,
+//   a1: f32,
+//   prev_x: f32,
+//   prev_y: f32,
+// }
 
-impl HighPassFilter {
-  pub fn new(sample_rate: f32, cutoff: f32) -> Self {
-      let c = sample_rate / PI / cutoff;
-      let a0i = 1.0 / (1.0 + c);
+// impl HighPassFilter {
+//   pub fn new(sample_rate: f32, cutoff: f32) -> Self {
+//       let c = sample_rate / PI / cutoff;
+//       let a0i = 1.0 / (1.0 + c);
 
-      Self {
-          b0: c * a0i,
-          b1: -c * a0i,
-          a1: (1.0 - c) * a0i,
-          prev_x: 0.0,
-          prev_y: 0.0,
-      }
-  }
+//       Self {
+//           b0: c * a0i,
+//           b1: -c * a0i,
+//           a1: (1.0 - c) * a0i,
+//           prev_x: 0.0,
+//           prev_y: 0.0,
+//       }
+//   }
 
-  fn process(&mut self, signal: f32) -> f32 {
-      let y = self.b0 * signal + self.b1 * self.prev_x - self.a1 * self.prev_y;
-      self.prev_y = y;
-      self.prev_x = signal;
-      y
-  }
-}
+//   fn process(&mut self, signal: f32) -> f32 {
+//       let y = self.b0 * signal + self.b1 * self.prev_x - self.a1 * self.prev_y;
+//       self.prev_y = y;
+//       self.prev_x = signal;
+//       y
+//   }
+// }

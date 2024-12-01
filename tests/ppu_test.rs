@@ -53,7 +53,9 @@ mod ppu_test {
       const RENDER_HEIGHT: u32 = 128;
       const SCALE: u32 = 3;
 
-      let mut sdl = Sdl2Context::new("Patterns", RENDER_WIDTH*SCALE, RENDER_HEIGHT*SCALE);
+      let mut sdl = Sdl2Context
+      ::new("Patterns", RENDER_WIDTH*SCALE, RENDER_HEIGHT*SCALE)
+      .unwrap();
 
       let mut framebuf = FrameBuffer::new(RENDER_WIDTH as usize, RENDER_HEIGHT as usize);
 
@@ -101,7 +103,10 @@ mod ppu_test {
       const RENDER_HEIGHT: f32 = 30.0;
       const SCALE: f32 = 3.0;
       
-      let mut sdl = Sdl2Context::new("Frame renderer", (8.0*RENDER_WIDTH*SCALE) as u32, (8.0*RENDER_HEIGHT*SCALE) as u32);
+      let mut sdl = Sdl2Context
+        ::new("Frame renderer", (8.0*RENDER_WIDTH*SCALE) as u32, (8.0*RENDER_HEIGHT*SCALE) as u32)
+        .unwrap();
+
       // let mut framebuf = FrameBuffer::new(8*RENDER_WIDTH as usize, 8*RENDER_HEIGHT as usize);
       let mut framebuf = NesScreen::new();
 
@@ -195,7 +200,10 @@ mod ppu_test {
       const RENDER_HEIGHT: f32 = 30.0;
       const SCALE: f32 = 3.0;
       
-      let mut sdl = Sdl2Context::new("Pixel renderer", (8.0*RENDER_WIDTH*SCALE) as u32, (8.0*RENDER_HEIGHT*SCALE) as u32);
+      let mut sdl = Sdl2Context
+      ::new("Pixel renderer", (8.0*RENDER_WIDTH*SCALE) as u32, (8.0*RENDER_HEIGHT*SCALE) as u32)
+      .unwrap();
+    
       // let rom_path = &Path::new("tests/nestest/nestest.nes");
       let rom_path = &Path::new("../roms/Mega Man (USA).nes");
       let cart = Cart::from_file(rom_path).unwrap();

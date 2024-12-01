@@ -9,14 +9,11 @@
 (games like Bubble Bobble, TMNT 2 and Batman crash at startup for this reason)
 
 [x] Implement PPU
-- Castlevania weird flickering (probably wrong sprite0 hit)
-- DMA is NOT implemented correctly: it should fix the Castlevania flickering
-- Palette mirroring seems wrong
-- Vblank is cleared too late?
 - PPU masking
 - Rendering toggling delay (battletoads)
 
 [x] Mappers
+- THERE ARE SOME BUGS WITH MMC1 and MMC3, some games go out of memory!
 - Mmc3 ok, irq not implemented
 - Mmc2 not working
 
@@ -29,6 +26,7 @@
 
 [] Consider making the core lib no_std
 [] Game info fetcher from online db
+
 
 # Resources
 - https://www.nesdev.org/NESDoc.pdf

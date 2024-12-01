@@ -40,8 +40,18 @@ impl Emu {
 
   pub fn step_until_vblank(&mut self) {
     loop {
-      if self.is_paused { break; }
-      if self.cpu.bus.peek_vblank() { break; }
+      if self.is_paused { return; }
+      if self.cpu.bus.poll_vblank() { break; }
+      self.step();
+    }
+  }
+
+  pub fn step_until_sample(&mut self) -> i16 {
+    loop {
+      if self.is_paused { return 0; }
+      if let Some(sample) = self.get_cpu().bus.poll_sample() {
+        return sample;
+      }
       self.step();
     }
   }
@@ -49,6 +59,7 @@ impl Emu {
   pub fn reset(&mut self) {
     self.cpu.reset();
     self.cpu.bus.ppu.reset();
+    self.cpu.bus.apu.reset();
     self.is_paused = false;
   }
 

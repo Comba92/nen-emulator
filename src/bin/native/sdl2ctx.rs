@@ -1,11 +1,10 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, error::Error};
 use nen_emulator::{emu::Emu, joypad::JoypadButton};
-use sdl2::{audio::{AudioQueue, AudioSpecDesired}, controller::{Axis, Button, GameController}, event::Event, keyboard::Keycode, render::{Canvas, TextureCreator}, video::{Window, WindowContext}, AudioSubsystem, EventPump, GameControllerSubsystem, Sdl, TimerSubsystem, VideoSubsystem};
+use sdl2::{controller::{Axis, Button, GameController}, event::Event, keyboard::Keycode, render::{Canvas, TextureCreator}, video::{Window, WindowContext}, AudioSubsystem, EventPump, GameControllerSubsystem, Sdl, VideoSubsystem};
 
 #[allow(unused)]
 pub struct Sdl2Context {
   pub ctx: Sdl,
-  pub timer: TimerSubsystem,
   pub video_subsystem: VideoSubsystem,
   pub audio_subsystem: AudioSubsystem,
   pub canvas: Canvas<Window>,
@@ -16,47 +15,30 @@ pub struct Sdl2Context {
   pub keymaps: Keymaps,
 }
 
-// TODO: refactor to return an error
 impl Sdl2Context {
-  pub fn new(name: &str, width: u32, height: u32) -> Self {
-    let ctx = sdl2::init().expect("Couldn't initialize SDL2");
-    let timer = ctx.timer().expect("Couldn't initialize timer subsytem");
-    let video_subsystem= ctx.video().expect("Couldn't initialize video subsystem");
-    let audio_subsystem = ctx.audio().expect("Couldn't initialize audio subsystem");
+  pub fn new(name: &str, width: u32, height: u32) -> Result<Self, Box<dyn Error>> {
+    let ctx = sdl2::init()?;
+    let video_subsystem= ctx.video()?;
+    let audio_subsystem = ctx.audio()?;
     let window = video_subsystem.window(name, width, height)
         .position_centered()
         .resizable()
-        .build().expect("Couldn't initialize window");
+        .build()?;
     let canvas = window
         .into_canvas()
-        .accelerated() // .present_vsync()
-        .build().expect("Couldn't initialize drawing canvas");
+        .accelerated()
+        .build()?;
+    
     let texture_creator = canvas.texture_creator();
-    let controller_subsystem = ctx.game_controller().expect("Couldn't initialize controller subsytem");
-    
+    let controller_subsystem = ctx.game_controller()?;
     let controllers = Vec::new();
-    // let controllers_avaible = controller_subsystem.num_joysticks().expect("Couldn't get number of joysticks avaible");
-
-    // eprintln!("Found {} joypads", controllers_avaible);
-    // for i in 0..controllers_avaible {
-    //   if !controller_subsystem.is_game_controller(i) { continue; }
-      
-    //   match controller_subsystem.open(i) {
-    //     Ok(controller) => {
-    //       eprintln!("Found controller: {}", controller.name());
-    //       controllers.push(controller);
-    //     }
-    //     Err(e) => eprintln!("Couldn't open controller {i}: {e}"),
-    //   }
-    // }
-
-    // if controllers.is_empty() {
-    //   eprintln!("No game controllers found");
-    // }
     
-    let events = ctx.event_pump().expect("Couldn't get the event pump");
+    let events = ctx.event_pump()?;
     let keymaps = Keymaps::new();
-    Self { ctx, video_subsystem, audio_subsystem, canvas, events, texture_creator, timer, controller_subsystem, controllers, keymaps }
+
+    Ok(
+      Self { ctx, video_subsystem, audio_subsystem, canvas, events, texture_creator, controller_subsystem, controllers, keymaps }
+    )
   }
 }
 

@@ -8,8 +8,8 @@ pub trait Memory {
     u16::from_le_bytes([low, high])
   }
 
-  fn poll_nmi(&mut self) -> bool { false }
-  fn poll_irq(&mut self) -> bool { false }
+  fn poll_nmi(&mut self)   -> bool { false }
+  fn poll_irq(&mut self)   -> bool { false }
 
   fn wrapping_read16(&mut self, addr: u16) -> u16 {
     if addr & 0x00FF == 0x00FF {

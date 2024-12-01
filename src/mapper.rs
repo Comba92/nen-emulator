@@ -58,6 +58,7 @@ pub struct NRom;
 impl Mapper for NRom {}
 
 bitflags! {
+    // TODO: consider not using bitflags, as this is write only (bools suffice)
     #[derive(Debug, Default, Clone)]
     pub struct Mmc1Ctrl: u8 {
         const nametbl_mirror = 0b00011;
@@ -110,7 +111,7 @@ pub struct Mmc1 {
 
 impl Default for Mmc1 {
     fn default() -> Self {
-        Self { shift_reg: Default::default(), shift_writes: Default::default(), ctrl: Mmc1Ctrl::from_bits_retain(0xC), chr_bank0_select: Default::default(), chr_bank1_select: Default::default(), prg_bank_select: Default::default() }
+        Self { shift_reg: Default::default(), shift_writes: Default::default(), ctrl: Mmc1Ctrl::from_bits_retain(0x1C), chr_bank0_select: Default::default(), chr_bank1_select: Default::default(), prg_bank_select: Default::default() }
     }
 }
 

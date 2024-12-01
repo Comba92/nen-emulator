@@ -43,8 +43,10 @@ pub struct Cpu<M: Memory> {
   pub x: u8,
   pub y: u8,
   pub cycles: usize,
+  pub stalled: bool,
   pub jammed: bool,
   pub bus: M,
+  pub dma: Dma,
 }
 
 impl<M: Memory> Memory for Cpu<M> {
@@ -53,7 +55,13 @@ impl<M: Memory> Memory for Cpu<M> {
   }
 
   fn write(&mut self, addr: u16, val: u8) {
-    self.bus.write(addr, val);
+    if addr == 0x4014 {
+      self.stalled = true;
+      self.dma.init(val);
+      self.cycles += 1;
+    } else {
+      self.bus.write(addr, val);
+    }
   }
 }
 
@@ -73,8 +81,10 @@ impl Cpu<Ram64Kb> {
       // At boot, only interrupt flag is enabled
       p: P_RESET,
       cycles: 7,
+      stalled: false,
       jammed: false,
-      bus: Ram64Kb { mem: [0; 64 * 1024] }
+      bus: Ram64Kb { mem: [0; 64 * 1024] },
+      dma: Dma::default(),
     }
   }
 }
@@ -88,13 +98,14 @@ impl Cpu<Bus> {
       // At boot, only interrupt flag is enabled
       p: P_RESET,
       cycles: 7,
+      stalled: false,
       jammed: false,
       bus: Bus::new(cart),
+      dma: Dma::default(),
     };
 
     // cpu should start by executing the reset subroutine
     cpu.pc = cpu.read16(PC_RESET);
-    // cpu.jmp(&mut Operand::fetchable(PC_RESET));
     cpu
   }
 
@@ -210,8 +221,33 @@ enum InstrDst {
   Acc, X, Y, Mem(u16)
 }
 
+#[derive(Default)]
+pub struct Dma {
+  start: u16,
+  offset: u16,
+}
+impl Dma {
+  pub fn init(&mut self, start: u8) {
+    self.start = (start as u16) << 8;
+    self.offset = 0;
+  }
+
+  pub fn current(&self) -> u16 {
+    self.start.wrapping_add(self.offset)
+  }
+
+  pub fn is_done(&self) -> bool {
+    self.offset >= 256
+  }
+}
+
 impl<M: Memory> Cpu<M> {
   pub fn step(&mut self) {
+    if self.stalled {
+      self.handle_dma();
+      return;
+    }
+
     self.poll_interrupts();
     
     let opcode = self.pc_fetch();
@@ -240,6 +276,18 @@ impl<M: Memory> Cpu<M> {
     self.cycles += 2;
     self.p.insert(CpuFlags::irq_off);
     self.pc = self.read16(isr_addr);
+  }
+
+  fn handle_dma(&mut self) {
+    let to_write = self.read(self.dma.current());
+    self.write(0x2004, to_write);
+    self.dma.offset += 1;
+
+    if self.dma.is_done() {
+      self.stalled = false;
+    }
+
+    self.cycles += 2;
   }
 
   fn get_zeropage_operand(&mut self, offset: u8) -> Operand {
