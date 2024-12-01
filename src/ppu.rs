@@ -395,8 +395,8 @@ impl Ppu {
         _ => unreachable!("sprite heights are either 8 or 16")
       };
 
-      let mut plane0 = self.vram_peek(spr_addr);
-      let mut plane1 = self.vram_peek(spr_addr + 8);
+      let mut plane0 = self.peek_vram(spr_addr);
+      let mut plane1 = self.peek_vram(spr_addr + 8);
 
       // TODO: eventually fix this hack
       if !sprite.flip_horizontal { 
@@ -437,7 +437,7 @@ impl Ppu {
         }
 
         let tile_addr = 0x2000 + self.v.nametbl_idx();
-        self.bg_buf.tile_id = self.vram_peek(tile_addr);
+        self.bg_buf.tile_id = self.peek_vram(tile_addr);
       }
       4 => {
         let attribute_addr = 0x23C0
@@ -445,7 +445,7 @@ impl Ppu {
           + ((self.v.coarse_y() as u16)/4) * 8
           + ((self.v.coarse_x() as u16)/4);
 
-        let attribute = self.vram_peek(attribute_addr);
+        let attribute = self.peek_vram(attribute_addr);
         let palette_id = self.get_palette_from_attribute(attribute);
 
         self.bg_buf.palette_id = palette_id;
@@ -455,7 +455,7 @@ impl Ppu {
           + (self.bg_buf.tile_id as u16) * 16
           + self.v.fine_y() as u16;
 
-        let plane0 = self.vram_peek(tile_addr);
+        let plane0 = self.peek_vram(tile_addr);
         self.bg_buf.tile_plane0 = plane0;
       }
       7 => {
@@ -463,7 +463,7 @@ impl Ppu {
           + (self.bg_buf.tile_id as u16) * 16
           + self.v.fine_y() as u16;
 
-        let plane1 = self.vram_peek(tile_addr + 8);
+        let plane1 = self.peek_vram(tile_addr + 8);
         self.bg_buf.tile_plane1 = plane1;
       }
       8 => self.increase_coarse_x(),
@@ -479,7 +479,7 @@ impl Ppu {
     self.mask.contains(PpuMask::spr_render_on)
   }
   
-  pub fn reg_read(&mut self, addr: u16) -> u8 {
+  pub fn read_reg(&mut self, addr: u16) -> u8 {
     match addr {
       0x2002 => {
         let old_stat = self.stat.bits();
@@ -488,12 +488,12 @@ impl Ppu {
         old_stat
       }
       0x2004 => self.oam[self.oam_addr as usize],
-      0x2007 => self.vram_read(),
+      0x2007 => self.read_vram(),
       _ => { info!("PPU REG_R {addr:04X} not implemented"); 0 }
     }
   }
 
-  pub fn reg_write(&mut self, addr: u16, val: u8) {
+  pub fn write_reg(&mut self, addr: u16, val: u8) {
     match addr {
       0x2000 => {
         let was_nmi_off = !self.ctrl.contains(PpuCtrl::vblank_nmi_on);
@@ -556,7 +556,7 @@ impl Ppu {
           }
         }
       }
-      0x2007 => self.vram_write(val),
+      0x2007 => self.write_vram(val),
       _ => info!("PPU REG_W {addr:04X} not implemented"),
     }
   }
@@ -580,7 +580,7 @@ impl Ppu {
     }
   }
 
-  pub fn vram_peek(&self, addr: u16) -> u8 {
+  pub fn peek_vram(&self, addr: u16) -> u8 {
     let (dst, addr) = self.map_address(addr);
     match dst {
       VramDst::Patterntbl => self.mapper.borrow_mut()
@@ -595,20 +595,20 @@ impl Ppu {
     self.v.0 = self.v.0.wrapping_add(self.ctrl.vram_addr_incr());
   }
 
-  pub fn vram_read(&mut self) -> u8 {
+  pub fn read_vram(&mut self) -> u8 {
     info!("PPU_DATA READ at {:04X}", self.v.0);
 
     // palettes shouldn't be buffered
     let res = if self.v.0 >= 0x3F00 {
-      self.vram_peek(self.v.0)
+      self.peek_vram(self.v.0)
     } else { self.data_buf };
 
-    self.data_buf = self.vram_peek(self.v.0);
+    self.data_buf = self.peek_vram(self.v.0);
     self.increase_vram_address();
     res
   }
 
-  pub fn vram_write(&mut self, val: u8) {
+  pub fn write_vram(&mut self, val: u8) {
     info!("PPU_DATA WRITE at {:04X} = {val:02X}", self.v.0);
 
     let (dst, addr) = self.map_address(self.v.0);
@@ -630,8 +630,8 @@ impl Ppu {
   }
 
   pub fn get_color_from_palette(&self, pixel: u8, palette_id: u8) -> u8 {
-    if pixel == 0 { self.vram_peek(0x3F00) }
-    else { self.vram_peek(0x3F00 + (palette_id + pixel) as u16) }
+    if pixel == 0 { self.peek_vram(0x3F00) }
+    else { self.peek_vram(0x3F00 + (palette_id + pixel) as u16) }
   }
 
   pub fn get_palette_from_attribute(&self, attribute: u8) -> u8 {
@@ -660,6 +660,7 @@ impl Ppu {
     let nametbl_idx = addr / 0x400;
     
     use Mirroring::*;
+    // TODO: consider moving this only on the mapper
     let mirroring = if let Some(mirroring) = self.mapper.borrow().mirroring() {
       mirroring
     } else { self.mirroring };

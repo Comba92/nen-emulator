@@ -131,7 +131,7 @@ impl<'a> Tile<'a> {
 
     let attribute_idx = (y/4 * 8) + (x/4);
     let attribute_addr = (0x2000 + 0x3C0 + attribute_idx) as u16;
-    let attribute = ppu.vram_peek(attribute_addr);
+    let attribute = ppu.peek_vram(attribute_addr);
 
     let palette_id = match (x % 4, y % 4) {
       (0..2, 0..2) => (attribute & 0b0000_0011) >> 0 & 0b11,

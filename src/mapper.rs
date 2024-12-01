@@ -9,18 +9,33 @@ pub type CartMapper = Rc<RefCell<dyn Mapper>>;
 pub trait Mapper {
     // Default NRom PRG banking
     fn read_prg(&mut self, prg: &[u8], addr: usize) -> u8 {
-        // if it only has 16KiB, then mirror first bank
-        if prg.len() == PRG_BANK_SIZE { prg[addr % (PRG_BANK_SIZE)] }
-        else { prg[addr] }
-    }
-    fn write_prg(&mut self, _prg: &mut[u8], _addr: usize, _val: u8) {}
+        // if it only has 16KiB, then mirror to first bank
+        let prg_addr = if prg.len() == self.prg_bank_size() { 
+            self.addr_from_prg_bank(0, addr)
+        }
+        else { addr - ROM_START };
 
+        prg[prg_addr]
+    }
+    
     // Default NRom CHR banking
     fn read_chr(&mut self, chr: &[u8], addr: usize) -> u8 {
         chr[addr]
     }
-    fn write_chr(&mut self, chr: &mut[u8], addr: usize, val: u8) {
-        chr[addr] = val;
+
+    fn write_prg(&mut self, _prg: &mut[u8], _addr: usize, _val: u8) {}
+    fn write_chr(&mut self, chr: &mut[u8], addr: usize, val: u8) { chr[addr] = val; }
+
+    fn prg_bank_size(&self) -> usize { DEFAULT_PRG_BANK_SIZE }
+    fn chr_bank_size(&self) -> usize { DEFAULT_CHR_BANK_SIZE }
+
+    fn last_prg_bank(&self, prg: &[u8]) -> usize { (prg.len() / self.prg_bank_size()) - 1 }
+
+    fn addr_from_prg_bank(&self, bank: usize, addr: usize) -> usize {
+        bank*self.prg_bank_size() + ((addr - ROM_START) % self.prg_bank_size())
+    }
+    fn addr_from_chr_bank(&self, bank: usize, addr: usize) -> usize {
+        bank*self.chr_bank_size() + (addr % self.chr_bank_size())
     }
 
     fn mirroring(&self) -> Option<Mirroring> { None }
@@ -29,13 +44,13 @@ pub trait Mapper {
 
 pub fn new_mapper_from_id(id: u8) -> Result<CartMapper, String> {
     let mapper: CartMapper = match id {
-        0 => Rc::new(RefCell::new(NRom)),
-        1 => Rc::new(RefCell::new(Mmc1::default())),
-        2 => Rc::new(RefCell::new(UxRom::default())),
-        3 => Rc::new(RefCell::new(INesMapper003::default())),
-        4 => Rc::new(RefCell::new(Mmc3::default())),
-        7 => Rc::new(RefCell::new(AxRom::default())),
-        9 => Rc::new(RefCell::new(Mmc2::default())),
+        0  => Rc::new(RefCell::new(NRom)),
+        1  => Rc::new(RefCell::new(Mmc1::default())),
+        2  => Rc::new(RefCell::new(UxRom::default())),
+        3  => Rc::new(RefCell::new(INesMapper003::default())),
+        4  => Rc::new(RefCell::new(Mmc3::default())),
+        7  => Rc::new(RefCell::new(AxRom::default())),
+        9  => Rc::new(RefCell::new(Mmc2::default())),
         11 => Rc::new(RefCell::new(ColorDreams::default())),
         66 => Rc::new(RefCell::new(GxRom::default())),
         _ => return Err(format!("Mapper {id} not implemented"))
@@ -44,8 +59,9 @@ pub fn new_mapper_from_id(id: u8) -> Result<CartMapper, String> {
     Ok(mapper)
 }
 
-const PRG_BANK_SIZE: usize = 16*1024; // 16 KiB
-const CHR_BANK_SIZE: usize = 8*1024; // 8 KiB
+const ROM_START: usize = 0x8000;
+const DEFAULT_PRG_BANK_SIZE: usize = 16*1024; // 16 KiB
+const DEFAULT_CHR_BANK_SIZE: usize = 8*1024; // 8 KiB
 
 pub struct Dummy;
 impl Mapper for Dummy {
@@ -57,315 +73,248 @@ impl Mapper for Dummy {
 pub struct NRom;
 impl Mapper for NRom {}
 
-bitflags! {
-    // TODO: consider not using bitflags, as this is write only (bools suffice)
-    #[derive(Debug, Default, Clone)]
-    pub struct Mmc1Ctrl: u8 {
-        const nametbl_mirror = 0b00011;
-        const prg_bank_mode  = 0b01100;
-        const chr_bank_mode  = 0b10000;
-    }
-}
-impl Mmc1Ctrl {
-    pub fn mirroring(&self) -> Mirroring {
-        match self.clone().intersection(Mmc1Ctrl::nametbl_mirror).bits() {
-            0 => Mirroring::SingleScreenFirstPage,
-            1 => Mirroring::SingleScreenSecondPage,
-            2 => Mirroring::Vertically,
-            3 => Mirroring::Horizontally,
-            _ => unreachable!()
-        }
-    }
 
-    pub fn prg_mode(&self) -> Mmc1PrgMode {
-        match self.clone().intersection(Mmc1Ctrl::prg_bank_mode).bits() >> 2 {
-            0 | 1 => Mmc1PrgMode::Bank32kb,
-            2 => Mmc1PrgMode::BankLast16kb,
-            3 => Mmc1PrgMode::BankFirst16kb,
-            _ => unreachable!()
-        }
-    }
-
-    pub fn chr_mode(&self) -> Mmc1ChrMode {
-        match self.contains(Mmc1Ctrl::chr_bank_mode) {
-            false => Mmc1ChrMode::Bank8kb,
-            true => Mmc1ChrMode::Bank4kb,
-        }
-    }
-}
-
-pub enum Mmc1PrgMode { Bank32kb, BankFirst16kb, BankLast16kb }
-pub enum Mmc1ChrMode { Bank8kb, Bank4kb }
+#[derive(Default)]
+enum Mmc1PrgMode { Bank32kb, FixFirst16kb, #[default] FixLast16kb }
+#[derive(Default)]
+enum Mmc1ChrMode { Bank8kb, #[default] Bank4kb }
 
 // Mapper 1 https://www.nesdev.org/wiki/MMC1
-#[derive(Debug)]
+#[derive(Default)]
 pub struct Mmc1 {
     shift_reg: u8,
     shift_writes: usize,
-    ctrl: Mmc1Ctrl,
+    mirroring: Mirroring,
+    prg_mode: Mmc1PrgMode,
+    chr_mode: Mmc1ChrMode,
 
     chr_bank0_select: usize,
     chr_bank1_select: usize,
     prg_bank_select: usize,
 }
 
-impl Default for Mmc1 {
-    fn default() -> Self {
-        Self { shift_reg: Default::default(), shift_writes: Default::default(), ctrl: Mmc1Ctrl::from_bits_retain(0x1C), chr_bank0_select: Default::default(), chr_bank1_select: Default::default(), prg_bank_select: Default::default() }
+impl Mmc1 {
+    fn write_ctrl(&mut self, val: u8) {
+        self.mirroring = match val & 0b11 {
+            0 => Mirroring::SingleScreenFirstPage,
+            1 => Mirroring::SingleScreenSecondPage,
+            2 => Mirroring::Vertically,
+            3 => Mirroring::Horizontally,
+            _ => unreachable!()
+        };
+
+        self.prg_mode = match (val >> 2) & 0b11 {
+            0 | 1 => Mmc1PrgMode::Bank32kb,
+            2 => Mmc1PrgMode::FixFirst16kb,
+            3 => Mmc1PrgMode::FixLast16kb,
+            _ => unreachable!()
+        };
+
+        self.chr_mode = match (val >> 4) != 0 {
+            false => Mmc1ChrMode::Bank8kb,
+            true => Mmc1ChrMode::Bank4kb,
+        }
     }
 }
 
 impl Mapper for Mmc1 {
-    fn read_prg(&mut self, prg: &[u8], addr: usize) -> u8 {
-        match self.ctrl.prg_mode() {
-            Mmc1PrgMode::Bank32kb => {
-                let bank_start = (self.prg_bank_select >> 1) * PRG_BANK_SIZE*2;
-                prg[bank_start + (addr % (PRG_BANK_SIZE*2))]
-            }
-            Mmc1PrgMode::BankLast16kb => {
-                let bank_select = match addr {
-                    0x0000..=0x3FFF => 0,
-                    0x4000..=0x7FFF => self.prg_bank_select * PRG_BANK_SIZE,
-                    _ => unreachable!()
-                };
-                prg[bank_select + (addr % PRG_BANK_SIZE)]
-            }
-            Mmc1PrgMode::BankFirst16kb => {
-                let bank_select = match addr {
-                    0x0000..=0x3FFF => self.prg_bank_select * PRG_BANK_SIZE,
-                    0x4000..=0x7FFF => prg.len() - PRG_BANK_SIZE,
-                    _ => unreachable!()
-                };
-                prg[bank_select + (addr % PRG_BANK_SIZE)]
-            }
+    fn addr_from_prg_bank(&self, bank: usize, addr: usize) -> usize {
+        match self.prg_mode {
+            Mmc1PrgMode::Bank32kb => 
+                bank*self.prg_bank_size()*2 + ((addr - ROM_START) % (self.prg_bank_size()*2)),
+            _ => bank*self.prg_bank_size() + ((addr - ROM_START) % self.prg_bank_size())
         }
     }
 
-    fn read_chr(&mut self, chr: &[u8], addr: usize) -> u8 {
-        match self.ctrl.chr_mode() {
-            Mmc1ChrMode::Bank8kb => {
-                let bank_start = (self.chr_bank0_select >> 1) * CHR_BANK_SIZE;
-                chr[bank_start + (addr % CHR_BANK_SIZE)]
+    fn addr_from_chr_bank(&self, bank: usize, addr: usize) -> usize {
+        match self.chr_mode {
+            Mmc1ChrMode::Bank8kb => 
+                bank*self.chr_bank_size() + ((addr - ROM_START) % self.chr_bank_size()),
+            Mmc1ChrMode::Bank4kb => 
+                bank*(self.chr_bank_size()/2) + ((addr - ROM_START) % (self.chr_bank_size()/2)),
+        }
+    }
+
+    fn read_prg(&mut self, prg: &[u8], addr: usize) -> u8 {
+        let bank = match self.prg_mode {
+            Mmc1PrgMode::Bank32kb => self.prg_bank_select >> 1,
+            Mmc1PrgMode::FixLast16kb => {
+                match addr {
+                    0x8000..=0xBFFF => self.prg_bank_select,
+                    0xC000..=0xFFFF => self.last_prg_bank(prg),
+                    _ => unreachable!()
+                }
             }
+            Mmc1PrgMode::FixFirst16kb => {
+                match addr {
+                    0x8000..=0xBFFF => 0,
+                    0xC000..=0xFFFF => self.prg_bank_select,
+                    _ => unreachable!()
+                }
+            }
+        };
+
+        prg[self.addr_from_prg_bank(bank, addr)]
+    }
+
+    fn read_chr(&mut self, chr: &[u8], addr: usize) -> u8 {
+        let bank = match self.chr_mode {
+            Mmc1ChrMode::Bank8kb => self.chr_bank0_select >> 1,
             Mmc1ChrMode::Bank4kb => {
-                let bank_select = match addr {
+                match addr {
                     0x0000..=0x0FFF => self.chr_bank0_select,
                     0x1000..=0x1FFF => self.chr_bank1_select,
                     _ => unreachable!()
-                };
-
-                chr[bank_select * (CHR_BANK_SIZE/2) + (addr % (CHR_BANK_SIZE/2))]
+                }
             }
-        }
+        };
+        
+        chr[self.addr_from_chr_bank(bank, addr)]
     }
 
     fn write_prg(&mut self, _prg: &mut[u8], addr: usize, val: u8) {
         if val & 0b1000_0000 != 0 {
             self.shift_reg = 0;
             self.shift_writes = 0;
-            self.ctrl = self.ctrl.clone().union(Mmc1Ctrl::from_bits_retain(0x0C));
+            self.prg_mode = Mmc1PrgMode::FixLast16kb;
         } else if self.shift_writes < 5 {
             self.shift_reg = (self.shift_reg >> 1) | ((val & 1) << 4);
             self.shift_writes += 1;
         }
         
         if self.shift_writes >= 5 {
-            self.shift_writes = 0;
-
             match addr {
-                0..=0x1FFF => self.ctrl = Mmc1Ctrl::from_bits_retain(self.shift_reg),
-                0x2000..=0x3FFF => self.chr_bank0_select = self.shift_reg as usize,
-                0x4000..=0x5FFF => self.chr_bank1_select = self.shift_reg as usize,
-                0x6000..=0x7FFF => self.prg_bank_select = self.shift_reg as usize,
+                0x8000..=0x9FFF => self.write_ctrl(self.shift_reg),
+                0xA000..=0xBFFF => self.chr_bank0_select = self.shift_reg as usize & 0b11111 ,
+                0xC000..=0xDFFF => self.chr_bank1_select = self.shift_reg as usize & 0b11111,
+                0xE000..=0xFFFF => self.prg_bank_select  = self.shift_reg as usize & 0b1111,
                 _ => unreachable!()
             }
-
+            
+            self.shift_writes = 0;
             self.shift_reg = 0;
         }
     }
 
     fn mirroring(&self) -> Option<Mirroring> {
-        Some(self.ctrl.mirroring())
+        Some(self.mirroring)
     }
 }
 
-
-bitflags! {
-    #[derive(Default, Clone)]
-    pub struct Mmc3Select: u8 {
-        const bank_update   = 0b0000_0111;
-        const prg_bank_mode = 0b0100_0000;
-        const chr_bank_mode = 0b1000_0000;
-    }
-}
-impl Mmc3Select {
-    pub fn prg_mode(&self) -> Mmc3PrgMode {
-        match self.contains(Mmc3Select::prg_bank_mode) {
-            false => Mmc3PrgMode::BankFirst,
-            true  => Mmc3PrgMode::BankLast,
-        }
-    }
-
-    pub fn chr_mode(&self) -> Mmc3ChrMode {
-        match self.contains(Mmc3Select::chr_bank_mode) {
-            false => Mmc3ChrMode::BiggerFirst,
-            true  => Mmc3ChrMode::BiggerLast,
-        }
-    }
-}
 
 #[derive(Default)]
-pub enum Mmc3PrgMode { #[default] BankFirst, BankLast }
+pub enum Mmc3PrgMode { #[default] SwapFirst, SwapLast }
 #[derive(Default)]
 pub enum Mmc3ChrMode { #[default] BiggerFirst, BiggerLast }
 // Mapper 4 https://www.nesdev.org/wiki/MMC3
+#[derive(Default)]
 pub struct Mmc3 {
-    pub bank_select: Mmc3Select,
-    pub mirroring: Mirroring,
+    bank_select: usize,
+    prg_mode: Mmc3PrgMode,
+    chr_mode: Mmc3ChrMode,
+    mirroring: Mirroring,
+    
+    bank_regs: [usize; 8],
 
-    pub bank_regs: [usize; 8],
+    prg_ram_read_enabled: bool,
+    prg_ram_write_enabled: bool,
 
-    pub prg_ram_read_on: bool,
-    pub prg_ram_write_on: bool,
-
-    pub irq_counter: u8,
-    pub irq_latch: u8,
-    pub irq_on: bool,
+    irq_counter: u8,
+    irq_latch: u8,
+    irq_on: bool,
 }
-impl Default for Mmc3 {
-    fn default() -> Self {
-        Self { bank_select: Mmc3Select::prg_bank_mode, mirroring: Default::default(), bank_regs: Default::default(), prg_ram_read_on: Default::default(), prg_ram_write_on: Default::default(), irq_counter: Default::default(), irq_latch: Default::default(), irq_on: Default::default() }
+impl Mmc3 {
+    fn write_bank_select(&mut self, val: u8) {
+        self.bank_select = val as usize & 0b111;
+
+        self.prg_mode = match (val >> 6) & 1 != 0 {
+            false => Mmc3PrgMode::SwapFirst,
+            true  => Mmc3PrgMode::SwapLast,
+        };
+
+        self.chr_mode = match (val >> 7) != 0 {
+            false => Mmc3ChrMode::BiggerFirst,
+            true  => Mmc3ChrMode::BiggerLast,
+        };
     }
 }
 
-// TODO: probably can be done better! What about storing the banks start in an array?
 impl Mapper for Mmc3 {
+    fn prg_bank_size(&self) -> usize { 8*1024 }
+    fn chr_bank_size(&self) -> usize { 1024 }
+
     fn read_prg(&mut self, prg: &[u8], addr: usize) -> u8 {
         use Mmc3PrgMode::*;
-        let bank_start = match (addr, self.bank_select.prg_mode()) {
-            (0x0000..=0x1FFF, BankFirst) => {
-                self.bank_regs[6] * (PRG_BANK_SIZE/2)
-            }
-            (0x0000..=0x1FFF, BankLast) => {
-                prg.len() - (PRG_BANK_SIZE/2)*2
-            }
-            (0x2000..=0x3FFF, _) => {
-                self.bank_regs[7] * (PRG_BANK_SIZE/2)
-            }
-            (0x4000..=0x5FFF, BankFirst) => {
-                prg.len() - (PRG_BANK_SIZE/2)*2
-            }
-            (0x4000..=0x5FFF, BankLast) => {
-                self.bank_regs[6] * (PRG_BANK_SIZE/2)
-            }
-            (0x6000..=0x7FFF, _) => {
-                prg.len() - (PRG_BANK_SIZE/2)
-            }
+        let bank = match (addr, &self.prg_mode) {
+            (0x8000..=0x9FFF, SwapFirst) => self.bank_regs[6],
+            (0x8000..=0x9FFF, SwapLast)  => self.last_prg_bank(prg)-1,
+            (0xA000..=0xBFFF, _) => self.bank_regs[7],
+            (0xC000..=0xDFFF, SwapFirst) => self.last_prg_bank(prg)-1,
+            (0xC000..=0xDFFF, SwapLast) => self.bank_regs[6],
+            (0xE000..=0xFFFF, _) => self.last_prg_bank(prg),
             _ => unreachable!()
         };
 
-        prg[bank_start + (addr % (PRG_BANK_SIZE/2))]
+        prg[self.addr_from_prg_bank(bank, addr)]
     }
-    
+
     fn read_chr(&mut self, chr: &[u8], addr: usize) -> u8 {
         use Mmc3ChrMode::*;
-        let bank_start = match (addr, self.bank_select.chr_mode()) {
-            (0x0000..=0x03FF, BiggerFirst) => {
-                self.bank_regs[0]
-            }
-            (0x0400..=0x07FF, BiggerFirst) => {
-                self.bank_regs[0] + 1
-            }
-            (0x0800..=0x0BFF, BiggerFirst) => {
-                self.bank_regs[1]
-            }
-            (0x0C00..=0x0FFF, BiggerFirst) => {
-                self.bank_regs[1] + 1
-            }
-            (0x1000..=0x13FF, BiggerFirst) => {
-                self.bank_regs[2]
-            }
-            (0x1400..=0x17FF, BiggerFirst) => {
-                self.bank_regs[3]
-            }
-            (0x1800..=0x1BFF, BiggerFirst) => {
-                self.bank_regs[4]
-            }
-            (0x1C00..=0x1FFF, BiggerFirst) => {
-                self.bank_regs[5]
-            }
+        let bank = match(addr, &self.chr_mode) {
+            (0x0000..=0x03FF, BiggerFirst) => self.bank_regs[0],
+            (0x0400..=0x07FF, BiggerFirst) => self.bank_regs[0]+1,
+            (0x0800..=0x0BFF, BiggerFirst) => self.bank_regs[1],
+            (0x0C00..=0x0FFF, BiggerFirst) => self.bank_regs[1]+1,
+            (0x1000..=0x13FF, BiggerFirst) => self.bank_regs[2],
+            (0x1400..=0x17FF, BiggerFirst) => self.bank_regs[3],
+            (0x1800..=0x1BFF, BiggerFirst) => self.bank_regs[4],
+            (0x1C00..=0x1FFF, BiggerFirst) => self.bank_regs[5],
 
-            (0x0000..=0x03FF, BiggerLast) => {
-                self.bank_regs[2] 
-            }
-            (0x0400..=0x07FF, BiggerLast) => {
-                self.bank_regs[3] 
-            }
-            (0x0800..=0x0BFF, BiggerLast) => {
-                self.bank_regs[4]
-            }
-            (0x0C00..=0x0FFF, BiggerLast) => {
-                self.bank_regs[5]
-            }
-            (0x1000..=0x13FF, BiggerLast) => {
-                self.bank_regs[0]
-            }
-            (0x1400..=0x17FF, BiggerLast) => {
-                self.bank_regs[0] + 1
-            }
-            (0x1800..=0x1BFF, BiggerLast) => {
-                self.bank_regs[1]
-            }
-            (0x1C00..=0x1FFF, BiggerLast) => {
-                self.bank_regs[1] + 1
-            }
-            _ => {unreachable!()}
+            (0x0000..=0x03FF, BiggerLast) => self.bank_regs[2],
+            (0x0400..=0x07FF, BiggerLast) => self.bank_regs[3],
+            (0x0800..=0x0BFF, BiggerLast) => self.bank_regs[4],
+            (0x0C00..=0x0FFF, BiggerLast) => self.bank_regs[5],
+            (0x1000..=0x13FF, BiggerLast) => self.bank_regs[0],
+            (0x1400..=0x17FF, BiggerLast) => self.bank_regs[0]+1,
+            (0x1800..=0x1BFF, BiggerLast) => self.bank_regs[1],
+            (0x1C00..=0x1FFF, BiggerLast) => self.bank_regs[1]+1,
+
+            _ => unreachable!()
         };
 
-        chr[bank_start * (1024) + (addr % 1024)]
+        chr[self.addr_from_chr_bank(bank, addr)]
     }
 
     fn write_prg(&mut self, _prg: &mut[u8], addr: usize, val: u8) {
         let addr_even = addr % 2 == 0;
         match (addr, addr_even) {
-            (0x0000..=0x1FFE, true) => {
-                self.bank_select = Mmc3Select::from_bits_retain(val);
-            }
-            (0x0001..=0x1FFF, false) => {
-                let reg = self.bank_select.clone()
-                    .intersection(Mmc3Select::bank_update)
-                    .bits();
-                self.bank_regs[reg as usize] = val as usize;
-            }
-            (0x2000..=0x3FFE, true) => {
-                self.mirroring = match val & 1 != 0{
+            (0x8000..=0x9FFE, true) => self.write_bank_select(val),
+            (0x8001..=0x9FFF, false) => self.bank_regs[self.bank_select] = val as usize,
+            (0xA000..=0xBFFE, true) => {
+                self.mirroring = match val & 1 != 0 {
+                    false => Mirroring::Vertically,
                     true  => Mirroring::Horizontally,
-                    false => Mirroring::Vertically
                 };
             }
-            (0x2001..=0x3FFF, false) => {
-                self.prg_ram_write_on = val & 0b0100_0000 == 0;
-                self.prg_ram_read_on  = val & 0b1000_0000 != 0;
+            (0xA001..=0xBFFF, false) => {
+                self.prg_ram_write_enabled = val & 0b0100_0000 == 0;
+                self.prg_ram_read_enabled  = val & 0b1000_0000 != 0;
             }
-            (0x4000..=0x5FFE, true) => {
+            (0xC000..=0xDFFE, true) => {
                 self.irq_latch = val;
             }
-            (0x4001..=0x5FFF, false) => {
+            (0xC001..=0xDFFF, false) => {
                 self.irq_counter = 0;
             }
-            (0x6000..=0x7FFE, true) => {
+            (0xE000..=0xFFFE, true) => {
                 self.irq_on = false;
                 // acknowledge any pending interrupts
             }
-            (0x6001..=0x7FFF, false) => {
+            (0xE001..=0xFFFF, false) => {
                 self.irq_on = true;
             }
             _ => unreachable!()
         }
-    }
-
-    fn mirroring(&self) -> Option<Mirroring> {
-        Some(self.mirroring)
     }
 }
 
@@ -376,16 +325,18 @@ pub struct UxRom {
 }
 impl Mapper for UxRom {
     fn read_prg(&mut self, prg: &[u8], addr: usize) -> u8 {
-        if (0x4000..=0x7FFF).contains(&addr) {
-            let last_bank_start = prg.len() - PRG_BANK_SIZE;
-            prg[last_bank_start + (addr % PRG_BANK_SIZE)]
+        let prg_addr = if (0xC000..=0xFFFF).contains(&addr) {
+            let last_bank = self.last_prg_bank(prg);
+            self.addr_from_prg_bank(last_bank, addr)
         } else {
-            prg[self.prg_bank_select + (addr % PRG_BANK_SIZE)]
-        }
+            self.addr_from_prg_bank(self.prg_bank_select, addr)
+        };
+
+        prg[prg_addr]
     }
 
     fn write_prg(&mut self, _prg: &mut[u8], _addr: usize, val: u8) {
-        self.prg_bank_select = (val & 0b0000_1111) as usize * PRG_BANK_SIZE;
+        self.prg_bank_select = (val & 0b0000_1111) as usize;
     }
 }
 
@@ -396,11 +347,11 @@ pub struct INesMapper003 {
 }
 impl Mapper for INesMapper003 {
     fn read_chr(&mut self, chr: &[u8], addr: usize) -> u8 {
-        chr[self.chr_bank_select + (addr % CHR_BANK_SIZE)]
+        chr[self.addr_from_chr_bank(self.chr_bank_select, addr)]
     }
 
     fn write_prg(&mut self, _prg: &mut[u8], _addr: usize, val: u8) {
-        self.chr_bank_select = (val & 0b0000_0011) as usize * CHR_BANK_SIZE;
+        self.chr_bank_select = (val & 0b0000_0011) as usize;
     }
 }
 
@@ -413,13 +364,14 @@ pub struct AxRom {
 }
 
 impl Mapper for AxRom {
+    fn prg_bank_size(&self) -> usize { DEFAULT_PRG_BANK_SIZE*2 }
+
     fn read_prg(&mut self, prg: &[u8], addr: usize) -> u8 {
-        prg[self.prg_bank_select + (addr % (PRG_BANK_SIZE*2))]
+        prg[self.addr_from_prg_bank(self.prg_bank_select, addr)]
     }
 
     fn write_prg(&mut self, _prg: &mut[u8], _addr: usize, val: u8) {
-        // Banks are 32kb big, not 16kB!
-        self.prg_bank_select = (val & 0b0000_0111) as usize * PRG_BANK_SIZE*2;
+        self.prg_bank_select = (val & 0b0000_0111) as usize;
         
         self.mirroring_page = match val & 0b0001_0000 != 0 {
             false   => Mirroring::SingleScreenFirstPage,
@@ -439,18 +391,19 @@ pub struct GxRom {
     pub chr_bank_select: usize,
 }
 impl Mapper for GxRom {
+    fn prg_bank_size(&self) -> usize { DEFAULT_PRG_BANK_SIZE*2 }
+
     fn read_prg(&mut self, prg: &[u8], addr: usize) -> u8 {
-        prg[self.prg_bank_select + (addr % (PRG_BANK_SIZE*2))]
+        prg[self.addr_from_prg_bank(self.prg_bank_select, addr)]
     }
 
     fn read_chr(&mut self, chr: &[u8], addr: usize) -> u8 {
-        chr[self.chr_bank_select + (addr % CHR_BANK_SIZE)]
+        chr[self.addr_from_chr_bank(self.chr_bank_select, addr)]
     }
 
     fn write_prg(&mut self, _prg: &mut[u8], _addr: usize, val: u8) {
-        self.chr_bank_select = (val & 0b0000_0011) as usize * CHR_BANK_SIZE;
-        // Banks are 32kb big, not 16kB!
-        self.prg_bank_select = ((val & 0b0011_0000) >> 4) as usize * PRG_BANK_SIZE*2;
+        self.chr_bank_select = (val & 0b0000_0011) as usize;
+        self.prg_bank_select = ((val & 0b0011_0000) >> 4) as usize;
     }
 }
 
@@ -470,10 +423,10 @@ impl Mapper for Mmc2 {
     fn read_prg(&mut self, prg: &[u8], addr: usize) -> u8 {
         // last three 8kb prg banks
         if (0x2000..=0x7FFF).contains(&addr) {
-            let last_three_banks = prg.len() - (CHR_BANK_SIZE*3);
-            prg[last_three_banks + (addr % (CHR_BANK_SIZE*3))]
+            let last_three_banks = prg.len() - (DEFAULT_CHR_BANK_SIZE*3);
+            prg[last_three_banks + (addr % (DEFAULT_CHR_BANK_SIZE*3))]
         } else {
-            prg[self.prg_bank_select + (addr % CHR_BANK_SIZE)]
+            prg[self.prg_bank_select + (addr % DEFAULT_CHR_BANK_SIZE)]
         }
     }
 
@@ -499,14 +452,14 @@ impl Mapper for Mmc2 {
             _ => {}
         }
 
-        chr[mapped * (CHR_BANK_SIZE/2) + (addr % (CHR_BANK_SIZE/2))]
+        chr[mapped * (DEFAULT_CHR_BANK_SIZE/2) + (addr % (DEFAULT_CHR_BANK_SIZE/2))]
     }
 
     fn write_prg(&mut self, _prg: &mut[u8], addr: usize, val: u8) {
         let val = val as usize & 0b1_1111;
 
         match addr {
-            0x2000..=0x2FFF => self.prg_bank_select = (val & 0b1111) * CHR_BANK_SIZE,
+            0x2000..=0x2FFF => self.prg_bank_select = (val & 0b1111) * DEFAULT_CHR_BANK_SIZE,
             // 0x3000..=0x3FFF => {
             //     // set 0xFD/0 bank select
             //     self.chr_bank0_select[0] = val * (CHR_BANK_SIZE/2);
@@ -548,17 +501,18 @@ pub struct ColorDreams {
     pub chr_bank_select: usize,
 }
 impl Mapper for ColorDreams {
+    fn prg_bank_size(&self) -> usize { DEFAULT_PRG_BANK_SIZE*2 }
+
     fn read_prg(&mut self, prg: &[u8], addr: usize) -> u8 {
-        prg[self.prg_bank_select + (addr % (PRG_BANK_SIZE*2))]
+        prg[self.addr_from_prg_bank(self.prg_bank_select, addr)]
     }
 
     fn read_chr(&mut self, chr: &[u8], addr: usize) -> u8 {
-        chr[self.chr_bank_select + (addr % CHR_BANK_SIZE)]
+        chr[self.addr_from_chr_bank(self.chr_bank_select, addr)]
     }
 
     fn write_prg(&mut self, _prg: &mut[u8], _addr: usize, val: u8) {
-        // Banks are 32kb big, not 16kB!
-        self.prg_bank_select = (val & 0b0000_0011) as usize * PRG_BANK_SIZE*2;
-        self.chr_bank_select = ((val & 0b1111_0000) >> 4) as usize * CHR_BANK_SIZE;
+        self.prg_bank_select = (val & 0b0000_0011) as usize;
+        self.chr_bank_select = ((val & 0b1111_0000) >> 4) as usize;
     }
 }

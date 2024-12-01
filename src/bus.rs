@@ -22,7 +22,7 @@ impl Memory for Bus {
     let (dst, addr) = self.map_address(addr);
     match dst {
       BusDst::Ram => self.ram[addr],
-      BusDst::Ppu => self.ppu.reg_read(addr as u16),
+      BusDst::Ppu => self.ppu.read_reg(addr as u16),
       BusDst::Apu => self.apu.reg_read(addr as u16),
       BusDst::Joypad1 => self.joypad.read(),
       BusDst::SRam => self.sram[addr],
@@ -35,7 +35,7 @@ impl Memory for Bus {
     let (dst, addr) = self.map_address(addr);
     match dst {
       BusDst::Ram => self.ram[addr] = val,
-      BusDst::Ppu => self.ppu.reg_write(addr as u16, val),
+      BusDst::Ppu => self.ppu.write_reg(addr as u16, val),
       BusDst::Apu => self.apu.reg_write(addr as u16, val),
       BusDst::Joypad1 => self.joypad.write(val),
       BusDst::Joypad2 => {} // TODO: second joypad
@@ -77,21 +77,14 @@ impl Bus {
 
   fn map_address(&self, addr: u16) -> (BusDst, usize) {
     match addr {
-      0x0000..=0x1FFF => {
-        let ram_addr = addr & 0x07FF;
-        (BusDst::Ram, ram_addr as usize)
-      }
-      0x2000..=0x3FFF => {
-        let ppu_addr = addr & 0x2007;
-        (BusDst::Ppu, ppu_addr as usize)
-      }
-  
+      0x0000..=0x1FFF => (BusDst::Ram, addr as usize & 0x07FF),
+      0x2000..=0x3FFF => (BusDst::Ppu, addr as usize & 0x2007),
       0x4000..=0x4013 | 0x4015 | 0x4017 => (BusDst::Apu, addr as usize),
       0x4016 => (BusDst::Joypad1, addr as usize),
       // 0x4017 => (BusDst::Joypad2, addr as usize),
-  
       0x6000..=0x7FFF => (BusDst::SRam, addr as usize - 0x6000),
-      0x8000..=0xFFFF => (BusDst::Prg, addr as usize - 0x8000),
+      // We pass it as is to the mapper, for convenience
+      0x8000..=0xFFFF => (BusDst::Prg, addr as usize),
       _ => (BusDst::NoImpl, addr as usize)
     }
   }
