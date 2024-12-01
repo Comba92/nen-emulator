@@ -264,7 +264,8 @@ impl<M: Memory> Cpu<M> {
     if self.bus.poll_nmi() {
       info!("NMI HANDLING");
       self.handle_interrupt(NMI_ISR);
-    } else if self.bus.poll_irq() && !self.p.contains(CpuFlags::irq_off) { 
+    } else if self.bus.poll_irq() && !self.p.contains(CpuFlags::irq_off) {
+      info!("IRQ HANDLING");
       self.handle_interrupt(IRQ_ISR);
     }
   }

@@ -305,6 +305,7 @@ impl Ppu {
       self.cycle = 0;
       self.scanline += 1;
 
+
       if self.scanline > 261 {
         self.scanline = 0;
         self.in_odd_frame = !self.in_odd_frame;

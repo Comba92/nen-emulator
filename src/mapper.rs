@@ -39,6 +39,7 @@ pub trait Mapper {
     }
 
     fn mirroring(&self) -> Option<Mirroring> { None }
+    fn scanline_ended(&mut self) {}
     fn poll_irq(&mut self) -> bool { false }
 }
 
@@ -74,13 +75,13 @@ pub struct NRom;
 impl Mapper for NRom {}
 
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 enum Mmc1PrgMode { Bank32kb, FixFirst16kb, #[default] FixLast16kb }
-#[derive(Default)]
-enum Mmc1ChrMode { Bank8kb, #[default] Bank4kb }
+#[derive(Default, Debug)]
+enum Mmc1ChrMode { #[default] Bank8kb, Bank4kb }
 
 // Mapper 1 https://www.nesdev.org/wiki/MMC1
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct Mmc1 {
     shift_reg: u8,
     shift_writes: usize,
@@ -129,9 +130,9 @@ impl Mapper for Mmc1 {
     fn addr_from_chr_bank(&self, bank: usize, addr: usize) -> usize {
         match self.chr_mode {
             Mmc1ChrMode::Bank8kb => 
-                bank*self.chr_bank_size() + ((addr - ROM_START) % self.chr_bank_size()),
+                bank*self.chr_bank_size() + (addr % self.chr_bank_size()),
             Mmc1ChrMode::Bank4kb => 
-                bank*(self.chr_bank_size()/2) + ((addr - ROM_START) % (self.chr_bank_size()/2)),
+                bank*(self.chr_bank_size()/2) + (addr % (self.chr_bank_size()/2)),
         }
     }
 
@@ -168,7 +169,7 @@ impl Mapper for Mmc1 {
                 }
             }
         };
-        
+
         chr[self.addr_from_chr_bank(bank, addr)]
     }
 
@@ -185,8 +186,8 @@ impl Mapper for Mmc1 {
         if self.shift_writes >= 5 {
             match addr {
                 0x8000..=0x9FFF => self.write_ctrl(self.shift_reg),
-                0xA000..=0xBFFF => self.chr_bank0_select = self.shift_reg as usize & 0b11111 ,
-                0xC000..=0xDFFF => self.chr_bank1_select = self.shift_reg as usize & 0b11111,
+                0xA000..=0xBFFF => self.chr_bank0_select = self.shift_reg as usize & 0b1_1111,
+                0xC000..=0xDFFF => self.chr_bank1_select = self.shift_reg as usize & 0b1_1111,
                 0xE000..=0xFFFF => self.prg_bank_select  = self.shift_reg as usize & 0b1111,
                 _ => unreachable!()
             }
@@ -221,7 +222,10 @@ pub struct Mmc3 {
 
     irq_counter: u8,
     irq_latch: u8,
+    irq_reload: bool,
     irq_on: bool,
+
+    irq_requested: Option<()>,
 }
 impl Mmc3 {
     fn write_bank_select(&mut self, val: u8) {
@@ -300,21 +304,33 @@ impl Mapper for Mmc3 {
                 self.prg_ram_write_enabled = val & 0b0100_0000 == 0;
                 self.prg_ram_read_enabled  = val & 0b1000_0000 != 0;
             }
-            (0xC000..=0xDFFE, true) => {
-                self.irq_latch = val;
-            }
+            (0xC000..=0xDFFE, true) => self.irq_latch = val,
             (0xC001..=0xDFFF, false) => {
-                self.irq_counter = 0;
+                self.irq_counter = 0; 
             }
             (0xE000..=0xFFFE, true) => {
                 self.irq_on = false;
                 // acknowledge any pending interrupts
             }
-            (0xE001..=0xFFFF, false) => {
-                self.irq_on = true;
-            }
+            (0xE001..=0xFFFF, false) => self.irq_on = true,
             _ => unreachable!()
         }
+    }
+
+    fn scanline_ended(&mut self) {
+        if self.irq_on && self.irq_counter == 0 {
+            self.irq_requested = Some(());
+        }
+
+        if self.irq_counter == 0 || self.irq_reload {
+            self.irq_counter = self.irq_latch;
+        } else {
+            self.irq_counter -= 1;
+        }
+    }
+
+    fn poll_irq(&mut self) -> bool {
+        self.irq_requested.take().is_some()
     }
 }
 
