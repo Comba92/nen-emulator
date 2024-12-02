@@ -27,13 +27,13 @@ pub const STACK_END: usize = 0x0200;
 // At boot, it is 0x00 - 0x03 = 0xFD
 // After every successive restart, it will be SP - 0x03
 const SP_RESET: u8 = 0xFD;
-const PC_RESET: u16 = 0xFFFC;
+const PC_RESET: u16 = RESET_ISR;
 const _P_RESET_U8: u8 = 0x24;
 const P_RESET: CpuFlags = CpuFlags::irq_off.union(CpuFlags::brkpush);
 
-pub const NMI_ISR: u16 = 0xFFFA;
-pub const RESET_ISR: u16 = 0xFFFC;
-pub const IRQ_ISR: u16 = 0xFFFE;
+const NMI_ISR: u16 = 0xFFFA;
+const RESET_ISR: u16 = 0xFFFC;
+const IRQ_ISR: u16 = 0xFFFE;
 
 pub struct Cpu<M: Memory> {
   pub pc: u16,
@@ -43,10 +43,11 @@ pub struct Cpu<M: Memory> {
   pub x: u8,
   pub y: u8,
   pub cycles: usize,
-  pub stalled: bool,
   pub jammed: bool,
   pub bus: M,
-  pub dma: Dma,
+
+  stalled: bool,
+  dma: Dma,
 }
 
 impl<M: Memory> Memory for Cpu<M> {
@@ -150,7 +151,7 @@ impl<M: Memory> Cpu<M> {
     self.p.set(CpuFlags::overflow, overflow);
   }
 
-  pub fn carry(&self) -> u8 {
+  fn carry(&self) -> u8 {
     self.p.contains(CpuFlags::carry).into()
   }
 
@@ -166,32 +167,32 @@ impl<M: Memory> Cpu<M> {
     res
   }
 
-  pub fn sp_addr(&self) -> u16 {
+  fn sp_addr(&self) -> u16 {
     // Stack grows downward
     STACK_START.wrapping_add(self.sp as usize) as u16
   }
 
-  pub fn stack_push(&mut self, val: u8) {
+  fn stack_push(&mut self, val: u8) {
     debug!("-> Pushing ${:02X} to stack at cycle {}", val, self.cycles);
     self.write(self.sp_addr(), val);
     debug!("\t{}", self.stack_trace());
     self.sp = self.sp.wrapping_sub(1);
   }
 
-  pub fn stack_push16(&mut self, val: u16) {
+  fn stack_push16(&mut self, val: u16) {
     let [low, high] = val.to_le_bytes();
     self.stack_push(high);
     self.stack_push(low);
   }
 
-  pub fn stack_pull(&mut self) -> u8 {
+  fn stack_pull(&mut self) -> u8 {
     self.sp = self.sp.wrapping_add(1);
     debug!("<- Pulling ${:02X} from stack at cycle {}", self.read(self.sp_addr()), self.cycles);
     debug!("\t{}", self.stack_trace());
     self.read(self.sp_addr())
   }
 
-  pub fn stack_pull16(&mut self) -> u16 {
+  fn stack_pull16(&mut self) -> u16 {
     let low = self.stack_pull();
     let high = self.stack_pull();
 
@@ -222,7 +223,7 @@ enum InstrDst {
 }
 
 #[derive(Default)]
-pub struct Dma {
+struct Dma {
   start: u16,
   offset: u16,
 }
@@ -388,13 +389,13 @@ impl<M: Memory> Cpu<M> {
     self.set_instr_result(dst, val);
   }
 
-  pub fn lda(&mut self, op: &mut Operand) {
+  fn lda(&mut self, op: &mut Operand) {
     self.load(op, InstrDst::Acc)
   }
-  pub fn ldx(&mut self, op: &mut Operand) {
+  fn ldx(&mut self, op: &mut Operand) {
     self.load(op, InstrDst::X)
   }
-  pub fn ldy(&mut self, op: &mut Operand) {
+  fn ldy(&mut self, op: &mut Operand) {
     self.load(op, InstrDst::Y)
   }
 
@@ -404,13 +405,13 @@ impl<M: Memory> Cpu<M> {
     } else { unreachable!("store operations should always have an address destination, got {op:?}") }
   }
 
-  pub fn sta(&mut self, op: &mut Operand) {
+  fn sta(&mut self, op: &mut Operand) {
     self.store(op, self.a)
   }
-  pub fn stx(&mut self, op: &mut Operand) {
+  fn stx(&mut self, op: &mut Operand) {
     self.store(op, self.x)
   }
-  pub fn sty(&mut self, op: &mut Operand) {
+  fn sty(&mut self, op: &mut Operand) {
     self.store(op, self.y)
   }
 
@@ -419,43 +420,43 @@ impl<M: Memory> Cpu<M> {
     self.set_instr_result(dst, src);
   }
 
-  pub fn tax(&mut self, _: &mut Operand) {
+  fn tax(&mut self, _: &mut Operand) {
     self.transfer(self.a, InstrDst::X)
   }
-  pub fn tay(&mut self, _: &mut Operand) {
+  fn tay(&mut self, _: &mut Operand) {
     self.transfer(self.a, InstrDst::Y)
   }
-  pub fn tsx(&mut self, _: &mut Operand) {
+  fn tsx(&mut self, _: &mut Operand) {
     self.transfer(self.sp, InstrDst::X)
   }
-  pub fn txa(&mut self, _: &mut Operand) {
+  fn txa(&mut self, _: &mut Operand) {
     self.transfer(self.x, InstrDst::Acc)
   }
-  pub fn txs(&mut self, _: &mut Operand) {
+  fn txs(&mut self, _: &mut Operand) {
     debug!("SP changed from ${:02X} to ${:02X}", self.sp, self.x);
     self.sp = self.x;
   }
-  pub fn tya(&mut self, _: &mut Operand) {
+  fn tya(&mut self, _: &mut Operand) {
     self.transfer(self.y, InstrDst::Acc)
   }
 
-  pub fn pha(&mut self, _: &mut Operand) {
+  fn pha(&mut self, _: &mut Operand) {
     trace!("[PHA] Pushing ${:02X} to stack at cycle {}", self.a, self.cycles);
     self.stack_push(self.a);
   }
-  pub fn pla(&mut self, _: &mut Operand) {
+  fn pla(&mut self, _: &mut Operand) {
     let res = self.stack_pull();
     self.set_zn(res);
     self.a = res;
     trace!("[PLA] Pulled ${:02X} from stack at cycle {}", self.a, self.cycles);
   }
-  pub fn php(&mut self, _: &mut Operand) {
+  fn php(&mut self, _: &mut Operand) {
     // Brk is always 1 on pushes
     let pushable = self.p.clone().union(CpuFlags::brkpush);
     trace!("[PHP] Pushing {pushable:?} (${:02X}) to stack at cycle {}", pushable.bits(), self.cycles);
     self.stack_push(pushable.bits());
   }
-  pub fn plp(&mut self, _: &mut Operand) {
+  fn plp(&mut self, _: &mut Operand) {
     let res = self.stack_pull();
     // Brk is always 0 on pulls, but unused is always 1
     self.p = CpuFlags::from_bits_retain(res)
@@ -470,16 +471,16 @@ impl<M: Memory> Cpu<M> {
     self.set_zn(res);
     self.a = res;
   }
-  pub fn and(&mut self, op: &mut Operand) {
+  fn and(&mut self, op: &mut Operand) {
     self.logical(op, u8::bitand)
   }
-  pub fn eor(&mut self, op: &mut Operand) {
+  fn eor(&mut self, op: &mut Operand) {
     self.logical(op, u8::bitxor)
   }
-  pub fn ora(&mut self, op: &mut Operand) {
+  fn ora(&mut self, op: &mut Operand) {
     self.logical(op, u8::bitor)
   }
-  pub fn bit(&mut self, op: &mut Operand) {
+  fn bit(&mut self, op: &mut Operand) {
     let val = self.get_operand_value(op);
     let res = self.a & val;
     self.set_zero(res);
@@ -494,11 +495,11 @@ impl<M: Memory> Cpu<M> {
     self.a = res as u8;
   }
 
-  pub fn adc(&mut self, op: &mut Operand) {
+  fn adc(&mut self, op: &mut Operand) {
     let val = self.get_operand_value(op);
     self.addition(val);
   }
-  pub fn sbc(&mut self, op: &mut Operand) {
+  fn sbc(&mut self, op: &mut Operand) {
     let val = self.get_operand_value(op);
     // self.addition((val as i8).wrapping_neg().wrapping_sub(1) as u8);
     self.addition(val.not());
@@ -511,13 +512,13 @@ impl<M: Memory> Cpu<M> {
     self.p.set(CpuFlags::carry, reg >= val);
   }
 
-  pub fn cmp(&mut self, op: &mut Operand) {
+  fn cmp(&mut self, op: &mut Operand) {
     self.compare(self.a, op)
   }
-  pub fn cpx(&mut self, op: &mut Operand) {
+  fn cpx(&mut self, op: &mut Operand) {
     self.compare(self.x, op)
   }
-  pub fn cpy(&mut self, op: &mut Operand) {
+  fn cpy(&mut self, op: &mut Operand) {
     self.compare(self.y, op)
   }
 
@@ -526,7 +527,7 @@ impl<M: Memory> Cpu<M> {
     self.set_zn(res);
     res
   }
-  pub fn inc(&mut self, op: &mut Operand) {
+  fn inc(&mut self, op: &mut Operand) {
     let val = self.get_operand_value(op);
     let res = self.increase(val, u8::wrapping_add);
     if let Operand::Addr(dst, _) = op {
@@ -536,13 +537,13 @@ impl<M: Memory> Cpu<M> {
       *op = Operand::Addr(*dst, OnceCell::from(res));
     } else { unreachable!("inc should always have an address destination, got {op:?}") }
   }
-  pub fn inx(&mut self, _: &mut Operand) {
+  fn inx(&mut self, _: &mut Operand) {
     self.x = self.increase(self.x, u8::wrapping_add);
   }
-  pub fn iny(&mut self, _: &mut Operand) {
+  fn iny(&mut self, _: &mut Operand) {
     self.y = self.increase(self.y, u8::wrapping_add)
   }
-  pub fn dec(&mut self, op: &mut Operand) {
+  fn dec(&mut self, op: &mut Operand) {
     let val = self.get_operand_value(op);
     let res = self.increase(val, u8::wrapping_sub);
     if let Operand::Addr(dst, _) = op {
@@ -552,10 +553,10 @@ impl<M: Memory> Cpu<M> {
       *op = Operand::Addr(*dst, OnceCell::from(res));
     } else { unreachable!("dec should always have an address destination, got {op:?}") }
   }
-  pub fn dex(&mut self, _: &mut Operand) {
+  fn dex(&mut self, _: &mut Operand) {
     self.x = self.increase(self.x, u8::wrapping_sub);
   }
-  pub fn dey(&mut self, _: &mut Operand) {
+  fn dey(&mut self, _: &mut Operand) {
     self.y = self.increase(self.y, u8::wrapping_sub);
   }
 
@@ -576,31 +577,31 @@ impl<M: Memory> Cpu<M> {
     }
   }
 
-  pub fn asl(&mut self, op: &mut Operand) {
+  fn asl(&mut self, op: &mut Operand) {
     self.shift(op, 0b1000_0000, |v| v.shl(1));
   }
-  pub fn lsr(&mut self, op: &mut Operand) {
+  fn lsr(&mut self, op: &mut Operand) {
     self.shift(op, 1, |v| v.shr(1));
   }
-  pub fn rol(&mut self, op: &mut Operand) {
+  fn rol(&mut self, op: &mut Operand) {
     let old_carry = self.carry();
     self.shift(op, 0b1000_0000, |v| v.shl(1) | old_carry);
   }
-  pub fn ror(&mut self, op: &mut Operand) {
+  fn ror(&mut self, op: &mut Operand) {
     let old_carry = self.carry();
     self.shift(op, 1, |v| v.shr(1) | (old_carry << 7));
   }
 
-  pub fn jmp(&mut self, op: &mut Operand) {
+  fn jmp(&mut self, op: &mut Operand) {
     if let Operand::Addr(src, _) = op {
       self.pc = *src;
     } else { unreachable!("jmp should always have an address destination, got {op:?}") } 
   }
-  pub fn jsr(&mut self, op: &mut Operand) {
+  fn jsr(&mut self, op: &mut Operand) {
     self.stack_push16(self.pc - 1);
     self.jmp(op);
   }
-  pub fn rts(&mut self, _: &mut Operand) {
+  fn rts(&mut self, _: &mut Operand) {
     self.pc = self.stack_pull16() + 1;
   }
 
@@ -621,60 +622,60 @@ impl<M: Memory> Cpu<M> {
       self.pc = new_pc;
     }
   }
-  pub fn bcc(&mut self, op: &mut Operand) {
+  fn bcc(&mut self, op: &mut Operand) {
     self.branch(op, self.carry() == 0)
   }
-  pub fn bcs(&mut self, op: &mut Operand) {
+  fn bcs(&mut self, op: &mut Operand) {
     self.branch(op, self.carry() == 1)
   }
-  pub fn beq(&mut self, op: &mut Operand) {
+  fn beq(&mut self, op: &mut Operand) {
     self.branch(op, self.p.contains(CpuFlags::zero))
   }
-  pub fn bne(&mut self, op: &mut Operand) {
+  fn bne(&mut self, op: &mut Operand) {
     self.branch(op, !self.p.contains(CpuFlags::zero))
   }
-  pub fn bmi(&mut self, op: &mut Operand) {
+  fn bmi(&mut self, op: &mut Operand) {
     self.branch(op, self.p.contains(CpuFlags::negative))
   }
-  pub fn bpl(&mut self, op: &mut Operand) {
+  fn bpl(&mut self, op: &mut Operand) {
     self.branch(op, !self.p.contains(CpuFlags::negative))
   }
-  pub fn bvc(&mut self, op: &mut Operand) {
+  fn bvc(&mut self, op: &mut Operand) {
     self.branch(op, !self.p.contains(CpuFlags::overflow))
   }
-  pub fn bvs(&mut self, op: &mut Operand) {
+  fn bvs(&mut self, op: &mut Operand) {
     self.branch(op, self.p.contains(CpuFlags::overflow))
   }
 
   fn clear_stat(&mut self, s: CpuFlags) {
     self.p.remove(s);
   }
-  pub fn clc(&mut self, _: &mut Operand) {
+  fn clc(&mut self, _: &mut Operand) {
     self.clear_stat(CpuFlags::carry)
   }
-  pub fn cld(&mut self, _: &mut Operand) {
+  fn cld(&mut self, _: &mut Operand) {
     self.clear_stat(CpuFlags::decimal)
   }
-  pub fn cli(&mut self, _: &mut Operand) {
+  fn cli(&mut self, _: &mut Operand) {
     self.clear_stat(CpuFlags::irq_off)
   }
-  pub fn clv(&mut self, _: &mut Operand) {
+  fn clv(&mut self, _: &mut Operand) {
     self.clear_stat(CpuFlags::overflow)
   }
   fn set_stat(&mut self, s: CpuFlags) {
     self.p.insert(s);
   }
-  pub fn sec(&mut self, _: &mut Operand) {
+  fn sec(&mut self, _: &mut Operand) {
     self.set_stat(CpuFlags::carry)
   }
-  pub fn sed(&mut self, _: &mut Operand) {
+  fn sed(&mut self, _: &mut Operand) {
     self.set_stat(CpuFlags::decimal)
   }
-  pub fn sei(&mut self, _: &mut Operand) {
+  fn sei(&mut self, _: &mut Operand) {
     self.set_stat(CpuFlags::irq_off)
   }
 
-  pub fn brk(&mut self, op: &mut Operand) {
+  fn brk(&mut self, op: &mut Operand) {
     // BRK IS 2 BYTES LONG!!
     self.stack_push16(self.pc.wrapping_add(1));
     self.php(op);
@@ -682,49 +683,49 @@ impl<M: Memory> Cpu<M> {
     self.pc = self.read16(IRQ_ISR);
   }
 
-  pub fn rti(&mut self, op: &mut Operand) {
+  fn rti(&mut self, op: &mut Operand) {
     self.plp(op);
     self.pc = self.stack_pull16();
   }
-  pub fn nop(&mut self, _: &mut Operand) {}
+  fn nop(&mut self, _: &mut Operand) {}
 }
 
 impl<M: Memory> Cpu<M> {
-  pub fn usbc(&mut self, op: &mut Operand) {
+  fn usbc(&mut self, op: &mut Operand) {
     self.sbc(op);
   }
 
-  pub fn alr(&mut self, op: &mut Operand) {
+  fn alr(&mut self, op: &mut Operand) {
     self.and(op);
     self.lsr(&mut Operand::Acc);
   }
 
-  pub fn slo(&mut self, op: &mut Operand) {
+  fn slo(&mut self, op: &mut Operand) {
     self.asl(op);
     self.ora(op);
   }
 
-  pub fn sre(&mut self, op: &mut Operand) {
+  fn sre(&mut self, op: &mut Operand) {
     self.lsr(op);
     self.eor(op);
   }
 
-  pub fn rla(&mut self, op: &mut Operand) {
+  fn rla(&mut self, op: &mut Operand) {
     self.rol(op);
     self.and(op);
   }
 
-  pub fn rra(&mut self, op: &mut Operand) {
+  fn rra(&mut self, op: &mut Operand) {
     self.ror(op);
     self.adc(op);
   }
 
-  pub fn anc(&mut self, op: &mut Operand) {
+  fn anc(&mut self, op: &mut Operand) {
     self.and(op);
     self.p.set(CpuFlags::carry, self.p.contains(CpuFlags::negative));
   }
 
-  pub fn arr(&mut self, op: &mut Operand) {
+  fn arr(&mut self, op: &mut Operand) {
     self.and(op);
     self.ror(&mut Operand::Acc);
     let res = self.a;
@@ -734,17 +735,17 @@ impl<M: Memory> Cpu<M> {
     self.p.set(CpuFlags::overflow, bit6 ^ bit5);
   }
 
-  pub fn dcp(&mut self, op: &mut Operand) {
+  fn dcp(&mut self, op: &mut Operand) {
     self.dec(op);
     self.cmp(op);
   }
 
-  pub fn isc(&mut self, op: &mut Operand) {
+  fn isc(&mut self, op: &mut Operand) {
     self.inc(op);
     self.sbc(op); 
   }
 
-  pub fn las(&mut self, op: &mut Operand) {
+  fn las(&mut self, op: &mut Operand) {
     let val = self.get_operand_value(op);
     let res = val & self.sp;
     self.a = res;
@@ -753,13 +754,13 @@ impl<M: Memory> Cpu<M> {
     self.set_zn(res);
   }
 
-  pub fn lax(&mut self, op: &mut Operand) {
+  fn lax(&mut self, op: &mut Operand) {
     self.lda(op);
     self.ldx(op);
   }
 
   // also called AXS, SAX
-  pub fn sbx(&mut self, op: &mut Operand) {
+  fn sbx(&mut self, op: &mut Operand) {
     let val = self.get_operand_value(op);
     self.compare(self.a & self.x, op);
     let res = (self.a & self.x).wrapping_sub(val);
@@ -767,7 +768,7 @@ impl<M: Memory> Cpu<M> {
   }
 
   // also called AXS, AAX
-  pub fn sax(&mut self, op: &mut Operand) {
+  fn sax(&mut self, op: &mut Operand) {
     if let Operand::Addr(dst, _) = op {
       let res = self.a & self.x;
       self.set_instr_result(InstrDst::Mem(*dst), res);
@@ -785,35 +786,35 @@ impl<M: Memory> Cpu<M> {
   }
 
   // also called XAS, SHS
-  pub fn tas(&mut self, op: &mut Operand) {
+  fn tas(&mut self, op: &mut Operand) {
     let res = self.a & self.x;
     self.sp = res;
     self.high_addr_bitand(op, res);
   }
 
   // also called SXA, XAS
-  pub fn shx(&mut self, op: &mut Operand) {
+  fn shx(&mut self, op: &mut Operand) {
     self.high_addr_bitand(op, self.x);
   }
 
   // also called A11m SYA, SAY
-  pub fn shy(&mut self, op: &mut Operand) {
+  fn shy(&mut self, op: &mut Operand) {
     self.high_addr_bitand(op, self.y);
   }
 
   // also called AHX, AXA
-  pub fn sha(&mut self, op: &mut Operand) {
+  fn sha(&mut self, op: &mut Operand) {
     self.high_addr_bitand(op, self.a & self.x);
   }
 
   // also called XAA
-  pub fn ane(&mut self, op: &mut Operand) {
+  fn ane(&mut self, op: &mut Operand) {
     self.txa(op);
     self.and(op);
   }
 
   // also called LAXI
-  pub fn lxa(&mut self, op: &mut Operand) {
+  fn lxa(&mut self, op: &mut Operand) {
     let val = self.get_operand_value(op);
     self.set_zn(val);
     self.a = val;
@@ -821,7 +822,93 @@ impl<M: Memory> Cpu<M> {
   }
 
   // also called KIL, HLT
-  pub fn jam(&mut self, _: &mut Operand) {
+  fn jam(&mut self, _: &mut Operand) {
     self.jammed = true;
+  }
+}
+
+impl<M: Memory> Cpu<M> {
+  fn execute(&mut self, code: u8, op: &mut Operand) {
+    match code {
+      0 => self.brk(op),
+      1 | 5 | 9 | 13 | 17 | 21 | 25 | 29 => self.ora(op),
+      2 | 18 | 34 | 50 | 66 | 82 | 98 | 114 | 146 | 178 | 210 | 242 => self.jam(op),
+      3 | 7 | 15 | 19 | 23 | 27 | 31 => self.slo(op),
+      4 | 12 | 20 | 26 | 28 | 52 | 58 | 60 | 68 | 84 | 90 | 92 
+      | 100 | 116 | 122 | 124 | 128 | 130 | 137 | 194
+      | 212 | 218 | 220 | 226 | 234 | 244 | 250 | 252 => self.nop(op),
+      6 | 10 | 14 | 22 | 30 => self.asl(op),
+      8 => self.php(op),
+      11 | 43 => self.anc(op),
+      16 => self.bpl(op),
+      24 => self.clc(op),
+      32 => self.jsr(op),
+      33 | 37 | 41 | 45 | 49 | 53 | 57 | 61 => self.and(op),
+      35 | 39 | 47 | 51 | 55 | 59 | 63 => self.rla(op),
+      36 | 44 => self.bit(op),
+      38 | 42 | 46 | 54 | 62 => self.rol(op),
+      40 => self.plp(op),
+      48 => self.bmi(op),
+      56 => self.sec(op),
+      64 => self.rti(op),
+      65 | 69 | 73 | 77 | 81 | 85 | 89 | 93 => self.eor(op),
+      67 | 71 | 79 | 83 | 87 | 91 | 95 => self.sre(op),
+      70 | 74 | 78 | 86 | 94 => self.lsr(op),
+      72 => self.pha(op),
+      75 => self.alr(op),
+      76 | 108 => self.jmp(op),
+      80 => self.bvc(op),
+      88 => self.cli(op),
+      96 => self.rts(op),
+      97 | 101 | 105 | 109 | 113 | 117 | 121 | 125 => self.adc(op),
+      99 | 103 | 111 | 115 | 119 | 123 | 127 => self.rra(op),
+      102 | 106 | 110 | 118 | 126 => self.ror(op),
+      104 => self.pla(op),
+      107 => self.arr(op),
+      112 => self.bvs(op),
+      120 => self.sei(op),
+      129 | 133 | 141 | 145 | 149 | 153 | 157 => self.sta(op),
+      131 | 135 | 143 | 151 => self.sax(op),
+      132 | 140 | 148 => self.sty(op),
+      134 | 142 | 150 => self.stx(op),
+      136 => self.dey(op),
+      138 => self.txa(op),
+      139 => self.ane(op),
+      144 => self.bcc(op),
+      147 | 159 => self.sha(op),
+      152 => self.tya(op),
+      154 => self.txs(op),
+      155 => self.tas(op),
+      156 => self.shy(op),
+      158 => self.shx(op),
+      160 | 164 | 172 | 180 | 188 => self.ldy(op),
+      161 | 165 | 169 | 173 | 177 | 181 | 185 | 189 => self.lda(op),
+      162 | 166 | 174 | 182 | 190 => self.ldx(op),
+      163 | 167 | 175 | 179 | 183 | 191 => self.lax(op),
+      168 => self.tay(op),
+      170 => self.tax(op),
+      171 => self.lxa(op),
+      176 => self.bcs(op),
+      184 => self.clv(op),
+      186 => self.tsx(op),
+      187 => self.las(op),
+      192 | 196 | 204 => self.cpy(op),
+      193 | 197 | 201 | 205 | 209 | 213 | 217 | 221 => self.cmp(op),
+      195 | 199 | 207 | 211 | 215 | 219 | 223 => self.dcp(op),
+      198 | 206 | 214 | 222 => self.dec(op),
+      200 => self.iny(op),
+      202 => self.dex(op),
+      203 => self.sbx(op),
+      208 => self.bne(op),
+      216 => self.cld(op),
+      224 | 228 | 236 => self.cpx(op),
+      225 | 229 | 233 | 237 | 241 | 245 | 249 | 253 => self.sbc(op),
+      227 | 231 | 239 | 243 | 247 | 251 | 255 => self.isc(op),
+      230 | 238 | 246 | 254 => self.inc(op),
+      232 => self.inx(op),
+      235 => self.usbc(op),
+      240 => self.beq(op),
+      248 => self.sed(op),
+    }
   }
 }

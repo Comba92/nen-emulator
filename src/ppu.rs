@@ -214,48 +214,6 @@ impl Ppu {
     self.cycle = 0;
   }
 
-  // pub fn is_spr0_hit(&self) -> bool {
-  //   let spr0_y = self.oam[0] as usize;
-  //   let spr0_x = self.oam[3] as usize;
-
-  //   self.is_rendering_on()
-  //     && spr0_y == self.scanline
-  //     && spr0_x <= self.cycle
-  // }
-
-  // pub fn step(&mut self) {
-  //   self.cycle += 1;
-
-  //   if self.is_spr0_hit() {
-  //     self.stat.insert(PpuStat::spr0_hit);
-  //   }
-
-  //   if self.cycle == 341 {
-  //     self.cycle = 0;
-  //     self.scanline += 1;
-
-  //     // Post-render scanline (240)
-
-  //     // Vertical blanking lines (241-260)
-  //     if self.scanline == 241 {
-  //       info!("VBLANK!!");
-  //       self.vblank_started = Some(());
-  //       self.stat.insert(PpuStat::vblank);
-  //       self.stat.remove(PpuStat::spr0_hit);
-
-  //       if self.ctrl.contains(PpuCtrl::vblank_nmi_on) {
-  //         self.nmi_requested = Some(());
-  //       }
-
-  //     // Pre-render scanline (261)
-  //     } else if self.scanline == 261 {
-  //       self.stat = PpuStat::empty();
-  //       self.oam_addr = 0;
-  //       self.scanline = 0;
-  //     }
-  //   }
-  // }
-
   pub fn step_accurate(&mut self) {
     if (0..=239).contains(&self.scanline) || self.scanline == 261 {
       // visible scanlines 
@@ -285,12 +243,13 @@ impl Ppu {
       if self.ctrl.contains(PpuCtrl::vblank_nmi_on) {
         self.nmi_requested = Some(());
       }
-    }
-    else if self.scanline == 261 && self.cycle == 1 {
+    } else if self.scanline == 261 && self.cycle == 1 {
       self.stat = PpuStat::empty();
       self.oam_addr = 0;
     } else if self.scanline == 261 && self.cycle == 304 {
       self.reset_render_y();
+    } else if self.cycle == 260 {
+      // self.mapper.borrow_mut().scanline_ended();
     }
 
     if self.in_odd_frame
@@ -304,8 +263,6 @@ impl Ppu {
     if self.cycle > 340 {
       self.cycle = 0;
       self.scanline += 1;
-
-
       if self.scanline > 261 {
         self.scanline = 0;
         self.in_odd_frame = !self.in_odd_frame;

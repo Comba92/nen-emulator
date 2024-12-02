@@ -16,6 +16,7 @@ pub struct Bus {
   pub apu: Apu,
   pub joypad: Joypad,
 }
+// TODO: consider moving VRAM here
 
 impl Memory for Bus {
   fn read(&mut self, addr: u16) -> u8 {
@@ -23,7 +24,7 @@ impl Memory for Bus {
     match dst {
       BusDst::Ram => self.ram[addr],
       BusDst::Ppu => self.ppu.read_reg(addr as u16),
-      BusDst::Apu => self.apu.reg_read(addr as u16),
+      BusDst::Apu => self.apu.read_reg(addr as u16),
       BusDst::Joypad1 => self.joypad.read(),
       BusDst::SRam => self.sram[addr],
       BusDst::Prg => self.mapper.borrow_mut().read_prg(&self.prg, addr),
@@ -36,7 +37,7 @@ impl Memory for Bus {
     match dst {
       BusDst::Ram => self.ram[addr] = val,
       BusDst::Ppu => self.ppu.write_reg(addr as u16, val),
-      BusDst::Apu => self.apu.reg_write(addr as u16, val),
+      BusDst::Apu => self.apu.write_reg(addr as u16, val),
       BusDst::Joypad1 => self.joypad.write(val),
       BusDst::Joypad2 => {} // TODO: second joypad
       BusDst::SRam => self.sram[addr] = val,
@@ -51,7 +52,7 @@ impl Memory for Bus {
 
   fn poll_irq(&mut self) -> bool {
     self.mapper.borrow_mut().poll_irq()
-    || self.apu.irq_requested.take().is_some()
+    || self.apu.frame_irq_requested.take().is_some()
   }
 }
 

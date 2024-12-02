@@ -31,17 +31,17 @@ impl Emu {
 
   pub fn step(&mut self) {
     let cycles_at_start = self.cpu.cycles;
-    self.cpu.step();
+    self.get_cpu().step();
 
-    let step_cycles = self.cpu.cycles - cycles_at_start;
-    for _ in 0..step_cycles*3 { self.cpu.bus.ppu.step_accurate(); }
-    for _ in 0..step_cycles { self.cpu.bus.apu.step(); }
+    let step_cycles = self.get_cpu().cycles - cycles_at_start;
+    for _ in 0..step_cycles*3 { self.get_ppu().step_accurate(); }
+    for _ in 0..step_cycles { self.get_apu().step(); }
   }
 
   pub fn step_until_vblank(&mut self) {
     loop {
       if self.is_paused { return; }
-      if self.cpu.bus.poll_vblank() { break; }
+      if self.get_bus().poll_vblank() { break; }
       self.step();
     }
   }
@@ -49,7 +49,7 @@ impl Emu {
   pub fn step_until_sample(&mut self) -> i16 {
     loop {
       if self.is_paused { return 0; }
-      if let Some(sample) = self.get_cpu().bus.poll_sample() {
+      if let Some(sample) = self.get_bus().poll_sample() {
         return sample;
       }
       self.step();
@@ -95,6 +95,10 @@ impl Emu {
       Ok(cart) => Ok(Emu::with_cart(cart)),
       Err(msg) => Err(msg.to_string())
     }
+  }
+
+  pub fn get_bus(&mut self) -> &mut Bus {
+    &mut self.cpu.bus
   }
 
   pub fn get_cpu(&mut self) -> &mut Cpu<Bus> {

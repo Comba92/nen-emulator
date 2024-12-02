@@ -16,9 +16,9 @@ bitflags! {
 }
 
 pub struct Joypad {
-  pub strobe: bool,
+  strobe: bool,
   pub buttons: JoypadButton,
-  pub button_idx: usize,
+  button_idx: usize,
 }
 impl Joypad {
   pub fn new() -> Self {

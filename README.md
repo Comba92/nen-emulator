@@ -5,19 +5,16 @@
 
 [x] Implement Memory Bus, Interrupts, synchronization
 - Sram should be a mirrored vec
-- Fix all memory problems (some games expect more memory than provided, or start with the wrong mapper configuration)
-(games like Bubble Bobble, TMNT 2 and Batman crash at startup for this reason)
 
 [x] Implement PPU
+- Cleaner implementation
 - PPU masking
 - Rendering toggling delay (battletoads)
 
 [x] Mappers
-- THERE ARE SOME BUGS WITH MMC1 and MMC3, some games go out of memory!
-- Mmc3 ok, irq not implemented
-- Mmc2 not working
+- Mmc3 irq not implemented
 
-[] APU if i have the energy
+[] APU
 - It's buggy
 - PAL support?
 
@@ -26,7 +23,6 @@
 
 [] Consider making the core lib no_std
 [] Game info fetcher from online db
-
 
 # Resources
 - https://www.nesdev.org/NESDoc.pdf

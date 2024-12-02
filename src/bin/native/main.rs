@@ -1,7 +1,7 @@
 use std::{env::args, path::PathBuf};
 use nen_emulator::{emu::Emu, cart::Cart, render::{SCREEN_HEIGHT, SCREEN_WIDTH}};
-use sdl2::{audio::AudioSpecDesired, event::Event, pixels::PixelFormatEnum};
-use std::time::{Duration, Instant};
+use sdl2::{audio::{self, AudioCallback, AudioSpecDesired}, event::Event, pixels::PixelFormatEnum};
+use std::{time::{Duration, Instant}, sync::mpsc::{self, Receiver}};
 mod sdl2ctx;
 use sdl2ctx::{handle_input, Sdl2Context};
 
@@ -38,37 +38,43 @@ fn main() {
         PixelFormatEnum::RGBA32, emu.get_screen().width as u32, emu.get_screen().height as u32
     ).unwrap();
 
-    let _desired_spec = AudioSpecDesired {
+    let desired_spec = AudioSpecDesired {
         freq: Some(44100),
         channels: Some(1),
         samples: Some(1024),
     };
 
-    // let (sender, receiver) = mpsc::sync_channel(1024*2);
+    let (sender, receiver) = mpsc::sync_channel(1024);
     
-    // let audio_dev = sdl.audio_subsystem.open_playback(None, &desired_spec, move |_| {
-    //     struct AudioReceiver(Receiver<i16>);
+    let mut audio_dev = sdl.audio_subsystem.open_playback(None, &desired_spec, move |_| {
+        struct AudioReceiver(Receiver<i16>);
 
-    //     impl AudioCallback for AudioReceiver {
-    //         type Channel = i16;
+        impl AudioCallback for AudioReceiver {
+            type Channel = i16;
         
-    //         fn callback(&mut self, out: &mut [Self::Channel]) {
-    //             for x in out {
-    //                 let sample = self.0.recv().unwrap();
-    //                 *x = sample;
-    //             }
-    //         }
-    //     }
+            fn callback(&mut self, out: &mut [Self::Channel]) {
+                for x in out {
+                    let sample = self.0.recv().unwrap();
+                    *x = sample;
+                }
+            }
+        }
 
-    //     AudioReceiver(receiver)
-    // }).expect("Couldn't initialize audio callback");
+        AudioReceiver(receiver)
+    }).expect("Couldn't initialize audio callback");
 
-    // println!("{:?}", audio_dev.spec());
-    // audio_dev.resume();
+    println!("{:?}", audio_dev.spec());
+    audio_dev.resume();
 
     'running: loop {
         let ms_since_start = Instant::now();
-        emu.step_until_vblank();
+        // emu.step_until_vblank();
+
+        while emu.get_ppu().vblank_started.take().is_none() {
+            if emu.is_paused { break; }
+            let sample = emu.step_until_sample();
+            sender.send(sample).unwrap();
+        }
 
         for event in sdl.events.poll_iter() {
             handle_input(&sdl.keymaps, &event, &mut emu);
@@ -107,9 +113,12 @@ fn main() {
         sdl.canvas.copy(&texture, None, None).unwrap();
         sdl.canvas.present();
 
-        let ms_elapsed = Instant::now() - ms_since_start;
-        if ms_frame > ms_elapsed {
-            std::thread::sleep(ms_frame - ms_elapsed);
-        }
+        // let ms_elapsed = Instant::now() - ms_since_start;
+        // if ms_frame > ms_elapsed {
+        //     std::thread::sleep(ms_frame - ms_elapsed);
+        // }
     }
+
+    audio_dev.pause();
+    audio_dev.close_and_get_callback();
 }
