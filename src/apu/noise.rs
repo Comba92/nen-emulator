@@ -1,4 +1,4 @@
-use super::{Channel, Envelope, EnvelopeMode, LengthCounter, Timer, VolumeMode};
+use super::{Channel, Envelope, LengthCounter, Timer, VolumeMode};
 
 const NOISE_SEQUENCE: [u16; 16] = [
   4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068,
@@ -8,7 +8,6 @@ pub struct Noise {
   envelope: Envelope,
   mode: bool,
   timer: Timer,
-  // TODO: Should be init at 1
   shift_reg: u16,
   length: LengthCounter,
   envelope_on: bool,
@@ -23,9 +22,7 @@ impl Default for Noise {
 impl Noise {
   pub fn set_ctrl(&mut self, val: u8) {
     self.length.halted = (val >> 5) & 1 != 0;
-    self.envelope.envelope_mode = EnvelopeMode::from((val >> 4) & 1);
-    self.envelope.volume_and_envelope = val & 0b1111;
-    self.envelope_on = (val >> 4) & 1 != 0;
+    self.envelope.set(val);
   }
   
   pub fn set_noise(&mut self, val: u8) {
@@ -40,9 +37,7 @@ impl Noise {
 }
 impl Channel for Noise {
     fn step_timer(&mut self) {
-      self.timer.step(|timer| {
-        timer.count = timer.period;
-
+      self.timer.step(|_| {
         let feedback = (self.shift_reg & 1) ^ (match self.mode {
           false => (self.shift_reg >> 1) & 1,
           true => (self.shift_reg >> 6) & 1
@@ -57,22 +52,21 @@ impl Channel for Noise {
     }
 
     fn step_length(&mut self) {
-      if self.envelope.envelope_mode == EnvelopeMode::Loop {
-        self.length.step();
-      }
+      self.length.step();
     }
 
     fn is_enabled(&self) -> bool { self.length.is_enabled() }
 
     fn set_enabled(&mut self, enabled: bool) { 
       if enabled { self.length.enabled = true; }
-      else { self.length.disable(); self.envelope_on = false; }
+      else { 
+        self.length.disable();
+        self.envelope_on = false;
+      }
     }
 
     fn get_sample(&self) -> u8 {
-      if (self.shift_reg & 1) != 1 && self.length.count != 0
-      && self.envelope.volume_mode == VolumeMode::Envelope
-      && self.envelope_on {
+      if (self.shift_reg & 1) != 1 && self.is_enabled() {
         self.envelope.volume()
       } else { 0 }
     }

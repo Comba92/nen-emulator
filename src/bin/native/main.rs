@@ -46,7 +46,7 @@ fn main() {
 
     let (sender, receiver) = mpsc::sync_channel(1024);
     
-    let mut audio_dev = sdl.audio_subsystem.open_playback(None, &desired_spec, move |_| {
+    let audio_dev = sdl.audio_subsystem.open_playback(None, &desired_spec, move |_| {
         struct AudioReceiver(Receiver<i16>);
 
         impl AudioCallback for AudioReceiver {
@@ -64,7 +64,6 @@ fn main() {
     }).expect("Couldn't initialize audio callback");
 
     println!("{:?}", audio_dev.spec());
-    audio_dev.resume();
 
     'running: loop {
         let ms_since_start = Instant::now();
@@ -77,11 +76,12 @@ fn main() {
         }
 
         for event in sdl.events.poll_iter() {
-            handle_input(&sdl.keymaps, &event, &mut emu);
+            handle_input(&sdl.keymaps, &event, &mut emu, &audio_dev);
 
             match event {
                 Event::Quit { .. } => break 'running,
                 Event::DropFile { filename, .. } => {
+                    audio_dev.pause();
                     let rom_path = &PathBuf::from(filename);
                     let rom_result = Cart::from_file(&rom_path);
 
@@ -93,7 +93,8 @@ fn main() {
                             println!("{:#?}\n", emu.get_cart());
                         }
                         Err(msg) => eprintln!("Couldn't load the rom: {msg}\n"),
-                    }
+                    };
+                    audio_dev.resume();
                 }
                 Event::ControllerDeviceAdded { which , .. } => {
                     match sdl.controller_subsystem.open(which) {

@@ -52,9 +52,8 @@ impl Timer {
   }
 
   pub fn step<F: FnOnce(&mut Self)>(&mut self, callback: F) {
-    if self.count > 0 {
-      self.count -= 1;
-    } else {
+    self.count -= 1;
+    if self.count == 0 {
       self.count = self.period + 1;
       callback(self);
     }
@@ -75,7 +74,7 @@ struct LengthCounter {
 
 impl LengthCounter {
   pub fn reload(&mut self, val: u8) {
-    if !self.enabled {
+    if self.enabled {
       let length_idx = val as usize >> 3;
       self.count = LENGTH_TABLE[length_idx];
     }
@@ -107,6 +106,12 @@ struct Envelope {
   pub volume_mode: VolumeMode,
 }
 impl Envelope {
+  pub fn set(&mut self, val: u8) {
+    self.envelope_mode = EnvelopeMode::from((val >> 5) & 1);
+    self.volume_mode = VolumeMode::from((val >> 4) & 1);
+    self.volume_and_envelope = val & 0b1111;
+  }
+
   pub fn step(&mut self) {
     if self.start {
       self.start = false;
@@ -196,7 +201,6 @@ pub struct Apu {
   dmc_irq_enabled: bool,
   frame_irq_enabled: bool,
   interrupts_disabled: bool,
-  audio_buf: Vec<i16>,
 
   pub frame_irq_requested: Option<()>,
   pub current_sample: Option<i16>,
@@ -220,7 +224,6 @@ impl Apu {
       dmc_irq_enabled: false,
       frame_irq_enabled: false,
       interrupts_disabled: false,
-      audio_buf: Vec::new(),
       
       current_sample: None,
       frame_irq_requested: None,
@@ -287,12 +290,13 @@ impl Apu {
 
   fn step_half_frame(&mut self) {
     self.step_quarter_frame();
-    self.pulse1.step_sweep(false);
-    self.pulse2.step_sweep(true);
     self.pulse1.step_length();
     self.pulse2.step_length();
     self.triangle.step_length();
     self.noise.step_length();
+
+    self.pulse1.step_sweep(false);
+    self.pulse2.step_sweep(true);
   }
 
   fn step_frame(&mut self) {
@@ -328,7 +332,7 @@ impl Apu {
     let noise    = self.noise.get_sample();
 
     let pulse_out = 0.00752 * (pulse1 + pulse2) as f32;
-    let tnd_out = 0.00851 * triangle as f32 + 0.00494 * noise as f32;
+    let tnd_out = 0.00494 * noise as f32 + 0.00851 * triangle as f32;
 
     let sum = pulse_out + tnd_out;
     // let mut filtered = self.high_pass_filters[0].process(sum);

@@ -1,6 +1,6 @@
 use std::{collections::HashMap, error::Error};
 use nen_emulator::{emu::Emu, joypad::JoypadButton};
-use sdl2::{controller::{Axis, Button, GameController}, event::Event, keyboard::Keycode, render::{Canvas, TextureCreator}, video::{Window, WindowContext}, AudioSubsystem, EventPump, GameControllerSubsystem, Sdl, VideoSubsystem};
+use sdl2::{audio::{self, AudioCallback, AudioDevice}, controller::{Axis, Button, GameController}, event::Event, keyboard::Keycode, render::{Canvas, TextureCreator}, video::{Window, WindowContext}, AudioSubsystem, EventPump, GameControllerSubsystem, Sdl, VideoSubsystem};
 
 #[allow(unused)]
 pub struct Sdl2Context {
@@ -84,7 +84,7 @@ impl Keymaps {
   }
 }
 
-pub fn handle_input(keys: &Keymaps, event: &Event, emu: &mut Emu) {
+pub fn handle_input<F: AudioCallback>(keys: &Keymaps, event: &Event, emu: &mut Emu, audio_dev: &AudioDevice<F>) {
   let joypad = emu.get_joypad();
 
   match event {
@@ -95,7 +95,14 @@ pub fn handle_input(keys: &Keymaps, event: &Event, emu: &mut Emu) {
           match (action, event) {
             (InputAction::Game(button), Event::KeyDown {..}) => joypad.buttons.insert(*button),
             (InputAction::Game(button), Event::KeyUp {..}) => joypad.buttons.remove(*button),
-            (InputAction::Pause, Event::KeyDown {..}) => emu.is_paused = !emu.is_paused,
+            (InputAction::Pause, Event::KeyDown {..}) => {
+              emu.is_paused = !emu.is_paused;
+              match audio_dev.status() {
+                audio::AudioStatus::Playing => audio_dev.pause(),
+                audio::AudioStatus::Paused => audio_dev.resume(),
+                _ => {}
+              };
+            },
             (InputAction::Reset, Event::KeyDown {..}) => emu.reset(),
             _ => {}
           }
@@ -108,7 +115,14 @@ pub fn handle_input(keys: &Keymaps, event: &Event, emu: &mut Emu) {
         match (action, event) {
           (InputAction::Game(button), Event::ControllerButtonDown {..}) => joypad.buttons.insert(*button),
           (InputAction::Game(button), Event::ControllerButtonUp {..}) => joypad.buttons.remove(*button),
-          (InputAction::Pause, Event::ControllerButtonDown {..}) => emu.is_paused = !emu.is_paused,
+          (InputAction::Pause, Event::ControllerButtonDown {..}) => {
+            emu.is_paused = !emu.is_paused;
+            match audio_dev.status() {
+              audio::AudioStatus::Playing => audio_dev.pause(),
+              audio::AudioStatus::Paused => audio_dev.resume(),
+              _ => {}
+            };
+          }
           (InputAction::Reset, Event::ControllerButtonDown {..}) => emu.reset(),
           _ => {}
         }

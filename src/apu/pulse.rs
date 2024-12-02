@@ -1,12 +1,14 @@
-use std::ops::Neg;
-
-use super::{Channel, Envelope, EnvelopeMode, LengthCounter, Timer, VolumeMode};
+use super::{Channel, Envelope, LengthCounter, Timer};
 
 const PULSE_SEQUENCES: [[u8; 8]; 4] = [
-  [ 0, 1, 0, 0, 0, 0, 0, 0 ],
-  [ 0, 1, 1, 0, 0, 0, 0, 0 ],
-  [ 0, 1, 1, 1, 1, 0, 0, 0 ],
-  [ 1, 0, 0, 1, 1, 1, 1, 1 ]
+  // [ 0, 1, 0, 0, 0, 0, 0, 0 ]
+  // [ 0, 1, 1, 0, 0, 0, 0, 0 ],
+  // [ 0, 1, 1, 1, 1, 0, 0, 0 ],
+  // [ 1, 0, 0, 1, 1, 1, 1, 1 ]
+  [0,0,0,0,0,0,0,1],
+  [0,0,0,0,0,0,1,1],
+  [0,0,0,0,1,1,1,1],
+  [1,1,1,1,1,1,0,0],
 ];
 
 #[derive(Default, Clone, Copy)]
@@ -44,11 +46,9 @@ pub struct Pulse {
 }
 impl Pulse {
   pub fn set_ctrl(&mut self, val: u8) {
-    self.duty_mode = PulseDutyMode::from((val >> 6) & 11);
+    self.duty_mode = PulseDutyMode::from((val >> 6) & 0b11);
     self.length.halted = (val >> 5) & 1 == 1;
-    self.envelope.envelope_mode = EnvelopeMode::from((val >> 5) & 1);
-    self.envelope.volume_mode = VolumeMode::from((val >> 4) & 1);
-    self.envelope.volume_and_envelope = val & 0b1111;
+    self.envelope.set(val);
   }
 
   pub fn set_sweep(&mut self, val: u8) {
@@ -68,20 +68,20 @@ impl Pulse {
     self.duty_idx = 0;
   }
 
-  pub fn is_muted(&self) -> bool {
+  fn is_muted(&self) -> bool {
     self.timer.period < 8 || self.timer.period > 0x7FF
   }
 
-  pub fn can_sample(&self) -> bool {
-    self.length.count != 0 && !self.is_muted()
-    && PULSE_SEQUENCES[self.duty_mode as usize][self.duty_idx] != 0
+  fn can_sample(&self) -> bool {
+    self.is_enabled() && !self.is_muted()
   }
 }
 
 impl Channel for Pulse {
   fn step_timer(&mut self) {
     self.timer.step(|_| {
-      self.duty_idx = (self.duty_idx + 1) % PULSE_SEQUENCES[self.duty_mode as usize].len();
+      self.duty_idx = 
+        (self.duty_idx + 1) % PULSE_SEQUENCES[self.duty_mode as usize].len();
     });
   }
 
@@ -93,57 +93,44 @@ impl Channel for Pulse {
     self.envelope.step();
   }
 
-  // TODO: clean this shit up
   fn step_sweep(&mut self, complement: bool) {
-    if self.sweep_reload {
-      if self.sweep_on && self.sweep_count == 0 {
-        let mut change_amount = (self.timer.period >> self.sweep_shift) as i16;
-        if self.sweep_negate {
-          change_amount = change_amount.neg();
-          if !complement {
-            change_amount = change_amount.wrapping_sub(1);
-          }
-        }
-  
-        let target_period = self.timer.period
-          .checked_add_signed(change_amount)
-          .unwrap_or(0);
-  
-        self.timer.period = target_period;
-      }
+    self.sweep_count -= 1;
+    
+    if self.sweep_count == 0 {
+      self.sweep_count = self.sweep_period + 1;
 
+      if self.sweep_shift > 0 && self.sweep_on
+      && self.timer.period >= 8 && self.timer.period <= 0x7FF {
+        let change_amount = self.timer.period >> self.sweep_shift;
+        
+        if self.sweep_negate {
+          self.timer.period = self.timer.period.wrapping_sub(change_amount);
+          if complement { 
+            self.timer.period = self.timer.period.wrapping_sub(1);
+          }          
+        } else {
+          self.timer.period = self.timer.period + change_amount;
+        }
+      }
+    }
+
+    if self.sweep_reload {
       self.sweep_count = self.sweep_period + 1;
       self.sweep_reload = false;
-    } else if self.sweep_count > 0 {
-      self.sweep_count -= 1;
-    } else {
-      if self.sweep_on {
-        let mut change_amount = (self.timer.period >> self.sweep_shift) as i16;
-        if self.sweep_negate {
-          change_amount = change_amount.neg();
-          if !complement {
-            change_amount = change_amount.wrapping_sub(1);
-          }
-        }
-  
-        let target_period = self.timer.period
-          .checked_add_signed(change_amount)
-          .unwrap_or(0);
-  
-        self.timer.period = target_period;
-      }
-
-      self.sweep_count = self.sweep_period + 1;
     }
   }
 
   fn is_enabled(&self) -> bool { self.length.is_enabled() }
-  fn set_enabled(&mut self, enabled: bool) { 
-    if enabled { self.length.enabled = true; }
+
+  fn set_enabled(&mut self, enable: bool) { 
+    if enable { self.length.enabled = true; }
     else { self.length.disable(); }
   }
 
   fn get_sample(&self) -> u8 {
-    if self.can_sample() { self.envelope.volume() } else { 0 }
+    let sample = PULSE_SEQUENCES[self.duty_mode as usize][self.duty_idx];
+    if self.can_sample() { 
+        sample * self.envelope.volume() 
+    } else { 0 }
   }
 }
