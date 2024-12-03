@@ -316,10 +316,6 @@ impl Apu {
       (18640, FrameCounterMode::Step5) => {
         self.step_half_frame();
         self.cycles = 0;
-
-        // if !self.interrupts_disabled && self.frame_irq_enabled {
-        //   self.frame_irq_requested = Some(())
-        // }
       }
       _ => {}
     }

@@ -15,7 +15,8 @@
 - Mmc3 irq not implemented
 
 [] APU
-- It's buggy
+- Make cleaner implementation
+- DMC
 - PAL support?
 
 [] Support for NES 2.0 format

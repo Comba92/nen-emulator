@@ -2,8 +2,6 @@ use core::fmt;
 use std::sync::LazyLock;
 use serde::{de::Visitor, Deserialize, Deserializer};
 
-use crate::{cpu::{Cpu, Operand}, mem::Memory};
-
 #[derive(Deserialize, Debug, Default, Clone)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Instruction {

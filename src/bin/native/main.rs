@@ -1,9 +1,9 @@
 use std::{env::args, path::PathBuf};
 use nen_emulator::{emu::Emu, cart::Cart, render::{SCREEN_HEIGHT, SCREEN_WIDTH}};
-use sdl2::{audio::{self, AudioCallback, AudioSpecDesired}, event::Event, pixels::PixelFormatEnum};
+use sdl2::{audio::{AudioCallback, AudioSpecDesired, AudioStatus}, event::Event, pixels::PixelFormatEnum};
 use std::{time::{Duration, Instant}, sync::mpsc::{self, Receiver}};
 mod sdl2ctx;
-use sdl2ctx::{handle_input, Sdl2Context};
+use sdl2ctx::{handle_input, toggle_audio, AudioMessage, Sdl2Context};
 
 fn main() {
     const SCALE: f32 = 3.5;
@@ -44,18 +44,21 @@ fn main() {
         samples: Some(1024),
     };
 
-    let (sender, receiver) = mpsc::sync_channel(1024);
+    let (sender, receiver) = mpsc::sync_channel(0);
     
-    let audio_dev = sdl.audio_subsystem.open_playback(None, &desired_spec, move |_| {
-        struct AudioReceiver(Receiver<i16>);
+    let audio_dev = sdl.audio_subsystem
+    .open_playback(None, &desired_spec, move |_| {
+        struct AudioReceiver(Receiver<AudioMessage>);
 
         impl AudioCallback for AudioReceiver {
             type Channel = i16;
         
             fn callback(&mut self, out: &mut [Self::Channel]) {
                 for x in out {
-                    let sample = self.0.recv().unwrap();
-                    *x = sample;
+                    match self.0.recv().unwrap() {
+                        AudioMessage::Sample(sample) => *x = sample,
+                        AudioMessage::Stop => { return; },
+                    }
                 }
             }
         }
@@ -72,16 +75,20 @@ fn main() {
         while emu.get_ppu().vblank_started.take().is_none() {
             if emu.is_paused { break; }
             let sample = emu.step_until_sample();
-            sender.send(sample).unwrap();
+            sender.send(AudioMessage::Sample(sample)).unwrap();
         }
 
         for event in sdl.events.poll_iter() {
-            handle_input(&sdl.keymaps, &event, &mut emu, &audio_dev);
+            handle_input(&sdl.keymaps, &event, &mut emu, &sender, &audio_dev);
 
             match event {
-                Event::Quit { .. } => break 'running,
+                Event::Quit { .. } => {
+                    toggle_audio(&sender, &audio_dev);
+                    break 'running;
+                }
                 Event::DropFile { filename, .. } => {
-                    audio_dev.pause();
+                    toggle_audio(&sender, &audio_dev);
+
                     let rom_path = &PathBuf::from(filename);
                     let rom_result = Cart::from_file(&rom_path);
 
@@ -94,6 +101,7 @@ fn main() {
                         }
                         Err(msg) => eprintln!("Couldn't load the rom: {msg}\n"),
                     };
+
                     audio_dev.resume();
                 }
                 Event::ControllerDeviceAdded { which , .. } => {
@@ -119,7 +127,4 @@ fn main() {
         //     std::thread::sleep(ms_frame - ms_elapsed);
         // }
     }
-
-    audio_dev.pause();
-    audio_dev.close_and_get_callback();
 }

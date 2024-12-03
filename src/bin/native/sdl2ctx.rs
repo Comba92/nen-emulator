@@ -1,6 +1,6 @@
-use std::{collections::HashMap, error::Error};
+use std::{collections::HashMap, error::Error, sync::mpsc::SyncSender};
 use nen_emulator::{emu::Emu, joypad::JoypadButton};
-use sdl2::{audio::{self, AudioCallback, AudioDevice}, controller::{Axis, Button, GameController}, event::Event, keyboard::Keycode, render::{Canvas, TextureCreator}, video::{Window, WindowContext}, AudioSubsystem, EventPump, GameControllerSubsystem, Sdl, VideoSubsystem};
+use sdl2::{audio::{AudioCallback, AudioDevice, AudioStatus}, controller::{Axis, Button, GameController}, event::Event, keyboard::Keycode, render::{Canvas, TextureCreator}, video::{Window, WindowContext}, AudioSubsystem, EventPump, GameControllerSubsystem, Sdl, VideoSubsystem};
 
 #[allow(unused)]
 pub struct Sdl2Context {
@@ -84,7 +84,19 @@ impl Keymaps {
   }
 }
 
-pub fn handle_input<F: AudioCallback>(keys: &Keymaps, event: &Event, emu: &mut Emu, audio_dev: &AudioDevice<F>) {
+
+pub enum AudioMessage { Sample(i16), Stop }
+
+pub fn toggle_audio<CB: AudioCallback>(sender: &SyncSender<AudioMessage>, dev: &AudioDevice<CB>) {
+  if dev.status() == AudioStatus::Playing {
+    sender.send(AudioMessage::Stop).unwrap();
+    dev.pause();
+  } else {
+    dev.resume();
+  }
+}
+
+pub fn handle_input<F: AudioCallback>(keys: &Keymaps, event: &Event, emu: &mut Emu, sender: &SyncSender<AudioMessage>, audio_dev: &AudioDevice<F>) {
   let joypad = emu.get_joypad();
 
   match event {
@@ -97,11 +109,7 @@ pub fn handle_input<F: AudioCallback>(keys: &Keymaps, event: &Event, emu: &mut E
             (InputAction::Game(button), Event::KeyUp {..}) => joypad.buttons.remove(*button),
             (InputAction::Pause, Event::KeyDown {..}) => {
               emu.is_paused = !emu.is_paused;
-              match audio_dev.status() {
-                audio::AudioStatus::Playing => audio_dev.pause(),
-                audio::AudioStatus::Paused => audio_dev.resume(),
-                _ => {}
-              };
+              toggle_audio(sender, audio_dev);
             },
             (InputAction::Reset, Event::KeyDown {..}) => emu.reset(),
             _ => {}
@@ -118,8 +126,8 @@ pub fn handle_input<F: AudioCallback>(keys: &Keymaps, event: &Event, emu: &mut E
           (InputAction::Pause, Event::ControllerButtonDown {..}) => {
             emu.is_paused = !emu.is_paused;
             match audio_dev.status() {
-              audio::AudioStatus::Playing => audio_dev.pause(),
-              audio::AudioStatus::Paused => audio_dev.resume(),
+              AudioStatus::Playing => audio_dev.pause(),
+              AudioStatus::Paused => audio_dev.resume(),
               _ => {}
             };
           }

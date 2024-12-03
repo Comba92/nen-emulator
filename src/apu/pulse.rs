@@ -71,10 +71,6 @@ impl Pulse {
   fn is_muted(&self) -> bool {
     self.timer.period < 8 || self.timer.period > 0x7FF
   }
-
-  fn can_sample(&self) -> bool {
-    self.is_enabled() && !self.is_muted()
-  }
 }
 
 impl Channel for Pulse {
@@ -129,7 +125,7 @@ impl Channel for Pulse {
 
   fn get_sample(&self) -> u8 {
     let sample = PULSE_SEQUENCES[self.duty_mode as usize][self.duty_idx];
-    if self.can_sample() { 
+    if !self.is_muted() && self.is_enabled() { 
         sample * self.envelope.volume() 
     } else { 0 }
   }
