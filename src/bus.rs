@@ -54,6 +54,11 @@ impl Memory for Bus {
     self.mapper.borrow_mut().poll_irq()
     || self.apu.frame_irq_requested.take().is_some()
   }
+  
+  fn tick(&mut self) {
+    for _ in 0..3 { self.ppu.step(); }
+    self.apu.step();
+  }
 }
 
 impl Bus {

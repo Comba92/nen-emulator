@@ -1,6 +1,5 @@
 # TODO
 [x] CPU COMPLETED
-- Better cycles counting?
 - Better operand handling?
 
 [x] Implement Memory Bus, Interrupts, synchronization
@@ -10,7 +9,6 @@
 [x] Implement PPU
 - Cleaner implementation
 - PPU masking
-- Rendering toggling delay (battletoads)
 
 [x] Mappers
 - Mmc3 buggy in some games

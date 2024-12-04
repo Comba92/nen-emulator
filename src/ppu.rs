@@ -214,7 +214,7 @@ impl Ppu {
     self.cycle = 0;
   }
 
-  pub fn step_accurate(&mut self) {
+  pub fn step(&mut self) {
     if (0..=239).contains(&self.scanline) || self.scanline == 261 {
       // visible scanlines 
       if (1..=256).contains(&self.cycle) || (321..=336).contains(&self.cycle) {

@@ -8,6 +8,7 @@ pub trait Memory {
     u16::from_le_bytes([low, high])
   }
 
+  fn tick(&mut self) {}
   fn poll_nmi(&mut self)   -> bool { false }
   fn poll_irq(&mut self)   -> bool { false }
 
