@@ -4,15 +4,9 @@ const resetBtn = document.getElementById("reset")
 
 const nesScreen = document.getElementById("nes-screen")
 const nesCtx = nesScreen.getContext('2d')
-nesCtx.webkitImageSmoothingEnabled = false;
-nesCtx.mozImageSmoothingEnabled = false;
-nesCtx.imageSmoothingEnabled = false;
 
 const webScreen = document.getElementById("web-screen")
 const webViewport = webScreen.getContext('2d')
-webViewport.webkitImageSmoothingEnabled = false;
-webViewport.mozImageSmoothingEnabled = false;
-webViewport.imageSmoothingEnabled = false;
 
 const SCALING = 2
 const SCREEN_WIDTH = 32*8
@@ -20,7 +14,6 @@ const SCREEN_HEIGHT = 30*8
 
 nesScreen.width = SCREEN_WIDTH
 nesScreen.height = SCREEN_HEIGHT
-
 webScreen.width = SCREEN_WIDTH*SCALING
 webScreen.height = SCREEN_HEIGHT*SCALING
 
@@ -61,6 +54,7 @@ window.addEventListener('keyup', event => {
     }
 })
 
+// TODO: controller not working
 window.addEventListener("gamepadconnected", (e) => {
     console.log(
         "Gamepad connected at index %d: %s. %d buttons, %d axes.",
@@ -123,9 +117,21 @@ function renderLoop() {
     let elapsed_ms = performance.now() - start
     let delay = FRAME_MS - elapsed_ms
 
+    // TODO: this shit doesnt work
     setTimeout(
         () => { animationId = requestAnimationFrame(renderLoop) },
         delay > 0 ? delay : 0
-    )
-    
+    )    
 }
+
+
+function playRandomAudio() {
+    var context = new (window.AudioContext || window.webkitAudioContext)();
+    var osc = context.createOscillator(); // instantiate an oscillator
+    osc.type = 'sine'; // this is the default - also square, sawtooth, triangle
+    osc.frequency.value = 440; // Hz
+    osc.connect(context.destination); // connect it to the destination
+    osc.start(); // start the oscillator
+    osc.stop(context.currentTime + 2); // stop 2 seconds after the current time
+}
+

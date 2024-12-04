@@ -1,4 +1,7 @@
+use core::f32;
+
 use bitflags::bitflags;
+use dmc::Dmc;
 use noise::Noise;
 use pulse::Pulse;
 use triangle::Triangle;
@@ -6,6 +9,7 @@ use triangle::Triangle;
 mod pulse;
 mod triangle;
 mod noise;
+mod dmc;
 
 #[derive(Default, Clone, Copy, PartialEq, Eq)]
 enum EnvelopeMode {
@@ -139,7 +143,6 @@ impl Envelope {
 }
 
 // TODO: consider merging envelope and sweep in one
-// TODO: step_timer, is_enabled and disable always do the same thing, can it be made smarter?
 trait Channel {
   fn step_timer(&mut self);
   fn step_length(&mut self) {}
@@ -172,9 +175,6 @@ impl Into<u8> for FrameCounterMode {
       }
     }
 }
-pub enum FrameCounter {
-  Quarter, Half, Full
-}
 
 bitflags! {
   #[derive(Clone, Default)]
@@ -195,6 +195,7 @@ pub struct Apu {
   pulse2: Pulse,
   triangle: Triangle,
   noise: Noise,
+  dmc: Dmc,
   
   frame_write_delay: usize,
   frame_mode: FrameCounterMode,
@@ -218,6 +219,7 @@ impl Apu {
       pulse2: Pulse::default(),
       triangle: Triangle::default(),
       noise: Noise::default(),
+      dmc: Dmc::default(),
 
       frame_write_delay: 0,
       frame_mode: FrameCounterMode::Step4,
@@ -331,12 +333,13 @@ impl Apu {
     let tnd_out = 0.00494 * noise as f32 + 0.00851 * triangle as f32;
 
     let sum = pulse_out + tnd_out;
-    // let mut filtered = self.high_pass_filters[0].process(sum);
+
+    // let mut filtered;
+    // filtered = self.high_pass_filters[0].process(sum);
     // filtered = self.high_pass_filters[1].process(filtered);
     // filtered = self.low_pass_filter.process(filtered);
 
     let output = (sum * u16::MAX as f32).clamp(0.0, u16::MAX as f32) as i16;
-    // self.audio_buf.push(output as i16);
     self.current_sample = Some(output);
   }
 
@@ -348,6 +351,7 @@ impl Apu {
         flags.set(ApuFlags::pulse2, self.pulse2.is_enabled());
         flags.set(ApuFlags::triangle, self.triangle.is_enabled());
         flags.set(ApuFlags::noise, self.noise.is_enabled());
+        flags.set(ApuFlags::dmc, self.dmc.is_enabled());
         flags.set(ApuFlags::frame_irq, self.frame_irq_enabled);
         flags.set(ApuFlags::dmc_irq, self.dmc_irq_enabled);
 
@@ -382,11 +386,17 @@ impl Apu {
       0x400E => self.noise.set_noise(val),
       0x400F => self.noise.set_length(val),
 
+      0x4010 => self.dmc.write_ctrl(val),
+      0x4011 => self.dmc.write_count(val),
+      0x4012 => self.dmc.write_addr(val),
+      0x4013 => self.dmc.write_length(val),
+
       0x4015 => {
         self.pulse1.set_enabled(val & 0b0001 != 0);
         self.pulse2.set_enabled(val & 0b0010 != 0);
         self.triangle.set_enabled(val & 0b0100 != 0);
         self.noise.set_enabled(val & 0b1000 != 0);
+        self.dmc.set_enabled(val & 0b1_0000 != 0);
 
         self.dmc_irq_enabled = false;
       }
@@ -420,7 +430,7 @@ impl Apu {
 
 // impl LowPassFilter {
 //   pub fn new(sample_rate: f32, cutoff: f32) -> Self {
-//       let c = sample_rate / PI / cutoff;
+//       let c = sample_rate / f32::consts::PI / cutoff;
 //       let a0i = 1.0 / (1.0 + c);
 
 //       Self {
@@ -450,7 +460,7 @@ impl Apu {
 
 // impl HighPassFilter {
 //   pub fn new(sample_rate: f32, cutoff: f32) -> Self {
-//       let c = sample_rate / PI / cutoff;
+//       let c = sample_rate / f32::consts::PI / cutoff;
 //       let a0i = 1.0 / (1.0 + c);
 
 //       Self {

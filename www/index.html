@@ -5,22 +5,24 @@
   <meta charset="UTF-8">
 </head>
 <body>
-  <canvas id="nes-screen" style="image-rendering: pixelated;"></canvas>
+  <canvas hidden id="nes-screen" style="image-rendering: pixelated;"></canvas>
   <canvas id="web-screen" style="image-rendering: pixelated;"></canvas>
   <div>
-    <button><label for="rom-picker">Load a ROM ⏏️</label></button>
-    <input id="rom-picker" type="file" accept=".nes" style="visibility: hidden;">
+    <button>
+      <label for="rom-picker">Load a ROM ⏏️</label>
+      <input id="rom-picker" type="file" accept=".nes" style="visibility: hidden; width: 0;">
+    </button>
     <button id="play-pause">⏸️</button>
     <button id="reset">🔁</button>
   </div>
-  <div>
-    Keys
+  <pre>
+    KEY BINDINGS
     Arrow keys -> Dpad
     🇿-> A
     🇽 -> B
     🇲 -> Start
     🇳 -> Selct
-  </div>
+  </pre>
   <script src="./index.mjs" type="module"></script>
 </body>
 </html>

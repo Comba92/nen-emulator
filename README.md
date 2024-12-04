@@ -5,6 +5,7 @@
 
 [x] Implement Memory Bus, Interrupts, synchronization
 - Sram should be a mirrored vec
+- Sram saving
 
 [x] Implement PPU
 - Cleaner implementation
@@ -12,12 +13,14 @@
 - Rendering toggling delay (battletoads)
 
 [x] Mappers
-- Mmc3 irq not implemented
+- Mmc3 buggy in some games
+- Mmc5
 
 [] APU
 - Make cleaner implementation
 - DMC
 - PAL support?
+- Audio filters?
 
 [] Support for NES 2.0 format
 - missing correct prg and chr sizes parsing
@@ -62,3 +65,4 @@ Correct XAA
 - https://www.nesdev.org/wiki/Emulator_tests
 Nestest:
 - https://github.com/PyAndy/Py3NES/issues/1
+- https://www.nesdev.org/wiki/Tricky-to-emulate_games

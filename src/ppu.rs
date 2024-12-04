@@ -179,7 +179,7 @@ impl Ppu {
       screen: NesScreen::new(),
 
       // TODO: WHY DOES THIS WORK? eventually find out and fix it.
-      bg_fifo: VecDeque::from([(0, 0)].repeat(13)),
+      bg_fifo: VecDeque::from([(0, 0)].repeat(9)),
       bg_buf: BgData::default(),
       oam_buf: Vec::with_capacity(8),
       scanline_sprites: [const { None }; 32*8],
@@ -194,7 +194,7 @@ impl Ppu {
       oam: [0; 256],
       oam_addr: 0, data_buf: 0,
       in_odd_frame: false,
-      scanline: 0, cycle: 21,
+      scanline: 261, cycle: 0,
       ctrl: PpuCtrl::empty(),
       mask: PpuMask::empty(),
       mask_update_delay: 0,
@@ -248,8 +248,19 @@ impl Ppu {
       self.oam_addr = 0;
     } else if self.scanline == 261 && self.cycle == 304 {
       self.reset_render_y();
-    } else if self.cycle == 260 {
-      // self.mapper.borrow_mut().scanline_ended();
+    } else if self.scanline < 241 && self.cycle == 260  {
+      if self.is_rendering_on() && self.ctrl.contains(PpuCtrl::spr_size) 
+      && !self.ctrl.contains(PpuCtrl::bg_ptrntbl)
+      && self.ctrl.contains(PpuCtrl::spr_ptrntbl) {
+        self.mapper.borrow_mut().scanline_ended();
+      }
+    } 
+    else if self.scanline < 241 && self.cycle == 324 {
+      if self.is_rendering_on() && self.ctrl.contains(PpuCtrl::spr_size) 
+      && self.ctrl.contains(PpuCtrl::bg_ptrntbl)
+      && !self.ctrl.contains(PpuCtrl::spr_ptrntbl) {
+        self.mapper.borrow_mut().scanline_ended();
+      }
     }
 
     if self.in_odd_frame

@@ -52,9 +52,12 @@ pub fn new_mapper_from_id(id: u8) -> Result<CartMapper, String> {
         2  => Rc::new(RefCell::new(UxRom::default())),
         3  => Rc::new(RefCell::new(INesMapper003::default())),
         4  => Rc::new(RefCell::new(Mmc3::default())),
+        // 5 => // TODO
         7  => Rc::new(RefCell::new(AxRom::default())),
         9  => Rc::new(RefCell::new(Mmc2::default())),
         11 => Rc::new(RefCell::new(ColorDreams::default())),
+        // 64 => // TODO
+
         66 => Rc::new(RefCell::new(GxRom::default())),
         _ => return Err(format!("Mapper {id} not implemented"))
     };
@@ -224,7 +227,7 @@ pub struct Mmc3 {
     irq_reload: bool,
     irq_on: bool,
 
-    irq_requested: bool,
+    irq_requested: Option<()>,
 }
 impl Mmc3 {
     fn write_bank_select(&mut self, val: u8) {
@@ -305,12 +308,10 @@ impl Mapper for Mmc3 {
                 self.prg_ram_read_enabled  = val & 0b1000_0000 != 0;
             }
             (0xC000..=0xDFFE, true) => self.irq_latch = val,
-            (0xC001..=0xDFFF, false) => {
-                self.irq_counter = 0; 
-            }
+            (0xC001..=0xDFFF, false) => self.irq_reload = true,
             (0xE000..=0xFFFE, true) => {
                 self.irq_on = false;
-                self.irq_requested = false;
+                self.irq_requested = None;
                 // acknowledge any pending interrupts
             }
             (0xE001..=0xFFFF, false) => self.irq_on = true,
@@ -321,16 +322,18 @@ impl Mapper for Mmc3 {
     fn scanline_ended(&mut self) {
         if self.irq_counter == 0 || self.irq_reload {
             self.irq_counter = self.irq_latch;
+            self.irq_reload = false;
         } else {
             self.irq_counter -= 1;
-            if self.irq_on && self.irq_counter == 0 {
-                self.irq_requested = true;
-            }
+        }
+
+        if self.irq_on && self.irq_counter == 0 {
+            self.irq_requested = Some(());
         }
     }
 
     fn poll_irq(&mut self) -> bool {
-        self.irq_requested
+        self.irq_requested.take().is_some()
     }
 
     fn mirroring(&self) -> Option<Mirroring> {
@@ -355,7 +358,7 @@ impl Mapper for UxRom {
     }
 
     fn write_prg(&mut self, _prg: &mut[u8], _addr: usize, val: u8) {
-        self.prg_bank_select = (val & 0b0000_1111) as usize;
+        self.prg_bank_select = val as usize;
     }
 }
 
