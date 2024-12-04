@@ -20,7 +20,7 @@ pub struct Bus {
 impl Memory for Bus {
   fn tick(&mut self) {
       for _ in 0..3 { self.ppu.step(); }
-      self.apu.step();
+      // self.apu.step();
   }
 
   fn read(&mut self, addr: u16) -> u8 {

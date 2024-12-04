@@ -3,7 +3,7 @@ use core::{cell::OnceCell, fmt, ops::{BitAnd, BitOr, BitXor, Not, Shl, Shr}};
 use bitflags::bitflags;
 use log::{debug, trace};
 
-use crate::{bus::Bus, cart::Cart, instr::{AddressingMode, Instruction, INSTRUCTIONS, WRITE_INSTRS}, mem::{Memory, Ram64Kb}};
+use crate::{bus::Bus, cart::Cart, instr::{AddressingMode, Instruction, INSTRUCTIONS, RMW_INSTRS}, mem::{Memory, Ram64Kb}};
 
 bitflags! {
   #[derive(Debug, Clone, Copy)]
@@ -222,13 +222,225 @@ enum InstrDst {
   Acc, X, Y, Mem(u16)
 }
 
+// trait Addressing<M: Memory> {
+//   fn get_operand_addr(&mut self, cpu: &mut Cpu<M>);
+//   fn get_operand_value(&self, cpu: &mut Cpu<M>) -> u8;
+//   fn dummy_read(&self, cpu: &mut Cpu<M>) {}
+// }
+
+// #[derive(Default)]
+// struct Implicit;
+// impl<M: Memory> Addressing<M> for Implicit {
+//     fn get_operand_addr(&mut self, cpu: &mut Cpu<M>) {
+//       cpu.read(cpu.pc + 1);
+//     }
+
+//     fn get_operand_value(&self, cpu: &mut Cpu<M>) -> u8 {
+//       cpu.pc_fetch()
+//     }
+// }
+
+// #[derive(Default)]
+// struct Accumulator;
+// impl<M: Memory> Addressing<M> for Accumulator {
+//   fn get_operand_addr(&mut self, cpu: &mut Cpu<M>) {
+//       cpu.read(cpu.pc + 1);
+//   }
+//   fn get_operand_value(&self, cpu: &mut Cpu<M>) -> u8 { cpu.a }
+// }
+
+// #[derive(Default)]
+// struct Immediate;
+// impl<M: Memory> Addressing<M> for Immediate {
+//     fn get_operand_addr(&mut self, _cpu: &mut Cpu<M>) {}
+//     fn get_operand_value(&self, cpu: &mut Cpu<M>) -> u8 {
+//       cpu.pc_fetch()
+//     }
+// }
+
+// #[derive(Default)]
+// struct ZeroPage {
+//   address: u8
+// }
+// impl<M: Memory> Addressing<M> for ZeroPage {
+//     fn get_operand_addr(&mut self, cpu: &mut Cpu<M>) {
+//         self.address = cpu.pc_fetch();
+//     }
+//     fn get_operand_value(&self, cpu: &mut Cpu<M>) -> u8 {
+//       cpu.read(self.address as u16)
+//     }
+// }
+
+// #[derive(Default)]
+// struct ZeroPageX {
+//   address: u8
+// }
+// impl<M: Memory> Addressing<M> for ZeroPageX {
+//     fn get_operand_addr(&mut self, cpu: &mut Cpu<M>) {
+//         self.address = cpu.pc_fetch();
+//         cpu.read(self.address as u16);
+//     }
+
+//     fn get_operand_value(&self, cpu: &mut Cpu<M>) -> u8 {
+//       cpu.read(self.address.wrapping_add(cpu.x) as u16)
+//     }
+// }
+
+// #[derive(Default)]
+// struct ZeroPageY {
+//   address: u8
+// }
+// impl<M: Memory> Addressing<M> for ZeroPageY {
+//     fn get_operand_addr(&mut self, cpu: &mut Cpu<M>) {
+//         self.address = cpu.pc_fetch();
+//         cpu.read(self.address as u16);
+//     }
+
+//     fn get_operand_value(&self, cpu: &mut Cpu<M>) -> u8 {
+//       cpu.read(self.address.wrapping_add(cpu.y) as u16)
+//     }
+// }
+
+// #[derive(Default)]
+// struct Absolute {
+//   address: u16
+// }
+// impl<M: Memory> Addressing<M> for Absolute {
+//     fn get_operand_addr(&mut self, cpu: &mut Cpu<M>) {
+//         self.address = cpu.pc_fetch16();
+//     }
+//     fn get_operand_value(&self, cpu: &mut Cpu<M>) -> u8 {
+//       cpu.read(self.address)
+//     }
+// }
+
+// #[derive(Default)]
+// struct AbsoluteX {
+//   addr_effective: u16,
+//   addr_wrong: u16,
+//   dummy_readed: bool,
+// }
+// impl<M: Memory> Addressing<M> for AbsoluteX {
+//     fn get_operand_addr(&mut self, cpu: &mut Cpu<M>) {
+//         let addr_base = cpu.pc_fetch16();
+//         self.addr_effective = addr_base.wrapping_add(cpu.x as u16);
+//         self.addr_wrong = (addr_base & 0xFF00) | (self.addr_effective & 0x00FF);
+
+//         if self.addr_effective != self.addr_wrong {
+//           self.dummy_readed = true;
+//           cpu.read(self.addr_wrong);
+//         }
+//     }
+
+//     fn get_operand_value(&self, cpu: &mut Cpu<M>) -> u8 {
+//       cpu.read(self.addr_effective)
+//     }
+
+//     fn dummy_read(&self, cpu: &mut Cpu<M>) {
+//         if !self.dummy_readed {
+//           cpu.read(self.addr_wrong);
+//         }
+//     }
+// }
+
+// #[derive(Default)]
+// struct AbsoluteY {
+//   addr_effective: u16,
+//   addr_wrong: u16,
+//   dummy_readed: bool,
+// }
+
+// impl<M: Memory> Addressing<M> for AbsoluteY {
+//     fn get_operand_addr(&mut self, cpu: &mut Cpu<M>) {
+//         let addr_base = cpu.pc_fetch16();
+//         self.addr_effective = addr_base.wrapping_add(cpu.y as u16);
+//         self.addr_wrong = (addr_base & 0xFF00) | (self.addr_effective & 0x00FF);
+
+//         if self.addr_effective != self.addr_wrong {
+//           self.dummy_readed = true;
+//           cpu.read(self.addr_wrong);
+//         }
+//     }
+
+//     fn get_operand_value(&self, cpu: &mut Cpu<M>) -> u8 {
+//       cpu.read(self.addr_effective)
+//     }
+
+//     fn dummy_read(&self, cpu: &mut Cpu<M>) {
+//       if !self.dummy_readed {
+//         cpu.read(self.addr_wrong);
+//       }
+//   }
+// }
+
+// #[derive(Default)]
+// struct Indirect {
+//   addr: u16
+// }
+// impl<M: Memory> Addressing<M> for Indirect {
+//     fn get_operand_addr(&mut self, cpu: &mut Cpu<M>) {
+//         let addr_base = cpu.pc_fetch16();
+//         self.addr = cpu.wrapping_read16(addr_base);
+//     }
+
+//     fn get_operand_value(&self, cpu: &mut Cpu<M>) -> u8 {
+//       cpu.read(self.addr)
+//     }
+// }
+
+// #[derive(Default)]
+// struct IndirectX {
+//   addr: u16,
+// }
+// impl<M: Memory> Addressing<M> for IndirectX {
+//     fn get_operand_addr(&mut self, cpu: &mut Cpu<M>) {
+//         let zero_addr = cpu.pc_fetch();
+//         cpu.read(zero_addr as u16);
+//         let addr_base = zero_addr.wrapping_add(cpu.x) as u16;
+//         self.addr = cpu.wrapping_read16(addr_base);
+//     }
+
+//     fn get_operand_value(&self, cpu: &mut Cpu<M>) -> u8 {
+//       cpu.read(self.addr)
+//     }
+// }
+
+// #[derive(Default)]
+// struct IndirectY {
+//   addr_wrong: u16,
+//   addr_effective: u16,
+//   dummy_readed: bool,
+// }
+// impl<M: Memory> Addressing<M> for IndirectY {
+//     fn get_operand_addr(&mut self, cpu: &mut Cpu<M>) {
+//         let zero_addr = cpu.pc_fetch();
+//         let addr_base = cpu.wrapping_read16(zero_addr as u16);
+//         self.addr_effective = addr_base.wrapping_add(cpu.y as u16);
+//         self.addr_wrong = (addr_base & 0xFF00) | (self.addr_effective & 0x00FF);
+
+//         if self.addr_effective != self.addr_wrong {
+//           self.dummy_readed = true;
+//           cpu.read(self.addr_wrong);
+//         }
+//     }
+
+//     fn get_operand_value(&self, cpu: &mut Cpu<M>) -> u8 {
+//       cpu.read(self.addr_effective)
+//     }
+
+//     fn dummy_read(&self, cpu: &mut Cpu<M>) {
+//       if !self.dummy_readed {
+//         cpu.read(self.addr_wrong);
+//       }
+//   }
+// }
+
 impl<M: Memory> Cpu<M> {
   pub fn step(&mut self) {
     self.poll_interrupts();
     
     let opcode = self.pc_fetch();
     let instr = &INSTRUCTIONS[opcode as usize];
-    
     
     let mut op = self.get_operand_with_addressing(instr);
     // debug!("{:?} with op {:?} at cycle {}", instr, op, self.cycles);
@@ -274,7 +486,7 @@ impl<M: Memory> Cpu<M> {
     
     // page crossing check
     if instr.addressing != AddressingMode::Absolute 
-    && (addr_effective & 0xFF00 != addr_base & 0xFF00 || WRITE_INSTRS.contains(&instr.name)) {
+    && (addr_effective & 0xFF00 != addr_base & 0xFF00 || RMW_INSTRS.contains(&instr.name)) {
       // TODO: can we do a little better? Perhaps, pass the intermediate address to the instr function...
 
       // dummy read: should read the previous page at effective low address
@@ -683,6 +895,7 @@ impl<M: Memory> Cpu<M> {
   }
 }
 
+
 impl<M: Memory> Cpu<M> {
   pub fn usbc(&mut self, op: &mut Operand) {
     self.sbc(op);
@@ -752,11 +965,11 @@ impl<M: Memory> Cpu<M> {
     self.ldx(op);
   }
 
-  // also called AXS, SAX, currently NOT WORKING
+  // also called AXS, SAX
   pub fn sbx(&mut self, op: &mut Operand) {
     let val = self.get_operand_value(op);
+    self.compare(self.a & self.x, op);
     let res = (self.a & self.x).wrapping_sub(val);
-    self.set_czn(res as u16);
     self.x = res;
   }
 
@@ -768,12 +981,13 @@ impl<M: Memory> Cpu<M> {
     }
   }
 
-  // FIXME (we're doing a mem read twice)
   fn high_addr_bitand(&mut self, op: &mut Operand, val: u8) {
     if let Operand::Addr(dst, _) = op {
-      let addr = self.read(self.pc.wrapping_sub(1));
-      let res = val & addr.wrapping_add(1);
-      self.set_instr_result(InstrDst::Mem(*dst), res);
+      let addr_hi = (*dst >> 8) as u8;
+      let addr_lo = (*dst & 0xFF) as u8; 
+      let res = val & addr_hi.wrapping_add(1);
+      let dst = (((val & (addr_hi.wrapping_add(1))) as u16) << 8) | addr_lo as u16;
+      self.set_instr_result(InstrDst::Mem(dst), res);
     }
   }
 
@@ -784,14 +998,12 @@ impl<M: Memory> Cpu<M> {
     self.high_addr_bitand(op, res);
   }
 
-  // also called SXA, XAS, currently NOT WORKING
-  // FIXME
+  // also called SXA, XAS
   pub fn shx(&mut self, op: &mut Operand) {
     self.high_addr_bitand(op, self.x);
   }
 
-  // also called A11m SYA, SAY, currently NOT WORKING
-  // FIXME
+  // also called A11m SYA, SAY
   pub fn shy(&mut self, op: &mut Operand) {
     self.high_addr_bitand(op, self.y);
   }
@@ -807,13 +1019,12 @@ impl<M: Memory> Cpu<M> {
     self.and(op);
   }
 
-  // also called LAXI, currently NOT WORKING
-  // FIXME
+  // also called LAXI
   pub fn lxa(&mut self, op: &mut Operand) {
     let val = self.get_operand_value(op);
-    let res = self.a & val;
-    self.set_zn(res);
-    self.x = res;
+    self.set_zn(val);
+    self.a = val;
+    self.x = val;
   }
 
   // also called KIL, HLT
