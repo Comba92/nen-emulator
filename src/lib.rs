@@ -1,5 +1,5 @@
 pub mod emu;
-pub mod render;
+pub mod frame;
 
 pub mod cpu;
 pub mod instr;

@@ -1,7 +1,7 @@
 use core::fmt;
 use std::collections::VecDeque;
 
-use crate::{cart::Mirroring, mapper::CartMapper, render::{NesScreen, OamEntry, SpritePriority}};
+use crate::{cart::Mirroring, mapper::CartMapper, frame::{NesScreen, OamEntry, SpritePriority}};
 use bitfield_struct::bitfield;
 use bitflags::bitflags;
 use log::{info, warn};

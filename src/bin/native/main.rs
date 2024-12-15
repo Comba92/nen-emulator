@@ -1,15 +1,15 @@
 use std::{env::args, path::PathBuf};
-use nen_emulator::{emu::Emu, cart::Cart, render::{SCREEN_HEIGHT, SCREEN_WIDTH}};
-use sdl2::{audio::{AudioCallback, AudioSpecDesired, AudioStatus}, event::Event, pixels::PixelFormatEnum};
+use nen_emulator::{emu::Emu, cart::Cart, frame::{SCREEN_HEIGHT, SCREEN_WIDTH}};
+use sdl2::{audio::{self, AudioCallback, AudioSpecDesired, AudioStatus}, event::Event, pixels::PixelFormatEnum};
 use std::{time::{Duration, Instant}, sync::mpsc::{self, Receiver}};
 mod sdl2ctx;
-use sdl2ctx::{handle_input, toggle_audio, AudioMessage, Sdl2Context};
+use sdl2ctx::{handle_input, Sdl2Context};
 
 fn main() {
     const SCALE: f32 = 3.5;
     const WINDOW_WIDTH:  u32  = (SCALE * SCREEN_WIDTH  as f32* 8.0) as u32;
     const WINDOW_HEIGHT: u32  = (SCALE * SCREEN_HEIGHT as f32* 8.0) as u32;
-    let ms_frame: Duration = Duration::from_secs_f64(1.0 / 60.0);
+    let ms_frame: Duration = Duration::from_secs_f64(1.0 / 60.0988);
 
     let mut sdl = Sdl2Context
         ::new("NenEmulator", WINDOW_WIDTH, WINDOW_HEIGHT)
@@ -41,53 +41,43 @@ fn main() {
     let desired_spec = AudioSpecDesired {
         freq: Some(44100),
         channels: Some(1),
-        samples: Some(1024),
+        samples: None,
     };
 
-    let (sender, receiver) = mpsc::sync_channel(0);
-    
     let audio_dev = sdl.audio_subsystem
-    .open_playback(None, &desired_spec, move |_| {
-        struct AudioReceiver(Receiver<AudioMessage>);
+        .open_queue::<i16, _>(None, &desired_spec).unwrap();
 
-        impl AudioCallback for AudioReceiver {
-            type Channel = i16;
-        
-            fn callback(&mut self, out: &mut [Self::Channel]) {
-                for x in out {
-                    match self.0.recv().unwrap() {
-                        AudioMessage::Sample(sample) => *x = sample,
-                        AudioMessage::Stop => { return; },
-                    }
-                }
-            }
-        }
-
-        AudioReceiver(receiver)
-    }).expect("Couldn't initialize audio callback");
-
-    println!("{:?}", audio_dev.spec());
+    let mut audio_buf = Vec::new();
+    audio_dev.resume();
 
     'running: loop {
         let ms_since_start = Instant::now();
-        // emu.step_until_vblank();
 
         while emu.get_ppu().vblank_started.take().is_none() {
             if emu.is_paused { break; }
             let sample = emu.step_until_sample();
-            sender.send(AudioMessage::Sample(sample)).unwrap();
+            audio_buf.push(sample);
         }
 
+        if audio_dev.size() < 2096 {
+            while emu.get_ppu().vblank_started.take().is_none() {
+                if emu.is_paused { break; }
+                let sample = emu.step_until_sample();
+                audio_buf.push(sample);
+            }
+        }
+
+        audio_dev.queue_audio(&audio_buf);
+        audio_buf.clear();
+
         for event in sdl.events.poll_iter() {
-            handle_input(&sdl.keymaps, &event, &mut emu, &sender, &audio_dev);
+            handle_input(&sdl.keymaps, &event, &mut emu);
 
             match event {
                 Event::Quit { .. } => {
-                    toggle_audio(&sender, &audio_dev);
                     break 'running;
                 }
                 Event::DropFile { filename, .. } => {
-                    toggle_audio(&sender, &audio_dev);
 
                     let rom_path = &PathBuf::from(filename);
                     let rom_result = Cart::from_file(&rom_path);
@@ -101,8 +91,6 @@ fn main() {
                         }
                         Err(msg) => eprintln!("Couldn't load the rom: {msg}\n"),
                     };
-
-                    audio_dev.resume();
                 }
                 Event::ControllerDeviceAdded { which , .. } => {
                     match sdl.controller_subsystem.open(which) {
@@ -122,9 +110,9 @@ fn main() {
         sdl.canvas.copy(&texture, None, None).unwrap();
         sdl.canvas.present();
 
-        // let ms_elapsed = Instant::now() - ms_since_start;
-        // if ms_frame > ms_elapsed {
-        //     std::thread::sleep(ms_frame - ms_elapsed);
-        // }
+        let ms_elapsed = Instant::now() - ms_since_start;
+        if ms_frame > ms_elapsed {
+            std::thread::sleep(ms_frame - ms_elapsed);
+        }
     }
 }

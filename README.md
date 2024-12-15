@@ -14,8 +14,9 @@
 - Mmc3 buggy in some games
 - Mmc5
 
-[] APU
+[x] APU
 - Make cleaner implementation
+- Sound still sucks
 - DMC
 - PAL support?
 - Audio filters?

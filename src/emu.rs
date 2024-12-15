@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::{apu::Apu, bus::Bus, cart::{Cart, INesHeader}, cpu::Cpu, joypad::{Joypad, JoypadButton}, ppu::Ppu, render::FrameBuffer};
+use crate::{apu::Apu, bus::Bus, cart::{Cart, INesHeader}, cpu::Cpu, joypad::{Joypad, JoypadButton}, ppu::Ppu, frame::FrameBuffer};
 use wasm_bindgen::prelude::wasm_bindgen;
 
 #[wasm_bindgen]

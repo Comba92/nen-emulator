@@ -84,19 +84,7 @@ impl Keymaps {
   }
 }
 
-
-pub enum AudioMessage { Sample(i16), Stop }
-
-pub fn toggle_audio<CB: AudioCallback>(sender: &SyncSender<AudioMessage>, dev: &AudioDevice<CB>) {
-  if dev.status() == AudioStatus::Playing {
-    sender.send(AudioMessage::Stop).unwrap();
-    dev.pause();
-  } else {
-    dev.resume();
-  }
-}
-
-pub fn handle_input<F: AudioCallback>(keys: &Keymaps, event: &Event, emu: &mut Emu, sender: &SyncSender<AudioMessage>, audio_dev: &AudioDevice<F>) {
+pub fn handle_input(keys: &Keymaps, event: &Event, emu: &mut Emu) {
   let joypad = emu.get_joypad();
 
   match event {
@@ -109,7 +97,6 @@ pub fn handle_input<F: AudioCallback>(keys: &Keymaps, event: &Event, emu: &mut E
             (InputAction::Game(button), Event::KeyUp {..}) => joypad.buttons.remove(*button),
             (InputAction::Pause, Event::KeyDown {..}) => {
               emu.is_paused = !emu.is_paused;
-              toggle_audio(sender, audio_dev);
             },
             (InputAction::Reset, Event::KeyDown {..}) => emu.reset(),
             _ => {}
@@ -125,11 +112,6 @@ pub fn handle_input<F: AudioCallback>(keys: &Keymaps, event: &Event, emu: &mut E
           (InputAction::Game(button), Event::ControllerButtonUp {..}) => joypad.buttons.remove(*button),
           (InputAction::Pause, Event::ControllerButtonDown {..}) => {
             emu.is_paused = !emu.is_paused;
-            match audio_dev.status() {
-              AudioStatus::Playing => audio_dev.pause(),
-              AudioStatus::Paused => audio_dev.resume(),
-              _ => {}
-            };
           }
           (InputAction::Reset, Event::ControllerButtonDown {..}) => emu.reset(),
           _ => {}

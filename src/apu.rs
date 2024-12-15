@@ -56,7 +56,7 @@ impl Timer {
   }
 
   pub fn step<F: FnOnce(&mut Self)>(&mut self, callback: F) {
-    self.count -= 1;
+    self.count = self.count.wrapping_sub(1);
     if self.count == 0 {
       self.count = self.period + 1;
       callback(self);
@@ -142,7 +142,7 @@ impl Envelope {
   }
 }
 
-// TODO: consider merging envelope and sweep in one
+// TODO: this needs better engeneering
 trait Channel {
   fn step_timer(&mut self);
   fn step_length(&mut self) {}
@@ -210,6 +210,7 @@ pub struct Apu {
   // pub high_pass_filters: [HighPassFilter; 2],
 
   cycles: usize,
+  sample_cycles: f32,
 }
 
 impl Apu {
@@ -237,6 +238,7 @@ impl Apu {
       // ],
 
       cycles: 0,
+      sample_cycles: 0.0,
     };
 
     apu
@@ -247,14 +249,16 @@ impl Apu {
   }
 
   pub fn step(&mut self) {
-    // A frame lasts 29780 CPU cycles.
+    // A frame lasts 29780.5 CPU cycles.
     // We have to output 44100 hertz of samples per second.
     // We have 60 frames per second.
     // Meaning for a single frame we need 44100 / 60 = 735 samples.
-    // Then, we have to output a sample every 29780 / 735 = 40 cycles!
-    if self.cycles % 40 == 0 {
+    // Then, we have to output a sample every 29780.5 / 735 = 40.5 cycles!
+    if self.sample_cycles >= 40.517687075 {
       self.mix_channels();
+      self.sample_cycles -= 40.517687075;
     }
+    self.sample_cycles += 1.0;
     
     self.triangle.step_timer();
     if self.cycles % 2 == 1 {
@@ -333,11 +337,6 @@ impl Apu {
     let tnd_out = 0.00494 * noise as f32 + 0.00851 * triangle as f32;
 
     let sum = pulse_out + tnd_out;
-
-    // let mut filtered;
-    // filtered = self.high_pass_filters[0].process(sum);
-    // filtered = self.high_pass_filters[1].process(filtered);
-    // filtered = self.low_pass_filter.process(filtered);
 
     let output = (sum * u16::MAX as f32).clamp(0.0, u16::MAX as f32) as i16;
     self.current_sample = Some(output);
@@ -419,63 +418,3 @@ impl Apu {
     }
   }
 }
-
-// pub struct LowPassFilter {
-//   b0: f32,
-//   b1: f32,
-//   a1: f32,
-//   prev_x: f32,
-//   prev_y: f32,
-// }
-
-// impl LowPassFilter {
-//   pub fn new(sample_rate: f32, cutoff: f32) -> Self {
-//       let c = sample_rate / f32::consts::PI / cutoff;
-//       let a0i = 1.0 / (1.0 + c);
-
-//       Self {
-//           b0: a0i,
-//           b1: a0i,
-//           a1: (1.0 - c) * a0i,
-//           prev_x: 0.0,
-//           prev_y: 0.0,
-//       }
-//   }
-
-//   fn process(&mut self, signal: f32) -> f32 {
-//     let y = self.b0 * signal + self.b1 * self.prev_x - self.a1 * self.prev_y;
-//     self.prev_y = y;
-//     self.prev_x = signal;
-//     y
-//   }
-// }
-
-// pub struct HighPassFilter {
-//   b0: f32,
-//   b1: f32,
-//   a1: f32,
-//   prev_x: f32,
-//   prev_y: f32,
-// }
-
-// impl HighPassFilter {
-//   pub fn new(sample_rate: f32, cutoff: f32) -> Self {
-//       let c = sample_rate / f32::consts::PI / cutoff;
-//       let a0i = 1.0 / (1.0 + c);
-
-//       Self {
-//           b0: c * a0i,
-//           b1: -c * a0i,
-//           a1: (1.0 - c) * a0i,
-//           prev_x: 0.0,
-//           prev_y: 0.0,
-//       }
-//   }
-
-//   fn process(&mut self, signal: f32) -> f32 {
-//       let y = self.b0 * signal + self.b1 * self.prev_x - self.a1 * self.prev_y;
-//       self.prev_y = y;
-//       self.prev_x = signal;
-//       y
-//   }
-// }
