@@ -6,173 +6,176 @@ use noise::Noise;
 use pulse::Pulse;
 use triangle::Triangle;
 
+mod dmc;
+mod noise;
 mod pulse;
 mod triangle;
-mod noise;
-mod dmc;
 
 #[derive(Default, Clone, Copy, PartialEq, Eq)]
 enum EnvelopeMode {
-  #[default] OneShot, Loop
+    #[default]
+    OneShot,
+    Loop,
 }
 impl From<u8> for EnvelopeMode {
-  fn from(value: u8) -> Self {
-    match value {
-      0 => EnvelopeMode::OneShot,
-      1 => EnvelopeMode::Loop,
-      _ => unreachable!("envelope mode is either 0 or 1")
+    fn from(value: u8) -> Self {
+        match value {
+            0 => EnvelopeMode::OneShot,
+            1 => EnvelopeMode::Loop,
+            _ => unreachable!("envelope mode is either 0 or 1"),
+        }
     }
-  }
 }
 
 #[derive(Default, Clone, Copy, PartialEq, Eq)]
 enum VolumeMode {
-  #[default] Envelope, Constant
+    #[default]
+    Envelope,
+    Constant,
 }
 impl From<u8> for VolumeMode {
     fn from(value: u8) -> Self {
         match value {
-          0 => VolumeMode::Envelope,
-          1 => VolumeMode::Constant,
-          _ => unreachable!("volume mode is either 0 or 1")
+            0 => VolumeMode::Envelope,
+            1 => VolumeMode::Constant,
+            _ => unreachable!("volume mode is either 0 or 1"),
         }
     }
 }
 
 #[derive(Default)]
 struct Timer {
-  pub period: u16,
-  count: u16,
+    pub period: u16,
+    count: u16,
 }
 impl Timer {
-  pub fn set_period_low(&mut self, val: u8) {
-    self.period = self.period & 0xFF00
-      | val as u16;
-  }
-
-  pub fn set_period_high(&mut self, val: u8) {
-    self.period = self.period & 0x00FF
-    | ((val as u16 & 0b111) << 8);
-  }
-
-  pub fn step<F: FnOnce(&mut Self)>(&mut self, callback: F) {
-    self.count = self.count.wrapping_sub(1);
-    if self.count == 0 {
-      self.count = self.period + 1;
-      callback(self);
+    pub fn set_period_low(&mut self, val: u8) {
+        self.period = self.period & 0xFF00 | val as u16;
     }
-  }
+
+    pub fn set_period_high(&mut self, val: u8) {
+        self.period = self.period & 0x00FF | ((val as u16 & 0b111) << 8);
+    }
+
+    pub fn step<F: FnOnce(&mut Self)>(&mut self, callback: F) {
+        self.count = self.count.wrapping_sub(1);
+        if self.count == 0 {
+            self.count = self.period + 1;
+            callback(self);
+        }
+    }
 }
 
 const LENGTH_TABLE: [u8; 32] = [
-  10, 254, 20,  2, 40,  4, 80,  6, 160,  8, 60, 10, 14, 12, 26, 14,
-  12, 16, 24, 18, 48, 20, 96, 22, 192, 24, 72, 26, 16, 28, 32, 30
+    10, 254, 20, 2, 40, 4, 80, 6, 160, 8, 60, 10, 14, 12, 26, 14, 12, 16, 24, 18, 48, 20, 96, 22,
+    192, 24, 72, 26, 16, 28, 32, 30,
 ];
 
 #[derive(Default)]
 struct LengthCounter {
-  count: u8,
-  pub halted: bool,
-  pub enabled: bool,
+    count: u8,
+    pub halted: bool,
+    pub enabled: bool,
 }
 
 impl LengthCounter {
-  pub fn reload(&mut self, val: u8) {
-    if self.enabled {
-      let length_idx = val as usize >> 3;
-      self.count = LENGTH_TABLE[length_idx];
+    pub fn reload(&mut self, val: u8) {
+        if self.enabled {
+            let length_idx = val as usize >> 3;
+            self.count = LENGTH_TABLE[length_idx];
+        }
     }
-  }
 
-  pub fn step(&mut self) {
-    if !self.halted && self.count > 0 {
-      self.count -= 1;
+    pub fn step(&mut self) {
+        if !self.halted && self.count > 0 {
+            self.count -= 1;
+        }
     }
-  }
 
-  pub fn is_enabled(&self) -> bool {
-    self.count != 0
-  }
+    pub fn is_enabled(&self) -> bool {
+        self.count != 0
+    }
 
-  pub fn disable(&mut self) {
-    self.enabled = false;
-    self.count = 0;
-  }
+    pub fn disable(&mut self) {
+        self.enabled = false;
+        self.count = 0;
+    }
 }
 
 #[derive(Default)]
 struct Envelope {
-  pub start: bool,
-  pub volume_and_envelope: u8,
-  envelope_count: u8,
-  pub decay_count: u8,
-  pub envelope_mode: EnvelopeMode,
-  pub volume_mode: VolumeMode,
+    pub start: bool,
+    pub volume_and_envelope: u8,
+    envelope_count: u8,
+    pub decay_count: u8,
+    pub envelope_mode: EnvelopeMode,
+    pub volume_mode: VolumeMode,
 }
 impl Envelope {
-  pub fn set(&mut self, val: u8) {
-    self.envelope_mode = EnvelopeMode::from((val >> 5) & 1);
-    self.volume_mode = VolumeMode::from((val >> 4) & 1);
-    self.volume_and_envelope = val & 0b1111;
-  }
-
-  pub fn step(&mut self) {
-    if self.start {
-      self.start = false;
-      self.decay_count = 15;
-      self.envelope_count = self.volume_and_envelope + 1;
-    } else if self.envelope_count > 0 {
-      self.envelope_count -= 1;
-    } else {
-      self.envelope_count = self.volume_and_envelope + 1;
-
-      if self.decay_count > 0 {
-        self.decay_count -= 1;
-      } else if self.envelope_mode == EnvelopeMode::Loop {
-        self.decay_count = 15;
-      }
+    pub fn set(&mut self, val: u8) {
+        self.envelope_mode = EnvelopeMode::from((val >> 5) & 1);
+        self.volume_mode = VolumeMode::from((val >> 4) & 1);
+        self.volume_and_envelope = val & 0b1111;
     }
-  }
 
-  pub fn volume(&self) -> u8 {
-      match self.volume_mode {
-        VolumeMode::Envelope => self.decay_count,
-        VolumeMode::Constant => self.volume_and_envelope,
-      }
-  }
+    pub fn step(&mut self) {
+        if self.start {
+            self.start = false;
+            self.decay_count = 15;
+            self.envelope_count = self.volume_and_envelope + 1;
+        } else if self.envelope_count > 0 {
+            self.envelope_count -= 1;
+        } else {
+            self.envelope_count = self.volume_and_envelope + 1;
+
+            if self.decay_count > 0 {
+                self.decay_count -= 1;
+            } else if self.envelope_mode == EnvelopeMode::Loop {
+                self.decay_count = 15;
+            }
+        }
+    }
+
+    pub fn volume(&self) -> u8 {
+        match self.volume_mode {
+            VolumeMode::Envelope => self.decay_count,
+            VolumeMode::Constant => self.volume_and_envelope,
+        }
+    }
 }
 
 // TODO: this needs better engeneering
 trait Channel {
-  fn step_timer(&mut self);
-  fn step_length(&mut self) {}
-  fn step_envelope(&mut self) {}
-  fn step_sweep(&mut self, _complement: bool) {}
-  fn step_linear(&mut self) {}
+    fn step_timer(&mut self);
+    fn step_length(&mut self) {}
+    fn step_envelope(&mut self) {}
+    fn step_sweep(&mut self, _complement: bool) {}
+    fn step_linear(&mut self) {}
 
-  fn is_enabled(&self) -> bool;
-  fn set_enabled(&mut self, enabled: bool);
-  fn get_sample(&self) -> u8;
+    fn is_enabled(&self) -> bool;
+    fn set_enabled(&mut self, enabled: bool);
+    fn get_sample(&self) -> u8;
 }
 
 #[derive(PartialEq, Eq)]
 pub enum FrameCounterMode {
-  Step4, Step5
+    Step4,
+    Step5,
 }
 impl From<u8> for FrameCounterMode {
     fn from(value: u8) -> Self {
-      match value {
-        0 => FrameCounterMode::Step4,
-        _ => FrameCounterMode::Step5
-      }
+        match value {
+            0 => FrameCounterMode::Step4,
+            _ => FrameCounterMode::Step5,
+        }
     }
 }
 impl Into<u8> for FrameCounterMode {
     fn into(self) -> u8 {
-      match self {
-        Self::Step4 => 0,
-        Self::Step5 => 1,
-      }
+        match self {
+            Self::Step4 => 0,
+            Self::Step5 => 1,
+        }
     }
 }
 
@@ -191,230 +194,226 @@ bitflags! {
 }
 
 pub struct Apu {
-  pulse1: Pulse,
-  pulse2: Pulse,
-  triangle: Triangle,
-  noise: Noise,
-  dmc: Dmc,
-  
-  frame_write_delay: usize,
-  frame_mode: FrameCounterMode,
-  dmc_irq_enabled: bool,
-  frame_irq_enabled: bool,
-  interrupts_disabled: bool,
+    pulse1: Pulse,
+    pulse2: Pulse,
+    triangle: Triangle,
+    noise: Noise,
+    dmc: Dmc,
 
-  pub frame_irq_requested: Option<()>,
-  pub current_sample: Option<i16>,
+    frame_write_delay: usize,
+    frame_mode: FrameCounterMode,
+    dmc_irq_enabled: bool,
+    frame_irq_enabled: bool,
+    interrupts_disabled: bool,
 
-  // pub low_pass_filter: LowPassFilter,
-  // pub high_pass_filters: [HighPassFilter; 2],
+    pub frame_irq_requested: Option<()>,
+    pub current_sample: Option<i16>,
 
-  cycles: usize,
-  sample_cycles: f32,
+    // pub low_pass_filter: LowPassFilter,
+    // pub high_pass_filters: [HighPassFilter; 2],
+    cycles: usize,
+    sample_cycles: f32,
 }
 
 impl Apu {
-  pub fn new() -> Self {
-    let apu = Apu {
-      pulse1: Pulse::default(),
-      pulse2: Pulse::default(),
-      triangle: Triangle::default(),
-      noise: Noise::default(),
-      dmc: Dmc::default(),
+    pub fn new() -> Self {
+        let apu = Apu {
+            pulse1: Pulse::default(),
+            pulse2: Pulse::default(),
+            triangle: Triangle::default(),
+            noise: Noise::default(),
+            dmc: Dmc::default(),
 
-      frame_write_delay: 0,
-      frame_mode: FrameCounterMode::Step4,
-      dmc_irq_enabled: false,
-      frame_irq_enabled: false,
-      interrupts_disabled: false,
-      
-      current_sample: None,
-      frame_irq_requested: None,
+            frame_write_delay: 0,
+            frame_mode: FrameCounterMode::Step4,
+            dmc_irq_enabled: false,
+            frame_irq_enabled: false,
+            interrupts_disabled: false,
 
-      // low_pass_filter: LowPassFilter::new(44_100.0, 14_000.0),
-      // high_pass_filters: [
-      //   HighPassFilter::new(44_100.0, 90.0),
-      //   HighPassFilter::new(44_100.0, 440.0),
-      // ],
+            current_sample: None,
+            frame_irq_requested: None,
 
-      cycles: 0,
-      sample_cycles: 0.0,
-    };
+            // low_pass_filter: LowPassFilter::new(44_100.0, 14_000.0),
+            // high_pass_filters: [
+            //   HighPassFilter::new(44_100.0, 90.0),
+            //   HighPassFilter::new(44_100.0, 440.0),
+            // ],
+            cycles: 0,
+            sample_cycles: 0.0,
+        };
 
-    apu
-  }
-
-  pub fn reset(&mut self) {
-    // TODO: reset APU
-  }
-
-  pub fn step(&mut self) {
-    // A frame lasts 29780.5 CPU cycles.
-    // We have to output 44100 hertz of samples per second.
-    // We have 60 frames per second.
-    // Meaning for a single frame we need 44100 / 60 = 735 samples.
-    // Then, we have to output a sample every 29780.5 / 735 = 40.5 cycles!
-    if self.sample_cycles >= 40.517687075 {
-      self.mix_channels();
-      self.sample_cycles -= 40.517687075;
-    }
-    self.sample_cycles += 1.0;
-    
-    self.triangle.step_timer();
-    if self.cycles % 2 == 1 {
-      self.pulse1.step_timer();
-      self.pulse2.step_timer();
-      self.noise.step_timer();
-      self.step_frame();
-    }
-    
-    if self.frame_write_delay > 0 {
-      self.frame_write_delay -= 1;
-      if self.frame_write_delay == 0 {
-        self.cycles = 0;
-      }
+        apu
     }
 
-    // cycles count should reset to zero on the next cycle (thus we do not increase it at that time)
-    if self.cycles == 14914 
-    && self.frame_mode == FrameCounterMode::Step4 { 
-      self.cycles = 0; 
-    } else if self.cycles == 18640 
-    && self.frame_mode == FrameCounterMode::Step5 {
-      self.cycles = 0;
-    } else {
-      self.cycles += 1;
+    pub fn reset(&mut self) {
+        // TODO: reset APU
     }
-  }
 
-  fn step_quarter_frame(&mut self) {
-    self.pulse1.step_envelope();
-    self.pulse2.step_envelope();
-    self.triangle.step_linear();
-    self.noise.step_envelope();
-  }
-
-  fn step_half_frame(&mut self) {
-    self.step_quarter_frame();
-    self.pulse1.step_length();
-    self.pulse2.step_length();
-    self.triangle.step_length();
-    self.noise.step_length();
-
-    self.pulse1.step_sweep(false);
-    self.pulse2.step_sweep(true);
-  }
-
-  fn step_frame(&mut self) {
-    match (self.cycles/2, &self.frame_mode) {
-      (3728 | 11185, _) => self.step_quarter_frame(),
-      (7465, _) => self.step_half_frame(),
-      (14914, FrameCounterMode::Step4) => {
-        self.step_half_frame();
-        self.cycles = 0;
-
-        self.frame_irq_enabled = !self.interrupts_disabled;
-
-        if !self.interrupts_disabled {
-          self.frame_irq_requested = Some(())
+    pub fn step(&mut self) {
+        // A frame lasts 29780.5 CPU cycles.
+        // We have to output 44100 hertz of samples per second.
+        // We have 60 frames per second.
+        // Meaning for a single frame we need 44100 / 60 = 735 samples.
+        // Then, we have to output a sample every 29780.5 / 735 = 40.5 cycles!
+        if self.sample_cycles >= 40.517687075 {
+            self.mix_channels();
+            self.sample_cycles -= 40.517687075;
         }
-      }
-      (18640, FrameCounterMode::Step5) => {
-        self.step_half_frame();
-        self.cycles = 0;
-      }
-      _ => {}
-    }
-  }
+        self.sample_cycles += 1.0;
 
-  fn mix_channels(&mut self) {
-    let pulse1   = self.pulse1.get_sample();
-    let pulse2   = self.pulse2.get_sample();
-    let triangle = self.triangle.get_sample();
-    let noise    = self.noise.get_sample();
-
-    let pulse_out = 0.00752 * (pulse1 + pulse2) as f32;
-    let tnd_out = 0.00494 * noise as f32 + 0.00851 * triangle as f32;
-
-    let sum = pulse_out + tnd_out;
-
-    let output = (sum * u16::MAX as f32).clamp(0.0, u16::MAX as f32) as i16;
-    self.current_sample = Some(output);
-  }
-
-  pub fn read_reg(&mut self, addr: u16) -> u8 {
-    match addr {
-      0x4015 => {
-        let mut flags = ApuFlags::empty();
-        flags.set(ApuFlags::pulse1, self.pulse1.is_enabled());
-        flags.set(ApuFlags::pulse2, self.pulse2.is_enabled());
-        flags.set(ApuFlags::triangle, self.triangle.is_enabled());
-        flags.set(ApuFlags::noise, self.noise.is_enabled());
-        flags.set(ApuFlags::dmc, self.dmc.is_enabled());
-        flags.set(ApuFlags::frame_irq, self.frame_irq_enabled);
-        flags.set(ApuFlags::dmc_irq, self.dmc_irq_enabled);
-
-        // TODO: should not be cleared if read at the same moment of a read
-        self.frame_irq_enabled = false;
-
-        flags.bits()
-      }
-      _ => 0
-    }
-  }
-
-  pub fn write_reg(&mut self, addr: u16, val: u8) {
-    match addr {
-      0x4000 => self.pulse1.set_ctrl(val),
-      0x4004 => self.pulse2.set_ctrl(val),
-
-      0x4001 => self.pulse1.set_sweep(val),
-      0x4005 => self.pulse2.set_sweep(val),
-
-      0x4002 => self.pulse1.set_timer_low(val),
-      0x4006 => self.pulse2.set_timer_low(val),
-
-      0x4003 => self.pulse1.set_timer_high(val),
-      0x4007 => self.pulse2.set_timer_high(val),
-
-      0x4008 => self.triangle.set_ctrl(val),
-      0x400A => self.triangle.set_timer_low(val),
-      0x400B => self.triangle.set_timer_high(val),
-
-      0x400C => self.noise.set_ctrl(val),
-      0x400E => self.noise.set_noise(val),
-      0x400F => self.noise.set_length(val),
-
-      0x4010 => self.dmc.write_ctrl(val),
-      0x4011 => self.dmc.write_count(val),
-      0x4012 => self.dmc.write_addr(val),
-      0x4013 => self.dmc.write_length(val),
-
-      0x4015 => {
-        self.pulse1.set_enabled(val & 0b0001 != 0);
-        self.pulse2.set_enabled(val & 0b0010 != 0);
-        self.triangle.set_enabled(val & 0b0100 != 0);
-        self.noise.set_enabled(val & 0b1000 != 0);
-        self.dmc.set_enabled(val & 0b1_0000 != 0);
-
-        self.dmc_irq_enabled = false;
-      }
-      0x4017 => {
-        self.frame_mode = FrameCounterMode::from((val >> 7) & 1);
-        self.interrupts_disabled = (val >> 6) & 1 != 0;
-        if self.interrupts_disabled {
-          self.frame_irq_enabled = false;
+        self.triangle.step_timer();
+        if self.cycles % 2 == 1 {
+            self.pulse1.step_timer();
+            self.pulse2.step_timer();
+            self.noise.step_timer();
+            self.step_frame();
         }
 
-        // the timer is reset after 3 or 4 cpu cycles
-        // https://www.nesdev.org/wiki/APU_Frame_Counter
-        self.frame_write_delay = if self.cycles % 2 == 1 { 3 } else { 4 };
-
-        if self.frame_mode == FrameCounterMode::Step5 {
-          self.step_half_frame();
+        if self.frame_write_delay > 0 {
+            self.frame_write_delay -= 1;
+            if self.frame_write_delay == 0 {
+                self.cycles = 0;
+            }
         }
-      }
-    _ => {}
+
+        // cycles count should reset to zero on the next cycle (thus we do not increase it at that time)
+        if self.cycles == 14914 && self.frame_mode == FrameCounterMode::Step4 {
+            self.cycles = 0;
+        } else if self.cycles == 18640 && self.frame_mode == FrameCounterMode::Step5 {
+            self.cycles = 0;
+        } else {
+            self.cycles += 1;
+        }
     }
-  }
+
+    fn step_quarter_frame(&mut self) {
+        self.pulse1.step_envelope();
+        self.pulse2.step_envelope();
+        self.triangle.step_linear();
+        self.noise.step_envelope();
+    }
+
+    fn step_half_frame(&mut self) {
+        self.step_quarter_frame();
+        self.pulse1.step_length();
+        self.pulse2.step_length();
+        self.triangle.step_length();
+        self.noise.step_length();
+
+        self.pulse1.step_sweep(false);
+        self.pulse2.step_sweep(true);
+    }
+
+    fn step_frame(&mut self) {
+        match (self.cycles / 2, &self.frame_mode) {
+            (3728 | 11185, _) => self.step_quarter_frame(),
+            (7465, _) => self.step_half_frame(),
+            (14914, FrameCounterMode::Step4) => {
+                self.step_half_frame();
+                self.cycles = 0;
+
+                self.frame_irq_enabled = !self.interrupts_disabled;
+
+                if !self.interrupts_disabled {
+                    self.frame_irq_requested = Some(())
+                }
+            }
+            (18640, FrameCounterMode::Step5) => {
+                self.step_half_frame();
+                self.cycles = 0;
+            }
+            _ => {}
+        }
+    }
+
+    fn mix_channels(&mut self) {
+        let pulse1 = self.pulse1.get_sample();
+        let pulse2 = self.pulse2.get_sample();
+        let triangle = self.triangle.get_sample();
+        let noise = self.noise.get_sample();
+
+        let pulse_out = 0.00752 * (pulse1 + pulse2) as f32;
+        let tnd_out = 0.00494 * noise as f32 + 0.00851 * triangle as f32;
+
+        let sum = pulse_out + tnd_out;
+
+        let output = (sum * u16::MAX as f32).clamp(0.0, u16::MAX as f32) as i16;
+        self.current_sample = Some(output);
+    }
+
+    pub fn read_reg(&mut self, addr: u16) -> u8 {
+        match addr {
+            0x4015 => {
+                let mut flags = ApuFlags::empty();
+                flags.set(ApuFlags::pulse1, self.pulse1.is_enabled());
+                flags.set(ApuFlags::pulse2, self.pulse2.is_enabled());
+                flags.set(ApuFlags::triangle, self.triangle.is_enabled());
+                flags.set(ApuFlags::noise, self.noise.is_enabled());
+                flags.set(ApuFlags::dmc, self.dmc.is_enabled());
+                flags.set(ApuFlags::frame_irq, self.frame_irq_enabled);
+                flags.set(ApuFlags::dmc_irq, self.dmc_irq_enabled);
+
+                // TODO: should not be cleared if read at the same moment of a read
+                self.frame_irq_enabled = false;
+
+                flags.bits()
+            }
+            _ => 0,
+        }
+    }
+
+    pub fn write_reg(&mut self, addr: u16, val: u8) {
+        match addr {
+            0x4000 => self.pulse1.set_ctrl(val),
+            0x4004 => self.pulse2.set_ctrl(val),
+
+            0x4001 => self.pulse1.set_sweep(val),
+            0x4005 => self.pulse2.set_sweep(val),
+
+            0x4002 => self.pulse1.set_timer_low(val),
+            0x4006 => self.pulse2.set_timer_low(val),
+
+            0x4003 => self.pulse1.set_timer_high(val),
+            0x4007 => self.pulse2.set_timer_high(val),
+
+            0x4008 => self.triangle.set_ctrl(val),
+            0x400A => self.triangle.set_timer_low(val),
+            0x400B => self.triangle.set_timer_high(val),
+
+            0x400C => self.noise.set_ctrl(val),
+            0x400E => self.noise.set_noise(val),
+            0x400F => self.noise.set_length(val),
+
+            0x4010 => self.dmc.write_ctrl(val),
+            0x4011 => self.dmc.write_count(val),
+            0x4012 => self.dmc.write_addr(val),
+            0x4013 => self.dmc.write_length(val),
+
+            0x4015 => {
+                self.pulse1.set_enabled(val & 0b0001 != 0);
+                self.pulse2.set_enabled(val & 0b0010 != 0);
+                self.triangle.set_enabled(val & 0b0100 != 0);
+                self.noise.set_enabled(val & 0b1000 != 0);
+                self.dmc.set_enabled(val & 0b1_0000 != 0);
+
+                self.dmc_irq_enabled = false;
+            }
+            0x4017 => {
+                self.frame_mode = FrameCounterMode::from((val >> 7) & 1);
+                self.interrupts_disabled = (val >> 6) & 1 != 0;
+                if self.interrupts_disabled {
+                    self.frame_irq_enabled = false;
+                }
+
+                // the timer is reset after 3 or 4 cpu cycles
+                // https://www.nesdev.org/wiki/APU_Frame_Counter
+                self.frame_write_delay = if self.cycles % 2 == 1 { 3 } else { 4 };
+
+                if self.frame_mode == FrameCounterMode::Step5 {
+                    self.step_half_frame();
+                }
+            }
+            _ => {}
+        }
+    }
 }

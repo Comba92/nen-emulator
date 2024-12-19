@@ -6,11 +6,11 @@ pub mod instr;
 
 pub mod apu;
 
-pub mod mem;
 pub mod bus;
 pub mod mapper;
+pub mod mem;
 
-pub mod ppu;
 pub mod joypad;
+pub mod ppu;
 
 pub mod cart;
