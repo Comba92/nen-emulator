@@ -1,9 +1,7 @@
-use std::collections::VecDeque;
-
 use crate::{cart::Mirroring, frame::NesScreen, mapper::CartMapper};
 use bitfield_struct::bitfield;
 use bitflags::bitflags;
-use render::{BgData, OamEntry, SprData};
+use render::Renderer;
 
 mod render;
 
@@ -110,19 +108,19 @@ enum VramDst {
 	Unused,
 }
 
+pub const NAMETABLES: u16 = 0x2000;
+pub const ATTRIBUTES: u16 = 0x23C0;
+pub const PALETTES: u16 = 0x3F00;
+
 pub struct Ppu {
 	pub screen: NesScreen,
+	renderer: Renderer,
 
 	v: LoopyReg,   // current vram address
 	t: LoopyReg,   // temporary vram address / topleft onscreen tile
 	x: u8,         // Fine X Scroll
 	w: WriteLatch, // First or second write toggle
 	data_buf: u8,
-
-	bg_buf: BgData,
-	bg_fifo: VecDeque<(u8, u8)>,
-	oam_buf: Vec<OamEntry>,
-	scanline_sprites: [Option<SprData>; 32 * 8],
 
 	ctrl: Ctrl,
 	nmi_skip: bool,
@@ -151,17 +149,13 @@ impl Ppu {
 		let mapper_mirroring = mapper.borrow().mirroring();
 
 		Self {
-			screen: NesScreen::new(),
+			screen: NesScreen::default(),
+			renderer: Renderer::new(),
 
 			v: LoopyReg::new(),
 			t: LoopyReg::new(),
 			x: 0,
 			w: WriteLatch::FirstWrite,
-
-			bg_fifo: VecDeque::from([(0, 0)].repeat(9)),
-			bg_buf: BgData::default(),
-			oam_buf: Vec::with_capacity(8),
-			scanline_sprites: [const { None }; 32 * 8],
 
 			chr: chr_rom,
 			mapper,
@@ -171,7 +165,7 @@ impl Ppu {
 
 			oam_addr: 0,
 			data_buf: 0,
-			in_odd_frame: false,
+			in_odd_frame: true,
 			scanline: 261,
 			cycle: 0,
 			ctrl: Ctrl::empty(),
@@ -197,20 +191,17 @@ impl Ppu {
 
 	pub fn step(&mut self) {
 		match self.scanline {
-			(0..=239) => {
-				self.render_step();
-			}
+			(0..=239) => self.render_step(),
 			241 => {
 				if self.cycle == 1 {
 					self.stat.insert(Stat::vblank);
+					self.vblank_started = Some(());
 
 					if self.ctrl.contains(Ctrl::vblank_nmi_on)
 						&& !self.nmi_skip
 					{
 						self.nmi_requested = Some(());
 					}
-
-					self.vblank_started = Some(());
 				}
 			}
 			261 => {
@@ -218,11 +209,13 @@ impl Ppu {
 					self.stat = Stat::empty();
 					self.nmi_skip = false;
 					self.oam_addr = 0;
-				}
-				else if (280..=304).contains(&self.cycle) {
+				} else if (280..=304).contains(&self.cycle) {
 					self.reset_render_y();
+				} else if (321..=336).contains(&self.cycle) {
+					self.bg_step();
 				} else if self.cycle >= 339 && self.in_odd_frame
 				&& self.rendering_enabled() {
+					// Odd cycle skip
 					self.cycle += 1;
 				}
 			}

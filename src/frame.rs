@@ -52,8 +52,8 @@ impl FrameBuffer {
 }
 
 pub struct NesScreen(pub FrameBuffer);
-impl NesScreen {
-  pub fn new() -> Self {
+impl Default for NesScreen {
+  fn default() -> Self {
       NesScreen(FrameBuffer::new(SCREEN_WIDTH * 8, SCREEN_HEIGHT * 8))
-  }
+    }
 }
