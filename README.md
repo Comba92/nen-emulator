@@ -1,6 +1,7 @@
 # TODO
 [x] CPU COMPLETED
 - Better operand handling?
+- Open bus behaviour
 
 [x] Implement Memory Bus, Interrupts, synchronization
 - Sram should be a mirrored vec
@@ -10,7 +11,7 @@
 - Cleaner implementation (it is better now but work can still be done)
 
 [x] Mappers
-- Mmc3 buggy in some games
+- Mmc3 stlll buggy
 - Mmc5
 
 [x] APU

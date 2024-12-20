@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use super::{Channel, Timer};
 
 const DMC_SEQUENCE: [u16; 16] = [

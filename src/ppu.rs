@@ -13,7 +13,7 @@ bitflags! {
 		const spr_ptrntbl  = 0b0000_1000;
 
 		const bg_ptrntbl   = 0b0001_0000;
-		const spr_size     = 0b0010_0000;
+		const spr_big      = 0b0010_0000;
 		const master_slave = 0b0100_0000;
 		const nmi_enabled  = 0b1000_0000;
 	}
@@ -57,7 +57,7 @@ impl Ctrl {
 	}
 	
 	pub fn spr_height(&self) -> usize {
-		match self.contains(Ctrl::spr_size) {
+		match self.contains(Ctrl::spr_big) {
 				false => 8,
 				true => 16,
 		}
@@ -134,6 +134,7 @@ pub struct Ppu {
 	
 	mirroring: Mirroring,
 	
+	irq_state: bool,
 	pub nmi_requested: Option<()>,
 	nmi_skip: bool,
 	pub vblank_started: Option<()>,
@@ -174,6 +175,7 @@ impl Ppu {
 				mirroring
 			},
 
+			irq_state: false,
 			nmi_requested: None,
 			nmi_skip: false,
 			vblank_started: None,
@@ -190,9 +192,9 @@ impl Ppu {
 			(0..=239) => self.render_step(),
 			241 => {
 				if self.cycle == 1 {
-					self.stat.insert(Stat::vblank);
 					self.vblank_started = Some(());
-
+					self.stat.set(Stat::vblank, !self.nmi_skip);
+					
 					if self.ctrl.contains(Ctrl::nmi_enabled) && !self.nmi_skip {
 						self.nmi_requested = Some(());
 					}
@@ -203,7 +205,6 @@ impl Ppu {
 
 				if self.cycle == 1 {
 					self.stat = Stat::empty();
-					self.nmi_skip = false;
 					self.oam_addr = 0;
 				} else if self.cycle == 304 {
 					self.reset_render_y();
@@ -216,6 +217,20 @@ impl Ppu {
 			_ => {}
 		}
 
+		if self.scanline < 241 {
+			let cond1 = self.cycle == 260
+				&& !self.ctrl.contains(Ctrl::bg_ptrntbl)
+				&& self.ctrl.contains(Ctrl::spr_ptrntbl);
+
+			let cond2 = self.cycle == 260
+				&& self.ctrl.contains(Ctrl::bg_ptrntbl)
+				&& !self.ctrl.contains(Ctrl::spr_ptrntbl);
+
+			if cond1 || cond2 {
+				self.mapper.borrow_mut().irq_event();
+			}
+		}
+
 		self.cycle += 1;
 		if self.cycle > 340 {
 			self.cycle = 0;
@@ -223,6 +238,7 @@ impl Ppu {
 			if self.scanline > 261 {
 				self.scanline = 0;
 				self.in_odd_frame = !self.in_odd_frame;
+				self.nmi_skip = false;
 			}
 		}
 	}
@@ -259,6 +275,13 @@ impl Ppu {
 
 	fn increase_vram_address(&mut self) {
 		self.v.0 = self.v.0.wrapping_add(self.ctrl.vram_addr_incr());
+		self.mapper_a12_event();
+	}
+
+	fn mapper_a12_event(&mut self) {
+		if self.v.0 & (1 << 12) != 0 {
+			self.mapper.borrow_mut().irq_event();
+		}
 	}
 
 	pub fn read_vram(&mut self) -> u8 {
@@ -357,6 +380,7 @@ impl Ppu {
 						// val is set to high byte of t
 						self.t.0 = (self.t.0 & 0xFF00) | (val as u16);
 						self.v.0 = self.t.0;
+						self.mapper_a12_event();
 
 						self.w = WriteLatch::FirstWrite;
 					}

@@ -41,7 +41,7 @@ pub trait Mapper {
     }
 
     fn mirroring(&self) -> Option<Mirroring> { None }
-    fn scanline_ended(&mut self) {}
+    fn irq_event(&mut self) {}
     fn poll_irq(&mut self) -> bool { false }
 }
 
@@ -225,7 +225,7 @@ pub struct Mmc3 {
     irq_counter: u8,
     irq_latch: u8,
     irq_reload: bool,
-    irq_on: bool,
+    irq_enabled: bool,
 
     irq_requested: Option<()>,
 }
@@ -310,16 +310,16 @@ impl Mapper for Mmc3 {
             (0xC000..=0xDFFE, true) => self.irq_latch = val,
             (0xC001..=0xDFFF, false) => self.irq_reload = true,
             (0xE000..=0xFFFE, true) => {
-                self.irq_on = false;
+                self.irq_enabled = false;
                 self.irq_requested = None;
                 // acknowledge any pending interrupts
             }
-            (0xE001..=0xFFFF, false) => self.irq_on = true,
+            (0xE001..=0xFFFF, false) => self.irq_enabled = true,
             _ => unreachable!()
         }
     }
 
-    fn scanline_ended(&mut self) {
+    fn irq_event(&mut self) {
         if self.irq_counter == 0 || self.irq_reload {
             self.irq_counter = self.irq_latch;
             self.irq_reload = false;
@@ -327,7 +327,7 @@ impl Mapper for Mmc3 {
             self.irq_counter -= 1;
         }
 
-        if self.irq_on && self.irq_counter == 0 {
+        if self.irq_enabled && self.irq_counter == 0 {
             self.irq_requested = Some(());
         }
     }

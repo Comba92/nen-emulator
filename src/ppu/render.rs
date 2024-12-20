@@ -140,7 +140,7 @@ impl Ppu {
     {
       if !self.mask.contains(Mask::spr_strip) && x < 8 {
         self.color_from_palette(0, 0)
-      } else { 
+      } else {
         self.color_from_palette(sprite.pixel, sprite.palette_id)
       }
     } else if self.mask.contains(Mask::bg_enabled) {
