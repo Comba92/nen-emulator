@@ -25,7 +25,8 @@ impl Memory for Bus {
       BusDst::Ram => self.ram[addr],
       BusDst::Ppu => self.ppu.read_reg(addr as u16),
       BusDst::Apu => self.apu.read_reg(addr as u16),
-      BusDst::Joypad1 => self.joypad.read(),
+      BusDst::Joypad1 => self.joypad.read1(),
+      BusDst::Joypad2 => self.joypad.read2(),
       BusDst::SRam => self.sram[addr],
       BusDst::Prg => self.mapper.borrow_mut().read_prg(&self.prg, addr),
       _ => { debug!("Read to {addr:04X} not implemented"); 0 }
@@ -38,8 +39,11 @@ impl Memory for Bus {
       BusDst::Ram => self.ram[addr] = val,
       BusDst::Ppu => self.ppu.write_reg(addr as u16, val),
       BusDst::Apu => self.apu.write_reg(addr as u16, val),
+      BusDst::Joypad2 => {
+        self.apu.write_reg(addr as u16, val);
+        self.joypad.write(val);
+      }
       BusDst::Joypad1 => self.joypad.write(val),
-      BusDst::Joypad2 => {} // TODO: second joypad
       BusDst::SRam => self.sram[addr] = val,
       BusDst::Prg => self.mapper.borrow_mut().write_prg(&mut self.prg, addr, val),
       BusDst::NoImpl => debug!("Write to {addr:04X} not implemented")
@@ -85,9 +89,9 @@ impl Bus {
     match addr {
       0x0000..=0x1FFF => (BusDst::Ram, addr as usize & 0x07FF),
       0x2000..=0x3FFF => (BusDst::Ppu, addr as usize & 0x2007),
-      0x4000..=0x4013 | 0x4015 | 0x4017 => (BusDst::Apu, addr as usize),
+      0x4000..=0x4013 | 0x4015 => (BusDst::Apu, addr as usize),
       0x4016 => (BusDst::Joypad1, addr as usize),
-      // 0x4017 => (BusDst::Joypad2, addr as usize),
+      0x4017 => (BusDst::Joypad2, addr as usize),
       0x6000..=0x7FFF => (BusDst::SRam, addr as usize - 0x6000),
       // We pass it as is to the mapper, for convenience
       0x8000..=0xFFFF => (BusDst::Prg, addr as usize),

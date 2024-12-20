@@ -14,34 +14,50 @@ bitflags! {
     const B      = 0b0000_0001;
   }
 }
-
 pub struct Joypad {
-  strobe: bool,
-  pub buttons: JoypadButton,
-  button_idx: usize,
+	strobe: bool,
+	pub buttons1: JoypadButton,
+	pub buttons2: JoypadButton,
+	button_idx1: usize,
+	button_idx2: usize,
 }
+
 impl Joypad {
-  pub fn new() -> Self {
-    Joypad {
-        strobe: false, button_idx: 0,
-        buttons: JoypadButton::empty()
-    }
-  }
+	pub fn new() -> Self {
+		Joypad {
+				strobe: false,
+				button_idx1: 0,
+				button_idx2: 0,
+				buttons1: JoypadButton::empty(),
+				buttons2: JoypadButton::empty(),
+		}
+	}
 
-  pub fn write(&mut self, val: u8) {
-    self.strobe = (val & 1) != 0;
-    if self.strobe {
-        self.button_idx = 0;
-    }
-  }
+	pub fn write(&mut self, val: u8) {
+		self.strobe = (val & 1) != 0;
+		if self.strobe {
+			self.button_idx1 = 0;
+			self.button_idx2 = 0;
+		}
+	}
 
-  pub fn read(&mut self) -> u8 {
-    if self.strobe { return 1; }
-    
-    let res = (self.buttons.bits() 
-        >> self.button_idx) & 1; 
+	pub fn read1(&mut self) -> u8 {
+		if self.strobe {
+			return self.buttons1.contains(JoypadButton::A) as u8;
+		}
 
-    self.button_idx = (self.button_idx + 1) % 8;
-    res
-  }
+		let res = (self.buttons1.bits() >> self.button_idx1) & 1;
+		self.button_idx1 = (self.button_idx1 + 1) % 8;
+		res
+	}
+
+	pub fn read2(&mut self) -> u8 {
+		if self.strobe {
+			return self.buttons2.contains(JoypadButton::A) as u8;
+		}
+
+		let res = (self.buttons2.bits() >> self.button_idx2) & 1;
+		self.button_idx2 = (self.button_idx2 + 1) % 8;
+		res
+	}
 }

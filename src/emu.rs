@@ -63,11 +63,11 @@ impl Emu {
   }
 
   pub fn button_pressed(&mut self, button: u8) {
-    self.get_joypad().buttons.insert(JoypadButton::from_bits_retain(button));
+    self.get_joypad().buttons1.insert(JoypadButton::from_bits_retain(button));
   }
 
   pub fn button_released(&mut self, button: u8) {
-    self.get_joypad().buttons.remove(JoypadButton::from_bits_retain(button));
+    self.get_joypad().buttons1.remove(JoypadButton::from_bits_retain(button));
   }
 }
 

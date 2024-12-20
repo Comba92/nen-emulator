@@ -1,6 +1,6 @@
-use std::{collections::HashMap, error::Error, sync::mpsc::SyncSender};
+use std::{collections::HashMap, error::Error};
 use nen_emulator::{emu::Emu, joypad::JoypadButton};
-use sdl2::{audio::{AudioCallback, AudioDevice, AudioStatus}, controller::{Axis, Button, GameController}, event::Event, keyboard::Keycode, render::{Canvas, TextureCreator}, video::{Window, WindowContext}, AudioSubsystem, EventPump, GameControllerSubsystem, Sdl, VideoSubsystem};
+use sdl2::{controller::{Axis, Button, GameController}, event::Event, keyboard::Keycode, render::{Canvas, TextureCreator}, video::{Window, WindowContext}, AudioSubsystem, EventPump, GameControllerSubsystem, Sdl, VideoSubsystem};
 
 #[allow(unused)]
 pub struct Sdl2Context {
@@ -93,8 +93,8 @@ pub fn handle_input(keys: &Keymaps, event: &Event, emu: &mut Emu) {
       if let Some(keycode) = keycode {
         if let Some(action) = keys.keymap.get(keycode) {
           match (action, event) {
-            (InputAction::Game(button), Event::KeyDown {..}) => joypad.buttons.insert(*button),
-            (InputAction::Game(button), Event::KeyUp {..}) => joypad.buttons.remove(*button),
+            (InputAction::Game(button), Event::KeyDown {..}) => joypad.buttons1.insert(*button),
+            (InputAction::Game(button), Event::KeyUp {..}) => joypad.buttons1.remove(*button),
             (InputAction::Pause, Event::KeyDown {..}) => {
               emu.is_paused = !emu.is_paused;
             },
@@ -108,8 +108,8 @@ pub fn handle_input(keys: &Keymaps, event: &Event, emu: &mut Emu) {
     | Event::ControllerButtonUp { button, .. }  => {
       if let Some(action) = keys.padmap.get(button) {
         match (action, event) {
-          (InputAction::Game(button), Event::ControllerButtonDown {..}) => joypad.buttons.insert(*button),
-          (InputAction::Game(button), Event::ControllerButtonUp {..}) => joypad.buttons.remove(*button),
+          (InputAction::Game(button), Event::ControllerButtonDown {..}) => joypad.buttons1.insert(*button),
+          (InputAction::Game(button), Event::ControllerButtonUp {..}) => joypad.buttons1.remove(*button),
           (InputAction::Pause, Event::ControllerButtonDown {..}) => {
             emu.is_paused = !emu.is_paused;
           }
@@ -120,19 +120,19 @@ pub fn handle_input(keys: &Keymaps, event: &Event, emu: &mut Emu) {
     }
 
     Event::ControllerAxisMotion { axis: Axis::LeftX, value, .. } => {
-      if *value > AXIS_DEAD_ZONE { joypad.buttons.insert(JoypadButton::RIGHT); }
-      else if *value < -AXIS_DEAD_ZONE { joypad.buttons.insert(JoypadButton::LEFT); }
+      if *value > AXIS_DEAD_ZONE { joypad.buttons1.insert(JoypadButton::RIGHT); }
+      else if *value < -AXIS_DEAD_ZONE { joypad.buttons1.insert(JoypadButton::LEFT); }
       else {
-        joypad.buttons.remove(JoypadButton::LEFT);
-        joypad.buttons.remove(JoypadButton::RIGHT);
+        joypad.buttons1.remove(JoypadButton::LEFT);
+        joypad.buttons1.remove(JoypadButton::RIGHT);
       }
     }
     Event::ControllerAxisMotion { axis: Axis::LeftY, value, .. } => {
-      if *value > AXIS_DEAD_ZONE { joypad.buttons.insert(JoypadButton::DOWN); }
-      else if *value < -AXIS_DEAD_ZONE { joypad.buttons.insert(JoypadButton::UP); }
+      if *value > AXIS_DEAD_ZONE { joypad.buttons1.insert(JoypadButton::DOWN); }
+      else if *value < -AXIS_DEAD_ZONE { joypad.buttons1.insert(JoypadButton::UP); }
       else {
-        joypad.buttons.remove(JoypadButton::UP);
-        joypad.buttons.remove(JoypadButton::DOWN);
+        joypad.buttons1.remove(JoypadButton::UP);
+        joypad.buttons1.remove(JoypadButton::DOWN);
       }
     }
     _ => {}
