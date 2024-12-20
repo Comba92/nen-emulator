@@ -1,14 +1,14 @@
 use super::{Channel, Envelope, LengthCounter, Timer};
 
 const PULSE_SEQUENCES: [[u8; 8]; 4] = [
-  [ 0, 1, 0, 0, 0, 0, 0, 0 ],
-  [ 0, 1, 1, 0, 0, 0, 0, 0 ],
-  [ 0, 1, 1, 1, 1, 0, 0, 0 ],
-  [ 1, 0, 0, 1, 1, 1, 1, 1 ],
-  // [0,0,0,0,0,0,0,1],
-  // [0,0,0,0,0,0,1,1],
-  // [0,0,0,0,1,1,1,1],
-  // [1,1,1,1,1,1,0,0],
+  // [ 0, 1, 0, 0, 0, 0, 0, 0 ],
+  // [ 0, 1, 1, 0, 0, 0, 0, 0 ],
+  // [ 0, 1, 1, 1, 1, 0, 0, 0 ],
+  // [ 1, 0, 0, 1, 1, 1, 1, 1 ],
+  [0,0,0,0,0,0,0,1],
+  [0,0,0,0,0,0,1,1],
+  [0,0,0,0,1,1,1,1],
+  [1,1,1,1,1,1,0,0],
 ];
 
 #[derive(Default, Clone, Copy)]
@@ -28,19 +28,19 @@ impl From<u8> for PulseDutyMode {
 }
 
 #[derive(Default)]
-pub struct Pulse {
+pub(super) struct Pulse {
+  timer: Timer,
   duty_mode: PulseDutyMode,
+  duty_idx: usize,
+
   envelope: Envelope,
   
-  sweep_on: bool,
+  sweep_enabled: bool,
   sweep_reload: bool,
   sweep_shift: u8,
   sweep_negate: bool,
   sweep_period: u8,
   sweep_count: u8,
-  
-  timer: Timer,
-  duty_idx: usize,
 
   length: LengthCounter,
 }
@@ -52,7 +52,7 @@ impl Pulse {
   }
 
   pub fn set_sweep(&mut self, val: u8) {
-    self.sweep_on = val >> 7 != 0;
+    self.sweep_enabled = val >> 7 != 0;
     self.sweep_period = (val >> 4) & 0b111;
     self.sweep_negate = (val >> 3) & 1 != 0;
     self.sweep_shift = val & 0b111;
@@ -68,8 +68,37 @@ impl Pulse {
     self.duty_idx = 0;
   }
 
+  // TODO: something probably not working here
+  pub fn step_sweep(&mut self, complement: bool) {
+    self.sweep_count -= 1;
+    
+    if self.sweep_count == 0 {
+      self.sweep_count = self.sweep_period + 1;
+
+      if self.sweep_shift > 0 && self.sweep_enabled
+        && !self.is_muted()
+      {
+        let change_amount = self.timer.period >> self.sweep_shift;
+        
+        if self.sweep_negate {
+          self.timer.period = self.timer.period.saturating_sub(change_amount);
+          if complement { 
+            self.timer.period = self.timer.period.saturating_sub(1);
+          }     
+        } else {
+          self.timer.period = self.timer.period + change_amount;
+        }
+      }
+    }
+
+    if self.sweep_reload {
+      self.sweep_count = self.sweep_period + 1;
+      self.sweep_reload = false;
+    }
+  }
+
   fn is_muted(&self) -> bool {
-    self.timer.period < 8 || self.timer.period > 0x7FF
+    self.timer.period < 8 || (!self.sweep_negate && self.timer.period > 0x7FF)
   }
 }
 
@@ -81,39 +110,12 @@ impl Channel for Pulse {
     });
   }
 
-  fn step_length(&mut self) {
-    self.length.step();
-  }
-
-  fn step_envelope(&mut self) {
+  fn step_quarter(&mut self) {
     self.envelope.step();
   }
-
-  fn step_sweep(&mut self, complement: bool) {
-    self.sweep_count -= 1;
-    
-    if self.sweep_count == 0 {
-      self.sweep_count = self.sweep_period + 1;
-
-      if self.sweep_shift > 0 && self.sweep_on
-      && self.timer.period >= 8 && self.timer.period <= 0x7FF {
-        let change_amount = self.timer.period >> self.sweep_shift;
-        
-        if self.sweep_negate {
-          self.timer.period = self.timer.period.wrapping_sub(change_amount);
-          if complement { 
-            self.timer.period = self.timer.period.wrapping_sub(1);
-          }          
-        } else {
-          self.timer.period = self.timer.period + change_amount;
-        }
-      }
-    }
-
-    if self.sweep_reload {
-      self.sweep_count = self.sweep_period + 1;
-      self.sweep_reload = false;
-    }
+  
+  fn step_half(&mut self) {
+    self.length.step();
   }
 
   fn is_enabled(&self) -> bool { self.length.is_enabled() }

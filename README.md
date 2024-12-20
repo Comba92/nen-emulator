@@ -7,15 +7,14 @@
 - Sram saving
 
 [x] Implement PPU
-- Cleaner implementation
-- PPU masking
+- Cleaner implementation (it is better now but work can still be done)
 
 [x] Mappers
 - Mmc3 buggy in some games
 - Mmc5
 
 [x] APU
-- Make cleaner implementation
+- Cleaner implementation (it is better now but work can still be done)
 - Sound still sucks
 - DMC
 - PAL support?

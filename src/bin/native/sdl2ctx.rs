@@ -1,5 +1,5 @@
 use std::{collections::HashMap, error::Error};
-use nen_emulator::{emu::Emu, joypad::JoypadButton};
+use nen_emulator::{nes::Nes, joypad::JoypadButton};
 use sdl2::{controller::{Axis, Button, GameController}, event::Event, keyboard::Keycode, render::{Canvas, TextureCreator}, video::{Window, WindowContext}, AudioSubsystem, EventPump, GameControllerSubsystem, Sdl, VideoSubsystem};
 
 #[allow(unused)]
@@ -84,7 +84,7 @@ impl Keymaps {
   }
 }
 
-pub fn handle_input(keys: &Keymaps, event: &Event, emu: &mut Emu) {
+pub fn handle_input(keys: &Keymaps, event: &Event, emu: &mut Nes) {
   let joypad = emu.get_joypad();
 
   match event {

@@ -1,5 +1,5 @@
 use log::debug;
-use crate::{apu::Apu, cart::{Cart, INesHeader}, joypad::Joypad, mapper::CartMapper, mem::Memory, ppu::Ppu};
+use crate::{apu::Apu, cart::{Cart, INesHeader, Mirroring}, joypad::Joypad, mapper::CartMapper, mem::Memory, ppu::Ppu};
 
 #[derive(Debug)]
 enum BusDst {
@@ -105,5 +105,13 @@ impl Bus {
 
   pub fn poll_sample(&mut self) -> Option<i16> {
     self.apu.current_sample.take()
+  }
+
+  pub fn mirroring(&self) -> Mirroring {
+    if let Some(mirroring) = self.mapper.borrow().mirroring() {
+      mirroring
+    } else {
+      self.cart.nametbl_mirroring
+    }
   }
 }

@@ -8,27 +8,27 @@ mod render;
 bitflags! {
 	#[derive(Debug)]
 	struct Ctrl: u8 {
-		const base_nametbl  = 0b0000_0011;
-		const vram_incr     = 0b0000_0100;
-		const spr_ptrntbl   = 0b0000_1000;
+		const base_nametbl = 0b0000_0011;
+		const vram_incr    = 0b0000_0100;
+		const spr_ptrntbl  = 0b0000_1000;
 
-		const bg_ptrntbl    = 0b0001_0000;
-		const spr_size      = 0b0010_0000;
-		const master_slave  = 0b0100_0000;
-		const vblank_nmi_on = 0b1000_0000;
+		const bg_ptrntbl   = 0b0001_0000;
+		const spr_size     = 0b0010_0000;
+		const master_slave = 0b0100_0000;
+		const nmi_enabled  = 0b1000_0000;
 	}
 
 	#[derive(Debug)]
 	struct Mask: u8 {
-		const greyscale     = 0b0000_0001;
-		const bg_lstrip     = 0b0000_0010;
-		const spr_lstrip    = 0b0000_0100;
-		const bg_render_on  = 0b0000_1000;
+		const greyscale   = 0b0000_0001;
+		const bg_strip    = 0b0000_0010;
+		const spr_strip   = 0b0000_0100;
+		const bg_enabled  = 0b0000_1000;
 
-		const spr_render_on = 0b0001_0000;
-		const red_boost     = 0b0010_0000;
-		const blue_boost    = 0b0100_0000;
-		const green_boost   = 0b1000_0000;
+		const spr_enabled = 0b0001_0000;
+		const red_boost   = 0b0010_0000;
+		const blue_boost  = 0b0100_0000;
+		const green_boost = 0b1000_0000;
 	}
 
 	#[derive(Debug)]
@@ -41,11 +41,6 @@ bitflags! {
 }
 
 impl Ctrl {
-	pub fn base_nametbl_addr(&self) -> u16 {
-		let nametbl_idx = self.bits() & Ctrl::base_nametbl.bits();
-		0x2000 + 0x0400 * nametbl_idx as u16
-	}
-
 	pub fn vram_addr_incr(&self) -> u16 {
 		match self.contains(Ctrl::vram_incr) {
 				false => 1,
@@ -120,27 +115,27 @@ pub struct Ppu {
 	t: LoopyReg,   // temporary vram address / topleft onscreen tile
 	x: u8,         // Fine X Scroll
 	w: WriteLatch, // First or second write toggle
-	data_buf: u8,
-
+	
 	ctrl: Ctrl,
-	nmi_skip: bool,
 	mask: Mask,
 	stat: Stat,
 	oam_addr: u8,
-
+	data_buf: u8,
+	
 	mapper: CartMapper,
 	chr: Vec<u8>,
 	vram: [u8; 0x800],
 	palettes: [u8; 32],
 	oam: [u8; 256],
-
+	
 	pub scanline: usize,
 	pub cycle: usize,
 	in_odd_frame: bool,
-
+	
 	mirroring: Mirroring,
-
+	
 	pub nmi_requested: Option<()>,
+	nmi_skip: bool,
 	pub vblank_started: Option<()>,
 }
 
@@ -165,14 +160,14 @@ impl Ppu {
 
 			oam_addr: 0,
 			data_buf: 0,
-			in_odd_frame: true,
+
+			in_odd_frame: false,
 			scanline: 261,
 			cycle: 0,
 			ctrl: Ctrl::empty(),
-			nmi_skip: false,
 			mask: Mask::empty(),
 			stat: Stat::empty(),
-
+			
 			mirroring: if let Some(mapper_mirroring) = mapper_mirroring {
 				mapper_mirroring
 			} else {
@@ -180,10 +175,11 @@ impl Ppu {
 			},
 
 			nmi_requested: None,
+			nmi_skip: false,
 			vblank_started: None,
 		}
 	}
-
+	
 	pub fn reset(&mut self) {
 		// TODO: better ppu resetting, this works for now
 		*self = Ppu::new(self.chr.clone(), self.mapper.clone(), self.mirroring);
@@ -197,7 +193,7 @@ impl Ppu {
 					self.stat.insert(Stat::vblank);
 					self.vblank_started = Some(());
 
-					if self.ctrl.contains(Ctrl::vblank_nmi_on) && !self.nmi_skip {
+					if self.ctrl.contains(Ctrl::nmi_enabled) && !self.nmi_skip {
 						self.nmi_requested = Some(());
 					}
 				}
@@ -232,8 +228,8 @@ impl Ppu {
 	}
 
 	pub(self) fn rendering_enabled(&self) -> bool {
-		self.mask.contains(Mask::bg_render_on)
-		|| self.mask.contains(Mask::spr_render_on)
+		self.mask.contains(Mask::bg_enabled)
+		|| self.mask.contains(Mask::spr_enabled)
 	}
 
 	fn map_address(&self, addr: u16) -> (VramDst, usize) {
@@ -314,13 +310,13 @@ impl Ppu {
 			0x2000 => {
 				// TODO: bit 0 race condition
 
-				let was_nmi_off = !self.ctrl.contains(Ctrl::vblank_nmi_on);
+				let was_nmi_off = !self.ctrl.contains(Ctrl::nmi_enabled);
 				self.ctrl = Ctrl::from_bits_retain(val);
 				self.t.set_nametbl_x(val & 0b01);
 				self.t.set_nametbl_y((val & 0b10) >> 1);
 
 				if was_nmi_off
-					&& self.ctrl.contains(Ctrl::vblank_nmi_on)
+					&& self.ctrl.contains(Ctrl::nmi_enabled)
 					&& self.stat.contains(Stat::vblank)
 				{
 					self.nmi_requested = Some(());
@@ -400,6 +396,7 @@ impl Ppu {
 			(Vertically, 2) | (Vertically, 3) => addr - 0x400 * 2,
 			(SingleScreenFirstPage, _) => addr % 0x400,
 			(SingleScreenSecondPage, _) => (addr % 0x400) + 0x400,
+			// TODO: eventually implement this
 			(FourScreen, _) => todo!("Four screen mirroring not implemented"),
 			_ => addr,
 		}

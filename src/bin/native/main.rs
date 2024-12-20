@@ -1,5 +1,5 @@
 use std::{env::args, path::PathBuf};
-use nen_emulator::{emu::Emu, cart::Cart, frame::{SCREEN_HEIGHT, SCREEN_WIDTH}};
+use nen_emulator::{nes::Nes, cart::Cart, frame::{SCREEN_HEIGHT, SCREEN_WIDTH}};
 use sdl2::{audio::{self, AudioCallback, AudioSpecDesired, AudioStatus}, event::Event, pixels::PixelFormatEnum};
 use std::{time::{Duration, Instant}, sync::mpsc::{self, Receiver}};
 mod sdl2ctx;
@@ -23,13 +23,13 @@ fn main() {
         PathBuf::from(filename)
     } else { PathBuf::from("") };
 
-    let mut emu = Emu::empty();
+    let mut emu = Nes::empty();
     if rom_path.exists() {
         let cart = Cart::from_file(&rom_path);
         if let Ok(cart) = cart {
             let rom_name =  rom_path.file_name().unwrap().to_str().unwrap_or("NenEmulator");
             sdl.canvas.window_mut().set_title(rom_name).expect("Couldn't rename window title");
-            emu = Emu::with_cart(cart);
+            emu = Nes::with_cart(cart);
             println!("{:#?}\n", emu.get_cart());
         }
     }

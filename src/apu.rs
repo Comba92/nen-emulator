@@ -19,8 +19,7 @@ impl From<u8> for EnvelopeMode {
   fn from(value: u8) -> Self {
     match value {
       0 => EnvelopeMode::OneShot,
-      1 => EnvelopeMode::Loop,
-      _ => unreachable!("envelope mode is either 0 or 1")
+      _ => EnvelopeMode::Loop,
     }
   }
 }
@@ -30,13 +29,12 @@ enum VolumeMode {
   #[default] Envelope, Constant
 }
 impl From<u8> for VolumeMode {
-    fn from(value: u8) -> Self {
-        match value {
-          0 => VolumeMode::Envelope,
-          1 => VolumeMode::Constant,
-          _ => unreachable!("volume mode is either 0 or 1")
-        }
+  fn from(value: u8) -> Self {
+    match value {
+      0 => VolumeMode::Envelope,
+      _ => VolumeMode::Constant,
     }
+  }
 }
 
 #[derive(Default)]
@@ -47,7 +45,7 @@ struct Timer {
 impl Timer {
   pub fn set_period_low(&mut self, val: u8) {
     self.period = self.period & 0xFF00
-      | val as u16;
+    | val as u16;
   }
 
   pub fn set_period_high(&mut self, val: u8) {
@@ -105,7 +103,7 @@ struct Envelope {
   pub start: bool,
   pub volume_and_envelope: u8,
   envelope_count: u8,
-  pub decay_count: u8,
+  decay_count: u8,
   pub envelope_mode: EnvelopeMode,
   pub volume_mode: VolumeMode,
 }
@@ -135,20 +133,17 @@ impl Envelope {
   }
 
   pub fn volume(&self) -> u8 {
-      match self.volume_mode {
-        VolumeMode::Envelope => self.decay_count,
-        VolumeMode::Constant => self.volume_and_envelope,
-      }
+    match self.volume_mode {
+      VolumeMode::Envelope => self.decay_count,
+      VolumeMode::Constant => self.volume_and_envelope,
+    }
   }
 }
 
-// TODO: this needs better engeneering
 trait Channel {
   fn step_timer(&mut self);
-  fn step_length(&mut self) {}
-  fn step_envelope(&mut self) {}
-  fn step_sweep(&mut self, _complement: bool) {}
-  fn step_linear(&mut self) {}
+  fn step_quarter(&mut self);
+  fn step_half(&mut self);
 
   fn is_enabled(&self) -> bool;
   fn set_enabled(&mut self, enabled: bool);
@@ -156,24 +151,24 @@ trait Channel {
 }
 
 #[derive(PartialEq, Eq)]
-pub enum FrameCounterMode {
+enum FrameCounterMode {
   Step4, Step5
 }
 impl From<u8> for FrameCounterMode {
-    fn from(value: u8) -> Self {
-      match value {
-        0 => FrameCounterMode::Step4,
-        _ => FrameCounterMode::Step5
-      }
+  fn from(value: u8) -> Self {
+    match value {
+      0 => FrameCounterMode::Step4,
+      _ => FrameCounterMode::Step5
     }
+  }
 }
 impl Into<u8> for FrameCounterMode {
-    fn into(self) -> u8 {
-      match self {
-        Self::Step4 => 0,
-        Self::Step5 => 1,
-      }
+  fn into(self) -> u8 {
+    match self {
+      Self::Step4 => 0,
+      Self::Step5 => 1,
     }
+  }
 }
 
 bitflags! {
@@ -199,15 +194,13 @@ pub struct Apu {
   
   frame_write_delay: usize,
   frame_mode: FrameCounterMode,
+
   dmc_irq_enabled: bool,
   frame_irq_enabled: bool,
   interrupts_disabled: bool,
 
   pub frame_irq_requested: Option<()>,
   pub current_sample: Option<i16>,
-
-  // pub low_pass_filter: LowPassFilter,
-  // pub high_pass_filters: [HighPassFilter; 2],
 
   cycles: usize,
   sample_cycles: f32,
@@ -230,12 +223,6 @@ impl Apu {
       
       current_sample: None,
       frame_irq_requested: None,
-
-      // low_pass_filter: LowPassFilter::new(44_100.0, 14_000.0),
-      // high_pass_filters: [
-      //   HighPassFilter::new(44_100.0, 90.0),
-      //   HighPassFilter::new(44_100.0, 440.0),
-      // ],
 
       cycles: 0,
       sample_cycles: 0.0,
@@ -268,6 +255,7 @@ impl Apu {
       self.step_frame();
     }
     
+    // TODO: i dont know if this is correct thing to do
     if self.frame_write_delay > 0 {
       self.frame_write_delay -= 1;
       if self.frame_write_delay == 0 {
@@ -288,18 +276,18 @@ impl Apu {
   }
 
   fn step_quarter_frame(&mut self) {
-    self.pulse1.step_envelope();
-    self.pulse2.step_envelope();
-    self.triangle.step_linear();
-    self.noise.step_envelope();
+    self.pulse1.step_quarter();
+    self.pulse2.step_quarter();
+    self.triangle.step_quarter();
+    self.noise.step_quarter();
   }
 
   fn step_half_frame(&mut self) {
     self.step_quarter_frame();
-    self.pulse1.step_length();
-    self.pulse2.step_length();
-    self.triangle.step_length();
-    self.noise.step_length();
+    self.pulse1.step_half();
+    self.pulse2.step_half();
+    self.triangle.step_half();
+    self.noise.step_half();
 
     self.pulse1.step_sweep(false);
     self.pulse2.step_sweep(true);

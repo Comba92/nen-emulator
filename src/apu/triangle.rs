@@ -6,7 +6,7 @@ const TRIANGLE_SEQUENCE: [u8; 32] = [
 ];
 
 #[derive(Default)]
-pub struct Triangle {
+pub(super) struct Triangle {
   linear_reload: bool,
   linear_period: u8,
   linear_count: u8,
@@ -32,6 +32,16 @@ impl Triangle {
     | ((val as u16 & 0b111) << 8);
     self.linear_reload = true;
   }
+
+  fn step_linear(&mut self) {
+    if self.linear_reload {
+      self.linear_count = self.linear_period;
+    } else if self.linear_count > 0 {
+      self.linear_count -= 1;
+    }
+
+    if !self.length.halted { self.linear_reload = false; }
+  }
 }
 impl Channel for Triangle {
   fn step_timer(&mut self) {
@@ -45,17 +55,11 @@ impl Channel for Triangle {
     }); 
   }
 
-  fn step_linear(&mut self) {
-    if self.linear_reload {
-      self.linear_count = self.linear_period;
-    } else if self.linear_count > 0 {
-      self.linear_count -= 1;
-    }
-
-    if !self.length.halted { self.linear_reload = false; }
+  fn step_quarter(&mut self) {
+    self.step_linear();
   }
 
-  fn step_length(&mut self) {
+  fn step_half(&mut self) {
     self.length.step();
   }
 

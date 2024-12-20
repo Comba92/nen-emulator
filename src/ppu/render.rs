@@ -15,7 +15,7 @@ impl Renderer {
     Self {
       state: RenderState::default(),
       data: RenderData::default(),
-      // TODO: this shit is tricky as hell
+      // TODO: this is hacky as hell, find another way
       bg_fifo: VecDeque::from([(0,0)].repeat(9)),
       oam_tmp: Vec::new(),
       spr_scanline: [const { None } ; 256],
@@ -103,52 +103,65 @@ fn pixel_from_planes(bit: u8, plane0: u8, plane1: u8) -> u8 {
 
 impl Ppu {
   pub(super) fn render_step(&mut self) {
-    if (1..=256).contains(&self.cycle) 
-    || (321..=336).contains(&self.cycle)
-    {
+    if (1..=256).contains(&self.cycle) || (321..=336).contains(&self.cycle) {
       self.bg_step();
-    } else if (257..=320).contains(&self.cycle) {
-      if self.cycle == 257 {
-        self.increase_coarse_y();
-        self.reset_render_x();
+    } else if self.cycle == 257 {
+      self.increase_coarse_y();
+      self.reset_render_x();
 
-        self.evaluate_sprites();
-        self.fetch_sprites();
-      }
+      // we just render all sprites in one go
+      self.evaluate_sprites();
+      self.fetch_sprites();
     }
   }
 
   fn render_pixel(&mut self) {
+    let x = self.cycle - 1;
+    let y = self.scanline;
+
     if !self.rendering_enabled() {
-      self.screen.0.set_pixel(self.cycle-1, self.scanline, self.color_from_palette(0, 0));
+      self.screen.0.set_pixel(x, y, self.color_from_palette(0, 0));
+      return;
+    }
+
+    if !self.mask.contains(Mask::bg_strip) && x < 8 {
+      self.screen.0.set_pixel(x, y, self.color_from_palette(0, 0));
       return;
     }
 
     let (bg_pixel, bg_palette_id) = self.renderer.bg_fifo
       .get(self.x as usize).unwrap_or_else(|| &(0, 0)).to_owned();
-    let sprite = self.renderer.spr_scanline[self.cycle-1]
+    let sprite = self.renderer.spr_scanline[x]
       .take().unwrap_or_default();
 
-    if sprite.is_sprite0
-      && sprite.pixel != 0 && bg_pixel != 0
-      && self.mask.contains(Mask::bg_render_on)
-      && self.mask.contains(Mask::spr_render_on)
-    {
-      self.stat.insert(Stat::spr0_hit);
-    }
-
-    let pixel_color = if self.mask.contains(Mask::spr_render_on) 
+    let pixel_color = if self.mask.contains(Mask::spr_enabled) 
       && (sprite.priority == SpritePriority::Front || bg_pixel == 0)
       && sprite.pixel != 0
     {
-      self.color_from_palette(sprite.pixel, sprite.palette_id)
-    } else if self.mask.contains(Mask::bg_render_on) {
+      if !self.mask.contains(Mask::spr_strip) && x < 8 {
+        self.color_from_palette(0, 0)
+      } else { 
+        self.color_from_palette(sprite.pixel, sprite.palette_id)
+      }
+    } else if self.mask.contains(Mask::bg_enabled) {
       self.color_from_palette(bg_pixel, bg_palette_id)
     } else {
       self.color_from_palette(0, 0)
     };
 
-    self.screen.0.set_pixel(self.cycle-1, self.scanline, pixel_color);
+    // Sprite0 hit
+    if sprite.is_sprite0
+      && sprite.pixel != 0 && bg_pixel != 0
+      && self.mask.contains(Mask::bg_enabled)
+      && self.mask.contains(Mask::spr_enabled)
+      && x != 255 
+      // if the sprite is in the left black stripe
+      && pixel_color != 0
+    {
+      self.stat.insert(Stat::spr0_hit);
+    }
+
+    self.screen.0.set_pixel(x, y, pixel_color);
   }
 
 
@@ -214,31 +227,31 @@ impl Ppu {
   }
 
   // TODO: accurate sprite fetching
-  fn spr_step(&mut self) {
-    match self.renderer.state {
-      RenderState::Nametbl => self.renderer.state = RenderState::Attribute,
-      RenderState::Attribute => self.renderer.state = RenderState::PtrnLow,
-      RenderState::PtrnLow => {
-        let sprite = self.renderer.oam_tmp.pop().unwrap_or_default();
-			  let dist_from_scanline = self.scanline - sprite.y;
+  // fn spr_step(&mut self) {
+  //   match self.renderer.state {
+  //     RenderState::Nametbl => self.renderer.state = RenderState::Attribute,
+  //     RenderState::Attribute => self.renderer.state = RenderState::PtrnLow,
+  //     RenderState::PtrnLow => {
+  //       let sprite = self.renderer.oam_tmp.pop().unwrap_or_default();
+	// 		  let dist_from_scanline = self.scanline - sprite.y;
         
-        let tile_addr = self.ctrl.spr_ptrntbl_addr()
-          + sprite.tile_id as u16 * 16
-          + dist_from_scanline as u16;
+  //       let tile_addr = self.ctrl.spr_ptrntbl_addr()
+  //         + sprite.tile_id as u16 * 16
+  //         + dist_from_scanline as u16;
 
-        self.renderer.data.tile_addr = tile_addr;
-        self.renderer.data.tile_plane0 =  self.peek_vram(tile_addr);
-        self.renderer.state = RenderState::PtrnHigh;
-      }
-      RenderState::PtrnHigh => {
-        let plane1 =  self
-          .peek_vram(self.renderer.data.tile_addr + 8);
+  //       self.renderer.data.tile_addr = tile_addr;
+  //       self.renderer.data.tile_plane0 =  self.peek_vram(tile_addr);
+  //       self.renderer.state = RenderState::PtrnHigh;
+  //     }
+  //     RenderState::PtrnHigh => {
+  //       let plane1 =  self
+  //         .peek_vram(self.renderer.data.tile_addr + 8);
 
-        self.renderer.data.tile_plane1 = plane1;
-        self.renderer.state = RenderState::Nametbl;
-      }
-    }
-  }
+  //       self.renderer.data.tile_plane1 = plane1;
+  //       self.renderer.state = RenderState::Nametbl;
+  //     }
+  //   }
+  // }
 
   pub fn evaluate_sprites(&mut self) {
 		if !self.rendering_enabled() { return; }
@@ -282,20 +295,8 @@ impl Ppu {
 					let tbl = (sprite.tile_id & 1) as u16;
 					let mut tile_id = sprite.tile_id as u16 & 0b1111_1110;
 					tile_id += match sprite.flip_vertical {
-						false => {
-							if dist_from_scanline >= 8 {
-								1
-							} else {
-								0
-							}
-						}
-						true => {
-							if dist_from_scanline >= 8 {
-								0
-							} else {
-								1
-							}
-						}
+						false => if dist_from_scanline >= 8 { 1 } else { 0 },
+						true  => if dist_from_scanline >= 8 { 0 } else { 1 },
 					};
 
 					(tbl << 12)

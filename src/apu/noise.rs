@@ -4,18 +4,18 @@ const NOISE_SEQUENCE: [u16; 16] = [
   4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068,
 ];
 
-pub struct Noise {
+pub(super) struct Noise {
   envelope: Envelope,
   mode: bool,
   timer: Timer,
   shift_reg: u16,
   length: LengthCounter,
-  envelope_on: bool,
+  envelope_enabled: bool,
 }
 
 impl Default for Noise {
     fn default() -> Self {
-        Self { envelope_on: false, envelope: Default::default(), mode: Default::default(), timer: Default::default(), shift_reg: 1, length: Default::default() }
+        Self { envelope_enabled: false, envelope: Default::default(), mode: Default::default(), timer: Default::default(), shift_reg: 1, length: Default::default() }
     }
 }
 
@@ -47,11 +47,11 @@ impl Channel for Noise {
       });
     }
 
-    fn step_envelope(&mut self) {
+    fn step_half(&mut self) {
       self.envelope.step();
     }
 
-    fn step_length(&mut self) {
+    fn step_quarter(&mut self) {
       self.length.step();
     }
 
@@ -61,7 +61,7 @@ impl Channel for Noise {
       if enabled { self.length.enabled = true; }
       else { 
         self.length.disable();
-        self.envelope_on = false;
+        self.envelope_enabled = false;
       }
     }
 

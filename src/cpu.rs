@@ -70,7 +70,6 @@ impl<M: Memory> Memory for Cpu<M> {
     self.cycles += 1;
     self.bus.tick();
   }
-  
 }
 
 impl<M: Memory> fmt::Debug for Cpu<M> {
@@ -164,6 +163,28 @@ impl<M: Memory> Cpu<M> {
 
   fn carry(&self) -> u8 {
     self.p.contains(CpuFlags::carry).into()
+  }
+
+  fn read16(&mut self, addr: u16) -> u16 {
+    let low = self.read(addr);
+    let high = self.read(addr.wrapping_add(1));
+    u16::from_le_bytes([low, high])
+  }
+
+  fn wrapping_read16(&mut self, addr: u16) -> u16 {
+    if addr & 0x00FF == 0x00FF {
+      let page = addr & 0xFF00;
+      let low = self.read(page | 0xFF);
+      let high = self.read(page | 0x00);
+      u16::from_le_bytes([low, high])
+    } else { self.read16(addr) }
+  }
+
+  // TODO: consider removing this
+  pub fn write_data(&mut self, start: u16, data: &[u8]) {
+    for (i , byte) in data.iter().enumerate() {
+      self.write(start.wrapping_add(i as u16), *byte);
+    }
   }
 
   fn pc_fetch(&mut self) -> u8 {
@@ -285,12 +306,13 @@ impl<M: Memory> Cpu<M> {
   }
   
   fn handle_interrupt(&mut self, isr_addr: u16) {
+    // https://www.nesdev.org/wiki/CPU_interrupts
+    self.tick();
+    self.tick();
+
     self.stack_push16(self.pc);
     let pushable = self.p.clone().union(CpuFlags::brkpush);
     self.stack_push(pushable.bits());
-    // TODO: how to time these?
-    self.tick();
-    self.tick();
     self.p.insert(CpuFlags::irq_off);
     self.pc = self.read16(isr_addr);
   }

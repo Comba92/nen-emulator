@@ -5,7 +5,7 @@ const DMC_SEQUENCE: [u16; 16] = [
 ];
 
 #[derive(Default)]
-pub struct Dmc {
+pub(super) struct Dmc {
   irq_enabled: bool,
   mode: bool,
   timer: Timer,
@@ -38,6 +38,14 @@ impl Dmc {
 impl Channel for Dmc {
   fn step_timer(&mut self) {
     // TODO
+  }
+
+  fn step_half(&mut self) {
+      
+  }
+
+  fn step_quarter(&mut self) {
+      
   }
 
   fn is_enabled(&self) -> bool {

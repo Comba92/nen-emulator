@@ -3,7 +3,7 @@ mod ppu_test {
     use std::path::Path;
     #[allow(unused)]
     use log::info;
-    use nen_emulator::{emu::Emu, cart::Cart, frame::{FrameBuffer, NesScreen, SpritePriority, Tile, GREYSCALE_PALETTE}};
+    use nen_emulator::{interface::Emu, cart::Cart, frame::{FrameBuffer, NesScreen, SpritePriority, Tile, GREYSCALE_PALETTE}};
     #[path = "../../src/bin/native/sdl2ctx.rs"]
     mod sdl2ctx;
     use sdl2ctx::{handle_input, Sdl2Context};

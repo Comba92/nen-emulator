@@ -5,7 +5,7 @@ use std::{fs, io::{BufWriter, Write}, path::Path};
 use circular_buffer::CircularBuffer;
 use log::info;
 
-use nen_emulator::{bus::Bus, cart::Cart, cpu::{Cpu, CpuFlags}, emu::Emu, instr::{AddressingMode, INSTRUCTIONS}, mem::Memory};
+use nen_emulator::{bus::Bus, cart::Cart, cpu::{Cpu, CpuFlags}, interface::Emu, instr::{AddressingMode, INSTRUCTIONS}, mem::Memory};
 use prettydiff::{diff_lines, diff_words};
 
   #[derive(Debug, Eq, Clone)]
