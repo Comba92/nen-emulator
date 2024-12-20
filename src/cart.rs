@@ -36,6 +36,7 @@ pub enum ConsoleType { #[default] NES, VsSystem, Playchoice10, Other }
 #[derive(Debug, Default, Clone, Copy)]
 pub enum ConsoleTiming { #[default] NTSC, PAL, World, Dendy }
 
+// TODO: parse this shit with nom
 impl INesHeader {
   pub fn new(rom: &[u8]) -> Result<Self, &'static str> {
     let magic_str = &rom[0..=3];

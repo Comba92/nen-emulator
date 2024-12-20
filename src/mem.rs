@@ -1,3 +1,5 @@
+// TODO: only cpu uses read16 and write16, (CPU shouldnt imeplement memory)
+
 pub trait Memory {
   fn read(&mut self, addr: u16) -> u8;
   fn write(&mut self, addr: u16, val: u8);

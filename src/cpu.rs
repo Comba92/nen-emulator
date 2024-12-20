@@ -45,8 +45,6 @@ pub struct Cpu<M: Memory> {
   pub cycles: usize,
   pub jammed: bool,
   pub bus: M,
-
-  stalled: bool,
   dma: Dma,
 }
 
@@ -59,7 +57,6 @@ impl<M: Memory> Memory for Cpu<M> {
 
   fn write(&mut self, addr: u16, val: u8) {
     if addr == 0x4014 {
-      self.stalled = true;
       self.dma.init(val);
       self.tick();
     } else {
@@ -92,7 +89,6 @@ impl Cpu<Ram64Kb> {
       // At boot, only interrupt flag is enabled
       p: P_RESET,
       cycles: 0,
-      stalled: false,
       jammed: false,
       bus: Ram64Kb { mem: [0; 64 * 1024] },
       dma: Dma::default(),
@@ -109,7 +105,6 @@ impl Cpu<Bus> {
       // At boot, only interrupt flag is enabled
       p: P_RESET,
       cycles: 0,
-      stalled: false,
       jammed: false,
       bus: Bus::new(cart),
       dma: Dma::default(),
@@ -240,11 +235,13 @@ enum InstrDst {
 
 #[derive(Default)]
 struct Dma {
+  transfering: bool,
   start: u16,
   offset: u16,
 }
 impl Dma {
   pub fn init(&mut self, start: u8) {
+    self.transfering = true;
     self.start = (start as u16) << 8;
     self.offset = 0;
   }
@@ -260,7 +257,7 @@ impl Dma {
 
 impl<M: Memory> Cpu<M> {
   pub fn step(&mut self) {
-    if self.stalled {
+    if self.dma.transfering {
       self.handle_dma();
       return;
     }
@@ -304,7 +301,7 @@ impl<M: Memory> Cpu<M> {
     self.dma.offset += 1;
 
     if self.dma.is_done() {
-      self.stalled = false;
+      self.dma.transfering = false;
     }
   }
 

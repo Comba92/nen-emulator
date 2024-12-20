@@ -144,8 +144,6 @@ pub struct Ppu {
   
   pub ctrl: PpuCtrl,
   pub mask: PpuMask,
-  pub mask_update_delay: usize,
-  pub mask_buf: u8,
   pub stat: PpuStat,
   pub oam_addr: u8,
   
@@ -162,6 +160,7 @@ pub struct Ppu {
   pub mirroring: Mirroring,
   
   pub nmi_requested: Option<()>,
+  nmi_skip: bool,
   pub vblank_started: Option<()>,
 }
 
@@ -197,13 +196,12 @@ impl Ppu {
       scanline: 261, cycle: 0,
       ctrl: PpuCtrl::empty(),
       mask: PpuMask::empty(),
-      mask_update_delay: 0,
-      mask_buf: 0,
       stat: PpuStat::empty(),
       
       mirroring: if let Some(mapper_mirroring) =  mapper_mirroring { mapper_mirroring } else { mirroring },
 
       nmi_requested: None,
+      nmi_skip: false,
       vblank_started: None,
     }
   }
@@ -238,9 +236,8 @@ impl Ppu {
       info!("VBLANK!!");
       self.vblank_started = Some(());
       self.stat.insert(PpuStat::vblank);
-      self.stat.remove(PpuStat::spr0_hit);
 
-      if self.ctrl.contains(PpuCtrl::vblank_nmi_on) {
+      if self.ctrl.contains(PpuCtrl::vblank_nmi_on) && !self.nmi_skip {
         self.nmi_requested = Some(());
       }
     } else if self.scanline == 261 && self.cycle == 1 {
@@ -277,6 +274,7 @@ impl Ppu {
       if self.scanline > 261 {
         self.scanline = 0;
         self.in_odd_frame = !self.in_odd_frame;
+        self.nmi_skip = false;
       }
     }
   }
@@ -451,6 +449,11 @@ impl Ppu {
   pub fn read_reg(&mut self, addr: u16) -> u8 {
     match addr {
       0x2002 => {
+        if self.scanline == 241 && (0..=3).contains(&self.cycle) {
+          self.nmi_skip = true;
+          self.nmi_requested = None;
+        }
+
         let old_stat = self.stat.bits();
         self.w = WriteLatch::FirstWrite;
         self.stat.remove(PpuStat::vblank);

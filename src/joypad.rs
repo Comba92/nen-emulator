@@ -25,11 +25,11 @@ pub struct Joypad {
 impl Joypad {
 	pub fn new() -> Self {
 		Joypad {
-				strobe: false,
-				button_idx1: 0,
-				button_idx2: 0,
-				buttons1: JoypadButton::empty(),
-				buttons2: JoypadButton::empty(),
+			strobe: false,
+			button_idx1: 0,
+			button_idx2: 0,
+			buttons1: JoypadButton::empty(),
+			buttons2: JoypadButton::empty(),
 		}
 	}
 
