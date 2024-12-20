@@ -134,7 +134,6 @@ pub struct Ppu {
 	
 	mirroring: Mirroring,
 	
-	irq_state: bool,
 	pub nmi_requested: Option<()>,
 	nmi_skip: bool,
 	pub vblank_started: Option<()>,
@@ -175,7 +174,6 @@ impl Ppu {
 				mirroring
 			},
 
-			irq_state: false,
 			nmi_requested: None,
 			nmi_skip: false,
 			vblank_started: None,
@@ -183,8 +181,15 @@ impl Ppu {
 	}
 	
 	pub fn reset(&mut self) {
-		// TODO: better ppu resetting, this works for now
-		*self = Ppu::new(self.chr.clone(), self.mapper.clone(), self.mirroring);
+		self.ctrl = Ctrl::from_bits_truncate(0);
+		self.mask = Mask::from_bits_truncate(0);
+		self.w = WriteLatch::FirstWrite;
+		self.x = 0;
+		self.data_buf = 0;
+		self.in_odd_frame = false;
+
+		self.cycle = 0;
+		self.scanline = 261;
 	}
 
 	pub fn step(&mut self) {

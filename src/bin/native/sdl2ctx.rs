@@ -1,6 +1,6 @@
 use std::{collections::HashMap, error::Error};
 use nen_emulator::{nes::Nes, joypad::JoypadButton};
-use sdl2::{controller::{Axis, Button, GameController}, event::Event, keyboard::Keycode, render::{Canvas, TextureCreator}, video::{Window, WindowContext}, AudioSubsystem, EventPump, GameControllerSubsystem, Sdl, VideoSubsystem};
+use sdl2::{audio::{AudioQueue, AudioStatus}, controller::{Axis, Button, GameController}, event::Event, keyboard::Keycode, render::{Canvas, TextureCreator}, video::{Window, WindowContext}, AudioSubsystem, EventPump, GameControllerSubsystem, Sdl, VideoSubsystem};
 
 #[allow(unused)]
 pub struct Sdl2Context {
@@ -84,7 +84,7 @@ impl Keymaps {
   }
 }
 
-pub fn handle_input(keys: &Keymaps, event: &Event, emu: &mut Nes) {
+pub fn handle_input(keys: &Keymaps, event: &Event, emu: &mut Nes, audio_dev: &AudioQueue<i16>) {
   let joypad = emu.get_joypad();
 
   match event {
@@ -97,6 +97,10 @@ pub fn handle_input(keys: &Keymaps, event: &Event, emu: &mut Nes) {
             (InputAction::Game(button), Event::KeyUp {..}) => joypad.buttons1.remove(*button),
             (InputAction::Pause, Event::KeyDown {..}) => {
               emu.is_paused = !emu.is_paused;
+              match &audio_dev.status() {
+                AudioStatus::Playing => audio_dev.pause(),
+                _=> audio_dev.resume(),
+              }
             },
             (InputAction::Reset, Event::KeyDown {..}) => emu.reset(),
             _ => {}
@@ -112,6 +116,10 @@ pub fn handle_input(keys: &Keymaps, event: &Event, emu: &mut Nes) {
           (InputAction::Game(button), Event::ControllerButtonUp {..}) => joypad.buttons1.remove(*button),
           (InputAction::Pause, Event::ControllerButtonDown {..}) => {
             emu.is_paused = !emu.is_paused;
+            match &audio_dev.status() {
+              AudioStatus::Playing => audio_dev.pause(),
+              _=> audio_dev.resume(),
+            }
           }
           (InputAction::Reset, Event::ControllerButtonDown {..}) => emu.reset(),
           _ => {}

@@ -1,7 +1,7 @@
 use std::{env::args, path::PathBuf};
 use nen_emulator::{nes::Nes, cart::Cart, frame::{SCREEN_HEIGHT, SCREEN_WIDTH}};
-use sdl2::{audio::{self, AudioCallback, AudioSpecDesired, AudioStatus}, event::Event, pixels::PixelFormatEnum};
-use std::{time::{Duration, Instant}, sync::mpsc::{self, Receiver}};
+use sdl2::{audio::{self, AudioSpecDesired}, event::Event, pixels::PixelFormatEnum};
+use std::time::{Duration, Instant};
 mod sdl2ctx;
 use sdl2ctx::{handle_input, Sdl2Context};
 
@@ -67,17 +67,20 @@ fn main() {
             }
         }
 
-        audio_dev.queue_audio(&audio_buf);
+        audio_dev.queue_audio(&audio_buf).unwrap();
         audio_buf.clear();
 
         for event in sdl.events.poll_iter() {
-            handle_input(&sdl.keymaps, &event, &mut emu);
+            handle_input(&sdl.keymaps, &event, &mut emu, &audio_dev);
 
             match event {
                 Event::Quit { .. } => {
+                    audio_dev.pause();
                     break 'running;
                 }
                 Event::DropFile { filename, .. } => {
+                    audio_dev.pause();
+                    audio_dev.clear();
 
                     let rom_path = &PathBuf::from(filename);
                     let rom_result = Cart::from_file(&rom_path);
@@ -91,6 +94,8 @@ fn main() {
                         }
                         Err(msg) => eprintln!("Couldn't load the rom: {msg}\n"),
                     };
+
+                    audio_dev.resume();
                 }
                 Event::ControllerDeviceAdded { which , .. } => {
                     match sdl.controller_subsystem.open(which) {

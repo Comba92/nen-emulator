@@ -201,6 +201,7 @@ pub struct Apu {
 
   pub frame_irq_requested: Option<()>,
   pub current_sample: Option<i16>,
+  low_pass_filter: LowPassIIR,
 
   cycles: usize,
   sample_cycles: f32,
@@ -221,8 +222,9 @@ impl Apu {
       frame_irq_enabled: false,
       interrupts_disabled: false,
       
-      current_sample: None,
       frame_irq_requested: None,
+      current_sample: None,
+      low_pass_filter: LowPassIIR::new(1789773.0, 0.45 * 44100.0),
 
       cycles: 0,
       sample_cycles: 0.0,
@@ -232,7 +234,14 @@ impl Apu {
   }
 
   pub fn reset(&mut self) {
-    // TODO: reset APU
+    self.pulse1.set_enabled(false);
+    self.pulse2.set_enabled(false);
+    self.triangle.set_enabled(false);
+    self.noise.set_enabled(false);
+    self.dmc.set_enabled(false);
+
+    self.cycles = 0;
+    self.sample_cycles = 0.0;
   }
 
   pub fn step(&mut self) {
@@ -241,12 +250,23 @@ impl Apu {
     // We have 60 frames per second.
     // Meaning for a single frame we need 44100 / 60 = 735 samples.
     // Then, we have to output a sample every 29780.5 / 735 = 40.5 cycles!
+    // if self.sample_cycles >= 40.517687075 {
+    //   self.mix_channels();
+    //   self.sample_cycles -= 40.517687075;
+    // }
+    // self.sample_cycles += 1.0;
+
+    self.mix_channels();
+
     if self.sample_cycles >= 40.517687075 {
-      self.mix_channels();
+      let output = self.low_pass_filter.output();
+      let sample = (output * u16::MAX as f32).clamp(0.0, u16::MAX as f32) as i16;
+      self.current_sample = Some(sample);
+
       self.sample_cycles -= 40.517687075;
     }
     self.sample_cycles += 1.0;
-    
+
     self.triangle.step_timer();
     if self.cycles % 2 == 1 {
       self.pulse1.step_timer();
@@ -325,9 +345,11 @@ impl Apu {
     let tnd_out = 0.00494 * noise as f32 + 0.00851 * triangle as f32;
 
     let sum = pulse_out + tnd_out;
+    
+    // let output = (sum * u16::MAX as f32).clamp(0.0, u16::MAX as f32) as i16;
+    // self.current_sample = Some(output);
 
-    let output = (sum * u16::MAX as f32).clamp(0.0, u16::MAX as f32) as i16;
-    self.current_sample = Some(output);
+    self.low_pass_filter.consume(sum);
   }
 
   pub fn read_reg(&mut self, addr: u16) -> u8 {
@@ -404,5 +426,33 @@ impl Apu {
       }
     _ => {}
     }
+  }
+}
+
+pub struct LowPassIIR {
+  alpha: f32,
+  previous_output: f32,
+  delta: f32,
+}
+
+impl LowPassIIR {
+  pub fn new(sample_rate: f32, cutoff_frequency: f32) -> LowPassIIR {
+    let delta_t = 1.0 / sample_rate;
+    let time_constant = 1.0 / (2.0 * f32::consts::PI * cutoff_frequency);
+    let alpha = delta_t / (time_constant + delta_t);
+    return LowPassIIR {
+      alpha,
+      previous_output: 0.0,
+      delta: 0.0,
+    }
+  }
+
+  pub fn consume(&mut self, new_input: f32) {
+    self.previous_output = self.output();
+    self.delta = new_input - self.previous_output;
+  }
+
+  pub fn output(&self) -> f32 {
+    return self.previous_output + self.alpha * self.delta;
   }
 }
