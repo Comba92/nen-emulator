@@ -1,6 +1,6 @@
 use std::{env::args, path::PathBuf};
 use nen_emulator::{nes::Nes, cart::Cart, frame::{SCREEN_HEIGHT, SCREEN_WIDTH}};
-use sdl2::{audio::{self, AudioSpecDesired}, event::Event, pixels::PixelFormatEnum};
+use sdl2::{audio::AudioSpecDesired, event::Event, pixels::PixelFormatEnum};
 use std::time::{Duration, Instant};
 mod sdl2ctx;
 use sdl2ctx::{handle_input, Sdl2Context};

@@ -222,20 +222,6 @@ impl Ppu {
 			_ => {}
 		}
 
-		if self.scanline < 241 {
-			let cond1 = self.cycle == 260
-				&& !self.ctrl.contains(Ctrl::bg_ptrntbl)
-				&& self.ctrl.contains(Ctrl::spr_ptrntbl);
-
-			let cond2 = self.cycle == 260
-				&& self.ctrl.contains(Ctrl::bg_ptrntbl)
-				&& !self.ctrl.contains(Ctrl::spr_ptrntbl);
-
-			if cond1 || cond2 {
-				self.mapper.borrow_mut().irq_event();
-			}
-		}
-
 		self.cycle += 1;
 		if self.cycle > 340 {
 			self.cycle = 0;
@@ -280,13 +266,6 @@ impl Ppu {
 
 	fn increase_vram_address(&mut self) {
 		self.v.0 = self.v.0.wrapping_add(self.ctrl.vram_addr_incr());
-		self.mapper_a12_event();
-	}
-
-	fn mapper_a12_event(&mut self) {
-		if self.v.0 & (1 << 12) != 0 {
-			self.mapper.borrow_mut().irq_event();
-		}
 	}
 
 	pub fn read_vram(&mut self) -> u8 {
@@ -385,7 +364,6 @@ impl Ppu {
 						// val is set to high byte of t
 						self.t.0 = (self.t.0 & 0xFF00) | (val as u16);
 						self.v.0 = self.t.0;
-						self.mapper_a12_event();
 
 						self.w = WriteLatch::FirstWrite;
 					}

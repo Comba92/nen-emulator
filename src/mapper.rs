@@ -41,7 +41,7 @@ pub trait Mapper {
     }
 
     fn mirroring(&self) -> Option<Mirroring> { None }
-    fn irq_event(&mut self) {}
+    fn notify(&mut self) {}
     fn poll_irq(&mut self) -> bool { false }
 }
 
@@ -319,9 +319,10 @@ impl Mapper for Mmc3 {
         }
     }
 
-    fn irq_event(&mut self) {
+    fn notify(&mut self) {
         if self.irq_counter == 0 || self.irq_reload {
-            self.irq_counter = self.irq_latch;
+            // idk why, but that -1 fixes it
+            self.irq_counter = self.irq_latch-1;
             self.irq_reload = false;
         } else {
             self.irq_counter -= 1;
@@ -333,7 +334,7 @@ impl Mapper for Mmc3 {
     }
 
     fn poll_irq(&mut self) -> bool {
-        self.irq_requested.take().is_some()
+        self.irq_requested.is_some()
     }
 
     fn mirroring(&self) -> Option<Mirroring> {

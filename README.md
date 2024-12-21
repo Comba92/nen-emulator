@@ -11,7 +11,7 @@
 - Cleaner implementation (it is better now but work can still be done)
 
 [x] Mappers
-- Mmc3 stlll buggy
+- Mmc3 is ok?
 - Mmc5
 
 [x] APU

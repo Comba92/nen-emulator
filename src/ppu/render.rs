@@ -113,19 +113,23 @@ impl Ppu {
       self.evaluate_sprites();
       self.fetch_sprites();
     }
+
+    if self.cycle == 260
+      && self.rendering_enabled()
+    {
+      self.mapper.borrow_mut().notify();
+    }
   }
 
   fn render_pixel(&mut self) {
     let x = self.cycle - 1;
     let y = self.scanline;
 
-    if !self.rendering_enabled() {
-      self.screen.0.set_pixel(x, y, self.color_from_palette(0, 0));
-      return;
-    }
-
-    if !self.mask.contains(Mask::bg_strip) && x < 8 {
-      self.screen.0.set_pixel(x, y, self.color_from_palette(0, 0));
+    if !self.rendering_enabled() 
+      || !self.mask.contains(Mask::bg_strip) && x < 8
+    {
+      let color = self.color_from_palette(0, 0);
+      self.screen.0.set_pixel(x, y, color);
       return;
     }
 
@@ -155,7 +159,7 @@ impl Ppu {
       && self.mask.contains(Mask::bg_enabled)
       && self.mask.contains(Mask::spr_enabled)
       && x != 255 
-      // if the sprite is in the left black stripe
+      // if the sprite is not in the left black stripe
       && pixel_color != 0
     {
       self.stat.insert(Stat::spr0_hit);
