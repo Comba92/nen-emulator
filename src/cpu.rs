@@ -45,7 +45,6 @@ pub struct Cpu<M: Memory> {
   pub cycles: usize,
   pub jammed: bool,
   pub bus: M,
-  dma: Dma,
 }
 
 impl<M: Memory> Memory for Cpu<M> {
@@ -56,13 +55,7 @@ impl<M: Memory> Memory for Cpu<M> {
   }
 
   fn write(&mut self, addr: u16, val: u8) {
-    if addr == 0x4014 {
-      self.dma.init(val);
-      self.tick();
-    } else {
-      self.bus.write(addr, val);
-    }
-    
+    self.bus.write(addr, val);
     self.tick();
   }
   
@@ -90,7 +83,6 @@ impl Cpu<Ram64Kb> {
       cycles: 0,
       jammed: false,
       bus: Ram64Kb { mem: [0; 64 * 1024] },
-      dma: Dma::default(),
     }
   }
 }
@@ -106,7 +98,6 @@ impl Cpu<Bus> {
       cycles: 0,
       jammed: false,
       bus: Bus::new(cart),
-      dma: Dma::default(),
     };
 
     // cpu should start by executing the reset subroutine
@@ -117,12 +108,6 @@ impl Cpu<Bus> {
   pub fn load_cart(&mut self, cart: Cart) {
     self.bus = Bus::new(cart);
     self.reset();
-  }
-
-  pub fn tick(&mut self) {
-    self.cycles += 1;
-    for _ in 0..3 { self.bus.ppu.step(); }
-    self.bus.apu.step();
   }
 }
 
@@ -254,36 +239,15 @@ enum InstrDst {
   Acc, X, Y, Mem(u16)
 }
 
-#[derive(Default)]
-struct Dma {
-  transfering: bool,
-  start: u16,
-  offset: u16,
-}
-impl Dma {
-  pub fn init(&mut self, start: u8) {
-    self.transfering = true;
-    self.start = (start as u16) << 8;
-    self.offset = 0;
-  }
-
-  pub fn current(&self) -> u16 {
-    self.start.wrapping_add(self.offset)
-  }
-
-  pub fn is_done(&self) -> bool {
-    self.offset >= 256
-  }
-}
-
 impl<M: Memory> Cpu<M> {
   pub fn step(&mut self) {
-    if self.dma.transfering {
-      self.handle_dma();
+    if self.bus.is_dma_transfering() {
+      self.bus.handle_dma();
       return;
     }
+    // if self.handle_dma() { return; }
 
-    self.poll_interrupts();
+    self.interrupts_poll();
     
     let opcode = self.pc_fetch();
     let instr = &INSTRUCTIONS[opcode as usize];
@@ -295,11 +259,11 @@ impl<M: Memory> Cpu<M> {
     // self.cycles += instr.cycles;
   }
 
-  fn poll_interrupts(&mut self) {
-    if self.bus.poll_nmi() {
+  fn interrupts_poll(&mut self) {
+    if self.bus.nmi_poll() {
       info!("NMI HANDLING");
       self.handle_interrupt(NMI_ISR);
-    } else if self.bus.poll_irq() && !self.p.contains(CpuFlags::irq_off) {
+    } else if self.bus.irq_poll() && !self.p.contains(CpuFlags::irq_off) {
       info!("IRQ HANDLING");
       self.handle_interrupt(IRQ_ISR);
     }
@@ -315,16 +279,6 @@ impl<M: Memory> Cpu<M> {
     self.stack_push(pushable.bits());
     self.p.insert(CpuFlags::irq_off);
     self.pc = self.read16(isr_addr);
-  }
-
-  fn handle_dma(&mut self) {
-    let to_write = self.read(self.dma.current());
-    self.write(0x2004, to_write);
-    self.dma.offset += 1;
-
-    if self.dma.is_done() {
-      self.dma.transfering = false;
-    }
   }
 
   fn get_zeropage_operand(&mut self, offset: u8, instr: &Instruction) -> Operand {

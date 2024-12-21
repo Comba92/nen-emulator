@@ -1,4 +1,4 @@
-use super::{Channel, Envelope, LengthCounter, Timer};
+use super::{envelope::Envelope, Channel, LengthCounter, Timer};
 
 const PULSE_SEQUENCES: [[u8; 8]; 4] = [
   // [ 0, 1, 0, 0, 0, 0, 0, 0 ],
@@ -68,7 +68,6 @@ impl Pulse {
     self.duty_idx = 0;
   }
 
-  // TODO: something probably not working here
   pub fn step_sweep(&mut self, complement: bool) {
     self.sweep_count -= 1;
     

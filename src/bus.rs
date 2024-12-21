@@ -1,9 +1,9 @@
 use log::debug;
-use crate::{apu::Apu, cart::{Cart, INesHeader, Mirroring}, joypad::Joypad, mapper::CartMapper, mem::Memory, ppu::Ppu};
+use crate::{apu::Apu, cart::{Cart, INesHeader, Mirroring}, dma::{Dma, OamDma}, joypad::Joypad, mapper::CartMapper, mem::Memory, ppu::Ppu};
 
 #[derive(Debug)]
 enum BusDst {
-  Ram, Ppu, Apu, SRam, Prg, Joypad1, Joypad2, NoImpl
+  Ram, Ppu, Apu, SRam, Prg, Joypad1, Joypad2, OamDma, DmcDma, NoImpl
 }
 
 pub struct Bus {
@@ -15,6 +15,7 @@ pub struct Bus {
   pub ppu: Ppu,
   pub apu: Apu,
   pub joypad: Joypad,
+  pub oam_dma: OamDma,
 }
 // TODO: consider moving VRAM here
 
@@ -24,7 +25,7 @@ impl Memory for Bus {
     match dst {
       BusDst::Ram => self.ram[addr],
       BusDst::Ppu => self.ppu.read_reg(addr as u16),
-      BusDst::Apu => self.apu.read_reg(addr as u16),
+      BusDst::Apu | BusDst::DmcDma => self.apu.read_reg(addr as u16),
       BusDst::Joypad1 => self.joypad.read1(),
       BusDst::Joypad2 => self.joypad.read2(),
       BusDst::SRam => self.sram[addr],
@@ -44,24 +45,74 @@ impl Memory for Bus {
         self.joypad.write(val);
       }
       BusDst::Joypad1 => self.joypad.write(val),
+      BusDst::OamDma => {
+        self.oam_dma.init(val);
+        self.tick();
+      }
+      BusDst::DmcDma => {
+        self.apu.write_reg(addr as u16, val);
+        self.tick();
+      }
       BusDst::SRam => self.sram[addr] = val,
       BusDst::Prg => self.mapper.borrow_mut().write_prg(&mut self.prg, addr, val),
       BusDst::NoImpl => debug!("Write to {addr:04X} not implemented")
     }
   }
 
-  fn poll_nmi(&mut self) -> bool {
+  fn nmi_poll(&mut self) -> bool {
     self.ppu.nmi_requested.take().is_some()
   }
 
-  fn poll_irq(&mut self) -> bool {
+  fn irq_poll(&mut self) -> bool {
     self.mapper.borrow_mut().poll_irq()
-    || self.apu.frame_irq_requested.take().is_some()
+    || self.apu.frame_irq_flag.take().is_some()
+    // https://www.nesdev.org/wiki/APU_DMC#Memory_reader
+    || self.apu.dmc.irq_flag.is_some()
   }
   
   fn tick(&mut self) {
     for _ in 0..3 { self.ppu.step(); }
     self.apu.step();
+  }
+
+  fn is_dma_transfering(&self) -> bool {
+    (self.apu.dmc.reader.is_transfering() && self.apu.dmc.is_empty())
+      || self.oam_dma.is_transfering()
+  }
+
+  fn handle_dma(&mut self) {
+    if self.apu.dmc.reader.is_transfering() && self.apu.dmc.is_empty() {
+      // println!("Doing dmc dma");
+      // println!("Is empty: {}", self.apu.dmc.is_empty());
+      // println!("DMA addr: {}", self.apu.dmc.reader.addr);
+      // println!("DMA length: {}", self.apu.dmc.reader.remaining);
+
+      self.tick();
+      self.tick();
+
+      let addr = self.apu.dmc.reader.current();
+      let to_write = self.read(addr);
+      self.tick();
+      self.apu.dmc.load_sample(to_write);
+
+      // println!("Is empty after: {}", self.apu.dmc.is_empty());
+      // println!("DMA addr after: {}", self.apu.dmc.reader.addr);
+      // println!("DMA length after: {}", self.apu.dmc.reader.remaining);
+
+      if !self.apu.dmc.reader.is_transfering() {
+        if self.apu.dmc.loop_enabled {
+          self.apu.dmc.restart_dma();
+        } else if self.apu.dmc.irq_enabled {
+          self.apu.dmc.irq_flag = Some(());
+        }
+      }
+    } else if self.oam_dma.is_transfering() {
+      let addr = self.oam_dma.current();
+      let to_write = self.read(addr);
+      self.tick();
+      self.write(0x2004, to_write);
+      self.tick();
+    }
   }
 }
 
@@ -76,12 +127,13 @@ impl Bus {
     Self {
       ram: [0; 0x800], 
       sram: [0; 0x2000],
-      ppu, 
+      ppu,
       apu: Apu::new(),
       cart: cart.header,
       prg: cart.prg_rom,
       mapper: cart.mapper,
       joypad: Joypad::new(),
+      oam_dma: OamDma::default(),
     }
   }
 
@@ -89,7 +141,9 @@ impl Bus {
     match addr {
       0x0000..=0x1FFF => (BusDst::Ram, addr as usize & 0x07FF),
       0x2000..=0x3FFF => (BusDst::Ppu, addr as usize & 0x2007),
-      0x4000..=0x4013 | 0x4015 => (BusDst::Apu, addr as usize),
+      0x4000..=0x4013 => (BusDst::Apu, addr as usize),
+      0x4014 => (BusDst::OamDma, addr as usize),
+      0x4015 => (BusDst::DmcDma, addr as usize),
       0x4016 => (BusDst::Joypad1, addr as usize),
       0x4017 => (BusDst::Joypad2, addr as usize),
       0x6000..=0x7FFF => (BusDst::SRam, addr as usize - 0x6000),
@@ -98,7 +152,7 @@ impl Bus {
       _ => (BusDst::NoImpl, addr as usize)
     }
   }
-    
+
   pub fn poll_vblank(&mut self) -> bool {
     self.ppu.vblank_started.take().is_some()
   }

@@ -1,4 +1,4 @@
-use super::{Channel, Envelope, LengthCounter, Timer};
+use super::{envelope::Envelope, Channel, LengthCounter, Timer};
 
 const NOISE_SEQUENCE: [u16; 16] = [
   4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068,
@@ -6,7 +6,7 @@ const NOISE_SEQUENCE: [u16; 16] = [
 
 pub(super) struct Noise {
   envelope: Envelope,
-  mode: bool,
+  loop_enabled: bool,
   timer: Timer,
   shift_reg: u16,
   length: LengthCounter,
@@ -15,7 +15,7 @@ pub(super) struct Noise {
 
 impl Default for Noise {
     fn default() -> Self {
-        Self { envelope_enabled: false, envelope: Default::default(), mode: Default::default(), timer: Default::default(), shift_reg: 1, length: Default::default() }
+        Self { envelope_enabled: false, envelope: Default::default(), loop_enabled: Default::default(), timer: Default::default(), shift_reg: 1, length: Default::default() }
     }
 }
 
@@ -26,7 +26,7 @@ impl Noise {
   }
   
   pub fn set_noise(&mut self, val: u8) {
-    self.mode = (val >> 7) & 1 != 0;
+    self.loop_enabled = (val >> 7) & 1 != 0;
     self.timer.period = NOISE_SEQUENCE[val as usize & 0b1111];
   }
   
@@ -38,7 +38,7 @@ impl Noise {
 impl Channel for Noise {
     fn step_timer(&mut self) {
       self.timer.step(|_| {
-        let feedback = (self.shift_reg & 1) ^ (match self.mode {
+        let feedback = (self.shift_reg & 1) ^ (match self.loop_enabled {
           false => (self.shift_reg >> 1) & 1,
           true => (self.shift_reg >> 6) & 1
         });

@@ -72,7 +72,7 @@ impl Channel for Triangle {
   }
 
   fn is_enabled(&self) -> bool {
-    self.length.count != 0 && self.linear_count != 0
+    self.length.count != 0
   }
 
   fn get_sample(&self) -> u8 {

@@ -6,36 +6,12 @@ use noise::Noise;
 use pulse::Pulse;
 use triangle::Triangle;
 
+mod envelope;
+
 mod pulse;
 mod triangle;
 mod noise;
 mod dmc;
-
-#[derive(Default, Clone, Copy, PartialEq, Eq)]
-enum EnvelopeMode {
-  #[default] OneShot, Loop
-}
-impl From<u8> for EnvelopeMode {
-  fn from(value: u8) -> Self {
-    match value {
-      0 => EnvelopeMode::OneShot,
-      _ => EnvelopeMode::Loop,
-    }
-  }
-}
-
-#[derive(Default, Clone, Copy, PartialEq, Eq)]
-enum VolumeMode {
-  #[default] Envelope, Constant
-}
-impl From<u8> for VolumeMode {
-  fn from(value: u8) -> Self {
-    match value {
-      0 => VolumeMode::Envelope,
-      _ => VolumeMode::Constant,
-    }
-  }
-}
 
 #[derive(Default)]
 struct Timer {
@@ -98,49 +74,7 @@ impl LengthCounter {
   }
 }
 
-#[derive(Default)]
-struct Envelope {
-  pub start: bool,
-  pub volume_and_envelope: u8,
-  envelope_count: u8,
-  decay_count: u8,
-  pub envelope_mode: EnvelopeMode,
-  pub volume_mode: VolumeMode,
-}
-impl Envelope {
-  pub fn set(&mut self, val: u8) {
-    self.envelope_mode = EnvelopeMode::from((val >> 5) & 1);
-    self.volume_mode = VolumeMode::from((val >> 4) & 1);
-    self.volume_and_envelope = val & 0b1111;
-  }
-
-  pub fn step(&mut self) {
-    if self.start {
-      self.start = false;
-      self.decay_count = 15;
-      self.envelope_count = self.volume_and_envelope + 1;
-    } else if self.envelope_count > 0 {
-      self.envelope_count -= 1;
-    } else {
-      self.envelope_count = self.volume_and_envelope + 1;
-
-      if self.decay_count > 0 {
-        self.decay_count -= 1;
-      } else if self.envelope_mode == EnvelopeMode::Loop {
-        self.decay_count = 15;
-      }
-    }
-  }
-
-  pub fn volume(&self) -> u8 {
-    match self.volume_mode {
-      VolumeMode::Envelope => self.decay_count,
-      VolumeMode::Constant => self.volume_and_envelope,
-    }
-  }
-}
-
-trait Channel {
+pub trait Channel: Default {
   fn step_timer(&mut self);
   fn step_quarter(&mut self);
   fn step_half(&mut self);
@@ -173,7 +107,7 @@ impl Into<u8> for FrameCounterMode {
 
 bitflags! {
   #[derive(Clone, Default)]
-  struct ApuFlags: u8 {
+  struct Flags: u8 {
     const pulse1    = 0b0000_0001;
     const pulse2    = 0b0000_0010;
     const triangle  = 0b0000_0100;
@@ -190,16 +124,14 @@ pub struct Apu {
   pulse2: Pulse,
   triangle: Triangle,
   noise: Noise,
-  dmc: Dmc,
+  pub dmc: Dmc,
   
   frame_write_delay: usize,
   frame_mode: FrameCounterMode,
 
-  dmc_irq_enabled: bool,
-  frame_irq_enabled: bool,
-  interrupts_disabled: bool,
+  irq_disabled: bool,
+  pub frame_irq_flag: Option<()>,
 
-  pub frame_irq_requested: Option<()>,
   pub current_sample: Option<i16>,
   low_pass_filter: LowPassIIR,
 
@@ -218,13 +150,13 @@ impl Apu {
 
       frame_write_delay: 0,
       frame_mode: FrameCounterMode::Step4,
-      dmc_irq_enabled: false,
-      frame_irq_enabled: false,
-      interrupts_disabled: false,
       
-      frame_irq_requested: None,
+      irq_disabled: false,
+      frame_irq_flag: None,
+
       current_sample: None,
-      low_pass_filter: LowPassIIR::new(1789773.0, 0.45 * 44100.0),
+      low_pass_filter: LowPassIIR
+        ::new(1789773.0, 0.45 * 44100.0),
 
       cycles: 0,
       sample_cycles: 0.0,
@@ -272,6 +204,8 @@ impl Apu {
       self.pulse1.step_timer();
       self.pulse2.step_timer();
       self.noise.step_timer();
+      self.dmc.step_timer();
+
       self.step_frame();
     }
     
@@ -321,10 +255,8 @@ impl Apu {
         self.step_half_frame();
         self.cycles = 0;
 
-        self.frame_irq_enabled = !self.interrupts_disabled;
-
-        if !self.interrupts_disabled {
-          self.frame_irq_requested = Some(())
+        if !self.irq_disabled {
+          self.frame_irq_flag = Some(());
         }
       }
       (18640, FrameCounterMode::Step5) => {
@@ -340,9 +272,12 @@ impl Apu {
     let pulse2   = self.pulse2.get_sample();
     let triangle = self.triangle.get_sample();
     let noise    = self.noise.get_sample();
+    let dmc = self.dmc.get_sample();
 
     let pulse_out = 0.00752 * (pulse1 + pulse2) as f32;
-    let tnd_out = 0.00494 * noise as f32 + 0.00851 * triangle as f32;
+    let tnd_out = 0.00494 * noise as f32 
+      + 0.00851 * triangle as f32
+      + 0.00335 * dmc as f32;
 
     let sum = pulse_out + tnd_out;
     
@@ -355,17 +290,17 @@ impl Apu {
   pub fn read_reg(&mut self, addr: u16) -> u8 {
     match addr {
       0x4015 => {
-        let mut flags = ApuFlags::empty();
-        flags.set(ApuFlags::pulse1, self.pulse1.is_enabled());
-        flags.set(ApuFlags::pulse2, self.pulse2.is_enabled());
-        flags.set(ApuFlags::triangle, self.triangle.is_enabled());
-        flags.set(ApuFlags::noise, self.noise.is_enabled());
-        flags.set(ApuFlags::dmc, self.dmc.is_enabled());
-        flags.set(ApuFlags::frame_irq, self.frame_irq_enabled);
-        flags.set(ApuFlags::dmc_irq, self.dmc_irq_enabled);
+        let mut flags = Flags::empty();
+        flags.set(Flags::pulse1, self.pulse1.is_enabled());
+        flags.set(Flags::pulse2, self.pulse2.is_enabled());
+        flags.set(Flags::triangle, self.triangle.is_enabled());
+        flags.set(Flags::noise, self.noise.is_enabled());
+        flags.set(Flags::dmc, self.dmc.is_enabled());
+        // TODO: bit 5 is open bus
+        flags.set(Flags::frame_irq, self.frame_irq_flag.is_some());
+        flags.set(Flags::dmc_irq, self.dmc.irq_flag.is_some());
 
-        // TODO: should not be cleared if read at the same moment of a read
-        self.frame_irq_enabled = false;
+        self.frame_irq_flag = None;
 
         flags.bits()
       }
@@ -396,7 +331,7 @@ impl Apu {
       0x400F => self.noise.set_length(val),
 
       0x4010 => self.dmc.write_ctrl(val),
-      0x4011 => self.dmc.write_count(val),
+      0x4011 => self.dmc.write_level(val),
       0x4012 => self.dmc.write_addr(val),
       0x4013 => self.dmc.write_length(val),
 
@@ -407,13 +342,13 @@ impl Apu {
         self.noise.set_enabled(val & 0b1000 != 0);
         self.dmc.set_enabled(val & 0b1_0000 != 0);
 
-        self.dmc_irq_enabled = false;
+        self.dmc.irq_flag = None;
       }
       0x4017 => {
         self.frame_mode = FrameCounterMode::from((val >> 7) & 1);
-        self.interrupts_disabled = (val >> 6) & 1 != 0;
-        if self.interrupts_disabled {
-          self.frame_irq_enabled = false;
+        self.irq_disabled = (val >> 6) & 1 != 0;
+        if self.irq_disabled {
+          self.frame_irq_flag = None;
         }
 
         // the timer is reset after 3 or 4 cpu cycles
