@@ -284,7 +284,7 @@ impl Apu {
     let pulse_out = 0.00752 * (pulse1 + pulse2) as f32;
     let tnd_out = 
       0.00851 * triangle as f32
-      + 0.00494 * noise as f32 
+      + 0.00494 * noise as f32
       + 0.00335 * dmc as f32;
 
     let sum = pulse_out + tnd_out;

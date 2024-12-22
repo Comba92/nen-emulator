@@ -44,7 +44,15 @@ impl Dmc {
   }
 
   pub fn write_level(&mut self, val: u8) {
-    self.level = val & 0b0111_1111;
+    let previous_level = self.level;
+    let new_level = val & 0b0111_1111;
+
+    // Reduce dmc popping
+    if new_level.abs_diff(previous_level) <= 50 {
+      self.level = new_level;
+    } else {
+      self.level = 50;
+    }
   }
 
   pub fn write_addr(&mut self, val: u8) {

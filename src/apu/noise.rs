@@ -34,6 +34,10 @@ impl Noise {
     self.length.reload(val);
     self.envelope.start = true;
   }
+
+  fn is_muted(&self) -> bool {
+    (self.shift_reg & 1) == 1
+  }
 }
 impl Channel for Noise {
     fn step_timer(&mut self) {
@@ -43,7 +47,7 @@ impl Channel for Noise {
           true => (self.shift_reg >> 6) & 1
         });
         self.shift_reg >>= 1;
-        self.shift_reg |= feedback << 14 // | (self.shift_reg & 0x3FFF);
+        self.shift_reg |= feedback << 14
       });
     }
 
@@ -66,7 +70,7 @@ impl Channel for Noise {
     }
 
     fn get_sample(&self) -> u8 {
-      if (self.shift_reg & 1) != 1 && self.is_enabled() {
+      if !self.is_muted() && self.is_enabled() {
         self.envelope.volume()
       } else { 0 }
     }

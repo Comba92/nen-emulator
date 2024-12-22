@@ -17,7 +17,6 @@
 [x] APU
 - Cleaner implementation (it is better now but work can still be done)
 - Sound still sucks
-- DMC
 - PAL support?
 - Audio filters?
 
