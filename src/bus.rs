@@ -82,11 +82,6 @@ impl Memory for Bus {
 
   fn handle_dma(&mut self) {
     if self.apu.dmc.reader.is_transfering() && self.apu.dmc.is_empty() {
-      // println!("Doing dmc dma");
-      // println!("Is empty: {}", self.apu.dmc.is_empty());
-      // println!("DMA addr: {}", self.apu.dmc.reader.addr);
-      // println!("DMA length: {}", self.apu.dmc.reader.remaining);
-
       self.tick();
       self.tick();
 
@@ -94,18 +89,7 @@ impl Memory for Bus {
       let to_write = self.read(addr);
       self.tick();
       self.apu.dmc.load_sample(to_write);
-
-      // println!("Is empty after: {}", self.apu.dmc.is_empty());
-      // println!("DMA addr after: {}", self.apu.dmc.reader.addr);
-      // println!("DMA length after: {}", self.apu.dmc.reader.remaining);
-
-      if !self.apu.dmc.reader.is_transfering() {
-        if self.apu.dmc.loop_enabled {
-          self.apu.dmc.restart_dma();
-        } else if self.apu.dmc.irq_enabled {
-          self.apu.dmc.irq_flag = Some(());
-        }
-      }
+      self.tick();
     } else if self.oam_dma.is_transfering() {
       let addr = self.oam_dma.current();
       let to_write = self.read(addr);

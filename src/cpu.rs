@@ -245,8 +245,6 @@ impl<M: Memory> Cpu<M> {
       self.bus.handle_dma();
       return;
     }
-    // if self.handle_dma() { return; }
-
     self.interrupts_poll();
     
     let opcode = self.pc_fetch();

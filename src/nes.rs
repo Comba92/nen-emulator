@@ -59,7 +59,6 @@ impl Nes {
     self.cpu.reset();
     self.cpu.bus.ppu.reset();
     self.cpu.bus.apu.reset();
-    self.is_paused = false;
   }
 
   pub fn get_raw_screen(&self) -> *const u8 {

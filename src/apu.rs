@@ -139,6 +139,10 @@ pub struct Apu {
   sample_cycles: f32,
 }
 
+pub fn sample_f32_to_i16(sample: f32) -> i16 {
+  (sample * u16::MAX as f32).clamp(0.0, u16::MAX as f32) as i16
+}
+
 impl Apu {
   pub fn new() -> Self {
     let apu = Apu {
@@ -182,29 +186,32 @@ impl Apu {
     // We have 60 frames per second.
     // Meaning for a single frame we need 44100 / 60 = 735 samples.
     // Then, we have to output a sample every 29780.5 / 735 = 40.5 cycles!
+
     // if self.sample_cycles >= 40.517687075 {
-    //   self.mix_channels();
+    //   let sample = self.mix_channels();
+    //   self.current_sample = Some(sample_f32_to_i16(sample));
     //   self.sample_cycles -= 40.517687075;
     // }
     // self.sample_cycles += 1.0;
 
-    self.mix_channels();
+    let sample = self.mix_channels();
+    self.low_pass_filter.consume(sample);
 
     if self.sample_cycles >= 40.517687075 {
       let output = self.low_pass_filter.output();
-      let sample = (output * u16::MAX as f32).clamp(0.0, u16::MAX as f32) as i16;
-      self.current_sample = Some(sample);
+      self.current_sample = Some(sample_f32_to_i16(output));
 
       self.sample_cycles -= 40.517687075;
     }
     self.sample_cycles += 1.0;
+
+    self.dmc.step_timer();
 
     self.triangle.step_timer();
     if self.cycles % 2 == 1 {
       self.pulse1.step_timer();
       self.pulse2.step_timer();
       self.noise.step_timer();
-      self.dmc.step_timer();
 
       self.step_frame();
     }
@@ -267,7 +274,7 @@ impl Apu {
     }
   }
 
-  fn mix_channels(&mut self) {
+  fn mix_channels(&mut self) -> f32 {
     let pulse1   = self.pulse1.get_sample();
     let pulse2   = self.pulse2.get_sample();
     let triangle = self.triangle.get_sample();
@@ -275,16 +282,13 @@ impl Apu {
     let dmc = self.dmc.get_sample();
 
     let pulse_out = 0.00752 * (pulse1 + pulse2) as f32;
-    let tnd_out = 0.00494 * noise as f32 
-      + 0.00851 * triangle as f32
+    let tnd_out = 
+      0.00851 * triangle as f32
+      + 0.00494 * noise as f32 
       + 0.00335 * dmc as f32;
 
     let sum = pulse_out + tnd_out;
-    
-    // let output = (sum * u16::MAX as f32).clamp(0.0, u16::MAX as f32) as i16;
-    // self.current_sample = Some(output);
-
-    self.low_pass_filter.consume(sum);
+    sum
   }
 
   pub fn read_reg(&mut self, addr: u16) -> u8 {

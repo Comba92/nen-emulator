@@ -48,7 +48,7 @@ impl Dma for DmcDma {
     let res = self.addr;
     let (addr, overflow) = self.addr.overflowing_add(1);
     self.addr = if overflow { 0x8000 } else { addr };
-    self.remaining = self.remaining.wrapping_sub(1);
+    self.remaining -= 1;
     res
   }
 

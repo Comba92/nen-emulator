@@ -27,7 +27,7 @@ pub struct Dmc {
 
 impl Default for Dmc {
   fn default() -> Self {
-    Self { irq_enabled: Default::default(), irq_flag: Default::default(), loop_enabled: Default::default(), timer: Default::default(), level: Default::default(), buffer_empty: true, buffer: Default::default(), bits_remaining: Default::default(), address: Default::default(), length: Default::default(), shift_reg: Default::default(), silence: Default::default(), reader: Default::default() }
+    Self { irq_enabled: Default::default(), irq_flag: Default::default(), loop_enabled: Default::default(), timer: Default::default(), level: Default::default(), buffer_empty: true, buffer: Default::default(), bits_remaining: Default::default(), address: Default::default(), length: Default::default(), shift_reg: Default::default(), silence: true, reader: Default::default() }
   }
 }
 
@@ -59,6 +59,28 @@ impl Dmc {
     self.buffer = sample;
     self.buffer_empty = false;
     self.bits_remaining = 8;
+
+    if !self.reader.is_transfering() {
+      if self.loop_enabled {
+        self.restart_dma();
+      } else if self.irq_enabled {
+        self.irq_flag = Some(());
+      }
+    }
+
+    if(self.length == 1 && !self.loop_enabled) {
+      //When DMA ends around the time the bit counter resets, a CPU glitch sometimes causes another DMA to be requested immediately.
+      if(self.bits_remaining == 8 && self.timer.count == self.timer.period) {
+        self.shift_reg = self.buffer;
+        self.silence = false;
+        self.buffer_empty = true;
+        self.restart_dma();
+      } else if(self.bits_remaining == 1 && self.timer.count < 2) {
+        self.shift_reg = self.buffer;
+        self.buffer_empty = false;
+        self.restart_dma();
+      }
+    }
   }
 
   pub fn restart_dma(&mut self) {
@@ -75,9 +97,9 @@ impl Channel for Dmc {
     self.timer.step(|_| {
       if !self.silence {
         if self.shift_reg & 1 != 0 {
-          self.level = self.level.wrapping_add(2) % 128;
-        } else {
-          self.level = self.level.saturating_sub(2);
+          if self.level <= 125 { self.level += 2; }
+        } else if self.level >= 2 {
+          self.level -= 2;
         }
         self.shift_reg >>= 1;
       }
