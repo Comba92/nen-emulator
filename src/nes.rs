@@ -56,9 +56,9 @@ impl Nes {
   }
 
   pub fn reset(&mut self) {
-    self.cpu.reset();
-    self.cpu.bus.ppu.reset();
-    self.cpu.bus.apu.reset();
+    self.get_cpu().reset();
+    self.get_ppu().reset();
+    self.get_apu().reset();
   }
 
   pub fn get_raw_screen(&self) -> *const u8 {

@@ -3,10 +3,22 @@
 <head>
   <title>NEN EMULATOR</title>
   <meta charset="UTF-8">
+  <style>
+    /* Thanks zeta0134 from discord */
+    canvas {
+      width: 75%;
+      height: 75%;
+
+      image-rendering: -moz-crisp-edges;
+      image-rendering: -o-crisp-edges;
+      image-rendering: -webkit-optimize-contrast;
+      -ms-interpolation-mode: nearest-neighbor;
+      image-rendering: pixelated;
+    }
+  </style>
 </head>
 <body>
-  <canvas hidden id="nes-screen" style="image-rendering: pixelated;"></canvas>
-  <canvas id="web-screen" style="image-rendering: pixelated;"></canvas>
+  <canvas id="nes-screen" style="image-rendering: pixelated;"></canvas>
   <div>
     <button>
       <label for="rom-picker">Load a ROM ⏏️</label>
@@ -18,7 +30,7 @@
   <pre>
     KEY BINDINGS
     Arrow keys -> Dpad
-    🇿-> A
+    🇿  -> A
     🇽 -> B
     🇲 -> Start
     🇳 -> Selct

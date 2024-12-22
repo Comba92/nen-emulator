@@ -5,12 +5,12 @@ use crate::mapper::{self, CartMapper, Dummy};
 
 #[derive(Debug, Default, Clone)]
 pub struct INesHeader {
-  pub title: String,
   pub prg_16kb_banks: usize,
   pub chr_8kb_banks: usize,
   pub prg_size: usize,
   pub chr_size: usize,
   pub uses_chr_ram: bool,
+  pub sram_size: usize,
   pub has_trainer: bool,
   pub has_battery_prg: bool,
   pub has_alt_nametbl: bool,
@@ -76,6 +76,7 @@ impl INesHeader {
     };
 
     let is_nes_v2 = rom[7] & 0b0000_1100 == 0x8;
+    let sram_size = if rom[8] > 0 { rom[8] as usize } else { CHR_ROM_PAGE_SIZE };
 
     let tv_system = match rom[9] & 1 {
       0 => TvSystem::NTSC,
@@ -83,19 +84,13 @@ impl INesHeader {
       _ => unreachable!()
     };
 
-    let title = String::from_utf8_lossy(&rom[rom.len()-128..])
-      .to_string()
-      .chars()
-      .filter(|c| c.is_alphanumeric())
-      .collect();
-
     Ok(INesHeader {
-      title,
       prg_16kb_banks,
       chr_8kb_banks,
       prg_size,
       chr_size,
       uses_chr_ram,
+      sram_size,
       has_trainer,
       has_battery_prg,
       is_nes_v2,
@@ -177,6 +172,8 @@ impl Cart {
     let prg_rom = rom[prg_start..chr_start].to_vec();
     let chr_rom = if header.uses_chr_ram { [0; 8*1024].to_vec() }
       else { rom[chr_start..chr_start+header.chr_size].to_vec() };
+
+    println!("Loaded ROM: {:#?}", header);
 
     let mapper = mapper::new_mapper_from_id(header.mapper)?;
     Ok(Cart { header, prg_rom, chr_rom, mapper })

@@ -11,7 +11,7 @@
 - Cleaner implementation (it is better now but work can still be done)
 
 [x] Mappers
-- Mmc3 is ok?
+- Implementation is solid, but could be better (and faster)
 - Mmc5
 
 [x] APU

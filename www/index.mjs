@@ -5,17 +5,12 @@ const resetBtn = document.getElementById("reset")
 const nesScreen = document.getElementById("nes-screen")
 const nesCtx = nesScreen.getContext('2d')
 
-const webScreen = document.getElementById("web-screen")
-const webViewport = webScreen.getContext('2d')
-
 const SCALING = 2
 const SCREEN_WIDTH = 32*8
 const SCREEN_HEIGHT = 30*8
 
 nesScreen.width = SCREEN_WIDTH
 nesScreen.height = SCREEN_HEIGHT
-webScreen.width = SCREEN_WIDTH*SCALING
-webScreen.height = SCREEN_HEIGHT*SCALING
 
 const keymap = [
     { key: 'z', button: 1 },
@@ -65,10 +60,10 @@ window.addEventListener("gamepadconnected", (e) => {
     );
 });
 
-import init, {Emu} from './pkg/nen_emulator.js'
+import init, {Nes} from './pkg/nen_emulator.js'
 const instance = await init()
 
-let emu = Emu.empty()
+let emu = Nes.empty()
 let screen = emu.get_raw_screen()
 let animationId = null
 
@@ -76,7 +71,7 @@ inputRom.addEventListener('change', async event => {
     let rom = await inputRom.files[0].arrayBuffer()
     let bytes = new Uint8Array(rom)
     try {
-        emu.load_from_bytes(bytes)
+        emu.load_rom(bytes)
         screen = emu.get_raw_screen()
         pauseBtn.innerText = '⏸️'
         animationId = renderLoop()
@@ -102,7 +97,7 @@ const FRAME_MS = (1.0 / 60.0) * 1000
 
 // https://developer.mozilla.org/en-US/docs/Web/API/Canvas_API/Tutorial/Pixel_manipulation_with_canvas
 function renderLoop() {
-    if (emu.paused) {
+    if (emu.is_paused) {
         cancelAnimationFrame(animationId)
         return
     }
@@ -112,16 +107,16 @@ function renderLoop() {
     let frame = new Uint8ClampedArray(instance.memory.buffer, screen, nesScreen.width*nesScreen.height*4)
     let image = new ImageData(frame, nesScreen.width, nesScreen.height)
     nesCtx.putImageData(image, 0, 0)
-    webViewport.drawImage(nesScreen, 0, 0, webScreen.width, webScreen.height)
     
     let elapsed_ms = performance.now() - start
     let delay = FRAME_MS - elapsed_ms
 
     // TODO: this shit doesnt work
-    setTimeout(
-        () => { animationId = requestAnimationFrame(renderLoop) },
-        delay > 0 ? delay : 0
-    )    
+    // setTimeout(
+    //     () => { animationId = requestAnimationFrame(renderLoop) },
+    //     delay > 0 ? delay : 0
+    // )
+    animationId = requestAnimationFrame(renderLoop)
 }
 
 
