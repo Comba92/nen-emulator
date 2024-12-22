@@ -150,7 +150,7 @@ impl<M: Memory> Cpu<M> {
     self.p.contains(CpuFlags::carry).into()
   }
 
-  fn read16(&mut self, addr: u16) -> u16 {
+  pub fn read16(&mut self, addr: u16) -> u16 {
     let low = self.read(addr);
     let high = self.read(addr.wrapping_add(1));
     u16::from_le_bytes([low, high])

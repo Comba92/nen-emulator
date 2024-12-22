@@ -57,7 +57,7 @@ mod snake_test {
         .unwrap();
 
     let mut emu = Cpu::with_ram64kb();
-    emu.bus.write_data(0x600, &GAME_CODE);
+    emu.write_data(0x600, &GAME_CODE);
     emu.pc = 0x600;
 
     let mut framebuffer = [0u8; 32*32*3];

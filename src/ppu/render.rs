@@ -117,7 +117,7 @@ impl Ppu {
     if self.cycle == 260
       && self.rendering_enabled()
     {
-      self.mapper.borrow_mut().notify();
+      self.mapper.borrow_mut().notify_scanline();
     }
   }
 

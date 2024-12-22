@@ -11,7 +11,7 @@ impl From<u8> for EnvelopeMode {
   }
 }
 
-#[derive(Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Default, Clone, Copy, PartialEq)]
 enum VolumeMode {
   #[default] Envelope, Constant
 }

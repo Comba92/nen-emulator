@@ -5,7 +5,7 @@ use std::{fs, io::{BufWriter, Write}, path::Path};
 use circular_buffer::CircularBuffer;
 use log::info;
 
-use nen_emulator::{bus::Bus, cart::Cart, cpu::{Cpu, CpuFlags}, interface::Emu, instr::{AddressingMode, INSTRUCTIONS}, mem::Memory};
+use nen_emulator::{bus::Bus, cart::Cart, cpu::{Cpu, CpuFlags}, instr::{AddressingMode, INSTRUCTIONS}, mem::Memory, nes::Nes};
 use prettydiff::{diff_lines, diff_words};
 
   #[derive(Debug, Eq, Clone)]
@@ -140,7 +140,7 @@ use prettydiff::{diff_lines, diff_words};
 
     let rom_path = Path::new("./tests/nestest/nestest.nes");
     let rom = Cart::from_file(rom_path).unwrap();
-    let mut emu = Emu::with_cart(rom);
+    let mut emu = Nes::with_cart(rom);
 
     emu.get_cpu().pc = 0xC000;
     emu.get_cpu().p = CpuFlags::from_bits_retain(0x24);
@@ -206,7 +206,9 @@ fn nestest_to_file() {
   emu.pc = 0xC000;
   emu.write_data(0x8000, &cart.prg_rom[..0x4000]);
   emu.write_data(0xC000, &cart.prg_rom[..0x4000]);
-  emu.write16(0x2, 0);
+  emu.write(0x2, 0);
+  emu.write(0x3, 0);
+
 
   for _ in 0..8992 {
     let snapshot = CpuMock::from_cpu(&emu);

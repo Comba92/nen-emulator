@@ -1,5 +1,5 @@
 use log::debug;
-use crate::{apu::Apu, cart::{Cart, INesHeader, Mirroring}, dma::{Dma, OamDma}, joypad::Joypad, mapper::CartMapper, mem::Memory, ppu::Ppu};
+use crate::{apu::Apu, cart::{Cart, INesHeader}, dma::{Dma, OamDma}, joypad::Joypad, mapper::CartMapper, mem::Memory, ppu::Ppu};
 
 #[derive(Debug)]
 enum BusDst {
@@ -19,9 +19,25 @@ pub struct Bus {
 }
 // TODO: consider moving VRAM here
 
+fn map_address(addr: u16) -> (BusDst, usize) {
+  match addr {
+    0x0000..=0x1FFF => (BusDst::Ram, addr as usize & 0x07FF),
+    0x2000..=0x3FFF => (BusDst::Ppu, addr as usize & 0x2007),
+    0x4000..=0x4013 => (BusDst::Apu, addr as usize),
+    0x4014 => (BusDst::OamDma, addr as usize),
+    0x4015 => (BusDst::DmcDma, addr as usize),
+    0x4016 => (BusDst::Joypad1, addr as usize),
+    0x4017 => (BusDst::Joypad2, addr as usize),
+    0x6000..=0x7FFF => (BusDst::SRam, addr as usize - 0x6000),
+    // We pass it as is to the mapper, for convenience
+    0x8000..=0xFFFF => (BusDst::Prg, addr as usize),
+    _ => (BusDst::NoImpl, addr as usize)
+  }
+}
+
 impl Memory for Bus {
   fn read(&mut self, addr: u16) -> u8 {
-    let (dst, addr) = self.map_address(addr);
+    let (dst, addr) = map_address(addr);
     match dst {
       BusDst::Ram => self.ram[addr],
       BusDst::Ppu => self.ppu.read_reg(addr as u16),
@@ -35,7 +51,7 @@ impl Memory for Bus {
   }
 
   fn write(&mut self, addr: u16, val: u8) {
-    let (dst, addr) = self.map_address(addr);
+    let (dst, addr) = map_address(addr);
     match dst {
       BusDst::Ram => self.ram[addr] = val,
       BusDst::Ppu => self.ppu.write_reg(addr as u16, val),
@@ -60,19 +76,20 @@ impl Memory for Bus {
   }
 
   fn nmi_poll(&mut self) -> bool {
+    // https://www.nesdev.org/wiki/NMI
     self.ppu.nmi_requested.take().is_some()
   }
 
   fn irq_poll(&mut self) -> bool {
     self.mapper.borrow_mut().poll_irq()
-    || self.apu.frame_irq_flag.take().is_some()
-    // https://www.nesdev.org/wiki/APU_DMC#Memory_reader
+    || self.apu.frame_irq_flag.is_some()
     || self.apu.dmc.irq_flag.is_some()
   }
   
   fn tick(&mut self) {
     for _ in 0..3 { self.ppu.step(); }
     self.apu.step();
+    self.mapper.borrow_mut().notify_cpu_cycle();
   }
 
   fn is_dma_transfering(&self) -> bool {
@@ -121,35 +138,11 @@ impl Bus {
     }
   }
 
-  fn map_address(&self, addr: u16) -> (BusDst, usize) {
-    match addr {
-      0x0000..=0x1FFF => (BusDst::Ram, addr as usize & 0x07FF),
-      0x2000..=0x3FFF => (BusDst::Ppu, addr as usize & 0x2007),
-      0x4000..=0x4013 => (BusDst::Apu, addr as usize),
-      0x4014 => (BusDst::OamDma, addr as usize),
-      0x4015 => (BusDst::DmcDma, addr as usize),
-      0x4016 => (BusDst::Joypad1, addr as usize),
-      0x4017 => (BusDst::Joypad2, addr as usize),
-      0x6000..=0x7FFF => (BusDst::SRam, addr as usize - 0x6000),
-      // We pass it as is to the mapper, for convenience
-      0x8000..=0xFFFF => (BusDst::Prg, addr as usize),
-      _ => (BusDst::NoImpl, addr as usize)
-    }
-  }
-
   pub fn poll_vblank(&mut self) -> bool {
     self.ppu.vblank_started.take().is_some()
   }
 
   pub fn poll_sample(&mut self) -> Option<i16> {
     self.apu.current_sample.take()
-  }
-
-  pub fn mirroring(&self) -> Mirroring {
-    if let Some(mirroring) = self.mapper.borrow().mirroring() {
-      mirroring
-    } else {
-      self.cart.nametbl_mirroring
-    }
   }
 }

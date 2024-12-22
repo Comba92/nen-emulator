@@ -84,7 +84,7 @@ pub trait Channel: Default {
   fn get_sample(&self) -> u8;
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq)]
 enum FrameCounterMode {
   Step4, Step5
 }
