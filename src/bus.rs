@@ -1,5 +1,7 @@
+use std::{cell::RefCell, rc::Rc};
+
 use log::debug;
-use crate::{apu::Apu, cart::{Cart, INesHeader}, dma::{Dma, OamDma}, joypad::Joypad, mapper::CartMapper, mem::Memory, ppu::Ppu};
+use crate::{apu::Apu, cart::{Cart, SharedCart}, dma::{Dma, OamDma}, joypad::Joypad, mem::Memory, ppu::Ppu};
 
 #[derive(Debug)]
 enum BusDst {
@@ -8,16 +10,12 @@ enum BusDst {
 
 pub struct Bus {
   ram: [u8; 0x800],
-  sram: [u8; 0x2000],
-  prg: Vec<u8>,
-  pub cart: INesHeader,
-  pub mapper: CartMapper,
+  pub cart: SharedCart,
   pub ppu: Ppu,
   pub apu: Apu,
   pub joypad: Joypad,
   pub oam_dma: OamDma,
 }
-// TODO: consider moving VRAM here
 
 fn map_address(addr: u16) -> (BusDst, usize) {
   match addr {
@@ -44,8 +42,8 @@ impl Memory for Bus {
       BusDst::Apu | BusDst::DmcDma => self.apu.read_reg(addr as u16),
       BusDst::Joypad1 => self.joypad.read1(),
       BusDst::Joypad2 => self.joypad.read2(),
-      BusDst::SRam => self.sram[addr],
-      BusDst::Prg => self.mapper.borrow_mut().read_prg(&self.prg, addr),
+      BusDst::SRam => self.cart.borrow().sram[addr],
+      BusDst::Prg => self.cart.borrow_mut().prg_read(addr),
       _ => { debug!("Read to {addr:04X} not implemented"); 0 }
     }
   }
@@ -69,8 +67,8 @@ impl Memory for Bus {
         self.apu.write_reg(addr as u16, val);
         self.tick();
       }
-      BusDst::SRam => self.sram[addr] = val,
-      BusDst::Prg => self.mapper.borrow_mut().write_prg(&mut self.prg, addr, val),
+      BusDst::SRam => self.cart.borrow_mut().sram[addr] = val,
+      BusDst::Prg => self.cart.borrow_mut().prg_write(addr, val),
       BusDst::NoImpl => debug!("Write to {addr:04X} not implemented")
     }
   }
@@ -81,7 +79,7 @@ impl Memory for Bus {
   }
 
   fn irq_poll(&mut self) -> bool {
-    self.mapper.borrow_mut().poll_irq()
+    self.cart.borrow_mut().mapper.poll_irq()
     || self.apu.frame_irq_flag.is_some()
     || self.apu.dmc.irq_flag.is_some()
   }
@@ -89,7 +87,7 @@ impl Memory for Bus {
   fn tick(&mut self) {
     for _ in 0..3 { self.ppu.step(); }
     self.apu.step();
-    self.mapper.borrow_mut().notify_cpu_cycle();
+    self.cart.borrow_mut().mapper.notify_cpu_cycle();
   }
 
   fn is_dma_transfering(&self) -> bool {
@@ -119,20 +117,14 @@ impl Memory for Bus {
 
 impl Bus {
   pub fn new(cart: Cart) -> Self {
-    let ppu = Ppu::new(
-      cart.chr_rom,
-      cart.mapper.clone(),
-      cart.header.nametbl_mirroring
-    );
+    let cart = Rc::new(RefCell::new(cart));
+    let ppu = Ppu::new(cart.clone());
 
     Self {
       ram: [0; 0x800], 
-      sram: [0; 0x2000],
       ppu,
       apu: Apu::new(),
-      cart: cart.header,
-      prg: cart.prg_rom,
-      mapper: cart.mapper,
+      cart,
       joypad: Joypad::new(),
       oam_dma: OamDma::default(),
     }

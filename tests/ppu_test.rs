@@ -20,7 +20,7 @@ mod ppu_test {
 
       let cart = Cart::from_file(Path::new("tests/nestest/nestest.nes")).unwrap();
       
-      for (i, tile) in cart.chr_rom.chunks(16).enumerate().take(100) {
+      for (i, tile) in cart.chr.chunks(16).enumerate().take(100) {
         println!("Tile {i}");
         for row in 0..8 {
           let plane0 = tile[row];
@@ -65,7 +65,7 @@ mod ppu_test {
 
       let cart = Cart::from_file(Path::new("roms/Ice Climber.nes")).unwrap();
 
-      for (i, tile) in cart.chr_rom.chunks(16).enumerate() {
+      for (i, tile) in cart.chr.chunks(16).enumerate() {
         let x = i*8 % framebuf.width;
         let y = (i*8 / framebuf.width)*8;
 

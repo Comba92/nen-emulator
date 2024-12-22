@@ -201,11 +201,8 @@ fn nestest_to_file() {
 
   let rom_path = Path::new("tests/nestest/nestest.nes");
   let rom = Cart::from_file(rom_path).unwrap();
-  let cart = rom.clone();
   let mut emu = Cpu::with_cart(rom);
   emu.pc = 0xC000;
-  emu.write_data(0x8000, &cart.prg_rom[..0x4000]);
-  emu.write_data(0xC000, &cart.prg_rom[..0x4000]);
   emu.write(0x2, 0);
   emu.write(0x3, 0);
 

@@ -38,28 +38,34 @@ pub struct Vrc4 {
   mirroring: Mirroring,
 }
 
+impl Vrc4 {
+  pub fn new(mapper_id: usize) -> Self {
+    Self::default()
+  }
+}
+
 impl Mapper for Vrc4 {
   fn prg_bank_size(&self) -> usize { DEFAULT_PRG_BANK_SIZE/2 }
   fn chr_bank_size(&self) -> usize { 1024 }
 
-  fn read_prg(&mut self, prg: &[u8], addr: usize) -> u8 {
+  fn prg_addr(&mut self, prg: &[u8], addr: usize) -> usize {
     let bank = match (addr, self.swap_mode) {
       (0x8000..=0x9FFF, false) => self.prg_bank0_select,
-      (0x8000..=0x9FFF, true)  => self.last_prg_bank(prg)-1,
+      (0x8000..=0x9FFF, true)  => self.prg_last_bank(prg)-1,
 
       (0xA000..=0xBFFF, _) => self.prg_bank1_select,
 
-      (0xC000..=0xDFFF, false) => self.last_prg_bank(prg)-1,
+      (0xC000..=0xDFFF, false) => self.prg_last_bank(prg)-1,
       (0xC000..=0xDFFF, true)  => self.prg_bank0_select,
 
-      (0xE000..=0xFFFF, _) => self.last_prg_bank(prg),
+      (0xE000..=0xFFFF, _) => self.prg_last_bank(prg),
       _ => unreachable!()
     };
 
-    self.read_prg_bank(prg, bank, addr)
+    self.prg_bank_addr(prg, bank, addr)
   }
 
-  fn read_chr(&mut self, chr: &[u8], addr: usize) -> u8 {
+  fn chr_addr(&mut self, chr: &[u8], addr: usize) -> usize {
     let bank = match addr {
       0x0000..=0x03FF => self.chr_banks_selects[0],
       0x0400..=0x07FF => self.chr_banks_selects[1],
@@ -72,10 +78,10 @@ impl Mapper for Vrc4 {
       _ => unreachable!()
     };
 
-    self.read_chr_bank(chr, bank.0 as usize, addr)
+    self.chr_bank_addr(chr, bank.0 as usize, addr)
   }
 
-  fn write_prg(&mut self, _prg: &mut[u8], addr: usize, val: u8) {
+  fn prg_write(&mut self, _prg: &mut[u8], addr: usize, val: u8) {
       match addr {
         0x9002 => {
           self.wram_ctrl = val & 0b01 != 0;

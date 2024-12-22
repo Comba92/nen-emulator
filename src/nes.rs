@@ -111,8 +111,8 @@ impl Nes {
     &mut self.cpu.bus.apu
   }
 
-  pub fn get_cart(&self) -> &INesHeader {
-    &self.cpu.bus.cart
+  pub fn get_cart(&self) -> INesHeader {
+    self.cpu.bus.cart.borrow().header.clone()
   }
 
   pub fn get_screen(&self) -> &FrameBuffer {

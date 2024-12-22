@@ -1,7 +1,7 @@
 use core::cell::RefCell;
 use std::{fs, path::Path, rc::Rc};
 
-use crate::mapper::{self, CartMapper, Dummy};
+use crate::mapper::{self, Dummy, Mapper};
 
 #[derive(Debug, Default, Clone)]
 pub struct INesHeader {
@@ -17,7 +17,7 @@ pub struct INesHeader {
   pub is_nes_v2: bool,
   pub console_type: ConsoleType,
   pub tv_system: TvSystem,
-  pub nametbl_mirroring: Mirroring,
+  pub mirroring: Mirroring,
   pub mapper: u8,
   pub nes20_header: Option<Nes20Header>,
 }
@@ -96,7 +96,7 @@ impl INesHeader {
       is_nes_v2,
       console_type,
       tv_system,
-      nametbl_mirroring: nametbl_layout,
+      mirroring: nametbl_layout,
       has_alt_nametbl,
       mapper,
       nes20_header: if is_nes_v2 { Some(Nes20Header::new(rom)?) } else { None },
@@ -150,13 +150,14 @@ impl Nes20Header {
   }
 }
 
-#[derive(Clone)]
 pub struct Cart {
   pub header: INesHeader,
-  pub prg_rom: Vec<u8>,
-  pub chr_rom: Vec<u8>,
-  pub mapper: CartMapper,
+  pub prg: Vec<u8>,
+  pub chr: Vec<u8>,
+  pub sram: Vec<u8>,
+  pub mapper: Box<dyn Mapper>,
 }
+pub type SharedCart = Rc<RefCell<Cart>>;
 
 impl Cart {
   pub fn new(rom: &[u8]) -> Result<Self, String> {
@@ -175,8 +176,11 @@ impl Cart {
 
     println!("Loaded ROM: {:#?}", header);
 
+    let mut sram = Vec::new();
+    sram.resize(0x2000, 0);
+
     let mapper = mapper::new_mapper_from_id(header.mapper)?;
-    Ok(Cart { header, prg_rom, chr_rom, mapper })
+    Ok(Cart { header, prg: prg_rom, chr: chr_rom, sram, mapper })
   }
 
   pub fn from_file(rom_path: &Path) -> Result<Self, String> {
@@ -185,7 +189,25 @@ impl Cart {
   }
   
   pub fn empty() -> Self {
-    Cart { header: INesHeader::default(), prg_rom: Vec::new(), chr_rom: Vec::new(), mapper: Rc::new(RefCell::new(Dummy)) }
+    Cart { header: INesHeader::default(), prg: Vec::new(), chr: Vec::new(), sram: Vec::new(), mapper: Box::new(Dummy) }
+  }
+
+  pub fn prg_read(&mut self, addr: usize) -> u8 {
+    self.mapper.prg_read(&self.prg, addr)
+  }
+  pub fn prg_write(&mut self, addr: usize, val: u8) {
+    self.mapper.prg_write(&mut self.prg, addr, val);
+  }
+
+  pub fn chr_read(&mut self, addr: usize) -> u8 {
+    self.mapper.chr_read(&self.chr, addr)
+  }
+  pub fn chr_write(&mut self, addr: usize, val: u8) {
+    self.mapper.chr_write(&mut self.chr, addr, val);
+  }
+
+  pub fn mirroring(&self) -> Mirroring {
+    self.mapper.mirroring().unwrap_or(self.header.mirroring)
   }
 }
 

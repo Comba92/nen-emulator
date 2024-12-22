@@ -8,29 +8,29 @@ enum Latch { FD, #[default] FE }
 // Mapper 9 https://www.nesdev.org/wiki/MMC2
 #[derive(Default)]
 pub struct Mmc2 {
-    pub prg_bank_select: usize,
-    pub chr_bank0_select: [usize; 2],
-    pub chr_bank1_select: [usize; 2],
-    pub latch: [Latch; 2],
-    pub mirroring: Mirroring,
+    prg_bank_select: usize,
+    chr_bank0_select: [usize; 2],
+    chr_bank1_select: [usize; 2],
+    latch: [Latch; 2],
+    mirroring: Mirroring,
 }
 impl Mapper for Mmc2 {
     fn prg_bank_size(&self) -> usize { DEFAULT_PRG_BANK_SIZE/2 }
     fn chr_bank_size(&self) -> usize { DEFAULT_CHR_BANK_SIZE/2 }
 
-    fn read_prg(&mut self, prg: &[u8], addr: usize) -> u8 {
+    fn prg_addr(&mut self, prg: &[u8], addr: usize) -> usize {
         let bank = match addr {
             0x8000..=0x9FFF => self.prg_bank_select,
-            0xA000..=0xBFFF => self.last_prg_bank(prg)-2,
-            0xC000..=0xDFFF => self.last_prg_bank(prg)-1,
-            0xE000..=0xFFFF => self.last_prg_bank(prg),
+            0xA000..=0xBFFF => self.prg_last_bank(prg)-2,
+            0xC000..=0xDFFF => self.prg_last_bank(prg)-1,
+            0xE000..=0xFFFF => self.prg_last_bank(prg),
             _ => unreachable!()
         };
 
-        self.read_prg_bank(prg, bank, addr)
+        self.prg_bank_addr(prg, bank, addr)
     }
 
-    fn read_chr(&mut self, chr: &[u8], addr: usize) -> u8 {
+    fn chr_addr(&mut self, chr: &[u8], addr: usize) -> usize {
         let bank = match addr {
             0x0000..=0x0FFF => self.chr_bank0_select[self.latch[0] as usize],
             0x1000..=0x1FFF => self.chr_bank1_select[self.latch[1] as usize],
@@ -45,10 +45,10 @@ impl Mapper for Mmc2 {
             _ => {}
         }
 
-        self.read_chr_bank(chr, bank, addr)
+        self.chr_bank_addr(chr, bank, addr)
     }
 
-    fn write_prg(&mut self, _prg: &mut[u8], addr: usize, val: u8) {
+    fn prg_write(&mut self, _prg: &mut[u8], addr: usize, val: u8) {
         let val = val as usize & 0b1_1111;
 
         match addr {

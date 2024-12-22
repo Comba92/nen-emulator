@@ -165,13 +165,6 @@ impl<M: Memory> Cpu<M> {
     } else { self.read16(addr) }
   }
 
-  // TODO: consider removing this
-  pub fn write_data(&mut self, start: u16, data: &[u8]) {
-    for (i , byte) in data.iter().enumerate() {
-      self.write(start.wrapping_add(i as u16), *byte);
-    }
-  }
-
   fn pc_fetch(&mut self) -> u8 {
     let res = self.read(self.pc);
     self.pc = self.pc.wrapping_add(1);

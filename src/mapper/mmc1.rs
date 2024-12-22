@@ -59,13 +59,13 @@ impl Mapper for Mmc1 {
         }
     }
 
-    fn read_prg(&mut self, prg: &[u8], addr: usize) -> u8 {
+    fn prg_addr(&mut self, prg: &[u8], addr: usize) -> usize {
         let bank = match self.prg_mode {
             PrgMode::Bank32kb => self.prg_bank_select >> 1,
             PrgMode::FixLast16kb => {
                 match addr {
                     0x8000..=0xBFFF => self.prg_bank_select,
-                    0xC000..=0xFFFF => self.last_prg_bank(prg),
+                    0xC000..=0xFFFF => self.prg_last_bank(prg),
                     _ => unreachable!()
                 }
             }
@@ -78,10 +78,10 @@ impl Mapper for Mmc1 {
             }
         };
 
-        self.read_prg_bank(prg, bank, addr)
+        self.prg_bank_addr(prg, bank, addr)
     }
 
-    fn read_chr(&mut self, chr: &[u8], addr: usize) -> u8 {
+    fn chr_addr(&mut self, chr: &[u8], addr: usize) -> usize {
         let bank = match self.chr_mode {
             ChrMode::Bank8kb => self.chr_bank0_select >> 1,
             ChrMode::Bank4kb => {
@@ -93,10 +93,10 @@ impl Mapper for Mmc1 {
             }
         };
 
-        self.read_chr_bank(chr, bank, addr)
+        self.chr_bank_addr(chr, bank, addr)
     }
 
-    fn write_prg(&mut self, _prg: &mut[u8], addr: usize, val: u8) {
+    fn prg_write(&mut self, _prg: &mut[u8], addr: usize, val: u8) {
         if val & 0b1000_0000 != 0 {
             self.shift_reg = 0;
             self.shift_writes = 0;

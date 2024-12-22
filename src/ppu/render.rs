@@ -117,7 +117,7 @@ impl Ppu {
     if self.cycle == 260
       && self.rendering_enabled()
     {
-      self.mapper.borrow_mut().notify_scanline();
+      self.cart.borrow_mut().mapper.notify_scanline();
     }
   }
 
@@ -313,7 +313,7 @@ impl Ppu {
 			let mut plane0 = self.peek_vram(spr_addr);
 			let mut plane1 = self.peek_vram(spr_addr + 8);
 
-			// TODO: eventually fix this hack
+			// this works in reverse
 			if !sprite.flip_horizontal {
 				plane0 = plane0.reverse_bits();
 				plane1 = plane1.reverse_bits();

@@ -30,7 +30,7 @@ fn main() {
             let rom_name =  rom_path.file_name().unwrap().to_str().unwrap_or("NenEmulator");
             sdl.canvas.window_mut().set_title(rom_name).expect("Couldn't rename window title");
             emu = Nes::with_cart(cart);
-            println!("{:#?}\n", emu.get_cart());
+            // println!("{:#?}\n", emu.get_cart());
         }
     }
 
@@ -90,7 +90,7 @@ fn main() {
                             let rom_name =  rom_path.file_name().unwrap().to_str().unwrap_or("NenEmulator");
                             sdl.canvas.window_mut().set_title(rom_name).expect("Couldn't rename window title");
                             emu.load_cart(cart);
-                            println!("{:#?}\n", emu.get_cart());
+                            // println!("{:#?}\n", emu.get_cart());
                         }
                         Err(msg) => eprintln!("Couldn't load the rom: {msg}\n"),
                     };

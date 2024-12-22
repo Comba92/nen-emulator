@@ -46,22 +46,22 @@ impl Mapper for Mmc3 {
     fn prg_bank_size(&self) -> usize { 8*1024 }
     fn chr_bank_size(&self) -> usize { 1024 }
 
-    fn read_prg(&mut self, prg: &[u8], addr: usize) -> u8 {
+    fn prg_addr(&mut self, prg: &[u8], addr: usize) -> usize {
         use PrgMode::*;
         let bank = match (addr, &self.prg_mode) {
             (0x8000..=0x9FFF, SwapFirst) => self.bank_selects[6],
-            (0x8000..=0x9FFF, SwapLast)  => self.last_prg_bank(prg)-1,
+            (0x8000..=0x9FFF, SwapLast)  => self.prg_last_bank(prg)-1,
             (0xA000..=0xBFFF, _) => self.bank_selects[7],
-            (0xC000..=0xDFFF, SwapFirst) => self.last_prg_bank(prg)-1,
+            (0xC000..=0xDFFF, SwapFirst) => self.prg_last_bank(prg)-1,
             (0xC000..=0xDFFF, SwapLast) => self.bank_selects[6],
-            (0xE000..=0xFFFF, _) => self.last_prg_bank(prg),
+            (0xE000..=0xFFFF, _) => self.prg_last_bank(prg),
             _ => unreachable!()
         };
 
-        self.read_prg_bank(prg, bank, addr)
+        self.prg_bank_addr(prg, bank, addr)
     }
 
-    fn read_chr(&mut self, chr: &[u8], addr: usize) -> u8 {
+    fn chr_addr(&mut self, chr: &[u8], addr: usize) -> usize {
         use ChrMode::*;
         let bank = match(addr, &self.chr_mode) {
             (0x0000..=0x03FF, BiggerFirst) => self.bank_selects[0],
@@ -85,10 +85,10 @@ impl Mapper for Mmc3 {
             _ => unreachable!()
         };
 
-        self.read_chr_bank(chr, bank, addr)
+        self.chr_bank_addr(chr, bank, addr)
     }
 
-    fn write_prg(&mut self, _prg: &mut[u8], addr: usize, val: u8) {
+    fn prg_write(&mut self, _prg: &mut[u8], addr: usize, val: u8) {
         let addr_even = addr % 2 == 0;
         match (addr, addr_even) {
             (0x8000..=0x9FFE, true) => self.write_bank_select(val),

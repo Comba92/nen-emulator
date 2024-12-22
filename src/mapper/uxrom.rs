@@ -6,17 +6,17 @@ pub struct UxRom {
     prg_bank_select: usize,
 }
 impl Mapper for UxRom {
-    fn read_prg(&mut self, prg: &[u8], addr: usize) -> u8 {
+    fn prg_addr(&mut self, prg: &[u8], addr: usize) -> usize {
         let bank = if (0xC000..=0xFFFF).contains(&addr) {
-            self.last_prg_bank(prg)
+            self.prg_last_bank(prg)
         } else {
             self.prg_bank_select
         };
 
-        self.read_prg_bank(prg, bank, addr)
+        self.prg_bank_addr(prg, bank, addr)
     }
 
-    fn write_prg(&mut self, _prg: &mut[u8], _addr: usize, val: u8) {
+    fn prg_write(&mut self, _prg: &mut[u8], _addr: usize, val: u8) {
         self.prg_bank_select = val as usize;
     }
 }

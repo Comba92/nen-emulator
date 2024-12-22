@@ -1,4 +1,4 @@
-use crate::{cart::Mirroring, frame::NesScreen, mapper::CartMapper};
+use crate::{cart::{Mirroring, SharedCart}, frame::NesScreen};
 use bitfield_struct::bitfield;
 use bitflags::bitflags;
 use render::Renderer;
@@ -122,8 +122,7 @@ pub struct Ppu {
 	oam_addr: u8,
 	data_buf: u8,
 	
-	mapper: CartMapper,
-	chr: Vec<u8>,
+	cart: SharedCart,
 	vram: [u8; 0x800],
 	palettes: [u8; 32],
 	oam: [u8; 256],
@@ -132,17 +131,13 @@ pub struct Ppu {
 	pub cycle: usize,
 	in_odd_frame: bool,
 	
-	mirroring: Mirroring,
-	
 	pub nmi_requested: Option<()>,
 	nmi_skip: bool,
 	pub vblank_started: Option<()>,
 }
 
 impl Ppu {
-	pub fn new(chr_rom: Vec<u8>, mapper: CartMapper, mirroring: Mirroring) -> Self {
-		let mapper_mirroring = mapper.borrow().mirroring();
-
+	pub fn new(cart: SharedCart) -> Self {
 		Self {
 			screen: NesScreen::default(),
 			renderer: Renderer::new(),
@@ -152,8 +147,7 @@ impl Ppu {
 			x: 0,
 			w: WriteLatch::FirstWrite,
 
-			chr: chr_rom,
-			mapper,
+			cart,
 			vram: [0; 0x800],
 			palettes: [0; 32],
 			oam: [0; 256],
@@ -167,12 +161,6 @@ impl Ppu {
 			ctrl: Ctrl::empty(),
 			mask: Mask::empty(),
 			stat: Stat::empty(),
-			
-			mirroring: if let Some(mapper_mirroring) = mapper_mirroring {
-				mapper_mirroring
-			} else {
-				mirroring
-			},
 
 			nmi_requested: None,
 			nmi_skip: false,
@@ -257,7 +245,7 @@ impl Ppu {
 	pub fn peek_vram(&self, addr: u16) -> u8 {
 		let (dst, addr) = self.map_address(addr);
 		match dst {
-			VramDst::Patterntbl => self.mapper.borrow_mut().read_chr(&self.chr, addr),
+			VramDst::Patterntbl => self.cart.borrow_mut().chr_read(addr),
 			VramDst::Nametbl => self.vram[addr],
 			VramDst::Palettes => self.palettes[addr],
 			VramDst::Unused => 0,
@@ -284,7 +272,7 @@ impl Ppu {
 	pub fn write_vram(&mut self, val: u8) {
 		let (dst, addr) = self.map_address(self.v.0);
 		match dst {
-			VramDst::Patterntbl => self.mapper.borrow_mut().write_chr(&mut self.chr, addr, val),
+			VramDst::Patterntbl => self.cart.borrow_mut().chr_write(addr, val),
 			VramDst::Nametbl => self.vram[addr] = val,
 			VramDst::Palettes => self.palettes[addr] = val & 0b0011_1111,
 			VramDst::Unused => {}
@@ -390,12 +378,7 @@ impl Ppu {
 		let nametbl_idx = addr / 0x400;
 
 		use Mirroring::*;
-		// TODO: consider moving this only on the mapper
-		let mirroring = if let Some(mirroring) = self.mapper.borrow().mirroring() {
-			mirroring
-		} else {
-			self.mirroring
-		};
+		let mirroring = self.cart.borrow().mirroring();
 
 		match (mirroring, nametbl_idx) {
 			(Horizontally, 1) | (Horizontally, 2) => addr - 0x400,

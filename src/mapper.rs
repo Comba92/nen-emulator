@@ -1,5 +1,3 @@
-use core::cell::RefCell;
-use std::rc::Rc;
 mod mmc1;
 mod uxrom;
 mod inesmapper3;
@@ -22,24 +20,28 @@ use vrc4::Vrc4;
 
 use crate::cart::Mirroring;
 
-pub type CartMapper = Rc<RefCell<dyn Mapper>>;
 pub trait Mapper {
     // Default NRom PRG banking
-    fn read_prg(&mut self, prg: &[u8], addr: usize) -> u8 {
+    fn prg_addr(&mut self, prg: &[u8], addr: usize) -> usize {
         // if it only has 16KiB, then mirror to first bank
         if prg.len() == self.prg_bank_size() { 
-            self.read_prg_bank(prg, 0, addr)
+            self.prg_bank_addr(prg, 0, addr)
         }
-        else { prg[addr - ROM_START] }
+        else { addr - ROM_START }
     }
     
     // Default NRom CHR banking
-    fn read_chr(&mut self, chr: &[u8], addr: usize) -> u8 { chr[addr] }
-    fn read_sram(&mut self, _sram: &[u8], _addr: usize) -> u8 { 0 }
+    fn chr_addr(&mut self, _chr: &[u8], addr: usize) -> usize { addr }
+    fn sram_addr(&mut self, _sram: &[u8], addr: usize) -> usize { addr }
 
-    fn write_prg(&mut self, _prg: &mut[u8], _addr: usize, _val: u8) {}
-    fn write_chr(&mut self, chr: &mut[u8], addr: usize, val: u8) { chr[addr] = val; }
-    fn write_sram(&mut self, _sram: &mut[u8], _addr: usize, _val: u8) {}
+    fn prg_read(&mut self, prg: &[u8], addr: usize) -> u8 { prg[self.prg_addr(prg, addr)] }
+    fn chr_read(&mut self, chr: &[u8], addr: usize) -> u8 { chr[self.chr_addr(chr, addr)] }
+
+    fn sram_read(&mut self, sram: &[u8], addr: usize) -> u8 { todo!() }
+
+    fn prg_write(&mut self, _prg: &mut[u8], _addr: usize, _val: u8);
+    fn chr_write(&mut self, chr: &mut[u8], addr: usize, val: u8) { chr[self.chr_addr(chr, addr)] = val; }
+    fn sram_write(&mut self, sram: &mut[u8], addr: usize, val: u8) { todo!() }
 
     fn prg_bank_size(&self) -> usize { DEFAULT_PRG_BANK_SIZE }
     fn chr_bank_size(&self) -> usize { DEFAULT_CHR_BANK_SIZE }
@@ -47,18 +49,18 @@ pub trait Mapper {
     fn prg_banks_count(&self, prg: &[u8]) -> usize { prg.len() / self.prg_bank_size() }
     fn chr_banks_count(&self, chr: &[u8]) -> usize { chr.len() / self.chr_bank_size() }
     
-    fn last_prg_bank(&self, prg: &[u8]) -> usize { self.prg_banks_count(prg) - 1 }
+    fn prg_last_bank(&self, prg: &[u8]) -> usize { self.prg_banks_count(prg) - 1 }
 
-    fn read_prg_bank(&self, prg: &[u8], bank: usize, addr: usize) -> u8 {
+    fn prg_bank_addr(&self, prg: &[u8], bank: usize, addr: usize) -> usize {
         let bank_start = (bank % self.prg_banks_count(prg)) * self.prg_bank_size();
         let offset = (addr - ROM_START) % self.prg_bank_size();
-        prg[bank_start + offset]
+        bank_start + offset
     }
 
-    fn read_chr_bank(&self, chr: &[u8], bank: usize, addr: usize) -> u8 {
+    fn chr_bank_addr(&self, chr: &[u8], bank: usize, addr: usize) -> usize {
         let bank_start = (bank % self.chr_banks_count(chr)) * self.chr_bank_size();
         let offset = addr % self.chr_bank_size();
-        chr[bank_start + offset]
+        bank_start + offset
     }
 
     fn mirroring(&self) -> Option<Mirroring> { None }
@@ -67,22 +69,24 @@ pub trait Mapper {
     fn poll_irq(&mut self) -> bool { false }
 }
 
+pub type CartMapper = Box<dyn Mapper>;
 pub fn new_mapper_from_id(id: u8) -> Result<CartMapper, String> {
     let mapper: CartMapper = match id {
-        0  => Rc::new(RefCell::new(NRom)),
-        1  => Rc::new(RefCell::new(Mmc1::default())),
-        2  => Rc::new(RefCell::new(UxRom::default())),
-        3  => Rc::new(RefCell::new(INesMapper003::default())),
-        4  => Rc::new(RefCell::new(Mmc3::default())),
+        0  => Box::new(NRom),
+        1  => Box::new(Mmc1::default()),
+        2  => Box::new(UxRom::default()),
+        3  => Box::new(INesMapper003::default()),
+        4  => Box::new(Mmc3::default()),
         // 5 => // TODO, most complex one
         // https://www.nesdev.org/wiki/MMC5
-        7  => Rc::new(RefCell::new(AxRom::default())),
-        9  => Rc::new(RefCell::new(Mmc2::default())),
-        11 => Rc::new(RefCell::new(ColorDreams::default())),
-        21 | 22 | 23 | 25 => Rc::new(RefCell::new(Vrc4::default())),
+        7  => Box::new(AxRom::default()),
+        9  => Box::new(Mmc2::default()),
+        11 => Box::new(ColorDreams::default()),
+        // TODO: multiple versions of this work differently, hard to figure out which it is
+        21 | 22 | 23 | 25 => Box::new(Vrc4::default()),
         // 64 => // TODO, 5 games
         // https://www.nesdev.org/wiki/RAMBO-1
-        66 => Rc::new(RefCell::new(GxRom::default())),
+        66 => Box::new(GxRom::default()),
         // 69 => // TODO, this only plays Batman: Return of the Joker
         // https://www.nesdev.org/wiki/Sunsoft_FME-7
         _ => return Err(format!("Mapper {id} not implemented"))
@@ -98,10 +102,13 @@ const DEFAULT_CHR_BANK_SIZE: usize = 8*1024; // 8 KiB
 
 pub struct Dummy;
 impl Mapper for Dummy {
-    fn read_prg(&mut self, _prg: &[u8], _addr: usize) -> u8 { 0 }
-    fn read_chr(&mut self, _chr: &[u8], _addr: usize) -> u8 { 0 }
+    fn prg_write(&mut self, _prg: &mut[u8], _addr: usize, _val: u8) {}
+    fn prg_read(&mut self, _prg: &[u8], _addr: usize) -> u8 { 0 }
+    fn chr_read(&mut self, _chr: &[u8], _addr: usize) -> u8 { 0 }
 }
 
 // Mapper 0 https://www.nesdev.org/wiki/NROM
 struct NRom;
-impl Mapper for NRom {}
+impl Mapper for NRom {
+    fn prg_write(&mut self, _prg: &mut[u8], _addr: usize, _val: u8) {}
+}
