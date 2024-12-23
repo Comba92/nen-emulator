@@ -126,8 +126,8 @@ impl Mapper for Mmc3 {
                 _ => self.bank_selects[self.bank_select] = val as usize,
             }
             (0xA000..=0xBFFE, true) => match val & 1 != 0 {
-                false => self.mirroring = Mirroring::Vertically,
-                true  => self.mirroring = Mirroring::Horizontally,
+                false => self.mirroring = Mirroring::Vertical,
+                true  => self.mirroring = Mirroring::Horizontal,
             }
             (0xA001..=0xBFFF, false) => {
                 self.sram_write_enabled = val & 0b0100_0000 == 0;

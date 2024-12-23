@@ -28,7 +28,13 @@ const PRG_ROM_PAGE_SIZE: usize = 1024 * 16;
 const CHR_ROM_PAGE_SIZE: usize = 1024 * 8;
 
 #[derive(Debug, Default, Clone, Copy)]
-pub enum Mirroring { #[default] Horizontally, Vertically, SingleScreenFirstPage, SingleScreenSecondPage, FourScreen }
+pub enum Mirroring { 
+  #[default] Horizontal, 
+  Vertical,
+  SingleScreenA, 
+  SingleScreenB, 
+  FourScreen
+}
 #[derive(Debug, Default, Clone, Copy)]
 pub enum TvSystem { #[default] NTSC, PAL }
 #[derive(Debug, Default, Clone, Copy)]
@@ -56,8 +62,8 @@ impl INesHeader {
     let has_alt_nametbl = rom[6] & 0b0000_1000 != 0;
     let nametbl_layout = match (nametbl_mirroring, has_alt_nametbl)  {
       (_, true)   => Mirroring::FourScreen,
-      (0, false)  => Mirroring::Horizontally,
-      (1, false)  => Mirroring::Vertically,
+      (0, false)  => Mirroring::Horizontal,
+      (1, false)  => Mirroring::Vertical,
       _ => unreachable!()
     };
 
@@ -236,11 +242,11 @@ impl Cart {
     
 		use Mirroring::*;
 		match (mirroring, nametbl_idx) {
-			(Horizontally, 1) | (Horizontally, 2) => addr - 0x400,
-			(Horizontally, 3) => addr - 0x400 * 2,
-			(Vertically, 2) | (Vertically, 3) => addr - 0x400 * 2,
-			(SingleScreenFirstPage, _) => addr % 0x400,
-			(SingleScreenSecondPage, _) => (addr % 0x400) + 0x400,
+			(Horizontal, 1) | (Horizontal, 2) => addr - 0x400,
+			(Horizontal, 3) => addr - 0x400 * 2,
+			(Vertical, 2) | (Vertical, 3) => addr - 0x400 * 2,
+			(SingleScreenA, _) => addr % 0x400,
+			(SingleScreenB, _) => (addr % 0x400) + 0x400,
 			// TODO: eventually implement this
 			(FourScreen, _) => todo!("Four screen mirroring not implemented"),
 			_ => addr,

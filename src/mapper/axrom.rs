@@ -20,8 +20,8 @@ impl Mapper for AxRom {
         self.prg_bank_select = (val & 0b0000_0111) as usize;
         
         self.mirroring_page = match val & 0b0001_0000 != 0 {
-            false   => Mirroring::SingleScreenFirstPage,
-            true    => Mirroring::SingleScreenSecondPage,
+            false   => Mirroring::SingleScreenA,
+            true    => Mirroring::SingleScreenB,
         };
     }
 

@@ -73,8 +73,8 @@ impl Mapper for Mmc2 {
             }
             0xF000..=0xFFFF => {
                 self.mirroring = match val & 1 {
-                    0 => Mirroring::Vertically,
-                    1 => Mirroring::Horizontally,
+                    0 => Mirroring::Vertical,
+                    1 => Mirroring::Horizontal,
                     _ => unreachable!()
                 };
             }

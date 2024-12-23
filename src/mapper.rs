@@ -19,6 +19,7 @@ use inesmapper71::INesMapper071;
 use mmc1::Mmc1;
 use mmc2::Mmc2;
 use mmc3::Mmc3;
+use mmc5::Mmc5;
 use nrom::NRom;
 use uxrom::UxRom;
 use vrc2_4::Vrc2_4;
@@ -82,13 +83,11 @@ pub fn new_mapper_from_id(id: u8) -> Result<CartMapper, String> {
         2  => Box::new(UxRom::default()),
         3  => Box::new(INesMapper003::default()),
         4  => Box::new(Mmc3::default()),
-        // 5  => Box::new(Mmc5::default()),
+        5  => Box::new(Mmc5::default()),
         7  => Box::new(AxRom::default()),
         9  => Box::new(Mmc2::default()),
         11 => Box::new(ColorDreams::default()),
         21 | 22 | 23 | 25 => Box::new(Vrc2_4::new(id)),
-        // 64 => // TODO, 5 shitty games
-        // https://www.nesdev.org/wiki/RAMBO-1
         66 => Box::new(GxRom::default()),
         // 69 => // TODO, this only plays Batman: Return of the Joker
         // https://www.nesdev.org/wiki/Sunsoft_FME-7

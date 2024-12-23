@@ -15,8 +15,8 @@ impl Mapper for INesMapper071 {
   fn prg_write(&mut self, _prg: &mut[u8], addr: usize, val: u8) {
     match addr {
       0x9000..=0x9FFF => self.mirroring = match (val >> 4) & 1 != 0 {
-        false => Some(Mirroring::SingleScreenFirstPage),
-        true  => Some(Mirroring::SingleScreenSecondPage),
+        false => Some(Mirroring::SingleScreenA),
+        true  => Some(Mirroring::SingleScreenB),
       },
       0xC000..=0xFFFF => self.prg_bank_select = val as usize & 0b1111,
       _ => {}

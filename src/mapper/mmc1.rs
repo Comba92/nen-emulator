@@ -35,10 +35,10 @@ impl Default for Mmc1 {
 impl Mmc1 {
     fn write_ctrl(&mut self, val: u8) {
         self.mirroring = match val & 0b11 {
-            0 => Mirroring::SingleScreenFirstPage,
-            1 => Mirroring::SingleScreenSecondPage,
-            2 => Mirroring::Vertically,
-            3 => Mirroring::Horizontally,
+            0 => Mirroring::SingleScreenA,
+            1 => Mirroring::SingleScreenB,
+            2 => Mirroring::Vertical,
+            3 => Mirroring::Horizontal,
             _ => unreachable!()
         };
 
