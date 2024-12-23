@@ -20,14 +20,17 @@ struct Byte {
 // https://www.nesdev.org/wiki/VRC2_and_VRC4
 
 #[derive(Default)]
-pub struct Vrc4 {
+pub struct Vrc2_4 {
+  mapper: u8,
+
   swap_mode: bool,
   wram_ctrl: bool,
   prg_bank0_select: usize,
   prg_bank1_select: usize,
   chr_banks_selects: [Byte; 8],
+  latch: bool,
 
-  prescaler: usize,
+  prescaler: isize,
   irq_count: u16,
   irq_latch: Byte,
   irq_enabled_after_ack: bool,
@@ -38,17 +41,57 @@ pub struct Vrc4 {
   mirroring: Mirroring,
 }
 
-impl Vrc4 {
-  pub fn new(mapper_id: usize) -> Self {
-    Self::default()
+impl Vrc2_4 {
+  pub fn new(id: u8) -> Self {
+    let mut res= Self::default();
+    res.mapper = id;
+    res
+  }
+
+  fn translate_addr(&self, addr: usize) -> usize {
+    let (a0, a1) = match self.mapper {
+      21 => {
+        let mut a0 = (addr >> 1) & 1;
+        let mut a1 = (addr >> 2) & 1;
+
+        a0 |= (addr >> 6) & 1;
+        a1 |= (addr >> 7) & 1;
+        (a0, a1)
+      }
+      22 => {
+        let a0 = (addr >> 1) & 1;
+        let a1 = addr & 1;
+
+        (a0, a1)
+      }
+      23 => {
+        let mut a0 = addr & 1;
+        let mut a1 = (addr >> 1) & 1;
+
+        a0 |= (addr >> 2) & 1;
+        a1 |= (addr >> 3) & 1;
+        (a0, a1)
+      }
+      25 => {
+        let mut a0 = (addr >> 1) & 1;
+        let mut a1 = addr & 1;
+
+        a0 |= (addr >> 3) & 1;
+        a1 |= (addr >> 2) & 1;
+        (a0, a1)
+      }
+      _ => unreachable!()
+    };
+
+    (addr & 0xFF00 | (a1 << 1) | a0) & 0xF00F
   }
 }
 
-impl Mapper for Vrc4 {
+impl Mapper for Vrc2_4 {
   fn prg_bank_size(&self) -> usize { DEFAULT_PRG_BANK_SIZE/2 }
   fn chr_bank_size(&self) -> usize { 1024 }
 
-  fn prg_addr(&mut self, prg: &[u8], addr: usize) -> usize {
+  fn prg_addr(&mut self, prg: &[u8], addr: usize) -> usize {    
     let bank = match (addr, self.swap_mode) {
       (0x8000..=0x9FFF, false) => self.prg_bank0_select,
       (0x8000..=0x9FFF, true)  => self.prg_last_bank(prg)-1,
@@ -82,65 +125,76 @@ impl Mapper for Vrc4 {
   }
 
   fn prg_write(&mut self, _prg: &mut[u8], addr: usize, val: u8) {
-      match addr {
-        0x9002 => {
-          self.wram_ctrl = val & 0b01 != 0;
-          self.swap_mode = val & 0b10 != 0;
-        }
-        0x8000..=0x8003 => self.prg_bank0_select = val as usize & 0b1_1111,
-        0xA000..=0xA003 => self.prg_bank1_select = val as usize & 0b1_1111,
-        0x9000..=0x9003 => self.mirroring = match val & 0b11 {
-          0 => Mirroring::Vertically,
-          1 => Mirroring::Horizontally,
-          2 => Mirroring::SingleScreenFirstPage,
-          _ => Mirroring::SingleScreenSecondPage,
-        },
-        0xB000 => self.chr_banks_selects[0].set_lo(val & 0b1111),
-        0xB001 => self.chr_banks_selects[0].set_hi(val & 0b1_1111),
-
-        0xB002 => self.chr_banks_selects[1].set_lo(val & 0b1111),
-        0xB003 => self.chr_banks_selects[1].set_hi(val & 0b1_1111),
-
-        0xC000 => self.chr_banks_selects[2].set_lo(val & 0b1111),
-        0xC001 => self.chr_banks_selects[2].set_hi(val & 0b1_1111),
-
-        0xC002 => self.chr_banks_selects[3].set_lo(val & 0b1111),
-        0xC003 => self.chr_banks_selects[3].set_hi(val & 0b1_1111),
-
-        0xD000 => self.chr_banks_selects[4].set_lo(val & 0b1111),
-        0xD001 => self.chr_banks_selects[4].set_hi(val & 0b1_1111),
-
-        0xD002 => self.chr_banks_selects[5].set_lo(val & 0b1111),
-        0xD003 => self.chr_banks_selects[5].set_hi(val & 0b1_1111),
-
-        0xE000 => self.chr_banks_selects[6].set_lo(val & 0b1111),
-        0xE001 => self.chr_banks_selects[6].set_hi(val & 0b1_1111),
-
-        0xE002 => self.chr_banks_selects[7].set_lo(val & 0b1111),
-        0xE003 => self.chr_banks_selects[7].set_hi(val & 0b1_1111),
-
-        0xF000 => self.irq_latch.set_lo(val & 0b1111),
-        0xF001 => self.irq_latch.set_hi(val & 0b1111),
-        0xF002 => {
-          self.irq_enabled_after_ack = val & 0b001 != 0;
-          self.irq_enabled = val & 0b010 != 0;
-          self.irq_mode = match val & 0b100 != 0 {
-            false => IrqMode::Scanline,
-            true  => IrqMode::Cycle,
-          };
-
-          self.irq_requested = None;
-          if self.irq_enabled {
-            self.irq_count = self.irq_latch.0;
-            self.prescaler = 341;
-          }
-        }
-        0xF003 => {
-          self.irq_requested = None;
-          self.irq_enabled = self.irq_enabled_after_ack;
-        }
-        _ => {}
+    let addr = self.translate_addr(addr);
+      
+    match addr {
+      0x9002 => {
+        self.wram_ctrl = val & 0b01 != 0;
+        self.swap_mode = val & 0b10 != 0 && self.mapper != 22;
       }
+      0x8000..=0x8006 => self.prg_bank0_select = val as usize & 0b1_1111,
+      0xA000..=0xA006 => self.prg_bank1_select = val as usize & 0b1_1111,
+      0x9000..=0x9003 => self.mirroring = match val & 0b11 {
+        0 => Mirroring::Vertically,
+        1 => Mirroring::Horizontally,
+        2 => Mirroring::SingleScreenFirstPage,
+        _ => Mirroring::SingleScreenSecondPage,
+      },
+      0xB000 => self.chr_banks_selects[0].set_lo(val & 0b1111),
+      0xB001 => self.chr_banks_selects[0].set_hi(val & 0b1_1111),
+
+      0xB002 => self.chr_banks_selects[1].set_lo(val & 0b1111),
+      0xB003 => self.chr_banks_selects[1].set_hi(val & 0b1_1111),
+
+      0xC000 => self.chr_banks_selects[2].set_lo(val & 0b1111),
+      0xC001 => self.chr_banks_selects[2].set_hi(val & 0b1_1111),
+
+      0xC002 => self.chr_banks_selects[3].set_lo(val & 0b1111),
+      0xC003 => self.chr_banks_selects[3].set_hi(val & 0b1_1111),
+
+      0xD000 => self.chr_banks_selects[4].set_lo(val & 0b1111),
+      0xD001 => self.chr_banks_selects[4].set_hi(val & 0b1_1111),
+
+      0xD002 => self.chr_banks_selects[5].set_lo(val & 0b1111),
+      0xD003 => self.chr_banks_selects[5].set_hi(val & 0b1_1111),
+
+      0xE000 => self.chr_banks_selects[6].set_lo(val & 0b1111),
+      0xE001 => self.chr_banks_selects[6].set_hi(val & 0b1_1111),
+
+      0xE002 => self.chr_banks_selects[7].set_lo(val & 0b1111),
+      0xE003 => self.chr_banks_selects[7].set_hi(val & 0b1_1111),
+
+      0xF000 => self.irq_latch.set_lo(val & 0b1111),
+      0xF001 => self.irq_latch.set_hi(val & 0b1111),
+      0xF002 => {
+        self.irq_enabled_after_ack = val & 0b001 != 0;
+        self.irq_enabled = val & 0b010 != 0;
+        self.irq_mode = match val & 0b100 != 0 {
+          false => IrqMode::Scanline,
+          true  => IrqMode::Cycle,
+        };
+
+        self.irq_requested = None;
+        if self.irq_enabled {
+          self.irq_count = self.irq_latch.0;
+          self.prescaler = 341;
+        }
+      }
+      0xF003 => {
+        self.irq_requested = None;
+        self.irq_enabled = self.irq_enabled_after_ack;
+      }
+      _ => {}
+    }
+  }
+
+  // TODO: open bus bheaviour
+  fn sram_read(&mut self, _sram: &[u8], _addr: usize) -> u8 {
+    self.latch as u8
+  }
+
+  fn sram_write(&mut self, _sram: &mut[u8], _addr: usize, val: u8) {
+    self.latch = val & 1 != 0;
   }
 
   fn mirroring(&self) -> Option<Mirroring> {
@@ -148,23 +202,24 @@ impl Mapper for Vrc4 {
   }
 
   fn notify_cpu_cycle(&mut self) {
-    if !self.irq_enabled { return; }
+    if !self.irq_enabled || self.mapper == 22 { return; }
 
     match self.irq_mode {
       IrqMode::Cycle => {
         self.irq_count += 1;
-        if self.irq_count >= 0xFF {
-          self.irq_requested = Some(());
-          self.irq_count = self.irq_latch.0;
-        }
       }
       IrqMode::Scanline => {
-        self.prescaler += 3;
-        if self.prescaler >= 341 {
-          self.prescaler -= 341;
+        self.prescaler -= 3;
+        if self.prescaler <= 0 {
+          self.prescaler += 341;
           self.irq_count += 1;
         }
       }
+    }
+
+    if self.irq_count >= 0xFF {
+      self.irq_requested = Some(());
+      self.irq_count = self.irq_latch.0;
     }
   }
 

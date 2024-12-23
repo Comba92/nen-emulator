@@ -16,7 +16,7 @@ use mmc1::Mmc1;
 use mmc2::Mmc2;
 use mmc3::Mmc3;
 use uxrom::UxRom;
-use vrc4::Vrc4;
+use vrc4::Vrc2_4;
 
 use crate::cart::Mirroring;
 
@@ -82,8 +82,7 @@ pub fn new_mapper_from_id(id: u8) -> Result<CartMapper, String> {
         7  => Box::new(AxRom::default()),
         9  => Box::new(Mmc2::default()),
         11 => Box::new(ColorDreams::default()),
-        // TODO: multiple versions of this work differently, hard to figure out which it is
-        21 | 22 | 23 | 25 => Box::new(Vrc4::default()),
+        21 | 22 | 23 | 25 => Box::new(Vrc2_4::new(id)),
         // 64 => // TODO, 5 games
         // https://www.nesdev.org/wiki/RAMBO-1
         66 => Box::new(GxRom::default()),
