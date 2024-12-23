@@ -48,7 +48,19 @@ impl Vrc2_4 {
     res
   }
 
+  // TODO: open bus bheaviour
+  fn sram_read(&mut self) -> u8 {
+    self.latch as u8
+  }
+
+  fn sram_write(&mut self, val: u8) {
+    self.latch = val & 1 != 0;
+  }
+
   fn translate_addr(&self, addr: usize) -> usize {
+    // Taken from Mesen emulator source, this trick makes it work without discriminating submapper
+    // https://github.com/SourMesen/Mesen2/blob/master/Core/NES/Mappers/Konami/VRC2_4.h
+    
     let (a0, a1) = match self.mapper {
       21 => {
         let mut a0 = (addr >> 1) & 1;
@@ -91,7 +103,7 @@ impl Mapper for Vrc2_4 {
   fn prg_bank_size(&self) -> usize { DEFAULT_PRG_BANK_SIZE/2 }
   fn chr_bank_size(&self) -> usize { 1024 }
 
-  fn prg_addr(&mut self, prg: &[u8], addr: usize) -> usize {    
+  fn prg_addr(&self, prg: &[u8], addr: usize) -> usize {    
     let bank = match (addr, self.swap_mode) {
       (0x8000..=0x9FFF, false) => self.prg_bank0_select,
       (0x8000..=0x9FFF, true)  => self.prg_last_bank(prg)-1,
@@ -108,7 +120,7 @@ impl Mapper for Vrc2_4 {
     self.prg_bank_addr(prg, bank, addr)
   }
 
-  fn chr_addr(&mut self, chr: &[u8], addr: usize) -> usize {
+  fn chr_addr(&self, chr: &[u8], addr: usize) -> usize {
     let bank = match addr {
       0x0000..=0x03FF => self.chr_banks_selects[0],
       0x0400..=0x07FF => self.chr_banks_selects[1],
@@ -124,14 +136,25 @@ impl Mapper for Vrc2_4 {
     self.chr_bank_addr(chr, bank.0 as usize, addr)
   }
 
+  fn prg_read(&mut self, prg: &[u8], addr: usize) -> u8 {
+    match addr {
+      0x6000..=0x6FFF => self.sram_read(),
+      _ => {
+        let mapped_addr = self.prg_addr(prg, addr);
+        prg[mapped_addr]
+      }
+    }
+  }
+
   fn prg_write(&mut self, _prg: &mut[u8], addr: usize, val: u8) {
     let addr = self.translate_addr(addr);
       
     match addr {
-      0x9002 => {
-        self.wram_ctrl = val & 0b01 != 0;
-        self.swap_mode = val & 0b10 != 0 && self.mapper != 22;
-      }
+      // 0x9002 => {
+      //   self.wram_ctrl = val & 0b01 != 0;
+      //   self.swap_mode = val & 0b10 != 0 && self.mapper != 22;
+      // }
+      0x6000..=0x6FFF => self.sram_write(val),
       0x8000..=0x8006 => self.prg_bank0_select = val as usize & 0b1_1111,
       0xA000..=0xA006 => self.prg_bank1_select = val as usize & 0b1_1111,
       0x9000..=0x9003 => self.mirroring = match val & 0b11 {
@@ -186,15 +209,6 @@ impl Mapper for Vrc2_4 {
       }
       _ => {}
     }
-  }
-
-  // TODO: open bus bheaviour
-  fn sram_read(&mut self, _sram: &[u8], _addr: usize) -> u8 {
-    self.latch as u8
-  }
-
-  fn sram_write(&mut self, _sram: &mut[u8], _addr: usize, val: u8) {
-    self.latch = val & 1 != 0;
   }
 
   fn mirroring(&self) -> Option<Mirroring> {

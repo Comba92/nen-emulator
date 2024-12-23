@@ -1,4 +1,4 @@
-use super::Mapper;
+use super::{Mapper, ROM_START};
 
 // Mapper 3 https://www.nesdev.org/wiki/INES_Mapper_003
 #[derive(Default)]
@@ -6,7 +6,16 @@ pub struct INesMapper003 {
     chr_bank_select: usize,
 }
 impl Mapper for INesMapper003 {
-    fn chr_addr(&mut self, chr: &[u8], addr: usize) -> usize {
+    // Same as NROM
+    fn prg_addr(&self, prg: &[u8], addr: usize) -> usize {
+        // if it only has 16KiB, then mirror to first bank
+        if prg.len() == self.prg_bank_size() { 
+            self.prg_bank_addr(prg, 0, addr)
+        }
+        else { addr - ROM_START }
+    }
+
+    fn chr_addr(&self, chr: &[u8], addr: usize) -> usize {
         self.chr_bank_addr(chr, self.chr_bank_select, addr)
     }
 

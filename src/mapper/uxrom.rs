@@ -6,7 +6,7 @@ pub struct UxRom {
     prg_bank_select: usize,
 }
 impl Mapper for UxRom {
-    fn prg_addr(&mut self, prg: &[u8], addr: usize) -> usize {
+    fn prg_addr(&self, prg: &[u8], addr: usize) -> usize {
         let bank = if (0xC000..=0xFFFF).contains(&addr) {
             self.prg_last_bank(prg)
         } else {

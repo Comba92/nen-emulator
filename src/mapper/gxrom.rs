@@ -9,11 +9,11 @@ pub struct GxRom {
 impl Mapper for GxRom {
     fn prg_bank_size(&self) -> usize { DEFAULT_PRG_BANK_SIZE*2 }
 
-    fn prg_addr(&mut self, prg: &[u8], addr: usize) -> usize {
+    fn prg_addr(&self, prg: &[u8], addr: usize) -> usize {
         self.prg_bank_addr(prg, self.prg_bank_select, addr)
     }
 
-    fn chr_addr(&mut self, chr: &[u8], addr: usize) -> usize {
+    fn chr_addr(&self, chr: &[u8], addr: usize) -> usize {
         self.chr_bank_addr(chr, self.chr_bank_select, addr)
     }
 

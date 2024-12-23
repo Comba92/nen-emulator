@@ -18,7 +18,7 @@ impl Mapper for Mmc2 {
     fn prg_bank_size(&self) -> usize { DEFAULT_PRG_BANK_SIZE/2 }
     fn chr_bank_size(&self) -> usize { DEFAULT_CHR_BANK_SIZE/2 }
 
-    fn prg_addr(&mut self, prg: &[u8], addr: usize) -> usize {
+    fn prg_addr(&self, prg: &[u8], addr: usize) -> usize {
         let bank = match addr {
             0x8000..=0x9FFF => self.prg_bank_select,
             0xA000..=0xBFFF => self.prg_last_bank(prg)-2,
@@ -30,22 +30,28 @@ impl Mapper for Mmc2 {
         self.prg_bank_addr(prg, bank, addr)
     }
 
-    fn chr_addr(&mut self, chr: &[u8], addr: usize) -> usize {
+    fn chr_addr(&self, chr: &[u8], addr: usize) -> usize {
         let bank = match addr {
             0x0000..=0x0FFF => self.chr_bank0_select[self.latch[0] as usize],
             0x1000..=0x1FFF => self.chr_bank1_select[self.latch[1] as usize],
             _ => unreachable!()
         };
-        
+
+        self.chr_bank_addr(chr, bank, addr)
+    }
+
+    fn chr_read(&mut self, chr: &[u8], addr: usize) -> u8 {
+        let mapped_addr = self.chr_addr(chr, addr);
+
         match addr {
             0x0FD8 => self.latch[0] = Latch::FD,
             0x0FE8 => self.latch[0] = Latch::FE,
             0x1FD8..=0x1FDF => self.latch[1] = Latch::FD,
             0x1FE8..=0x1FEF => self.latch[1] = Latch::FE,
             _ => {}
-        }
+        };
 
-        self.chr_bank_addr(chr, bank, addr)
+        chr[mapped_addr]
     }
 
     fn prg_write(&mut self, _prg: &mut[u8], addr: usize, val: u8) {

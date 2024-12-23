@@ -231,8 +231,8 @@ impl Ppu {
 		match addr {
 			0x0000..=0x1FFF => (VramDst::Patterntbl, addr as usize),
 			0x2000..=0x2FFF => {
-				let mirrored = self.mirror_nametbl(addr);
-				(VramDst::Nametbl, mirrored as usize)
+				// let mirrored = self.mirror_nametbl(addr);
+				(VramDst::Nametbl, addr as usize)
 			}
 			0x3F00..=0x3FFF => {
 				let palette = self.mirror_palette(addr);
@@ -246,7 +246,7 @@ impl Ppu {
 		let (dst, addr) = self.map_address(addr);
 		match dst {
 			VramDst::Patterntbl => self.cart.borrow_mut().chr_read(addr),
-			VramDst::Nametbl => self.vram[addr],
+			VramDst::Nametbl => self.cart.borrow_mut().vram_read(&self.vram, addr),
 			VramDst::Palettes => self.palettes[addr],
 			VramDst::Unused => 0,
 		}
@@ -273,7 +273,7 @@ impl Ppu {
 		let (dst, addr) = self.map_address(self.v.0);
 		match dst {
 			VramDst::Patterntbl => self.cart.borrow_mut().chr_write(addr, val),
-			VramDst::Nametbl => self.vram[addr] = val,
+			VramDst::Nametbl => self.cart.borrow_mut().vram_write(&mut self.vram, addr, val),
 			VramDst::Palettes => self.palettes[addr] = val & 0b0011_1111,
 			VramDst::Unused => {}
 		}
@@ -316,8 +316,13 @@ impl Ppu {
 				{
 					self.nmi_requested = Some(());
 				}
+
+				self.cart.borrow_mut().mapper.notify_ppuctrl(self.ctrl.bits());
 			}
-			0x2001 => self.mask = Mask::from_bits_retain(val),
+			0x2001 => {
+				self.mask = Mask::from_bits_retain(val);
+				self.cart.borrow_mut().mapper.notify_ppumask(self.mask.bits());
+			}
 			0x2003 => self.oam_addr = val,
 			0x2004 => {
 				self.oam[self.oam_addr as usize] = val;
@@ -359,36 +364,6 @@ impl Ppu {
 			}
 			0x2007 => self.write_vram(val),
 			_ => {},
-		}
-	}
-	
-	// Horizontal:
-	// 0x0800 [ B ]  [ A ] [ a ]
-	// 0x0400 [ A ]  [ B ] [ b ]
-
-	// Vertical:
-	// 0x0800 [ B ]  [ A ] [ B ]
-	// 0x0400 [ A ]  [ a ] [ b ]
-
-	// Single-page: (based on mapper register)
-	// 0x0800 [ B ]  [ A ] [ a ]    [ B ] [ b ]
-	// 0x0400 [ A ]  [ a ] [ a ] or [ b ] [ b ]
-	fn mirror_nametbl(&self, addr: u16) -> u16 {
-		let addr = addr - NAMETABLES;
-		let nametbl_idx = addr / 0x400;
-
-		use Mirroring::*;
-		let mirroring = self.cart.borrow().mirroring();
-
-		match (mirroring, nametbl_idx) {
-			(Horizontally, 1) | (Horizontally, 2) => addr - 0x400,
-			(Horizontally, 3) => addr - 0x400 * 2,
-			(Vertically, 2) | (Vertically, 3) => addr - 0x400 * 2,
-			(SingleScreenFirstPage, _) => addr % 0x400,
-			(SingleScreenSecondPage, _) => (addr % 0x400) + 0x400,
-			// TODO: eventually implement this
-			(FourScreen, _) => todo!("Four screen mirroring not implemented"),
-			_ => addr,
 		}
 	}
 

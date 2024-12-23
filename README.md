@@ -4,7 +4,7 @@
 - Open bus behaviour
 
 [x] Implement Memory Bus, Interrupts, synchronization
-- Sram should be a mirrored vec
+- Sram size detection with game database
 - Sram saving
 
 [x] Implement PPU

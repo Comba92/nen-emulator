@@ -5,7 +5,7 @@ use crate::{apu::Apu, cart::{Cart, SharedCart}, dma::{Dma, OamDma}, joypad::Joyp
 
 #[derive(Debug)]
 enum BusDst {
-  Ram, Ppu, Apu, SRam, Prg, Joypad1, Joypad2, OamDma, DmcDma, NoImpl
+  Ram, Ppu, Apu, SRam, Cart, Prg, Joypad1, Joypad2, OamDma, DmcDma, NoImpl
 }
 
 pub struct Bus {
@@ -18,18 +18,20 @@ pub struct Bus {
 }
 
 fn map_address(addr: u16) -> (BusDst, usize) {
+  let addr = addr as usize;
   match addr {
-    0x0000..=0x1FFF => (BusDst::Ram, addr as usize & 0x07FF),
-    0x2000..=0x3FFF => (BusDst::Ppu, addr as usize & 0x2007),
-    0x4000..=0x4013 => (BusDst::Apu, addr as usize),
-    0x4014 => (BusDst::OamDma, addr as usize),
-    0x4015 => (BusDst::DmcDma, addr as usize),
-    0x4016 => (BusDst::Joypad1, addr as usize),
-    0x4017 => (BusDst::Joypad2, addr as usize),
-    0x6000..=0x7FFF => (BusDst::SRam, addr as usize - 0x6000),
+    0x0000..=0x1FFF => (BusDst::Ram, addr & 0x07FF),
+    0x2000..=0x3FFF => (BusDst::Ppu, addr & 0x2007),
+    0x4000..=0x4013 => (BusDst::Apu, addr),
+    0x4014 => (BusDst::OamDma, addr),
+    0x4015 => (BusDst::DmcDma, addr),
+    0x4016 => (BusDst::Joypad1, addr),
+    0x4017 => (BusDst::Joypad2, addr),
+    0x4020..=0x5FFF => (BusDst::Cart, addr),
+    0x6000..=0x7FFF => (BusDst::SRam, addr),
     // We pass it as is to the mapper, for convenience
-    0x8000..=0xFFFF => (BusDst::Prg, addr as usize),
-    _ => (BusDst::NoImpl, addr as usize)
+    0x8000..=0xFFFF => (BusDst::Prg, addr),
+    _ => (BusDst::NoImpl, addr)
   }
 }
 
@@ -42,8 +44,8 @@ impl Memory for Bus {
       BusDst::Apu | BusDst::DmcDma => self.apu.read_reg(addr as u16),
       BusDst::Joypad1 => self.joypad.read1(),
       BusDst::Joypad2 => self.joypad.read2(),
-      BusDst::SRam => self.cart.borrow().sram[addr],
-      BusDst::Prg => self.cart.borrow_mut().prg_read(addr),
+      BusDst::Cart => self.cart.borrow_mut().cart_read(addr),
+      BusDst::Prg | BusDst::SRam => self.cart.borrow_mut().prg_read(addr),
       _ => { debug!("Read to {addr:04X} not implemented"); 0 }
     }
   }
@@ -67,8 +69,8 @@ impl Memory for Bus {
         self.apu.write_reg(addr as u16, val);
         self.tick();
       }
-      BusDst::SRam => self.cart.borrow_mut().sram[addr] = val,
-      BusDst::Prg => self.cart.borrow_mut().prg_write(addr, val),
+      BusDst::Cart => self.cart.borrow_mut().cart_write(addr, val),
+      BusDst::Prg | BusDst::SRam => self.cart.borrow_mut().prg_write(addr, val),
       BusDst::NoImpl => debug!("Write to {addr:04X} not implemented")
     }
   }

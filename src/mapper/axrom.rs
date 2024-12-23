@@ -12,7 +12,7 @@ pub struct AxRom {
 impl Mapper for AxRom {
     fn prg_bank_size(&self) -> usize { DEFAULT_PRG_BANK_SIZE*2 }
 
-    fn prg_addr(&mut self, prg: &[u8], addr: usize) -> usize {
+    fn prg_addr(&self, prg: &[u8], addr: usize) -> usize {
         self.prg_bank_addr(prg, self.prg_bank_select, addr)
     }
 
