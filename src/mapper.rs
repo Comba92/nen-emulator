@@ -8,12 +8,14 @@ mod mmc2;
 mod colordreams;
 mod gxrom;
 mod vrc2_4;
+mod inesmapper71;
 mod mmc5;
 
 use axrom::AxRom;
 use colordreams::ColorDreams;
 use gxrom::GxRom;
 use inesmapper3::INesMapper003;
+use inesmapper71::INesMapper071;
 use mmc1::Mmc1;
 use mmc2::Mmc2;
 use mmc3::Mmc3;
@@ -69,7 +71,6 @@ pub trait Mapper {
     fn notify_ppuctrl(&mut self, _val: u8) {}
     fn notify_ppumask(&mut self, _val: u8) {}
 
-
     fn poll_irq(&mut self) -> bool { false }
 }
 
@@ -85,14 +86,13 @@ pub fn new_mapper_from_id(id: u8) -> Result<CartMapper, String> {
         7  => Box::new(AxRom::default()),
         9  => Box::new(Mmc2::default()),
         11 => Box::new(ColorDreams::default()),
-        21 | 22 | 23 | 25 => Box::new(Vrc2_4::default()),
+        21 | 22 | 23 | 25 => Box::new(Vrc2_4::new(id)),
         // 64 => // TODO, 5 shitty games
         // https://www.nesdev.org/wiki/RAMBO-1
         66 => Box::new(GxRom::default()),
         // 69 => // TODO, this only plays Batman: Return of the Joker
         // https://www.nesdev.org/wiki/Sunsoft_FME-7
-        // 71 => // TODO
-        // https://www.nesdev.org/wiki/INES_Mapper_071
+        71 => Box::new(INesMapper071::default()),
         _ => return Err(format!("Mapper {id} not implemented"))
     };
 

@@ -69,6 +69,7 @@ impl Channel for Noise {
       }
     }
 
+    // TODO: something makes it too noisy
     fn get_sample(&self) -> u8 {
       if !self.is_muted() && self.is_enabled() {
         self.envelope.volume()

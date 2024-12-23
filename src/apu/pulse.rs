@@ -124,6 +124,7 @@ impl Channel for Pulse {
     else { self.length.disable(); }
   }
 
+  // TODO: something is wrong here
   fn get_sample(&self) -> u8 {
     let sample = PULSE_SEQUENCES[self.duty_mode as usize][self.duty_idx];
     if !self.is_muted() && self.is_enabled() { 

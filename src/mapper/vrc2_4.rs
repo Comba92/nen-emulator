@@ -1,6 +1,6 @@
 use crate::cart::Mirroring;
 use bitfield_struct::bitfield;
-use super::{Mapper, DEFAULT_PRG_BANK_SIZE};
+use super::{Mapper, DEFAULT_PRG_BANK_SIZE, SRAM_START};
 
 #[derive(Default)]
 enum IrqMode { #[default] Cycle, Scanline }
@@ -19,9 +19,10 @@ struct Byte {
 // Mapper 21, 22, 23, 25
 // https://www.nesdev.org/wiki/VRC2_and_VRC4
 
-#[derive(Default)]
+
 pub struct Vrc2_4 {
   mapper: u8,
+  sram: [u8; 0x2000],
 
   swap_mode: bool,
   wram_ctrl: bool,
@@ -41,20 +42,17 @@ pub struct Vrc2_4 {
   mirroring: Mirroring,
 }
 
+impl Default for Vrc2_4 {
+  fn default() -> Self {
+    Self { mapper: Default::default(), sram: [0; 8 * 1024], swap_mode: Default::default(), wram_ctrl: Default::default(), prg_bank0_select: Default::default(), prg_bank1_select: Default::default(), chr_banks_selects: Default::default(), latch: Default::default(), prescaler: Default::default(), irq_count: Default::default(), irq_latch: Default::default(), irq_enabled_after_ack: Default::default(), irq_enabled: Default::default(), irq_mode: Default::default(), irq_requested: Default::default(), mirroring: Default::default() }
+  }
+}
+
 impl Vrc2_4 {
   pub fn new(id: u8) -> Self {
     let mut res= Self::default();
     res.mapper = id;
     res
-  }
-
-  // TODO: open bus bheaviour
-  fn sram_read(&mut self) -> u8 {
-    self.latch as u8
-  }
-
-  fn sram_write(&mut self, val: u8) {
-    self.latch = val & 1 != 0;
   }
 
   fn translate_addr(&self, addr: usize) -> usize {
@@ -63,6 +61,7 @@ impl Vrc2_4 {
     
     let (a0, a1) = match self.mapper {
       21 => {
+        // Vrc4 a/c
         let mut a0 = (addr >> 1) & 1;
         let mut a1 = (addr >> 2) & 1;
 
@@ -71,12 +70,16 @@ impl Vrc2_4 {
         (a0, a1)
       }
       22 => {
+        // Vrc1a
+
         let a0 = (addr >> 1) & 1;
         let a1 = addr & 1;
 
         (a0, a1)
       }
       23 => {
+        // Vrc2b, Vrc4 e/f
+
         let mut a0 = addr & 1;
         let mut a1 = (addr >> 1) & 1;
 
@@ -85,6 +88,8 @@ impl Vrc2_4 {
         (a0, a1)
       }
       25 => {
+        // Vrc2c, Vrc4 b/d
+
         let mut a0 = (addr >> 1) & 1;
         let mut a1 = addr & 1;
 
@@ -138,7 +143,11 @@ impl Mapper for Vrc2_4 {
 
   fn prg_read(&mut self, prg: &[u8], addr: usize) -> u8 {
     match addr {
-      0x6000..=0x6FFF => self.sram_read(),
+      0x6000..=0x7FFF => {
+        if self.mapper == 22 {
+          self.latch as u8
+        } else { self.sram[addr - 0x6000] }
+      }
       _ => {
         let mapped_addr = self.prg_addr(prg, addr);
         prg[mapped_addr]
@@ -147,14 +156,20 @@ impl Mapper for Vrc2_4 {
   }
 
   fn prg_write(&mut self, _prg: &mut[u8], addr: usize, val: u8) {
+    if self.mapper != 22 && (0x6000..=0x7FFF).contains(&addr) {
+      self.sram[addr - SRAM_START] = val;
+      return;
+    }
+    
     let addr = self.translate_addr(addr);
-      
     match addr {
-      // 0x9002 => {
-      //   self.wram_ctrl = val & 0b01 != 0;
-      //   self.swap_mode = val & 0b10 != 0 && self.mapper != 22;
-      // }
-      0x6000..=0x6FFF => self.sram_write(val),
+      0x6000..=0x6FFF => self.latch = val & 1 != 0,
+
+      0x9002 => {
+        self.wram_ctrl = val & 0b01 != 0;
+        self.swap_mode = val & 0b10 != 0 && self.mapper != 22;
+      }
+
       0x8000..=0x8006 => self.prg_bank0_select = val as usize & 0b1_1111,
       0xA000..=0xA006 => self.prg_bank1_select = val as usize & 0b1_1111,
       0x9000..=0x9003 => self.mirroring = match val & 0b11 {

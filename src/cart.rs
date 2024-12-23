@@ -154,7 +154,6 @@ pub struct Cart {
   pub header: INesHeader,
   pub prg: Vec<u8>,
   pub chr: Vec<u8>,
-  pub sram: Vec<u8>,
   pub mapper: Box<dyn Mapper>,
 }
 pub type SharedCart = Rc<RefCell<Cart>>;
@@ -176,11 +175,8 @@ impl Cart {
 
     println!("Loaded ROM: {:#?}", header);
 
-    let mut sram = Vec::new();
-    sram.resize(0x2000, 0);
-
     let mapper = mapper::new_mapper_from_id(header.mapper)?;
-    Ok(Cart { header, prg: prg_rom, chr: chr_rom, sram, mapper })
+    Ok(Cart { header, prg: prg_rom, chr: chr_rom, mapper })
   }
 
   pub fn from_file(rom_path: &Path) -> Result<Self, String> {
@@ -189,7 +185,7 @@ impl Cart {
   }
   
   pub fn empty() -> Self {
-    Cart { header: INesHeader::default(), prg: Vec::new(), chr: Vec::new(), sram: Vec::new(), mapper: Box::new(Dummy) }
+    Cart { header: INesHeader::default(), prg: Vec::new(), chr: Vec::new(), mapper: Box::new(Dummy) }
   }
 
   pub fn cart_read(&mut self, addr: usize) -> u8 {
