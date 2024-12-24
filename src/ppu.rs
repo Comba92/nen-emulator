@@ -1,4 +1,4 @@
-use crate::{cart::{Mirroring, SharedCart}, frame::NesScreen};
+use crate::{cart::SharedCart, frame::NesScreen};
 use bitfield_struct::bitfield;
 use bitflags::bitflags;
 use render::Renderer;

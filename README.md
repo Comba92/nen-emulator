@@ -16,12 +16,9 @@
 
 [x] APU
 - Cleaner implementation (it is better now but work can still be done)
-- Sound still sucks
+- Sound still sucks (DMC)
 - PAL support?
 - Audio filters?
-
-[] Support for NES 2.0 format
-- missing correct prg and chr sizes parsing
 
 [] Consider making the core lib no_std
 [] Game info fetcher from online db

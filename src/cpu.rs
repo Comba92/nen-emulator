@@ -1,7 +1,6 @@
-use core::{cell::OnceCell, fmt, ops::{BitAnd, BitOr, BitXor, Not, Shl, Shr}};
+use core::{cell::OnceCell, fmt, ops::{BitAnd, BitOr, BitXor, Not, Shl, Shr}, panic};
 
 use bitflags::bitflags;
-use log::{debug, info, trace};
 
 use crate::{bus::Bus, cart::Cart, instr::{AddressingMode, Instruction, INSTRUCTIONS, RMW_INSTRS}, mem::{Memory, Ram64Kb}};
 
@@ -183,9 +182,7 @@ impl<M: Memory> Cpu<M> {
   }
 
   fn stack_push(&mut self, val: u8) {
-    debug!("-> Pushing ${:02X} to stack at cycle {}", val, self.cycles);
     self.write(self.sp_addr(), val);
-    debug!("\t{}", self.stack_trace());
     self.sp = self.sp.wrapping_sub(1);
   }
 
@@ -197,8 +194,6 @@ impl<M: Memory> Cpu<M> {
 
   fn stack_pull(&mut self) -> u8 {
     self.sp = self.sp.wrapping_add(1);
-    debug!("<- Pulling ${:02X} from stack at cycle {}", self.read(self.sp_addr()), self.cycles);
-    debug!("\t{}", self.stack_trace());
     self.read(self.sp_addr())
   }
 
@@ -242,9 +237,7 @@ impl<M: Memory> Cpu<M> {
     
     let opcode = self.pc_fetch();
     let instr = &INSTRUCTIONS[opcode as usize];
-    
     let mut op = self.get_operand_with_addressing(instr);
-    debug!("{:?} with op {:?} at cycle {}", instr, op, self.cycles);
     
     self.execute(opcode, &mut op);
     // self.cycles += instr.cycles;
@@ -252,10 +245,8 @@ impl<M: Memory> Cpu<M> {
 
   fn interrupts_poll(&mut self) {
     if self.bus.nmi_poll() {
-      info!("NMI HANDLING");
       self.handle_interrupt(NMI_ISR);
     } else if self.bus.irq_poll() && !self.p.contains(CpuFlags::irq_off) {
-      info!("IRQ HANDLING");
       self.handle_interrupt(IRQ_ISR);
     }
   }
@@ -281,24 +272,6 @@ impl<M: Memory> Cpu<M> {
 
     Operand::fetchable(zero_addr.wrapping_add(offset) as u16)
   }
-
-  // fn get_absolute_operand(&mut self, offset: u8, instr: &Instruction) -> Operand {
-  //   let addr_base = self.pc_fetch16();
-  //   let addr_effective = addr_base.wrapping_add(offset as u16);
-
-  //   // page crossing check
-  //   if instr.page_boundary_cycle && addr_effective & 0xFF00 != addr_base & 0xFF00 {
-  //     // dummy read: should read the previous page at effective low address
-  //     self.read((addr_base & 0xFF00) | (addr_effective & 0x00FF));
-  //     self.cycles += 1;
-  //   } else if instr.addressing == AddressingMode::AbsoluteX
-  //   && (instr.opcode ==  62 || instr.opcode == 157) {
-  //     // STA abs,x and ROL abs,x dummy read
-  //     self.read((addr_base & 0xFF00) | (addr_effective & 0x00FF));
-  //   }
-
-  //   Operand::fetchable(addr_effective)
-  // }
 
   fn get_absolute_operand(&mut self, offset: u8, instr: &Instruction) -> Operand {
     let addr_base = self.pc_fetch16();
@@ -348,22 +321,15 @@ impl<M: Memory> Cpu<M> {
         self.read(zero_addr as u16);
         let addr_base = zero_addr.wrapping_add(self.x) as u16;
         let addr_effective = self.wrapping_read16(addr_base);
-
-        // trace!("[IndirectX] ZeroAddr: {zero_addr:02X}, Effective: {addr_effective:04X}");
         Operand::fetchable(addr_effective)
       }
       IndirectY => {
         let zero_addr = self.pc_fetch() as u16;
         let addr_base = self.wrapping_read16(zero_addr);
         let addr_effective = addr_base.wrapping_add(self.y as u16);
-        
-        // trace!("[IndirectY] ZeroAddr: {zero_addr:04X}, BaseAddr: {addr_base:04X}, Effective: {addr_effective:04X}");
-        // trace!(" | Has crossed boundaries? {}", addr_effective & 0xFF00 != addr_base & 0xFF00);
-        
+
         // page crossing check
         if addr_effective & 0xFF00 != addr_base & 0xFF00 {
-          // trace!(" | Boundary crossed at cycle {}", self.cycles);
-
           // dummy read: Should read the previous page at effective low address
           self.read((addr_base & 0xFF00) | (addr_effective & 0x00FF));
         } else if instr.opcode == 145 {
@@ -395,8 +361,6 @@ impl<M: Memory> Cpu<M> {
   }
 
   fn load (&mut self, op: &mut Operand, dst: InstrDst) {
-    trace!("[LOAD] {op:?} at cycle {}", self.cycles);
-
     let val = self.get_operand_value(op);
     self.set_zn(val);
     self.set_instr_result(dst, val);
@@ -446,7 +410,6 @@ impl<M: Memory> Cpu<M> {
     self.transfer(self.x, InstrDst::Acc)
   }
   fn txs(&mut self, _: &mut Operand) {
-    // debug!("SP changed from ${:02X} to ${:02X}", self.sp, self.x);
     self.sp = self.x;
   }
   fn tya(&mut self, _: &mut Operand) {
@@ -454,7 +417,6 @@ impl<M: Memory> Cpu<M> {
   }
 
   fn pha(&mut self, _: &mut Operand) {
-    // trace!("[PHA] Pushing ${:02X} to stack at cycle {}", self.a, self.cycles);
     self.stack_push(self.a);
   }
   fn pla(&mut self, _: &mut Operand) {
@@ -463,12 +425,10 @@ impl<M: Memory> Cpu<M> {
     let res = self.stack_pull();
     self.set_zn(res);
     self.a = res;
-    // trace!("[PLA] Pulled ${:02X} from stack at cycle {}", self.a, self.cycles);
   }
   fn php(&mut self, _: &mut Operand) {
     // Brk is always 1 on pushes
     let pushable = self.p.clone().union(CpuFlags::brkpush);
-    // trace!("[PHP] Pushing {pushable:?} (${:02X}) to stack at cycle {}", pushable.bits(), self.cycles);
     self.stack_push(pushable.bits());
   }
   fn plp(&mut self, _: &mut Operand) {
@@ -479,7 +439,6 @@ impl<M: Memory> Cpu<M> {
     self.p = CpuFlags::from_bits_retain(res)
       .difference(CpuFlags::brk)
       .union(CpuFlags::unused);
-    // trace!("[PLP] Pulled {:?} (${:02X}) from stack at cycle {}", self.p, self.p.bits(), self.cycles);
   }
 
   fn logical(&mut self, op: &mut Operand, bitop: fn(u8, u8) -> u8) {
@@ -518,7 +477,6 @@ impl<M: Memory> Cpu<M> {
   }
   fn sbc(&mut self, op: &mut Operand) {
     let val = self.get_operand_value(op);
-    // self.addition((val as i8).wrapping_neg().wrapping_sub(1) as u8);
     self.addition(val.not());
   }
 
@@ -848,6 +806,7 @@ impl<M: Memory> Cpu<M> {
   // also called KIL, HLT
   fn jam(&mut self, _: &mut Operand) {
     self.jammed = true;
+    panic!("System jammed! (reached JAM instruction)")
   }
 }
 

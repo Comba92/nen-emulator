@@ -21,7 +21,7 @@ struct Byte {
 
 
 pub struct Vrc2_4 {
-  mapper: u8,
+  mapper: u16,
   sram: [u8; 0x2000],
 
   swap_mode: bool,
@@ -49,7 +49,7 @@ impl Default for Vrc2_4 {
 }
 
 impl Vrc2_4 {
-  pub fn new(id: u8) -> Self {
+  pub fn new(id: u16) -> Self {
     let mut res= Self::default();
     res.mapper = id;
     res
