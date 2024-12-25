@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use crate::{cart::Mirroring, mapper::{DEFAULT_CHR_BANK_SIZE, DEFAULT_PRG_BANK_SIZE}};
 use super::{Mapper, SRAM_START};
 

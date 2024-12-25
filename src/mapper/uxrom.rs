@@ -7,10 +7,10 @@ pub struct UxRom {
 }
 impl Mapper for UxRom {
     fn prg_addr(&self, prg: &[u8], addr: usize) -> usize {
-        let bank = if (0xC000..=0xFFFF).contains(&addr) {
-            self.prg_last_bank(prg)
-        } else {
-            self.prg_bank_select
+        let bank = match addr {
+            0xC000..=0xFFFF => self.prg_last_bank(prg),
+            // TODO: we're not handling access to 0x6000..=0x7FFF
+            _ => self.prg_bank_select,
         };
 
         self.prg_bank_addr(prg, bank, addr)

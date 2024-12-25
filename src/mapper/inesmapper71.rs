@@ -1,13 +1,13 @@
 use crate::cart::Mirroring;
 
-use super::Mapper;
+use super::{Bank, Mapper};
 
 // Mapper 71
 // https://www.nesdev.org/wiki/INES_Mapper_071
 
 #[derive(Default)]
 pub struct INesMapper071 {
-  prg_bank_select: usize,
+  prg_bank_select: Bank,
   mirroring: Option<Mirroring>,
 }
 

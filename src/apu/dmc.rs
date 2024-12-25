@@ -76,19 +76,19 @@ impl Dmc {
       }
     }
 
-    if(self.length == 1 && !self.loop_enabled) {
-      //When DMA ends around the time the bit counter resets, a CPU glitch sometimes causes another DMA to be requested immediately.
-      if(self.bits_remaining == 8 && self.timer.count == self.timer.period) {
-        self.shift_reg = self.buffer;
-        self.silence = false;
-        self.buffer_empty = true;
-        self.restart_dma();
-      } else if(self.bits_remaining == 1 && self.timer.count < 2) {
-        self.shift_reg = self.buffer;
-        self.buffer_empty = false;
-        self.restart_dma();
-      }
-    }
+    // if(self.length == 1 && !self.loop_enabled) {
+    //   //When DMA ends around the time the bit counter resets, a CPU glitch sometimes causes another DMA to be requested immediately.
+    //   if(self.bits_remaining == 8 && self.timer.count == self.timer.period) {
+    //     self.shift_reg = self.buffer;
+    //     self.silence = false;
+    //     self.buffer_empty = true;
+    //     self.restart_dma();
+    //   } else if(self.bits_remaining == 1 && self.timer.count < 2) {
+    //     self.shift_reg = self.buffer;
+    //     self.buffer_empty = false;
+    //     self.restart_dma();
+    //   }
+    // }
   }
 
   pub fn restart_dma(&mut self) {
@@ -145,6 +145,7 @@ impl Channel for Dmc {
     }
   }
 
+  // TODO: dmc causes noise
   fn get_sample(&self) -> u8 {
     self.level
   }

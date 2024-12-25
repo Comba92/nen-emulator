@@ -1,9 +1,9 @@
 use crate::cart::Mirroring;
-use super::{Mapper, DEFAULT_CHR_BANK_SIZE, DEFAULT_PRG_BANK_SIZE, SRAM_START};
+use super::{Bank, Mapper, DEFAULT_CHR_BANK_SIZE, DEFAULT_PRG_BANK_SIZE, SRAM_START};
 
 #[derive(Default)]
 enum PrgMode { Bank32kb, FixFirst16kb, #[default] FixLast16kb }
-#[derive(Default)]
+#[derive(Default, PartialEq)]
 enum ChrMode { #[default] Bank8kb, Bank4kb }
 
 // Mapper 1 https://www.nesdev.org/wiki/MMC1
@@ -11,28 +11,37 @@ enum ChrMode { #[default] Bank8kb, Bank4kb }
 pub struct Mmc1 {
     // TODO: Mmc1 can have sram up to 32kb with banking
     // Any game with more than 8 kb of sram will probably crash
-    sram: [u8; 8 * 1024],
+    sram: Vec<u8>,
 
+    submapper: u8,
     shift_reg: u8,
     shift_writes: usize,
     mirroring: Mirroring,
     prg_mode: PrgMode,
     chr_mode: ChrMode,
 
-    chr_bank0_select: usize,
-    chr_bank1_select: usize,
-    prg_bank_select: usize,
+    chr_bank0_select: Bank,
+    chr_bank1_select: Bank,
+    last_wrote_chr_bank1: bool,
+    prg_bank_select: Bank,
 }
 
 impl Default for Mmc1 {
     fn default() -> Self {
         Self { 
-            sram: [0; 8 * 1024],
-            shift_reg: Default::default(), shift_writes: Default::default(), mirroring: Default::default(), prg_mode: Default::default(), chr_mode: Default::default(), chr_bank0_select: Default::default(), chr_bank1_select: Default::default(), prg_bank_select: Default::default() }
+            sram: Default::default(), submapper: Default::default(),
+            shift_reg: Default::default(), shift_writes: Default::default(), mirroring: Default::default(), prg_mode: Default::default(), chr_mode: Default::default(), chr_bank0_select: Default::default(), chr_bank1_select: Default::default(), last_wrote_chr_bank1: Default::default(), prg_bank_select: Default::default() }
     }
 }
 
 impl Mmc1 {
+    pub fn new(submapper: u8, sram_size: usize) -> Self {
+        let mut res = Self::default();
+        res.submapper = submapper;
+        res.sram.resize(sram_size, 0);
+        res
+    }
+
     fn write_ctrl(&mut self, val: u8) {
         self.mirroring = match val & 0b11 {
             0 => Mirroring::SingleScreenA,
@@ -54,6 +63,52 @@ impl Mmc1 {
             true => ChrMode::Bank4kb,
         }
     }
+
+    fn sxrom_register(&self) -> Bank {
+        if self.last_wrote_chr_bank1 && self.chr_mode != ChrMode::Bank8kb {
+            self.chr_bank1_select
+        } else { self.chr_bank0_select }
+    }
+
+    fn sram_bank_size(&self) -> usize { 8*1024 }
+    fn sram_banks_count(&self) -> usize { self.sram.len() / self.sram_bank_size() }
+
+    fn sram_bank_addr(&self, bank: usize, addr: usize) -> usize {
+        let bank_start = (bank % self.sram_banks_count()) * self.sram_bank_size();
+        let offset = (addr - SRAM_START) % self.sram_bank_size();
+        bank_start + offset
+    }
+
+    fn sram_addr(&self, addr: usize) -> usize {
+        let bank = self.sram_bank();
+        self.sram_bank_addr(bank, addr)
+    }
+
+    fn sram_bank(&self) -> Bank {
+        let bank_select = self.sxrom_register();
+
+        const KB16: usize = 16 * 1024;
+        const KB32: usize = 32 * 1024;
+        const KB8: usize = 8 * 1024;
+        match self.sram.len() {
+            KB16 => (bank_select >> 3) & 1,
+            KB32 => (bank_select >> 2) & 0b11,
+            KB8 => 0,
+            _ => unreachable!("Sram should only be of sizes 8kb, 16kb, or 32kb")
+        }
+    }
+
+    fn sram_read(&self, addr: usize) -> u8 {
+        if self.sram.is_empty() { return 0; }
+        let mapped_addr = self.sram_addr(addr);
+        self.sram[mapped_addr]
+    }
+
+    fn sram_write(&mut self, addr: usize, val: u8) {
+        if self.sram.is_empty() { return; }
+        let mapped_addr = self.sram_addr(addr);
+        self.sram[mapped_addr] = val;
+    }
 }
 
 impl Mapper for Mmc1 {
@@ -72,9 +127,7 @@ impl Mapper for Mmc1 {
     }
 
     fn prg_addr(&self, prg: &[u8], addr: usize) -> usize {
-        // TODO: 512 kb prg access with last chr bank bit
-
-        let bank = match self.prg_mode {
+        let mut bank = match self.prg_mode {
             PrgMode::Bank32kb => self.prg_bank_select >> 1,
             PrgMode::FixLast16kb => {
                 match addr {
@@ -92,12 +145,18 @@ impl Mapper for Mmc1 {
             }
         };
 
+        // SOROM, SUROM and SXROM 512kb prg rom
+        if prg.len() == 512 * 1024 {
+            let bank256_select = self.sxrom_register() & 0b1_0000;
+            bank |= bank256_select;
+        }
+        
         self.prg_bank_addr(prg, bank, addr)
     }
 
     fn prg_read(&mut self, prg: &[u8], addr: usize) -> u8 {
         match addr {
-            0x6000..=0x7FFF => self.sram[addr - SRAM_START],
+            0x6000..=0x7FFF => self.sram_read(addr),
             _ => {
                 let mapped_addr = self.prg_addr(prg, addr);
                 prg[mapped_addr]
@@ -122,7 +181,7 @@ impl Mapper for Mmc1 {
 
     fn prg_write(&mut self, _prg: &mut[u8], addr: usize, val: u8) {
         if (0x6000..=0x7FFF).contains(&addr) {
-            self.sram[addr - SRAM_START] = val;
+            self.sram_write(addr, val);
             return;
         }
 
@@ -138,8 +197,14 @@ impl Mapper for Mmc1 {
         if self.shift_writes >= 5 {
             match addr {
                 0x8000..=0x9FFF => self.write_ctrl(self.shift_reg),
-                0xA000..=0xBFFF => self.chr_bank0_select = self.shift_reg as usize & 0b1_1111,
-                0xC000..=0xDFFF => self.chr_bank1_select = self.shift_reg as usize & 0b1_1111,
+                0xA000..=0xBFFF => {
+                    self.chr_bank0_select = self.shift_reg as usize & 0b1_1111;
+                    self.last_wrote_chr_bank1 = false;
+                }
+                0xC000..=0xDFFF => {
+                    self.chr_bank1_select = self.shift_reg as usize & 0b1_1111;
+                    self.last_wrote_chr_bank1 = true;
+                }
                 0xE000..=0xFFFF => self.prg_bank_select  = self.shift_reg as usize & 0b1111,
                 _ => unreachable!("Accessed {addr:x}")
             }

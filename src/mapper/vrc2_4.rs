@@ -1,6 +1,6 @@
 use crate::cart::Mirroring;
 use bitfield_struct::bitfield;
-use super::{Mapper, DEFAULT_PRG_BANK_SIZE, SRAM_START};
+use super::{Bank, Mapper, DEFAULT_PRG_BANK_SIZE, SRAM_START};
 
 #[derive(Default)]
 enum IrqMode { #[default] Cycle, Scanline }
@@ -22,12 +22,12 @@ struct Byte {
 
 pub struct Vrc2_4 {
   mapper: u16,
-  sram: [u8; 0x2000],
+  sram: [u8; 8 * 1024],
 
   swap_mode: bool,
   wram_ctrl: bool,
-  prg_bank0_select: usize,
-  prg_bank1_select: usize,
+  prg_bank0_select: Bank,
+  prg_bank1_select: Bank,
   chr_banks_selects: [Byte; 8],
   latch: bool,
 

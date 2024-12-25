@@ -1,11 +1,11 @@
 use crate::cart::Mirroring;
 
-use super::{Mapper, DEFAULT_PRG_BANK_SIZE};
+use super::{Bank, Mapper, DEFAULT_PRG_BANK_SIZE};
 
 // Mapper 7 https://www.nesdev.org/wiki/AxROM
 #[derive(Default)]
 pub struct AxRom {
-    prg_bank_select: usize,
+    prg_bank_select: Bank,
     mirroring_page: Mirroring,
 }
 

@@ -46,15 +46,15 @@ pub trait Mapper {
     fn prg_banks_count(&self, prg: &[u8]) -> usize { prg.len() / self.prg_bank_size() }
     fn chr_banks_count(&self, chr: &[u8]) -> usize { chr.len() / self.chr_bank_size() }
     
-    fn prg_last_bank(&self, prg: &[u8]) -> usize { self.prg_banks_count(prg) - 1 }
+    fn prg_last_bank(&self, prg: &[u8]) -> Bank { self.prg_banks_count(prg) - 1 }
 
-    fn prg_bank_addr(&self, prg: &[u8], bank: usize, addr: usize) -> usize {
+    fn prg_bank_addr(&self, prg: &[u8], bank: Bank, addr: usize) -> usize {
         let bank_start = (bank % self.prg_banks_count(prg)) * self.prg_bank_size();
         let offset = (addr - ROM_START) % self.prg_bank_size();
         bank_start + offset
     }
 
-    fn chr_bank_addr(&self, chr: &[u8], bank: usize, addr: usize) -> usize {
+    fn chr_bank_addr(&self, chr: &[u8], bank: Bank, addr: usize) -> usize {
         let bank_start = (bank % self.chr_banks_count(chr)) * self.chr_bank_size();
         let offset = addr % self.chr_bank_size();
         bank_start + offset
@@ -76,10 +76,10 @@ pub trait Mapper {
 }
 
 pub type CartMapper = Box<dyn Mapper>;
-pub fn new_mapper_from_id(id: u8) -> Result<CartMapper, String> {
-    let mapper: CartMapper = match id {
+pub fn new_mapper(mapper: u16, submapper: u8, sram_size: usize) -> Result<CartMapper, String> {
+    let mapper: CartMapper = match mapper {
         0  => Box::new(NRom),
-        1  => Box::new(Mmc1::default()),
+        1  => Box::new(Mmc1::new(submapper, sram_size)),
         2  => Box::new(UxRom::default()),
         3  => Box::new(INesMapper003::default()),
         4  => Box::new(Mmc3::default()),
@@ -87,21 +87,46 @@ pub fn new_mapper_from_id(id: u8) -> Result<CartMapper, String> {
         7  => Box::new(AxRom::default()),
         9  => Box::new(Mmc2::default()),
         11 => Box::new(ColorDreams::default()),
-        21 | 22 | 23 | 25 => Box::new(Vrc2_4::new(id)),
+        21 | 22 | 23 | 25 => Box::new(Vrc2_4::new(mapper)),
         66 => Box::new(GxRom::default()),
         // 69 => // TODO, this only plays Batman: Return of the Joker
         // https://www.nesdev.org/wiki/Sunsoft_FME-7
         71 => Box::new(INesMapper071::default()),
-        _ => return Err(format!("Mapper {id} not implemented"))
+        _ => return Err(format!("Mapper {mapper} not implemented"))
     };
 
     Ok(mapper)
 }
 
+pub fn mapper_name(id: u16) -> &'static str {
+    MAPPERS_TABLE.iter()
+      .find(|m| m.0 == id)
+      .map(|m| m.1)
+      .unwrap_or("Not implemented")
+}
+const MAPPERS_TABLE: [(u16, &'static str); 16] = [
+    (0, "NRom"),
+    (1, "Mmc1"),
+    (2, "UxRom"),
+    (3, "INesMapper003"),
+    (4, "Mmc3"),
+    (5, "Mmc5"),
+    (7, "AxRom"),
+    (9, "Mmc2"),
+    (11, "ColorDreams"),
+    (21, "Vrc2/Vrc4"),
+    (22, "Vrc2/Vrc4"),
+    (23, "Vrc2/Vrc4"),
+    (25, "Vrc2/Vrc4"),
+    (66, "GxRom"),
+    (69, "Sunsoft FME-7"),
+    (71, "INesMapper071"),
+];
 const SRAM_START: usize = 0x6000;
 const ROM_START: usize  = 0x8000;
 const DEFAULT_PRG_BANK_SIZE: usize = 16*1024; // 16 KiB
 const DEFAULT_CHR_BANK_SIZE: usize = 8*1024; // 8 KiB
+pub(self) type Bank = usize;
 
 pub struct Dummy;
 impl Mapper for Dummy {

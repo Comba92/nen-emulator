@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::{apu::Apu, bus::Bus, cart::{Cart, INesHeader}, cpu::Cpu, frame::FrameBuffer, joypad::{Joypad, JoypadButton}, ppu::Ppu};
+use crate::{apu::Apu, bus::Bus, cart::Cart, cpu::Cpu, frame::FrameBuffer, joypad::{Joypad, JoypadButton}, ppu::Ppu};
 use wasm_bindgen::prelude::wasm_bindgen;
 
 #[wasm_bindgen]
@@ -111,8 +111,8 @@ impl Nes {
     &mut self.cpu.bus.apu
   }
 
-  pub fn get_cart(&self) -> INesHeader {
-    self.cpu.bus.cart.borrow().header.clone()
+  pub fn get_cart_data(&self) -> String {
+    format!("{:#?}", self.cpu.bus.cart.borrow().header)
   }
 
   pub fn get_screen(&self) -> &FrameBuffer {

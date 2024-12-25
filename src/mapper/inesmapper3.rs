@@ -1,9 +1,11 @@
-use super::{Mapper, ROM_START};
+use super::{Bank, Mapper, ROM_START};
 
 // Mapper 3 https://www.nesdev.org/wiki/INES_Mapper_003
+// https://www.nesdev.org/wiki/CNROM
+
 #[derive(Default)]
 pub struct INesMapper003 {
-    chr_bank_select: usize,
+    chr_bank_select: Bank,
 }
 impl Mapper for INesMapper003 {
     // Same as NROM

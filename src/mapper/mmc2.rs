@@ -1,6 +1,6 @@
 use crate::cart::Mirroring;
 
-use super::{Mapper, DEFAULT_CHR_BANK_SIZE, DEFAULT_PRG_BANK_SIZE};
+use super::{Bank, Mapper, DEFAULT_CHR_BANK_SIZE, DEFAULT_PRG_BANK_SIZE};
 
 #[derive(Default, Clone, Copy)]
 enum Latch { FD, #[default] FE }
@@ -8,9 +8,9 @@ enum Latch { FD, #[default] FE }
 // Mapper 9 https://www.nesdev.org/wiki/MMC2
 #[derive(Default)]
 pub struct Mmc2 {
-    prg_bank_select: usize,
-    chr_bank0_select: [usize; 2],
-    chr_bank1_select: [usize; 2],
+    prg_bank_select: Bank,
+    chr_bank0_select: [Bank; 2],
+    chr_bank1_select: [Bank; 2],
     latch: [Latch; 2],
     mirroring: Mirroring,
 }

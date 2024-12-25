@@ -1,6 +1,6 @@
 use crate::cart::Mirroring;
 
-use super::{Mapper, SRAM_START};
+use super::{Bank, Mapper, SRAM_START};
 
 #[derive(Default)]
 enum PrgMode { #[default] SwapFirst, SwapLast }
@@ -14,7 +14,7 @@ pub struct Mmc3 {
     chr_mode: ChrMode,
     mirroring: Mirroring,
     
-    bank_selects: [usize; 8],
+    bank_selects: [Bank; 8],
 
     sram: [u8; 8 * 1024],
     sram_read_enabled: bool,
@@ -50,13 +50,14 @@ impl Mmc3 {
     }
 
     fn sram_read(&self, addr: usize) -> u8 {
-        if self.sram_read_enabled { self.sram[addr - SRAM_START] }
-        // TODO: open bus behaviour
-        else { 0 }
+        // The read enabled check might be harmful in an emulator
+        // https://www.nesdev.org/wiki/MMC3#iNES_Mapper_004_and_MMC6
+        self.sram[addr - SRAM_START]
     }
 
     fn sram_write(&mut self, addr: usize, val: u8) {
-        if self.sram_write_enabled { self.sram[addr - SRAM_START] = val; }
+        // The write enabled check might be harmful in an emulator
+        self.sram[addr - SRAM_START] = val;
     }
 }
 
