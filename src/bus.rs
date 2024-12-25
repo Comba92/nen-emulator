@@ -1,6 +1,5 @@
 use std::{cell::RefCell, rc::Rc};
 
-use log::debug;
 use crate::{apu::Apu, cart::{Cart, SharedCart}, dma::{Dma, OamDma}, joypad::Joypad, mem::Memory, ppu::Ppu};
 
 #[derive(Debug)]
@@ -46,7 +45,7 @@ impl Memory for Bus {
       BusDst::Joypad2 => self.joypad.read2(),
       BusDst::Cart => self.cart.borrow_mut().cart_read(addr),
       BusDst::Prg | BusDst::SRam => self.cart.borrow_mut().prg_read(addr),
-      _ => { debug!("Read to {addr:04X} not implemented"); 0 }
+      _ => { 0 }
     }
   }
 
@@ -71,7 +70,7 @@ impl Memory for Bus {
       }
       BusDst::Cart => self.cart.borrow_mut().cart_write(addr, val),
       BusDst::Prg | BusDst::SRam => self.cart.borrow_mut().prg_write(addr, val),
-      BusDst::NoImpl => debug!("Write to {addr:04X} not implemented")
+      BusDst::NoImpl => {}
     }
   }
 

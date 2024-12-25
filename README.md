@@ -12,6 +12,7 @@
 
 [x] Mappers
 - Implementation is solid, but could be better (and faster)
+- Banks should be an array, and change in bank selects changes the bank array
 - Mmc5
 
 [x] APU

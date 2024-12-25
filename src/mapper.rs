@@ -108,7 +108,7 @@ const MAPPERS_TABLE: [(u16, &'static str); 16] = [
     (0, "NRom"),
     (1, "Mmc1"),
     (2, "UxRom"),
-    (3, "INesMapper003"),
+    (3, "CnRom (INesMapper003)"),
     (4, "Mmc3"),
     (5, "Mmc5"),
     (7, "AxRom"),

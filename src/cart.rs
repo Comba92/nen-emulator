@@ -3,18 +3,19 @@ use std::{cell::RefCell, fs, path::Path, rc::Rc};
 
 use crate::mapper::{self, Dummy, Mapper};
 
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone)]
 pub struct CartHeader {
   pub format: HeaderFormat,
   pub console_type: ConsoleType,
   pub timing: ConsoleTiming,
+  pub game_title: String,
   pub has_trainer: bool,
   pub mirroring: Mirroring,
   pub has_alt_mirroring: bool,
   
   pub mapper: u16,
   pub submapper: u8,
-  pub mapper_name: &'static str,
+  pub mapper_name: String,
   
   pub prg_16kb_banks: usize,
   pub chr_8kb_banks: usize,
@@ -85,9 +86,18 @@ impl CartHeader {
     let mapper_low = rom[6] >> 4;
     let mapper_high = rom[7] & 0b1111_0000;
     header.mapper = (mapper_high | mapper_low) as u16;
-    header.mapper_name = mapper::mapper_name(header.mapper);
+    header.mapper_name = mapper::mapper_name(header.mapper).to_string();
 
     header.format = if rom[7] & 0b0000_1100 == 0x8 { HeaderFormat::Nes2_0 } else { HeaderFormat::INes };
+
+    let title_start = HEADER_SIZE + header.prg_size-32;
+    let title_bytes = &rom[title_start..title_start+16];
+    header.game_title = String::from_utf8_lossy(title_bytes)
+      .into_owned()
+      .chars()
+      .filter(|c| c.is_ascii_alphanumeric() || c.is_ascii_punctuation() || c.is_ascii_whitespace())
+      .collect::<String>()
+      .trim().to_string();
 
     if header.format == HeaderFormat::INes {
       return Ok(header);
@@ -106,7 +116,19 @@ impl CartHeader {
     
     header.mapper = ((rom[8] as u16 & 0b111) << 8) | header.mapper as u16;
     header.submapper = rom[8] >> 4;
-    header.mapper_name = mapper::mapper_name(header.mapper);
+    // header.mapper_name = mapper::mapper_name(header.mapper).to_string();
+
+    if header.mapper == 1 {
+      let ext = match header.submapper {
+        1 => "/SuRom",
+        2 => "/SoRom",
+        4 => "/SxRom",
+        _ => "",
+      };
+      header.mapper_name.push_str(ext);
+    } else if header.mapper == 4 && header.submapper == 1 {
+      header.mapper_name = String::from("Mmc6");
+    }
 
     header.prg_16kb_banks = ((rom[9] as usize & 0b1111) << 8) + rom[4] as usize;
     header.chr_8kb_banks  = ((rom[9] as usize >> 4) << 8)     + rom[5] as usize;
@@ -159,8 +181,14 @@ impl Cart {
     
     let header = CartHeader::new(&rom)
       .map_err(|e| format!("Not a valid iNES/Nes2.0 rom, {e}"))?;
-    
+
     println!("Loaded ROM: {:#?}", header);
+    if header.format == HeaderFormat::INes 
+      && (header.mapper == 1 || header.mapper == 5)
+    {
+      eprintln!("WARNING: this game is using the {} mapper, and the rom file has a iNes header. \
+        Compatibility is not garanteed. A rom file with a Nes2.0 header is preferred.", header.mapper_name);
+    }
 
     let prg_start = HEADER_SIZE + if header.has_trainer { 512 } else { 0 };
     let chr_start = prg_start + header.prg_size;
