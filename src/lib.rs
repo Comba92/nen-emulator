@@ -1,6 +1,4 @@
 pub mod nes;
-pub mod emu;
-
 pub mod cpu;
 pub mod instr;
 

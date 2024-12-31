@@ -1,4 +1,7 @@
 # TODO
+- BUG: Some games crash at specified times, the background goes black, the sprites stay freezed, the audio crashes (behaviour found at start of Faxanadu)
+- BUG: Battletoads 1&2 crashes because no sprite 0 hit
+
 [x] CPU COMPLETED
 - Better operand handling?
 - Open bus behaviour
@@ -17,7 +20,7 @@
 
 [x] APU
 - Cleaner implementation (it is better now but work can still be done)
-- Sound still sucks (DMC)
+- Sound still sucks (DMC probably messing everything up)
 - PAL support?
 - Audio filters?
 

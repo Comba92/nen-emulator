@@ -12,7 +12,6 @@ enum ChrMode { #[default] Bank8kb, Bank4kb }
 pub struct Mmc1 {
     sram: Vec<u8>,
 
-    submapper: u8,
     shift_reg: u8,
     shift_writes: usize,
     mirroring: Mirroring,
@@ -28,15 +27,14 @@ pub struct Mmc1 {
 impl Default for Mmc1 {
     fn default() -> Self {
         Self { 
-            sram: Default::default(), submapper: Default::default(),
+            sram: Default::default(),
             shift_reg: Default::default(), shift_writes: Default::default(), mirroring: Default::default(), prg_mode: Default::default(), chr_mode: Default::default(), chr_bank0_select: Default::default(), chr_bank1_select: Default::default(), last_wrote_chr_bank1: Default::default(), prg_bank_select: Default::default() }
     }
 }
 
 impl Mmc1 {
-    pub fn new(submapper: u8, sram_size: usize) -> Self {
+    pub fn new(sram_size: usize) -> Self {
         let mut res = Self::default();
-        res.submapper = submapper;
         res.sram.resize(sram_size, 0);
         res
     }

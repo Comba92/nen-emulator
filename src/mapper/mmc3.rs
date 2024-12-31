@@ -7,6 +7,7 @@ enum PrgMode { #[default] SwapFirst, SwapLast }
 #[derive(Default)]
 enum ChrMode { #[default] BiggerFirst, BiggerLast }
 // Mapper 4 https://www.nesdev.org/wiki/MMC3
+// Variation MMC6 supported
 
 pub struct Mmc3 {
     bank_select: usize,

@@ -194,6 +194,7 @@ impl Apu {
     // }
     // self.sample_cycles += 1.0;
 
+    // OPT: this if is EXTREMELY costly
     let sample = self.mix_channels();
     self.low_pass_filter.consume(sample);
 

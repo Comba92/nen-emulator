@@ -120,14 +120,14 @@ impl CartHeader {
 
     if header.mapper == 1 {
       let ext = match header.submapper {
-        1 => "/SuRom",
-        2 => "/SoRom",
-        4 => "/SxRom",
+        1 => "/SURom",
+        2 => "/SORom",
+        4 => "/SXRom",
         _ => "",
       };
       header.mapper_name.push_str(ext);
     } else if header.mapper == 4 && header.submapper == 1 {
-      header.mapper_name = String::from("Mmc6");
+      header.mapper_name = String::from("MMC6");
     }
 
     header.prg_16kb_banks = ((rom[9] as usize & 0b1111) << 8) + rom[4] as usize;
@@ -210,6 +210,7 @@ impl Cart {
     Ok(Cart { header, prg, chr, mapper })
   }
 
+  
   pub fn from_file(rom_path: &Path) -> Result<Self, String> {
     let rom = fs::read(rom_path).map_err(|e| format!("Couldn't open rom: {e}"))?;
     Cart::new(&rom)

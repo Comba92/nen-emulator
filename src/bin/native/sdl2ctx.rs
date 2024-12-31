@@ -44,7 +44,7 @@ impl Sdl2Context {
 
 
 enum InputAction {
-  Game(JoypadButton), Pause, Reset
+  Game(JoypadButton), Pause, Reset, DebugSpr0Hit
 }
 const AXIS_DEAD_ZONE: i16 = 10_000;
 
@@ -65,6 +65,7 @@ impl Keymaps {
       (Keycode::M, InputAction::Game(JoypadButton::START)),
       (Keycode::Space, InputAction::Pause),
       (Keycode::R, InputAction::Reset),
+      (Keycode::D, InputAction::DebugSpr0Hit),
     ]);
 
     let default_padmap = HashMap::from([
@@ -103,6 +104,7 @@ pub fn handle_input(keys: &Keymaps, event: &Event, emu: &mut Nes, audio_dev: &Au
               }
             },
             (InputAction::Reset, Event::KeyDown {..}) => emu.reset(),
+            (InputAction::DebugSpr0Hit, Event::KeyDown { .. }) => emu.get_ppu().force_spr0_hit(),
             _ => {}
           }
         }

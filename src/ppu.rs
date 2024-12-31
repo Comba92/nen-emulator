@@ -222,6 +222,11 @@ impl Ppu {
 		}
 	}
 
+	pub fn force_spr0_hit(&mut self) {
+		println!("Forcing Sprite 0 hit");
+		self.stat.insert(Stat::spr0_hit);
+	}
+
 	pub(self) fn rendering_enabled(&self) -> bool {
 		self.mask.contains(Mask::bg_enabled)
 		|| self.mask.contains(Mask::spr_enabled)
@@ -243,6 +248,8 @@ impl Ppu {
 	}
 
 	pub fn peek_vram(&self, addr: u16) -> u8 {
+		// OPT: this if is EXTREMELY costly (you know why, Refcells)
+
 		let (dst, addr) = self.map_address(addr);
 		match dst {
 			VramDst::Patterntbl => self.cart.borrow_mut().chr_read(addr),

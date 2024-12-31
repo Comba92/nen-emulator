@@ -61,7 +61,9 @@ pub trait Mapper {
     }
 
     fn mirroring(&self) -> Option<Mirroring> { None }
-    
+    fn get_sram(&self) -> Option<&[u8]> { None }
+    fn set_sram(&mut self, _bytes: &[u8]) {}
+
     // Mmc3 scanline notify
     fn notify_scanline(&mut self) {}
 
@@ -76,17 +78,19 @@ pub trait Mapper {
 }
 
 pub type CartMapper = Box<dyn Mapper>;
-pub fn new_mapper(mapper: u16, submapper: u8, sram_size: usize) -> Result<CartMapper, String> {
+pub fn new_mapper(mapper: u16, _submapper: u8, sram_size: usize) -> Result<CartMapper, String> {
     let mapper: CartMapper = match mapper {
         0  => Box::new(NRom),
-        1  => Box::new(Mmc1::new(submapper, sram_size)),
+        1  => Box::new(Mmc1::new(sram_size)),
         2  => Box::new(UxRom::default()),
         3  => Box::new(INesMapper003::default()),
         4  => Box::new(Mmc3::default()),
-        5  => Box::new(Mmc5::default()),
+        5  => Box::new(Mmc5::new(sram_size)),
         7  => Box::new(AxRom::default()),
         9  => Box::new(Mmc2::default()),
         11 => Box::new(ColorDreams::default()),
+        // 16 => // TODO, Dragon Ball games
+        // https://www.nesdev.org/wiki/INES_Mapper_016
         21 | 22 | 23 | 25 => Box::new(Vrc2_4::new(mapper)),
         66 => Box::new(GxRom::default()),
         // 69 => // TODO, this only plays Batman: Return of the Joker
@@ -106,21 +110,21 @@ pub fn mapper_name(id: u16) -> &'static str {
 }
 const MAPPERS_TABLE: [(u16, &'static str); 16] = [
     (0, "NRom"),
-    (1, "Mmc1"),
+    (1, "MMC1"),
     (2, "UxRom"),
-    (3, "CnRom (INesMapper003)"),
-    (4, "Mmc3"),
-    (5, "Mmc5"),
+    (3, "CNRom (INesMapper003)"),
+    (4, "MMC3"),
+    (5, "MMC5"),
     (7, "AxRom"),
-    (9, "Mmc2"),
+    (9, "MMC2"),
     (11, "ColorDreams"),
-    (21, "Vrc2/Vrc4"),
-    (22, "Vrc2/Vrc4"),
-    (23, "Vrc2/Vrc4"),
-    (25, "Vrc2/Vrc4"),
+    (21, "VRC2/VRC4"),
+    (22, "VRC2/VRC4"),
+    (23, "VRC2/VRC4"),
+    (25, "VRC2/VRC4"),
     (66, "GxRom"),
     (69, "Sunsoft FME-7"),
-    (71, "INesMapper071"),
+    (71, "Codemasters (INesMapper071)"),
 ];
 const SRAM_START: usize = 0x6000;
 const ROM_START: usize  = 0x8000;
@@ -134,3 +138,4 @@ impl Mapper for Dummy {
     fn prg_read(&mut self, _prg: &[u8], _addr: usize) -> u8 { 0 }
     fn chr_read(&mut self, _chr: &[u8], _addr: usize) -> u8 { 0 }
 }
+

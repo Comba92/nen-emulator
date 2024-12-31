@@ -35,6 +35,7 @@ impl Nes {
 
   pub fn step_until_vblank(&mut self) {
     loop {
+      // OPT: this if is EXTREMELY costly
       if self.is_paused { return; }
       if self.get_bus().poll_vblank() { break; }
       self.step();
@@ -43,6 +44,7 @@ impl Nes {
 
   pub fn step_until_sample(&mut self) -> i16 {
     loop {
+      // OPT: this if is EXTREMELY costly
       if self.is_paused { return 0; }
       if let Some(sample) = self.get_bus().poll_sample() {
         return sample;

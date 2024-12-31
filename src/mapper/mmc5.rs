@@ -44,7 +44,7 @@ pub struct Mmc5 {
   chr_bank_select: usize,
   chr_bank_hi: usize,
   
-  sram: [u8; 128 * 1024],
+  sram: Vec<u8>,
   ram_write_lock1: bool,
   ram_write_lock2: bool,
   
@@ -75,11 +75,17 @@ pub struct Mmc5 {
 
 impl Default for Mmc5 {
   fn default() -> Self {
-    Self { exram: [0; 1024], exram_mode: Default::default(), sram: [0; 128*1024], prg_mode: Default::default(), prg_bank_selects: [Default::default(); 5], chr_mode: Default::default(), chr_bank_selects: [0; 12], chr_bank_select: Default::default(), chr_bank_hi: Default::default(), ram_write_lock1: Default::default(), ram_write_lock2: Default::default(), nametbl_mapping: Default::default(), fill_mode_tile: Default::default(), fill_mode_color: Default::default(), vsplit_enabled: Default::default(), vsplit_region: Default::default(), vsplit_count: Default::default(), vsplit_scroll: Default::default(), vsplit_bank: Default::default(), irq_enabled: Default::default(), scanline_count: Default::default(), irq_value: Default::default(), irq_scanline: Default::default(), irq_in_frame: Default::default(), multiplicand: 0xFF, multiplier: 0xFF, mirroring: Default::default(), ppu_spr_16: Default::default(), ppu_data_sub: Default::default(), ppu_state: Default::default() }
+    Self { exram: [0; 1024], exram_mode: Default::default(), sram: Default::default(), prg_mode: Default::default(), prg_bank_selects: [Default::default(); 5], chr_mode: Default::default(), chr_bank_selects: [0; 12], chr_bank_select: Default::default(), chr_bank_hi: Default::default(), ram_write_lock1: Default::default(), ram_write_lock2: Default::default(), nametbl_mapping: Default::default(), fill_mode_tile: Default::default(), fill_mode_color: Default::default(), vsplit_enabled: Default::default(), vsplit_region: Default::default(), vsplit_count: Default::default(), vsplit_scroll: Default::default(), vsplit_bank: Default::default(), irq_enabled: Default::default(), scanline_count: Default::default(), irq_value: Default::default(), irq_scanline: Default::default(), irq_in_frame: Default::default(), multiplicand: 0xFF, multiplier: 0xFF, mirroring: Default::default(), ppu_spr_16: Default::default(), ppu_data_sub: Default::default(), ppu_state: Default::default() }
   }
 }
 
 impl Mmc5 {
+  pub fn new(sram_size: usize) -> Self {
+    let mut res = Self::default();
+    res.sram.resize(sram_size, 0);
+    res
+  }
+
   fn prg_bank32(&self, addr: usize) -> (usize, Target) {
     let (id, shift) = match addr {
       0x6000..=0x7FFF => (0, 0),
