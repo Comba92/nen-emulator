@@ -89,6 +89,9 @@ impl CartHeader {
     header.mapper_name = mapper::mapper_name(header.mapper).to_string();
 
     header.format = if rom[7] & 0b0000_1100 == 0x8 { HeaderFormat::Nes2_0 } else { HeaderFormat::INes };
+    // This field was a later addition to iNes, so most games do not use it, even if they contain prg_ram.
+    // If it is 0, prg ram is inferred as 8kb.
+    header.prg_ram_size = if rom[8] > 0 { rom[8] } else { 8 } as usize * 1024;
 
     let title_start = HEADER_SIZE + header.prg_size-32;
     let title_bytes = &rom[title_start..title_start+16];
@@ -206,6 +209,7 @@ impl Cart {
     let sram_size = if header.has_battery && header.eeprom_size > 0 { 
       header.eeprom_size
     } else { header.prg_ram_size };
+
     let mapper = mapper::new_mapper(header.mapper, header.submapper, sram_size)?;
     Ok(Cart { header, prg, chr, mapper })
   }
