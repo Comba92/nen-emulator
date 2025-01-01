@@ -132,16 +132,16 @@ pub struct Apu {
   irq_disabled: bool,
   pub frame_irq_flag: Option<()>,
 
-  pub current_sample: Option<i16>,
+  pub current_sample: Option<f32>,
   low_pass_filter: LowPassIIR,
 
   cycles: usize,
   sample_cycles: f32,
 }
 
-pub fn sample_f32_to_i16(sample: f32) -> i16 {
-  (sample * u16::MAX as f32).clamp(0.0, u16::MAX as f32) as i16
-}
+// pub fn sample_f32_to_i16(sample: f32) -> i16 {
+//   (sample * u16::MAX as f32).clamp(0.0, u16::MAX as f32) as i16
+// }
 
 impl Apu {
   pub fn new() -> Self {
@@ -189,7 +189,7 @@ impl Apu {
 
     // if self.sample_cycles >= 40.517687075 {
     //   let sample = self.mix_channels();
-    //   self.current_sample = Some(sample_f32_to_i16(sample));
+    //   self.current_sample = Some(sample);
     //   self.sample_cycles -= 40.517687075;
     // }
     // self.sample_cycles += 1.0;
@@ -200,14 +200,14 @@ impl Apu {
 
     if self.sample_cycles >= 40.517687075 {
       let output = self.low_pass_filter.output();
-      self.current_sample = Some(sample_f32_to_i16(output));
+      self.current_sample = Some(output);
 
       self.sample_cycles -= 40.517687075;
     }
     self.sample_cycles += 1.0;
 
+    
     self.dmc.step_timer();
-
     self.triangle.step_timer();
     if self.cycles % 2 == 1 {
       self.pulse1.step_timer();
@@ -287,9 +287,9 @@ impl Apu {
       0.00851 * triangle as f32
       + 0.00494 * noise as f32
       + 0.00335 * dmc as f32;
-
-    let sum = pulse_out + tnd_out;
-    sum
+      
+      let sum = pulse_out + tnd_out;
+      sum
   }
 
   pub fn read_reg(&mut self, addr: u16) -> u8 {

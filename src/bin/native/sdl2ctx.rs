@@ -85,7 +85,7 @@ impl Keymaps {
   }
 }
 
-pub fn handle_input(keys: &Keymaps, event: &Event, emu: &mut Nes, audio_dev: &AudioQueue<i16>) {
+pub fn handle_input(keys: &Keymaps, event: &Event, emu: &mut Nes, audio_dev: &AudioQueue<f32>) {
   let joypad = emu.get_joypad();
 
   match event {

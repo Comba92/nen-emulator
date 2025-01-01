@@ -44,7 +44,7 @@ fn main() {
     };
 
     let audio_dev = sdl.audio_subsystem
-        .open_queue::<i16, _>(None, &desired_spec).unwrap();
+        .open_queue::<f32, _>(None, &desired_spec).unwrap();
 
     let mut audio_buf = Vec::new();
     audio_dev.resume();

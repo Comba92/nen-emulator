@@ -42,10 +42,10 @@ impl Nes {
     }
   }
 
-  pub fn step_until_sample(&mut self) -> i16 {
+  pub fn step_until_sample(&mut self) -> f32 {
     loop {
       // OPT: this if is EXTREMELY costly
-      if self.is_paused { return 0; }
+      if self.is_paused { return 0.0; }
       if let Some(sample) = self.get_bus().poll_sample() {
         return sample;
       }
