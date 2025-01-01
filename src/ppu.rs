@@ -20,10 +20,10 @@ bitflags! {
 
 	#[derive(Debug)]
 	struct Mask: u8 {
-		const greyscale   = 0b0000_0001;
-		const bg_strip    = 0b0000_0010;
-		const spr_strip   = 0b0000_0100;
-		const bg_enabled  = 0b0000_1000;
+		const greyscale      = 0b0000_0001;
+		const bg_strip_show  = 0b0000_0010;
+		const spr_strip_show = 0b0000_0100;
+		const bg_enabled     = 0b0000_1000;
 
 		const spr_enabled = 0b0001_0000;
 		const red_boost   = 0b0010_0000;
@@ -186,9 +186,10 @@ impl Ppu {
 			241 => {
 				if self.cycle == 1 {
 					self.vblank_started = Some(());
-					self.stat.set(Stat::vblank, !self.nmi_skip);
-					
-					if self.ctrl.contains(Ctrl::nmi_enabled) && !self.nmi_skip {
+					// self.stat.set(Stat::vblank, !self.nmi_skip);
+						self.stat.insert(Stat::vblank);
+
+					if self.ctrl.contains(Ctrl::nmi_enabled) {
 						self.nmi_requested = Some(());
 					}
 				}
@@ -291,10 +292,10 @@ impl Ppu {
 	pub fn read_reg(&mut self, addr: u16) -> u8 {
 		match addr {
 			0x2002 => {
-				if self.scanline == 241 && (0..3).contains(&self.cycle) {
-					self.nmi_skip = true;
-					self.nmi_requested = None;
-				}
+				// if self.scanline == 241 && (0..3).contains(&self.cycle) {
+				// 	self.nmi_skip = true;
+				// 	self.nmi_requested = None;
+				// }
 
 				let old_stat = self.stat.bits();
 				self.w = WriteLatch::FirstWrite;
