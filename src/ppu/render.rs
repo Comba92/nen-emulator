@@ -76,7 +76,7 @@ impl OamEntry {
         let palette = 4 + (attributes & 0b11);
         let priority = match (attributes >> 5) & 1 != 0 {
             false => SpritePriority::Front,
-            true => SpritePriority::Behind,
+            true  => SpritePriority::Behind,
         };
         let flip_horizontal = attributes >> 6 & 1 != 0;
         let flip_vertical = attributes >> 7 & 1 != 0;
@@ -126,7 +126,7 @@ impl Ppu {
     let y = self.scanline;
 
     if !self.rendering_enabled() 
-      || !self.mask.contains(Mask::bg_strip) && x < 8
+      || !self.mask.contains(Mask::bg_strip_show) && x < 8
     {
       let color = self.color_from_palette(0, 0);
       self.screen.0.set_pixel(x, y, color);
@@ -142,7 +142,7 @@ impl Ppu {
       && (sprite.priority == SpritePriority::Front || bg_pixel == 0)
       && sprite.pixel != 0
     {
-      if !self.mask.contains(Mask::spr_strip) && x < 8 {
+      if !self.mask.contains(Mask::spr_strip_show) && x < 8 {
         self.color_from_palette(0, 0)
       } else {
         self.color_from_palette(sprite.pixel, sprite.palette_id)
@@ -158,9 +158,7 @@ impl Ppu {
       && sprite.pixel != 0 && bg_pixel != 0
       && self.mask.contains(Mask::bg_enabled)
       && self.mask.contains(Mask::spr_enabled)
-      && x != 255 
-      // if the sprite is not in the left black stripe
-      && pixel_color != 0
+      && x != 255
     {
       self.stat.insert(Stat::spr0_hit);
     }

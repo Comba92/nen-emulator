@@ -186,7 +186,7 @@ impl Ppu {
 			241 => {
 				if self.cycle == 1 {
 					self.vblank_started = Some(());
-					// self.stat.set(Stat::vblank, !self.nmi_skip);
+					self.stat.set(Stat::vblank, !self.nmi_skip);
 						self.stat.insert(Stat::vblank);
 
 					if self.ctrl.contains(Ctrl::nmi_enabled) {
@@ -292,10 +292,10 @@ impl Ppu {
 	pub fn read_reg(&mut self, addr: u16) -> u8 {
 		match addr {
 			0x2002 => {
-				// if self.scanline == 241 && (0..3).contains(&self.cycle) {
-				// 	self.nmi_skip = true;
-				// 	self.nmi_requested = None;
-				// }
+				if self.scanline == 241 && (0..3).contains(&self.cycle) {
+					self.nmi_skip = true;
+					self.nmi_requested = None;
+				}
 
 				let old_stat = self.stat.bits();
 				self.w = WriteLatch::FirstWrite;
