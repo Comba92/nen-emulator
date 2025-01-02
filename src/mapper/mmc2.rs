@@ -2,11 +2,11 @@ use crate::cart::Mirroring;
 
 use super::{Bank, Mapper, DEFAULT_CHR_BANK_SIZE, DEFAULT_PRG_BANK_SIZE};
 
-#[derive(Default, Clone, Copy)]
+#[derive(Clone, Default, Copy, serde::Serialize, serde::Deserialize)]
 enum Latch { FD, #[default] FE }
 
 // Mapper 9 https://www.nesdev.org/wiki/MMC2
-#[derive(Default)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct Mmc2 {
     prg_bank_select: Bank,
     chr_bank0_select: [Bank; 2],
@@ -14,6 +14,8 @@ pub struct Mmc2 {
     latch: [Latch; 2],
     mirroring: Mirroring,
 }
+
+#[typetag::serde]
 impl Mapper for Mmc2 {
     fn prg_bank_size(&self) -> usize { DEFAULT_PRG_BANK_SIZE/2 }
     fn chr_bank_size(&self) -> usize { DEFAULT_CHR_BANK_SIZE/2 }

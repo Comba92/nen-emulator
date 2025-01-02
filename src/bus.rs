@@ -7,11 +7,13 @@ enum BusDst {
   Ram, Ppu, Apu, SRam, Cart, Prg, Joypad1, Joypad2, OamDma, DmcDma, NoImpl
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct Bus {
-  ram: [u8; 0x800],
+  timing: ConsoleTiming,
+  ram: Vec<u8>,
+  // #[serde(serialize_with = "serialize_cart", deserialize_with = "deserialize_cart")]
   pub cart: SharedCart,
   pub ppu: Ppu,
-  ppu_step: fn(&mut Bus),
   ppu_pal_cycles: u8,
 
   pub apu: Apu,
@@ -89,7 +91,11 @@ impl Memory for Bus {
   }
   
   fn tick(&mut self) {
-    (self.ppu_step)(self);
+    match self.timing {
+      ConsoleTiming::PAL => self.ppu_step_pal(),
+      _ => self.ppu_step_nstc(),
+    };
+
     self.apu.step();
     self.cart.borrow_mut().mapper.notify_cpu_cycle();
   }
@@ -124,15 +130,11 @@ impl Bus {
     let timing = cart.header.timing;
     let cart = Rc::new(RefCell::new(cart));
     let ppu = Ppu::new(cart.clone());
-    let ppu_step = match timing {
-      ConsoleTiming::PAL => Self::ppu_step_pal,
-      _ => Self::ppu_step_nstc,
-    };
 
     Self {
-      ram: [0; 0x800], 
+      timing,
+      ram: vec![0; 0x800], 
       ppu,
-      ppu_step,
       ppu_pal_cycles: 0,
       apu: Apu::new(timing),
       cart,

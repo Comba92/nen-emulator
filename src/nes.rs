@@ -1,5 +1,7 @@
+
 use crate::{apu::Apu, bus::Bus, cart::{Cart, CartHeader}, cpu::Cpu, frame::FrameBuffer, joypad::{Joypad, JoypadButton}, ppu::Ppu};
 
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct Nes {
   cpu: Cpu<Bus>,
   pub is_paused: bool,

@@ -3,10 +3,12 @@ use super::{Bank, Mapper, ROM_START};
 // Mapper 3 https://www.nesdev.org/wiki/INES_Mapper_003
 // https://www.nesdev.org/wiki/CNROM
 
-#[derive(Default)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct INesMapper003 {
     chr_bank_select: Bank,
 }
+
+#[typetag::serde]
 impl Mapper for INesMapper003 {
     // Same as NROM
     fn prg_addr(&self, prg: &[u8], addr: usize) -> usize {

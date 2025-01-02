@@ -1,8 +1,9 @@
 use crate::cart::Mirroring;
 use bitfield_struct::bitfield;
+use serde::de::Visitor;
 use super::{Bank, Mapper, DEFAULT_PRG_BANK_SIZE, SRAM_START};
 
-#[derive(Default)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 enum IrqMode { #[default] Cycle, Scanline }
 
 #[bitfield(u16, order = Lsb)]
@@ -16,13 +17,42 @@ struct Byte {
   __: u8
 }
 
+impl serde::Serialize for Byte {
+	fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+	where
+		S: serde::Serializer {
+		serializer.serialize_u16(self.0)
+	}
+}
+impl<'de> serde::Deserialize<'de> for Byte {
+	fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+	where
+		D: serde::Deserializer<'de> {
+		struct ByteVisitor;
+		impl<'de> Visitor<'de> for ByteVisitor {
+			type Value = Byte;
+
+			fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+				formatter.write_str("u16")
+			}
+
+			fn visit_u16<E>(self, v: u16) -> Result<Self::Value, E>
+				where
+					E: serde::de::Error, {
+				Ok(Byte::from_bits(v))
+			}
+		}
+		deserializer.deserialize_u16(ByteVisitor)
+	}
+}
+
 // Mapper 21, 22, 23, 25
 // https://www.nesdev.org/wiki/VRC2_and_VRC4
 
-
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct Vrc2_4 {
   mapper: u16,
-  sram: [u8; 8 * 1024],
+  sram: Vec<u8>,
 
   swap_mode: bool,
   wram_ctrl: bool,
@@ -44,7 +74,7 @@ pub struct Vrc2_4 {
 
 impl Default for Vrc2_4 {
   fn default() -> Self {
-    Self { mapper: Default::default(), sram: [0; 8 * 1024], swap_mode: Default::default(), wram_ctrl: Default::default(), prg_bank0_select: Default::default(), prg_bank1_select: Default::default(), chr_banks_selects: Default::default(), latch: Default::default(), prescaler: Default::default(), irq_count: Default::default(), irq_latch: Default::default(), irq_enabled_after_ack: Default::default(), irq_enabled: Default::default(), irq_mode: Default::default(), irq_requested: Default::default(), mirroring: Default::default() }
+    Self { mapper: Default::default(), sram: vec![0; 8 * 1024], swap_mode: Default::default(), wram_ctrl: Default::default(), prg_bank0_select: Default::default(), prg_bank1_select: Default::default(), chr_banks_selects: Default::default(), latch: Default::default(), prescaler: Default::default(), irq_count: Default::default(), irq_latch: Default::default(), irq_enabled_after_ack: Default::default(), irq_enabled: Default::default(), irq_mode: Default::default(), irq_requested: Default::default(), mirroring: Default::default() }
   }
 }
 
@@ -104,6 +134,7 @@ impl Vrc2_4 {
   }
 }
 
+#[typetag::serde]
 impl Mapper for Vrc2_4 {
   fn prg_bank_size(&self) -> usize { DEFAULT_PRG_BANK_SIZE/2 }
   fn chr_bank_size(&self) -> usize { 1024 }

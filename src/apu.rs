@@ -15,7 +15,7 @@ mod triangle;
 mod noise;
 mod dmc;
 
-#[derive(Default)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 struct Timer {
   pub period: u16,
   count: u16,
@@ -45,7 +45,7 @@ const LENGTH_TABLE: [u8; 32] = [
   12, 16, 24, 18, 48, 20, 96, 22, 192, 24, 72, 26, 16, 28, 32, 30
 ];
 
-#[derive(Default)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 struct LengthCounter {
   count: u8,
   pub halted: bool,
@@ -86,7 +86,7 @@ pub trait Channel: Default {
   fn get_sample(&self) -> u8;
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, serde::Serialize, serde::Deserialize)]
 enum FrameCounterMode {
   Step4, Step5
 }
@@ -108,7 +108,7 @@ impl Into<u8> for FrameCounterMode {
 }
 
 bitflags! {
-  #[derive(Clone, Default)]
+  #[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
   struct Flags: u8 {
     const pulse1    = 0b0000_0001;
     const pulse2    = 0b0000_0010;
@@ -121,7 +121,9 @@ bitflags! {
   }
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct Apu {
+  timing: ConsoleTiming,
   pulse1: Pulse,
   pulse2: Pulse,
   triangle: Triangle,
@@ -130,7 +132,6 @@ pub struct Apu {
   
   frame_write_delay: usize,
   frame_mode: FrameCounterMode,
-  step_frame: fn(&mut Apu),
 
   irq_disabled: bool,
   pub frame_irq_flag: Option<()>,
@@ -150,15 +151,11 @@ pub struct Apu {
 
 impl Apu {
   pub fn new(timing: ConsoleTiming) -> Self {
-    let frame_step = match timing {
-      ConsoleTiming::PAL => Self::step_frame_pal,
-      _ => Self::step_frame_ntsc,
-    };
-
     let samples_per_second = 
       timing.frame_cpu_cycles() / ((44100.0 / timing.fps()) as f32);
     
     Self {
+      timing,
       pulse1: Pulse::default(),
       pulse2: Pulse::default(),
       triangle: Triangle::default(),
@@ -167,7 +164,6 @@ impl Apu {
 
       frame_write_delay: 0,
       frame_mode: FrameCounterMode::Step4,
-      step_frame: frame_step,
       
       irq_disabled: false,
       frame_irq_flag: None,
@@ -230,7 +226,10 @@ impl Apu {
       self.pulse2.step_timer();
       self.noise.step_timer();
 
-      (self.step_frame)(self)
+      match self.timing {
+        ConsoleTiming::PAL => self.step_frame_pal(),
+        _ => self.step_frame_ntsc(),
+      }
     }
     
     // TODO: i dont know if this is correct thing to do
@@ -405,6 +404,7 @@ impl Apu {
   }
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct LowPassIIR {
   alpha: f32,
   previous_output: f32,

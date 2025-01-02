@@ -1,11 +1,13 @@
 use super::{Bank, Mapper, DEFAULT_PRG_BANK_SIZE};
 
 // Mapper 66 https://www.nesdev.org/wiki/GxROM
-#[derive(Default)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct GxRom {
     prg_bank_select: Bank,
     chr_bank_select: Bank,
 }
+
+#[typetag::serde]
 impl Mapper for GxRom {
     fn prg_bank_size(&self) -> usize { DEFAULT_PRG_BANK_SIZE*2 }
 

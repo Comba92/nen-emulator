@@ -1,11 +1,13 @@
 use super::{Bank, Mapper, DEFAULT_PRG_BANK_SIZE};
 
 // Mapper 11 https://www.nesdev.org/wiki/Color_Dreams
-#[derive(Default)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct ColorDreams {
     prg_bank_select: Bank,
     chr_bank_select: Bank,
 }
+
+#[typetag::serde]
 impl Mapper for ColorDreams {
     fn prg_bank_size(&self) -> usize { DEFAULT_PRG_BANK_SIZE*2 }
 

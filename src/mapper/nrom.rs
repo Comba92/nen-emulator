@@ -1,7 +1,10 @@
 use super::{Mapper, ROM_START};
 
 // Mapper 0 https://www.nesdev.org/wiki/NROM
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct NRom;
+
+#[typetag::serde]
 impl Mapper for NRom {
   fn prg_addr(&self, prg: &[u8], addr: usize) -> usize {
     // if it only has 16KiB, then mirror to first bank

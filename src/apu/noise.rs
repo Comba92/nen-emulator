@@ -9,8 +9,9 @@ const NOISE_PERIOD_PAL: [u16; 16] = [
   4, 8, 14, 30, 60, 88, 118, 148, 188, 236, 354, 472, 708,  944, 1890, 3778
 ];
 
+#[derive(serde::Serialize, serde::Deserialize)]
 pub(super) struct Noise {
-  period_table: &'static [u16; 16],
+  timing: ConsoleTiming,
   envelope: Envelope,
   loop_enabled: bool,
   timer: Timer,
@@ -21,16 +22,14 @@ pub(super) struct Noise {
 
 impl Default for Noise {
     fn default() -> Self {
-      Self { period_table: &NOISE_PERIOD_NTSC, envelope_enabled: false, envelope: Default::default(), loop_enabled: Default::default(), timer: Default::default(), shift_reg: 1, length: Default::default() }
+      Self { timing: Default::default(), envelope_enabled: false, envelope: Default::default(), loop_enabled: Default::default(), timer: Default::default(), shift_reg: 1, length: Default::default() }
     }
 }
 
 impl Noise {
   pub fn new(timing: ConsoleTiming) -> Self {
     let mut res = Self::default();
-    if timing == ConsoleTiming::PAL {
-      res.period_table = &NOISE_PERIOD_PAL;
-    }
+    res.timing = timing;
     res
   }
 
@@ -39,9 +38,16 @@ impl Noise {
     self.envelope.set(val);
   }
   
+  fn period_table(&self) -> &[u16] {
+    match self.timing {
+      ConsoleTiming::PAL => &NOISE_PERIOD_PAL,
+      _ => &NOISE_PERIOD_NTSC
+    }
+  }
+
   pub fn set_noise(&mut self, val: u8) {
     self.loop_enabled = (val >> 7) & 1 != 0;
-    self.timer.period = self.period_table[val as usize & 0b1111];
+    self.timer.period = self.period_table()[val as usize & 0b1111];
   }
   
   pub fn set_length(&mut self, val: u8) {

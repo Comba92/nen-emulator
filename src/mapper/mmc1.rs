@@ -1,14 +1,15 @@
 use crate::cart::Mirroring;
 use super::{Bank, Mapper, DEFAULT_CHR_BANK_SIZE, DEFAULT_PRG_BANK_SIZE, SRAM_START};
 
-#[derive(Default, PartialEq)]
+#[derive(Default, PartialEq, serde::Serialize, serde::Deserialize)]
 enum PrgMode { Bank32kb, FixFirst16kb, #[default] FixLast16kb }
-#[derive(Default, PartialEq)]
+#[derive(Default, PartialEq, serde::Serialize, serde::Deserialize)]
 enum ChrMode { #[default] Bank8kb, Bank4kb }
 
 // Mapper 1 https://www.nesdev.org/wiki/MMC1
 // Variations SxRom suported
 
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct Mmc1 {
     sram: Vec<u8>,
 
@@ -35,7 +36,7 @@ impl Default for Mmc1 {
 impl Mmc1 {
     pub fn new(sram_size: usize) -> Self {
         let mut res = Self::default();
-        res.sram.resize(sram_size, 0);
+        res.sram = vec![0; sram_size];
         res
     }
 
@@ -109,6 +110,7 @@ impl Mmc1 {
     }
 }
 
+#[typetag::serde]
 impl Mapper for Mmc1 {
     fn prg_bank_size(&self) -> usize {
         match self.prg_mode {

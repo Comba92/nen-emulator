@@ -5,12 +5,13 @@ use super::{Bank, Mapper};
 // Mapper 71
 // https://www.nesdev.org/wiki/INES_Mapper_071
 
-#[derive(Default)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct INesMapper071 {
   prg_bank_select: Bank,
   mirroring: Option<Mirroring>,
 }
 
+#[typetag::serde]
 impl Mapper for INesMapper071 {
   fn prg_write(&mut self, _prg: &mut[u8], addr: usize, val: u8) {
     match addr {

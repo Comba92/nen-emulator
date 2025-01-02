@@ -2,34 +2,35 @@ use std::collections::VecDeque;
 
 use super::{Mask, Ppu, Stat, ATTRIBUTES, NAMETABLES, PALETTES};
 
-pub(super) struct Renderer {
-  state: RenderState,
-	data: RenderData,
+#[derive(serde::Serialize, serde::Deserialize)]
+pub(super) struct Fetcher {
+  state: FetcherState,
+	data: FetcherData,
   bg_fifo: VecDeque<(u8, u8)>,
   oam_tmp: Vec<OamEntry>,
-  spr_scanline: [Option<SprData>; 256]
+  spr_scanline: Vec<Option<SprData>>,
 }
 
-impl Renderer {
+impl Fetcher {
   pub fn new() -> Self {
     Self {
-      state: RenderState::default(),
-      data: RenderData::default(),
+      state: FetcherState::default(),
+      data: FetcherData::default(),
       // TODO: this is hacky as hell, find another way
       bg_fifo: VecDeque::from([(0,0)].repeat(9)),
       oam_tmp: Vec::new(),
-      spr_scanline: [const { None } ; 256],
+      spr_scanline: vec![None; 256],
     }
   }
 }
 
-#[derive(Default)]
-enum RenderState {
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+enum FetcherState {
   #[default] Nametbl, Attribute, PtrnLow, PtrnHigh
 }
 
-#[derive(Default)]
-pub (super) struct RenderData {
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+pub (super) struct FetcherData {
 	pub tile_id: u8,
 	pub palette_id: u8,
   pub tile_addr: u16,
@@ -37,7 +38,7 @@ pub (super) struct RenderData {
 	pub tile_plane1: u8,
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SprData {
 	pub pixel: u8,
 	pub palette_id: u8,
@@ -45,14 +46,14 @@ pub struct SprData {
 	pub is_sprite0: bool,
 }
 
-#[derive(Debug, PartialEq, Eq, Default, Clone, Copy)]
+#[derive(Debug, PartialEq, Default, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub enum SpritePriority {
     Front,
     #[default]
     Behind,
 }
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub(super) struct OamEntry {
     pub index: usize,
     pub y: usize,
@@ -175,7 +176,7 @@ impl Ppu {
     // We only do a render step in the odd cycles (each step is 2 cycles long)
     if self.cycle % 2 == 1 {
       match self.renderer.state {
-        RenderState::Nametbl => {
+        FetcherState::Nametbl => {
           // Load bg fifo
           for i in (0..8).rev() {
             let pixel = pixel_from_planes(
@@ -189,10 +190,10 @@ impl Ppu {
 
           let tile_addr = NAMETABLES + self.v.nametbl_idx();
           self.renderer.data.tile_id = self.peek_vram(tile_addr);
-          self.renderer.state = RenderState::Attribute;
+          self.renderer.state = FetcherState::Attribute;
         }
 
-        RenderState::Attribute => {
+        FetcherState::Attribute => {
           let attribute_addr = ATTRIBUTES
             + ((self.v.nametbl() as u16) << 10)
             + ((self.v.coarse_y() as u16) / 4) * 8
@@ -202,10 +203,10 @@ impl Ppu {
           let palette_id = self.palette_from_attribute(attribute);
 
           self.renderer.data.palette_id = palette_id;
-          self.renderer.state = RenderState::PtrnLow;
+          self.renderer.state = FetcherState::PtrnLow;
         }
 
-        RenderState::PtrnLow => {
+        FetcherState::PtrnLow => {
   				let tile_addr = self.ctrl.bg_ptrntbl_addr()
             + (self.renderer.data.tile_id as u16) * 16
             + self.v.fine_y() as u16;
@@ -213,14 +214,14 @@ impl Ppu {
           let plane0 = self.peek_vram(tile_addr);
           self.renderer.data.tile_addr = tile_addr;
           self.renderer.data.tile_plane0 = plane0;
-          self.renderer.state = RenderState::PtrnHigh;
+          self.renderer.state = FetcherState::PtrnHigh;
         }
 
-        RenderState::PtrnHigh => {
+        FetcherState::PtrnHigh => {
           let plane1 = self
             .peek_vram(self.renderer.data.tile_addr + 8);
           self.renderer.data.tile_plane1 = plane1;
-          self.renderer.state = RenderState::Nametbl;
+          self.renderer.state = FetcherState::Nametbl;
 
           self.increase_coarse_x();
         }

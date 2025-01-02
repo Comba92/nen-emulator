@@ -2,13 +2,14 @@ use crate::cart::Mirroring;
 
 use super::{Bank, Mapper, SRAM_START};
 
-#[derive(Default)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 enum PrgMode { #[default] SwapFirst, SwapLast }
-#[derive(Default)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 enum ChrMode { #[default] BiggerFirst, BiggerLast }
 // Mapper 4 https://www.nesdev.org/wiki/MMC3
 // Variation MMC6 supported
 
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct Mmc3 {
     bank_select: usize,
     prg_mode: PrgMode,
@@ -17,7 +18,7 @@ pub struct Mmc3 {
     
     bank_selects: [Bank; 8],
 
-    sram: [u8; 8 * 1024],
+    sram: Vec<u8>,
     sram_read_enabled: bool,
     sram_write_enabled: bool,
 
@@ -31,7 +32,7 @@ pub struct Mmc3 {
 
 impl Default for Mmc3 {
     fn default() -> Self {
-        Self { bank_select: Default::default(), prg_mode: Default::default(), chr_mode: Default::default(), mirroring: Default::default(), bank_selects: Default::default(), sram: [0; 8 * 1024], sram_read_enabled: Default::default(), sram_write_enabled: Default::default(), irq_counter: Default::default(), irq_latch: Default::default(), irq_reload: Default::default(), irq_enabled: Default::default(), irq_requested: Default::default() }
+        Self { bank_select: Default::default(), prg_mode: Default::default(), chr_mode: Default::default(), mirroring: Default::default(), bank_selects: Default::default(), sram: vec![0; 8 * 1024], sram_read_enabled: Default::default(), sram_write_enabled: Default::default(), irq_counter: Default::default(), irq_latch: Default::default(), irq_reload: Default::default(), irq_enabled: Default::default(), irq_requested: Default::default() }
     }
 }
 
@@ -62,6 +63,7 @@ impl Mmc3 {
     }
 }
 
+#[typetag::serde]
 impl Mapper for Mmc3 {
     fn prg_bank_size(&self) -> usize { 8*1024 }
     fn chr_bank_size(&self) -> usize { 1024 }

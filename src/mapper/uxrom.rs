@@ -1,10 +1,12 @@
 use super::Mapper;
 
 // Mapper 2 https://www.nesdev.org/wiki/UxROM
-#[derive(Default)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct UxRom {
     prg_bank_select: usize,
 }
+
+#[typetag::serde]
 impl Mapper for UxRom {
     fn prg_addr(&self, prg: &[u8], addr: usize) -> usize {
         let bank = match addr {

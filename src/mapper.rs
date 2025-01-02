@@ -19,13 +19,14 @@ use inesmapper71::INesMapper071;
 use mmc1::Mmc1;
 use mmc2::Mmc2;
 use mmc3::Mmc3;
-use mmc5::Mmc5;
+// use mmc5::Mmc5;
 use nrom::NRom;
 use uxrom::UxRom;
 use vrc2_4::Vrc2_4;
 
 use crate::cart::Mirroring;
 
+#[typetag::serde(tag = "type")]
 pub trait Mapper {
     fn prg_addr(&self, _prg: &[u8], addr: usize) -> usize { addr - ROM_START }
     fn chr_addr(&self, _chr: &[u8], addr: usize) -> usize { addr }
@@ -85,7 +86,7 @@ pub fn new_mapper(mapper: u16, _submapper: u8, sram_size: usize) -> Result<CartM
         2  => Box::new(UxRom::default()),
         3  => Box::new(INesMapper003::default()),
         4  => Box::new(Mmc3::default()),
-        5  => Box::new(Mmc5::new(sram_size)),
+        // 5  => Box::new(Mmc5::new(sram_size)),
         7  => Box::new(AxRom::default()),
         9  => Box::new(Mmc2::default()),
         11 => Box::new(ColorDreams::default()),
@@ -132,10 +133,130 @@ const DEFAULT_PRG_BANK_SIZE: usize = 16*1024; // 16 KiB
 const DEFAULT_CHR_BANK_SIZE: usize = 8*1024; // 8 KiB
 pub(self) type Bank = usize;
 
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct Dummy;
+#[typetag::serde]
 impl Mapper for Dummy {
     fn prg_write(&mut self, _prg: &mut[u8], _addr: usize, _val: u8) {}
     fn prg_read(&mut self, _prg: &[u8], _addr: usize) -> u8 { 0 }
     fn chr_read(&mut self, _chr: &[u8], _addr: usize) -> u8 { 0 }
 }
 
+// #[derive(Debug)]
+// struct BanksConfig {
+//     prg_banks: Vec<usize>,
+//     prg_bank_size: usize,
+//     prg_banks_count: usize,
+//     chr_banks: Vec<usize>,
+//     chr_bank_size: usize,
+//     chr_banks_count: usize,
+// }
+// impl BanksConfig {
+//     pub fn new(
+//         prg_bank_size: usize,
+//         chr_bank_size: usize,
+//     ) -> Self {
+//         let mut prg_banks = Vec::new();
+//         for bank_start in 0..(32*1024)/prg_bank_size {
+//             prg_banks.push(0x8000 + bank_start*prg_bank_size);
+//         }
+
+//         let mut chr_banks = Vec::new();
+//         for bank_start in 0..(8*1024)/chr_bank_size {
+//             chr_banks.push(bank_start*chr_bank_size);
+//         }
+
+//         Self { 
+//             prg_banks_count: prg_banks.len(),
+//             chr_banks_count: chr_banks.len(),
+//             prg_banks,
+//             prg_bank_size,
+//             chr_banks,
+//             chr_bank_size,
+//         }
+//     }
+
+//     pub fn prg_switch(&mut self, bank_old: usize, bank_new: usize) {
+//         let tmp = self.prg_banks[bank_old];
+//         self.prg_banks[bank_old] = self.prg_banks[bank_new];
+//         self.prg_banks[bank_new] = tmp;
+//     }
+
+//     pub fn chr_switch(&mut self, bank_old: usize, bank_new: usize) {
+//         let tmp = self.chr_banks[bank_old];
+//         self.chr_banks[bank_old] = self.chr_banks[bank_new];
+//         self.chr_banks[bank_new] = tmp;
+//     }
+
+//     pub fn prg_addr(&self, addr: usize) -> usize {
+//         let window = (addr - 0x8000) / self.prg_bank_size;
+//         let bank = self.prg_banks[window] * self.prg_bank_size;
+//         let offset = addr % self.prg_bank_size;
+//         bank + offset
+//     }
+
+//     pub fn chr_addr(&self, addr: usize) -> usize {
+//         let window = addr / self.chr_bank_size;
+//         let bank = self.chr_banks[window] * self.chr_bank_size;
+//         let offset = addr % self.chr_bank_size;
+//         bank + offset
+//     }
+// }
+
+
+// #[cfg(test)]
+// mod banking_tests {
+//     use super::BanksConfig;
+
+//     #[test]
+//     fn banking() {
+//         let nrom = BanksConfig::new(
+//             16*1024,
+//             8 * 1024,
+//         );
+//         println!("NROM {:X?}", nrom);
+
+//         let uxrom = BanksConfig::new(
+//             16*1024,
+//             8*1024,
+//         );
+//         println!("UxROM {:x?}", uxrom);
+
+//         let mmc1 = BanksConfig::new(
+//             16*1024,
+//             4*1024,
+//         );
+//         println!("MMC1 {:x?}", mmc1);
+//         let addr = mmc1.prg_addr(0xC060);
+//         println!("{addr}");
+
+//         let cnrom = BanksConfig::new(
+//             16*1024,
+//             8*1024,
+//         );
+//         println!("CNROM {:x?}", cnrom);
+
+//         let mmc3 = BanksConfig::new(
+//             8*1024,
+//             1*1024,
+//         );
+//         println!("MMC3 {:x?}", mmc3);
+
+//         let axrom = BanksConfig::new(
+//             32*1024,
+//             8*1024,
+//         );
+//         println!("AxROM {:x?}", axrom);
+
+//         let gxrom = BanksConfig::new(
+//             32*1024,
+//             8*1024,
+//         );
+//         println!("GxROM {:x?}", gxrom);
+
+//         let mmc2 = BanksConfig::new(
+//             8*1024, 4*1024
+//         );
+//         println!("MMC2 {:x?}", mmc2);
+//     }
+// }

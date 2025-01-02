@@ -1,12 +1,13 @@
 use crate::{cart::{ConsoleTiming, SharedCart}, frame::NesScreen};
 use bitfield_struct::bitfield;
 use bitflags::bitflags;
-use render::Renderer;
+use render::Fetcher;
+use serde::de::Visitor;
 
 mod render;
 
 bitflags! {
-	#[derive(Debug)]
+	#[derive(Debug, serde::Serialize, serde::Deserialize)]
 	struct Ctrl: u8 {
 		const base_nametbl = 0b0000_0011;
 		const vram_incr    = 0b0000_0100;
@@ -18,7 +19,7 @@ bitflags! {
 		const nmi_enabled  = 0b1000_0000;
 	}
 
-	#[derive(Debug)]
+	#[derive(Debug, serde::Serialize, serde::Deserialize)]
 	struct Mask: u8 {
 		const greyscale      = 0b0000_0001;
 		const bg_strip_show  = 0b0000_0010;
@@ -31,7 +32,7 @@ bitflags! {
 		const green_boost = 0b1000_0000;
 	}
 
-	#[derive(Debug)]
+	#[derive(Debug, serde::Serialize, serde::Deserialize)]
 	struct Stat: u8 {
 		const open_bus     = 0b0001_1111;
 		const spr_overflow = 0b0010_0000;
@@ -89,8 +90,37 @@ impl LoopyReg {
 		((self.nametbl() as u16) << 10) | ((self.coarse_y() as u16) << 5) | (self.coarse_x() as u16)
 	}
 }
+impl serde::Serialize for LoopyReg {
+	fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+	where
+		S: serde::Serializer {
+		serializer.serialize_u16(self.0)
+	}
+}
+impl<'de> serde::Deserialize<'de> for LoopyReg {
+	fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+	where
+		D: serde::Deserializer<'de> {
+		struct LoopyVisitor;
+		impl<'de> Visitor<'de> for LoopyVisitor {
+			type Value = LoopyReg;
 
-#[derive(Debug)]
+			fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+				formatter.write_str("u16")
+			}
+
+			fn visit_u16<E>(self, v: u16) -> Result<Self::Value, E>
+				where
+					E: serde::de::Error, {
+				Ok(LoopyReg::from_bits(v))
+			}
+		}
+		deserializer.deserialize_u16(LoopyVisitor)
+	}
+}
+
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 enum WriteLatch {
 	FirstWrite,
 	SecondWrite,
@@ -107,9 +137,11 @@ pub const NAMETABLES: u16 = 0x2000;
 pub const ATTRIBUTES: u16 = 0x23C0;
 pub const PALETTES: u16 = 0x3F00;
 
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct Ppu {
+	#[serde(skip)]
 	pub screen: NesScreen,
-	renderer: Renderer,
+	renderer: Fetcher,
 
 	v: LoopyReg,   // current vram address
 	t: LoopyReg,   // temporary vram address / topleft onscreen tile
@@ -122,10 +154,11 @@ pub struct Ppu {
 	oam_addr: u8,
 	data_buf: u8,
 	
+  // #[serde(serialize_with = "serialize_cart", deserialize_with = "deserialize_cart")]
 	cart: SharedCart,
-	vram: [u8; 0x800],
+	vram: Vec<u8>,
 	palettes: [u8; 32],
-	oam: [u8; 256],
+	oam: Vec<u8>,
 	
 	pub scanline: usize,
 	pub last_scanline: usize,
@@ -143,7 +176,7 @@ impl Ppu {
 		
 		Self {
 			screen: NesScreen::default(),
-			renderer: Renderer::new(),
+			renderer: Fetcher::new(),
 
 			v: LoopyReg::new(),
 			t: LoopyReg::new(),
@@ -151,9 +184,9 @@ impl Ppu {
 			w: WriteLatch::FirstWrite,
 
 			cart,
-			vram: [0; 0x800],
+			vram: vec![0; 0x800],
 			palettes: [0; 32],
-			oam: [0; 256],
+			oam: vec![0; 256],
 
 			oam_addr: 0,
 			data_buf: 0,

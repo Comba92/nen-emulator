@@ -2,7 +2,7 @@ use std::{cell::RefCell, rc::Rc};
 
 use crate::mapper::{self, Dummy, Mapper};
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CartHeader {
   pub format: HeaderFormat,
   pub console_type: ConsoleType,
@@ -35,9 +35,9 @@ const HEADER_SIZE: usize = 16;
 const PRG_ROM_PAGE_SIZE: usize = 1024 * 16;
 const CHR_ROM_PAGE_SIZE: usize = 1024 * 8;
 
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum HeaderFormat { #[default] INes, Nes2_0 }
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub enum Mirroring { 
   #[default] Horizontal, 
   Vertical,
@@ -46,9 +46,9 @@ pub enum Mirroring {
   FourScreen
 }
 
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub enum ConsoleType { #[default] NES, VsSystem, Playchoice10, Other }
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ConsoleTiming { NTSC, PAL, World, Dendy, #[default] Unknown }
 impl ConsoleTiming {
   pub fn fps(&self) -> f32 {
@@ -196,7 +196,9 @@ impl CartHeader {
   }
 }
 
+
 pub type SharedCart = Rc<RefCell<Cart>>;
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct Cart {
   pub header: CartHeader,
   pub prg: Vec<u8>,
@@ -226,9 +228,7 @@ impl Cart {
 
     let prg = rom[prg_start..chr_start].to_vec();
     let chr = if header.uses_chr_ram {
-      let mut chr = Vec::new();
-      chr.resize(header.chr_ram_size, 0);
-      chr
+      vec![0; header.chr_ram_size]
     }
     else { 
       rom[chr_start..chr_start+header.chr_size].to_vec()

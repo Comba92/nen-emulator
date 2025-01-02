@@ -46,7 +46,6 @@ impl FrameBuffer {
   }
 }
 
-
 pub struct NesScreen(pub FrameBuffer);
 impl Default for NesScreen {
   fn default() -> Self {

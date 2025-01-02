@@ -5,7 +5,7 @@ use bitflags::bitflags;
 use crate::{bus::Bus, cart::Cart, instr::{AddressingMode, Instruction, INSTRUCTIONS, RMW_INSTRS}, mem::{Memory, Ram64Kb}};
 
 bitflags! {
-  #[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
   pub struct CpuFlags: u8 {
     const carry     = 0b0000_0001;
     const zero      = 0b0000_0010;
@@ -34,6 +34,7 @@ const NMI_ISR: u16 = 0xFFFA;
 const RESET_ISR: u16 = 0xFFFC;
 const IRQ_ISR: u16 = 0xFFFE;
 
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct Cpu<M: Memory> {
   pub pc: u16,
   pub sp: u8,

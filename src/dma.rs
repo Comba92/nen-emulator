@@ -5,7 +5,7 @@ pub trait Dma: Default {
   fn is_transfering(&self) -> bool;
 }
 
-#[derive(Default)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct OamDma {
   pub start: u16,
   pub offset: u16,
@@ -30,7 +30,7 @@ impl Dma for OamDma {
   }
 }
 
-#[derive(Default)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct DmcDma {
   pub addr: u16,
   pub remaining: u16,

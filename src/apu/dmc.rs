@@ -3,15 +3,16 @@
 use crate::{cart::ConsoleTiming, dma::{Dma, DmcDma}};
 use super::{Channel, Timer};
 
-const DMC_RATE_TABLE_NTSC: [u16; 16] = [
+const RATE_TABLE_NTSC: [u16; 16] = [
   428, 380, 340, 320, 286, 254, 226, 214, 190, 160, 142, 128, 106,  84,  72,  54
 ];
-const DMC_RATE_TABLE_PAL: [u16; 16] = [
+const RATE_TABLE_PAL: [u16; 16] = [
   398, 354, 316, 298, 276, 236, 210, 198, 176, 148, 132, 118,  98,  78,  66,  50
 ];
 
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct Dmc {
-  rate_table: &'static[u16; 16],
+  timing: ConsoleTiming,
   pub irq_enabled: bool,
   pub irq_flag: Option<()>,
   pub loop_enabled: bool,
@@ -31,7 +32,7 @@ pub struct Dmc {
 
 impl Default for Dmc {
   fn default() -> Self {
-    Self { rate_table: &DMC_RATE_TABLE_NTSC, irq_enabled: Default::default(), irq_flag: Default::default(), loop_enabled: Default::default(), timer: Default::default(), level: Default::default(), buffer_empty: true, buffer: Default::default(), bits_remaining: Default::default(), address: Default::default(), length: Default::default(), shift_reg: Default::default(), silence: true, reader: Default::default() }
+    Self { timing: Default::default(), irq_enabled: Default::default(), irq_flag: Default::default(), loop_enabled: Default::default(), timer: Default::default(), level: Default::default(), buffer_empty: true, buffer: Default::default(), bits_remaining: Default::default(), address: Default::default(), length: Default::default(), shift_reg: Default::default(), silence: true, reader: Default::default() }
   }
 }
 
@@ -39,16 +40,21 @@ impl Default for Dmc {
 impl Dmc {
   pub fn new(timing: ConsoleTiming) -> Self {
     let mut res = Self::default();
-    if timing == ConsoleTiming::PAL {
-      res.rate_table = &DMC_RATE_TABLE_PAL;
-    }
+    res.timing = timing;
     res
+  }
+
+  fn rate_table(&self) -> &[u16] {
+    match self.timing {
+      ConsoleTiming::PAL => &RATE_TABLE_PAL,
+      _ => &RATE_TABLE_NTSC
+    }
   }
 
   pub fn write_ctrl(&mut self, val: u8) {
     self.irq_enabled = val & 0b1000_0000 != 0;
     self.loop_enabled = val & 0b0100_0000 != 0;
-    self.timer.period = self.rate_table[val as usize & 0b1111];
+    self.timer.period = self.rate_table()[val as usize & 0b1111];
 
     if !self.irq_enabled {
       self.irq_flag = None;
