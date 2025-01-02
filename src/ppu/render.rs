@@ -170,7 +170,7 @@ impl Ppu {
   pub(super) fn bg_step(&mut self) {
     self.renderer.bg_fifo.pop_front();
     // We render only during the visilbe frames (1 to 256)
-    if self.cycle-1 < 256 && self.scanline != 261 { self.render_pixel(); }
+    if self.cycle-1 < 256 && self.scanline != self.last_scanline { self.render_pixel(); }
 
     // We only do a render step in the odd cycles (each step is 2 cycles long)
     if self.cycle % 2 == 1 {

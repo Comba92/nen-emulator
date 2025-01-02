@@ -1,4 +1,4 @@
-use crate::{cart::SharedCart, frame::NesScreen};
+use crate::{cart::{ConsoleTiming, SharedCart}, frame::NesScreen};
 use bitfield_struct::bitfield;
 use bitflags::bitflags;
 use render::Renderer;
@@ -128,6 +128,7 @@ pub struct Ppu {
 	oam: [u8; 256],
 	
 	pub scanline: usize,
+	pub last_scanline: usize,
 	pub cycle: usize,
 	in_odd_frame: bool,
 	
@@ -138,6 +139,8 @@ pub struct Ppu {
 
 impl Ppu {
 	pub fn new(cart: SharedCart) -> Self {
+		let last_scanline = 241 + cart.borrow().header.timing.vblank_len();
+		
 		Self {
 			screen: NesScreen::default(),
 			renderer: Renderer::new(),
@@ -156,7 +159,8 @@ impl Ppu {
 			data_buf: 0,
 
 			in_odd_frame: false,
-			scanline: 261,
+			scanline: last_scanline,
+			last_scanline,
 			cycle: 0,
 			ctrl: Ctrl::empty(),
 			mask: Mask::empty(),
@@ -177,45 +181,44 @@ impl Ppu {
 		self.in_odd_frame = false;
 
 		self.cycle = 0;
-		self.scanline = 261;
+		self.scanline = self.last_scanline;
 	}
 
 	pub fn step(&mut self) {
-		match self.scanline {
-			(0..=239) => self.render_step(),
-			241 => {
-				if self.cycle == 1 {
-					self.vblank_started = Some(());
-					self.stat.set(Stat::vblank, !self.nmi_skip);
-						self.stat.insert(Stat::vblank);
+		if (0..=239).contains(&self.scanline) {
+			self.render_step();
+		} else if self.scanline == 241 {
+			if self.cycle == 1 {
+				self.vblank_started = Some(());
+				self.stat.set(Stat::vblank, !self.nmi_skip);
+				self.stat.insert(Stat::vblank);
 
-					if self.ctrl.contains(Ctrl::nmi_enabled) {
-						self.nmi_requested = Some(());
-					}
+				if self.ctrl.contains(Ctrl::nmi_enabled) {
+					self.nmi_requested = Some(());
 				}
 			}
-			261 => {
-				self.render_step();
+		} else if self.scanline == self.last_scanline {
+			self.render_step();
 
-				if self.cycle == 1 {
-					self.stat = Stat::empty();
-					self.oam_addr = 0;
-				} else if self.cycle == 304 {
-					self.reset_render_y();
-				} else if self.cycle == 339 && self.in_odd_frame
-				&& self.rendering_enabled() {
-					// Odd cycle skip
-					self.cycle += 1;
-				}
+			if self.cycle == 1 {
+				self.stat = Stat::empty();
+				self.oam_addr = 0;
+			} else if self.cycle == 304 {
+				self.reset_render_y();
+			} else if self.cart.borrow().header.timing != ConsoleTiming::PAL 
+				&& self.cycle == 339 && self.in_odd_frame
+				&& self.rendering_enabled()
+			{
+				// Odd cycle skip, this isn't present in PAL
+				self.cycle += 1;
 			}
-			_ => {}
 		}
 
 		self.cycle += 1;
 		if self.cycle > 340 {
 			self.cycle = 0;
 			self.scanline += 1;
-			if self.scanline > 261 {
+			if self.scanline > self.last_scanline {
 				self.scanline = 0;
 				self.in_odd_frame = !self.in_odd_frame;
 				self.nmi_skip = false;

@@ -1,5 +1,5 @@
 use core::fmt;
-use std::{cell::RefCell, fs, path::Path, rc::Rc};
+use std::{cell::RefCell, rc::Rc};
 
 use crate::mapper::{self, Dummy, Mapper};
 
@@ -8,6 +8,9 @@ pub struct CartHeader {
   pub format: HeaderFormat,
   pub console_type: ConsoleType,
   pub timing: ConsoleTiming,
+  pub frame_freq: f64,
+
+
   pub game_title: String,
   pub has_trainer: bool,
   pub mirroring: Mirroring,
@@ -47,11 +50,52 @@ pub enum Mirroring {
 }
 
 #[derive(Debug, Default, Clone, Copy)]
-pub enum TvSystem { #[default] NTSC, PAL }
-#[derive(Debug, Default, Clone, Copy)]
 pub enum ConsoleType { #[default] NES, VsSystem, Playchoice10, Other }
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub enum ConsoleTiming { NTSC, PAL, World, Dendy, #[default] Unknown }
+impl ConsoleTiming {
+  pub fn fps(&self) -> f32 {
+    use ConsoleTiming::*;
+    match self {
+      PAL | Dendy => 50.0070,
+      _ => 60.0988,
+    }
+  }
+
+  pub fn cpu_hz(&self) -> usize {
+    use ConsoleTiming::*;
+    match self {
+      PAL => 1662607,
+      Dendy => 1773448,
+      _ => 1789773
+    }
+  }
+
+  pub fn frame_ppu_cycles(&self) -> usize {
+    use ConsoleTiming::*;
+    match self {
+      PAL | Dendy => 106392,
+      _ => 89341,
+    }
+  }
+
+  pub fn frame_cpu_cycles(&self) -> f32 {
+    use ConsoleTiming::*;
+    match self {
+      PAL => 33247.5,
+      Dendy => 35464.0,
+      _ => 29780.5,
+    }
+  }
+
+  pub fn vblank_len(&self) -> usize {
+    use ConsoleTiming::*;
+    match self {
+      PAL => 70,
+      _ => 20,
+    }
+  }
+}
 
 impl CartHeader {
   pub fn new(rom: &[u8]) -> Result<Self, &'static str> {
@@ -153,19 +197,6 @@ impl CartHeader {
 
     Ok(header)
   }
-}
-
-pub trait Header: fmt::Debug {
-  fn has_trainer(&self) -> bool;
-  fn has_battery(&self) -> bool;
-  fn has_chr_ram(&self) -> bool;
-  fn prg_size(&self) -> usize;
-  fn chr_size(&self) -> usize;
-  fn chr_ram_size(&self) -> usize;
-  fn sram_size(&self) -> usize;
-  fn mirroring(&self) -> Mirroring;
-  fn mapper(&self) -> (u16, u8);
-  fn timing(&self) -> ConsoleTiming;
 }
 
 pub type SharedCart = Rc<RefCell<Cart>>;

@@ -6,6 +6,8 @@ use noise::Noise;
 use pulse::Pulse;
 use triangle::Triangle;
 
+use crate::cart::ConsoleTiming;
+
 mod envelope;
 
 mod pulse;
@@ -128,15 +130,18 @@ pub struct Apu {
   
   frame_write_delay: usize,
   frame_mode: FrameCounterMode,
+  step_frame: fn(&mut Apu),
 
   irq_disabled: bool,
   pub frame_irq_flag: Option<()>,
 
   pub samples: Vec<f32>,
+  samples_per_second: f32,
+  sample_cycles: f32,
+
   low_pass_filter: LowPassIIR,
 
   cycles: usize,
-  sample_cycles: f32,
 }
 
 // pub fn sample_f32_to_i16(sample: f32) -> i16 {
@@ -144,29 +149,38 @@ pub struct Apu {
 // }
 
 impl Apu {
-  pub fn new() -> Self {
-    let apu = Apu {
+  pub fn new(timing: ConsoleTiming) -> Self {
+    let frame_step = match timing {
+      ConsoleTiming::PAL => Self::step_frame_pal,
+      _ => Self::step_frame_ntsc,
+    };
+
+    let samples_per_second = 
+      timing.frame_cpu_cycles() / ((44100.0 / timing.fps()) as f32);
+    
+    Self {
       pulse1: Pulse::default(),
       pulse2: Pulse::default(),
       triangle: Triangle::default(),
-      noise: Noise::default(),
-      dmc: Dmc::default(),
+      noise: Noise::new(timing),
+      dmc: Dmc::new(timing),
 
       frame_write_delay: 0,
       frame_mode: FrameCounterMode::Step4,
+      step_frame: frame_step,
       
       irq_disabled: false,
       frame_irq_flag: None,
 
       samples: Vec::new(),
+      samples_per_second,
+      sample_cycles: 0.0,
+
       low_pass_filter: LowPassIIR
         ::new(1789773.0, 0.45 * 44100.0),
 
       cycles: 0,
-      sample_cycles: 0.0,
-    };
-
-    apu
+    }
   }
 
   pub fn reset(&mut self) {
@@ -202,14 +216,12 @@ impl Apu {
     let sample = self.mix_channels();
     self.low_pass_filter.consume(sample);
 
-    if self.sample_cycles >= 40.517687075 {
+    if self.sample_cycles >= self.samples_per_second {
       let output = self.low_pass_filter.output();
       self.samples.push(output);
-
-      self.sample_cycles -= 40.517687075;
+      self.sample_cycles -= self.samples_per_second;
     }
     self.sample_cycles += 1.0;
-
     
     self.dmc.step_timer();
     self.triangle.step_timer();
@@ -218,7 +230,7 @@ impl Apu {
       self.pulse2.step_timer();
       self.noise.step_timer();
 
-      self.step_frame();
+      (self.step_frame)(self)
     }
     
     // TODO: i dont know if this is correct thing to do
@@ -259,7 +271,7 @@ impl Apu {
     self.pulse2.step_sweep(true);
   }
 
-  fn step_frame(&mut self) {
+  fn step_frame_ntsc(&mut self) {
     match (self.cycles/2, &self.frame_mode) {
       (3728 | 11185, _) => self.step_quarter_frame(),
       (7465, _) => self.step_half_frame(),
@@ -272,6 +284,26 @@ impl Apu {
         }
       }
       (18640, FrameCounterMode::Step5) => {
+        self.step_half_frame();
+        self.cycles = 0;
+      }
+      _ => {}
+    }
+  }
+
+  fn step_frame_pal(&mut self) {
+    match (self.cycles/2, &self.frame_mode) {
+      (4156 | 12469, _) => self.step_quarter_frame(),
+      (8313, _) => self.step_half_frame(),
+      (16626, FrameCounterMode::Step4) => {
+        self.step_half_frame();
+        self.cycles = 0;
+
+        if !self.irq_disabled {
+          self.frame_irq_flag = Some(());
+        }
+      }
+      (20783, FrameCounterMode::Step5) => {
         self.step_half_frame();
         self.cycles = 0;
       }

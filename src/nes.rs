@@ -1,4 +1,4 @@
-use crate::{apu::Apu, bus::Bus, cart::Cart, cpu::Cpu, frame::FrameBuffer, joypad::{Joypad, JoypadButton}, ppu::Ppu};
+use crate::{apu::Apu, bus::Bus, cart::{Cart, CartHeader}, cpu::Cpu, frame::FrameBuffer, joypad::{Joypad, JoypadButton}, ppu::Ppu};
 
 pub struct Nes {
   cpu: Cpu<Bus>,
@@ -87,9 +87,15 @@ impl Nes {
     &mut self.cpu.bus.apu
   }
 
-  pub fn get_cart_data(&self) -> String {
-    format!("{:#?}", self.cpu.bus.cart.borrow().header)
+  pub fn get_cart(&self) -> CartHeader {
+    self.cpu.bus.cart.borrow().header.clone()
   }
+
+  pub fn get_fps(&mut self) -> f32 {
+    self.get_bus().cart.borrow().header.timing.fps()
+  }
+
+  pub fn get_resolution(&mut self) -> (usize, usize) { (256, 240) }
 
   pub fn get_screen(&self) -> &FrameBuffer {
     &self.cpu.bus.ppu.screen.0

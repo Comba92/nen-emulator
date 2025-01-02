@@ -1,6 +1,6 @@
 use std::{cell::RefCell, rc::Rc};
 
-use crate::{apu::Apu, cart::{Cart, SharedCart}, dma::{Dma, OamDma}, joypad::Joypad, mem::Memory, ppu::Ppu};
+use crate::{apu::Apu, cart::{Cart, ConsoleTiming, SharedCart}, dma::{Dma, OamDma}, joypad::Joypad, mem::Memory, ppu::Ppu};
 
 #[derive(Debug)]
 enum BusDst {
@@ -11,6 +11,9 @@ pub struct Bus {
   ram: [u8; 0x800],
   pub cart: SharedCart,
   pub ppu: Ppu,
+  ppu_step: fn(&mut Bus),
+  ppu_pal_cycles: u8,
+
   pub apu: Apu,
   pub joypad: Joypad,
   pub oam_dma: OamDma,
@@ -86,7 +89,7 @@ impl Memory for Bus {
   }
   
   fn tick(&mut self) {
-    for _ in 0..3 { self.ppu.step(); }
+    (self.ppu_step)(self);
     self.apu.step();
     self.cart.borrow_mut().mapper.notify_cpu_cycle();
   }
@@ -118,16 +121,40 @@ impl Memory for Bus {
 
 impl Bus {
   pub fn new(cart: Cart) -> Self {
+    let timing = cart.header.timing;
     let cart = Rc::new(RefCell::new(cart));
     let ppu = Ppu::new(cart.clone());
+    let ppu_step = match timing {
+      ConsoleTiming::PAL => Self::ppu_step_nstc,
+      _ => Self::ppu_step_nstc,
+    };
 
     Self {
       ram: [0; 0x800], 
       ppu,
-      apu: Apu::new(),
+      ppu_step,
+      ppu_pal_cycles: 0,
+      apu: Apu::new(timing),
       cart,
       joypad: Joypad::new(),
       oam_dma: OamDma::default(),
+    }
+  }
+
+  fn ppu_step_nstc(&mut self) {
+    for _ in 0..3 { self.ppu.step(); }
+  }
+
+  fn ppu_step_pal(&mut self) {
+    for _ in 0..3 { self.ppu.step(); }
+    
+    if self.cart.borrow().header.timing == ConsoleTiming::PAL {
+      // PPU is run for 3.2 cycles on PAL
+      self.ppu_pal_cycles += 1;
+      if self.ppu_pal_cycles >= 5 {
+        self.ppu_pal_cycles = 0;
+        self.ppu.step();
+      }
     }
   }
 

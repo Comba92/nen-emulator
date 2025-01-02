@@ -1,5 +1,6 @@
 # TODO
 - BUG: Battletoads 1&2 crashes because no sprite 0 hit (requires 3 cycles delay for ppu mask write)
+- Get rid of refcell
 
 [x] CPU COMPLETED
 - Better operand handling?
@@ -18,7 +19,6 @@
 
 [x] APU
 - Cleaner implementation (it is better now but work can still be done)
-- PAL support?
 - Audio filters?
 
 [x] Support for zip files
