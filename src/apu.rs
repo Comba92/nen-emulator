@@ -177,7 +177,7 @@ impl Apu {
       sample_cycles: 0.0,
 
       low_pass_filter: LowPassIIR
-        ::new(1789773.0, 0.45 * 44100.0),
+        ::new(timing.cpu_hz() as f32, 0.45 * 44100.0),
 
       cycles: 0,
     }
@@ -205,10 +205,10 @@ impl Apu {
     // Meaning for a single frame we need 44100 / 60 = 735 samples.
     // Then, we have to output a sample every 29780.5 / 735 = 40.5 cycles!
 
-    // if self.sample_cycles >= 40.517687075 {
+    // if self.sample_cycles >= self.samples_per_second {
     //   let sample = self.mix_channels();
     //   self.current_sample = Some(sample);
-    //   self.sample_cycles -= 40.517687075;
+    //   self.sample_cycles -= self.samples_per_second;
     // }
     // self.sample_cycles += 1.0;
 
@@ -324,8 +324,8 @@ impl Apu {
       + 0.00494 * noise as f32
       + 0.00335 * dmc as f32;
       
-      let sum = pulse_out + tnd_out;
-      sum
+    let sum = pulse_out + tnd_out;
+    sum
   }
 
   pub fn read_reg(&mut self, addr: u16) -> u8 {

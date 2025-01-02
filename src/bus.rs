@@ -125,7 +125,7 @@ impl Bus {
     let cart = Rc::new(RefCell::new(cart));
     let ppu = Ppu::new(cart.clone());
     let ppu_step = match timing {
-      ConsoleTiming::PAL => Self::ppu_step_nstc,
+      ConsoleTiming::PAL => Self::ppu_step_pal,
       _ => Self::ppu_step_nstc,
     };
 

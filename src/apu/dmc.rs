@@ -48,7 +48,7 @@ impl Dmc {
   pub fn write_ctrl(&mut self, val: u8) {
     self.irq_enabled = val & 0b1000_0000 != 0;
     self.loop_enabled = val & 0b0100_0000 != 0;
-    self.timer.period = DMC_RATE_TABLE_NTSC[val as usize & 0b1111];
+    self.timer.period = self.rate_table[val as usize & 0b1111];
 
     if !self.irq_enabled {
       self.irq_flag = None;
@@ -87,20 +87,6 @@ impl Dmc {
         self.irq_flag = Some(());
       }
     }
-
-    // if(self.length == 1 && !self.loop_enabled) {
-    //   //When DMA ends around the time the bit counter resets, a CPU glitch sometimes causes another DMA to be requested immediately.
-    //   if(self.bits_remaining == 8 && self.timer.count == self.timer.period) {
-    //     self.shift_reg = self.buffer;
-    //     self.silence = false;
-    //     self.buffer_empty = true;
-    //     self.restart_dma();
-    //   } else if(self.bits_remaining == 1 && self.timer.count < 2) {
-    //     self.shift_reg = self.buffer;
-    //     self.buffer_empty = false;
-    //     self.restart_dma();
-    //   }
-    // }
   }
 
   pub fn restart_dma(&mut self) {
@@ -157,7 +143,6 @@ impl Channel for Dmc {
     }
   }
 
-  // TODO: dmc causes noise
   fn get_sample(&self) -> u8 {
     self.level
   }

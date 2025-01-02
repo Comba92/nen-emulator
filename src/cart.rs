@@ -1,4 +1,3 @@
-use core::fmt;
 use std::{cell::RefCell, rc::Rc};
 
 use crate::mapper::{self, Dummy, Mapper};
@@ -8,8 +7,6 @@ pub struct CartHeader {
   pub format: HeaderFormat,
   pub console_type: ConsoleType,
   pub timing: ConsoleTiming,
-  pub frame_freq: f64,
-
 
   pub game_title: String,
   pub has_trainer: bool,

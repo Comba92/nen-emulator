@@ -3,6 +3,7 @@ use crate::{apu::Apu, bus::Bus, cart::{Cart, CartHeader}, cpu::Cpu, frame::Frame
 pub struct Nes {
   cpu: Cpu<Bus>,
   pub is_paused: bool,
+  pub is_muted: bool,
 }
 
 impl Nes {
@@ -15,6 +16,7 @@ impl Nes {
     Self {
       cpu: Cpu::with_cart(Cart::empty()),
       is_paused: true,
+      is_muted: true,
     }
   }
 
@@ -37,6 +39,10 @@ impl Nes {
 
   pub fn pause(&mut self) {
     self.is_paused = !self.is_paused;
+  }
+
+  pub fn mute(&mut self) {
+    self.is_muted = !self.is_muted;
   }
 
   pub fn reset(&mut self) {
@@ -63,12 +69,14 @@ impl Nes {
     Self {
       cpu: Cpu::with_cart(cart),
       is_paused: false,
+      is_muted: false,
     }
   }
 
   pub fn load_cart(&mut self, cart: Cart) {
     self.cpu.load_cart(cart);
     self.is_paused = false;
+    self.is_muted = false;
   }
 
   pub fn get_bus(&mut self) -> &mut Bus {
@@ -95,7 +103,7 @@ impl Nes {
     self.get_bus().cart.borrow().header.timing.fps()
   }
 
-  pub fn get_resolution(&mut self) -> (usize, usize) { (256, 240) }
+  pub fn get_resolution(&mut self) -> (usize, usize) { (32*8, 30*8) }
 
   pub fn get_screen(&self) -> &FrameBuffer {
     &self.cpu.bus.ppu.screen.0
