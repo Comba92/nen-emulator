@@ -1,15 +1,10 @@
-use std::path::Path;
-
 use crate::{apu::Apu, bus::Bus, cart::Cart, cpu::Cpu, frame::FrameBuffer, joypad::{Joypad, JoypadButton}, ppu::Ppu};
-use wasm_bindgen::prelude::wasm_bindgen;
 
-#[wasm_bindgen]
 pub struct Nes {
   cpu: Cpu<Bus>,
   pub is_paused: bool,
 }
 
-#[wasm_bindgen]
 impl Nes {
   pub fn from_bytes(rom: &[u8]) -> Result<Self, String> {
     let cart = Cart::new(rom)?;
@@ -23,7 +18,7 @@ impl Nes {
     }
   }
 
-  pub fn load_rom(&mut self, bytes: &[u8]) -> Result<(), String> {
+  pub fn load_bytes(&mut self, bytes: &[u8]) -> Result<(), String> {
     let cart = Cart::new(bytes)?;
     self.load_cart(cart);
     Ok(())
@@ -35,20 +30,7 @@ impl Nes {
 
   pub fn step_until_vblank(&mut self) {
     loop {
-      // OPT: this if is EXTREMELY costly
-      if self.is_paused { return; }
       if self.get_bus().poll_vblank() { break; }
-      self.step();
-    }
-  }
-
-  pub fn step_until_sample(&mut self) -> f32 {
-    loop {
-      // OPT: this if is EXTREMELY costly
-      if self.is_paused { return 0.0; }
-      if let Some(sample) = self.get_bus().poll_sample() {
-        return sample;
-      }
       self.step();
     }
   }
@@ -89,14 +71,6 @@ impl Nes {
     self.is_paused = false;
   }
 
-  pub fn from_file(rom_path: &Path) -> Result<Self, String> {
-    let cart = Cart::from_file(rom_path);
-    match cart {
-      Ok(cart) => Ok(Nes::with_cart(cart)),
-      Err(msg) => Err(msg.to_string())
-    }
-  }
-
   pub fn get_bus(&mut self) -> &mut Bus {
     &mut self.cpu.bus
   }
@@ -119,6 +93,10 @@ impl Nes {
 
   pub fn get_screen(&self) -> &FrameBuffer {
     &self.cpu.bus.ppu.screen.0
+  }
+
+  pub fn get_samples(&mut self) -> Vec<f32> {
+    self.get_apu().get_samples()
   }
 
   pub fn get_joypad(&mut self) -> &mut Joypad {

@@ -1,4 +1,4 @@
-use core::f32;
+use core::{f32, mem};
 
 use bitflags::bitflags;
 use dmc::Dmc;
@@ -132,7 +132,7 @@ pub struct Apu {
   irq_disabled: bool,
   pub frame_irq_flag: Option<()>,
 
-  pub current_sample: Option<f32>,
+  pub samples: Vec<f32>,
   low_pass_filter: LowPassIIR,
 
   cycles: usize,
@@ -158,7 +158,7 @@ impl Apu {
       irq_disabled: false,
       frame_irq_flag: None,
 
-      current_sample: None,
+      samples: Vec::new(),
       low_pass_filter: LowPassIIR
         ::new(1789773.0, 0.45 * 44100.0),
 
@@ -178,6 +178,10 @@ impl Apu {
 
     self.cycles = 0;
     self.sample_cycles = 0.0;
+  }
+
+  pub fn get_samples(&mut self) -> Vec<f32> {
+    mem::take(&mut self.samples)
   }
 
   pub fn step(&mut self) {
@@ -200,7 +204,7 @@ impl Apu {
 
     if self.sample_cycles >= 40.517687075 {
       let output = self.low_pass_filter.output();
-      self.current_sample = Some(output);
+      self.samples.push(output);
 
       self.sample_cycles -= 40.517687075;
     }

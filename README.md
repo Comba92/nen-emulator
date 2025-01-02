@@ -1,5 +1,5 @@
 # TODO
-- BUG: Battletoads 1&2 crashes because no sprite 0 hit
+- BUG: Battletoads 1&2 crashes because no sprite 0 hit (requires 3 cycles delay for ppu mask write)
 
 [x] CPU COMPLETED
 - Better operand handling?
@@ -21,7 +21,7 @@
 - PAL support?
 - Audio filters?
 
-[] Support for zip files
+[x] Support for zip files
 [] Consider making the core lib no_std
 [] Game info fetcher from online db ??
 

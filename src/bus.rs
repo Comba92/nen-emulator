@@ -134,8 +134,4 @@ impl Bus {
   pub fn poll_vblank(&mut self) -> bool {
     self.ppu.vblank_started.take().is_some()
   }
-
-  pub fn poll_sample(&mut self) -> Option<f32> {
-    self.apu.current_sample.take()
-  }
 }

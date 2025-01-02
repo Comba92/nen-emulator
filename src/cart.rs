@@ -213,12 +213,6 @@ impl Cart {
     let mapper = mapper::new_mapper(header.mapper, header.submapper, sram_size)?;
     Ok(Cart { header, prg, chr, mapper })
   }
-
-  
-  pub fn from_file(rom_path: &Path) -> Result<Self, String> {
-    let rom = fs::read(rom_path).map_err(|e| format!("Couldn't open rom: {e}"))?;
-    Cart::new(&rom)
-  }
   
   pub fn empty() -> Self {
     Cart { header: CartHeader::default(), prg: Vec::new(), chr: Vec::new(), mapper: Box::new(Dummy) }
