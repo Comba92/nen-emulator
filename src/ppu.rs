@@ -150,6 +150,8 @@ pub struct Ppu {
 	
 	ctrl: Ctrl,
 	mask: Mask,
+	mask_tmp: u8,
+	mask_write_delay: u8,
 	stat: Stat,
 	oam_addr: u8,
 	data_buf: u8,
@@ -196,6 +198,8 @@ impl Ppu {
 			cycle: 0,
 			ctrl: Ctrl::empty(),
 			mask: Mask::empty(),
+			mask_tmp: 0,
+			mask_write_delay: 0,
 			stat: Stat::empty(),
 
 			nmi_requested: None,
@@ -246,6 +250,14 @@ impl Ppu {
 			{
 				// Odd cycle skip, this isn't present in PAL
 				self.cycle += 1;
+			}
+		}
+
+		// This is needed for Battletoads tigh timings
+		if self.mask_write_delay > 0 {
+			self.mask_write_delay -= 1;
+			if self.mask_write_delay == 0 {
+				self.mask = Mask::from_bits_retain(self.mask_tmp);
 			}
 		}
 
@@ -366,7 +378,8 @@ impl Ppu {
 				self.cart.borrow_mut().mapper.notify_ppuctrl(self.ctrl.bits());
 			}
 			0x2001 => {
-				self.mask = Mask::from_bits_retain(val);
+				self.mask_tmp = val;
+				self.mask_write_delay = 3;
 				self.cart.borrow_mut().mapper.notify_ppumask(self.mask.bits());
 			}
 			0x2003 => self.oam_addr = val,

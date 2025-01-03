@@ -1,6 +1,6 @@
 # TODO
-- BUG: Battletoads 1&2 crashes because no sprite 0 hit (requires 3 cycles delay for ppu mask write)
-- Get rid of refcell
+- Battletoads 2 open bus
+- Get rid of refcell?
 
 [x] CPU COMPLETED
 - Better operand handling?
