@@ -214,6 +214,9 @@ impl Ppu {
 
 		self.cycle = 0;
 		self.scanline = self.last_scanline;
+		
+		self.mask.remove(Mask::bg_enabled);
+		self.mask.remove(Mask::spr_enabled);
 	}
 
 	pub fn step(&mut self) {

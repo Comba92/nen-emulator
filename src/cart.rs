@@ -205,9 +205,7 @@ impl CartHeader {
 pub type SharedCart = Rc<RefCell<Cart>>;
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Cart {
-  #[serde(skip)]
   pub header: CartHeader,
-  #[serde(skip)]
   pub prg: Box<[u8]>,
   pub chr: Box<[u8]>,
   pub mapper: Box<dyn Mapper>,
