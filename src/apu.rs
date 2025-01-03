@@ -32,8 +32,9 @@ impl Timer {
   }
 
   pub fn step<F: FnOnce(&mut Self)>(&mut self, callback: F) {
-    self.count = self.count.wrapping_sub(1);
-    if self.count == 0 {
+    if self.count > 0 {
+      self.count -= 1;
+    } else if self.count == 0 {
       self.count = self.period + 1;
       callback(self);
     }
@@ -67,7 +68,7 @@ impl LengthCounter {
   }
 
   pub fn is_enabled(&self) -> bool {
-    self.count != 0
+    self.count > 0
   }
 
   pub fn disable(&mut self) {
@@ -258,6 +259,7 @@ impl Apu {
 
   fn step_half_frame(&mut self) {
     self.step_quarter_frame();
+
     self.pulse1.step_half();
     self.pulse2.step_half();
     self.triangle.step_half();
@@ -284,12 +286,8 @@ impl Apu {
 
         if self.cycles == 29830 { self.cycles = 0; }
       }
-      (37281, FrameCounterMode::Step5) => {
-        self.step_half_frame();
-      }
-      (37282, FrameCounterMode::Step5) => {
-        self.cycles = 0;
-      }
+      (37281, FrameCounterMode::Step5) => self.step_half_frame(),
+      (37282, FrameCounterMode::Step5) => self.cycles = 0,
       _ => {}
     }
   }

@@ -62,21 +62,23 @@ impl Noise {
 impl Channel for Noise {
     fn step_timer(&mut self) {
       self.timer.step(|_| {
-        let feedback = (self.shift_reg & 1) ^ (match self.loop_enabled {
+        let bit = match self.loop_enabled {
+          true  => (self.shift_reg >> 6) & 1,
           false => (self.shift_reg >> 1) & 1,
-          true => (self.shift_reg >> 6) & 1
-        });
+        };
+
+        let feedback = (self.shift_reg & 1) ^ bit;
         self.shift_reg >>= 1;
         self.shift_reg |= feedback << 14
       });
     }
 
     fn step_half(&mut self) {
-      self.envelope.step();
-    }
-
-    fn step_quarter(&mut self) {
       self.length.step();
+    }
+    
+    fn step_quarter(&mut self) {
+      self.envelope.step();
     }
 
     fn is_enabled(&self) -> bool { self.length.is_enabled() }
