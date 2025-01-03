@@ -160,6 +160,6 @@ impl Bus {
   }
 
   pub fn poll_vblank(&mut self) -> bool {
-    self.ppu.vblank_started.take().is_some()
+    self.ppu.frame_ready.take().is_some()
   }
 }

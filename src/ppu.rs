@@ -168,7 +168,7 @@ pub struct Ppu {
 	
 	pub nmi_requested: Option<()>,
 	nmi_skip: bool,
-	pub vblank_started: Option<()>,
+	pub frame_ready: Option<()>,
 }
 
 impl Ppu {
@@ -204,7 +204,7 @@ impl Ppu {
 
 			nmi_requested: None,
 			nmi_skip: false,
-			vblank_started: None,
+			frame_ready: None,
 		}
 	}
 	
@@ -228,11 +228,10 @@ impl Ppu {
 			self.render_step();
 		} else if self.scanline == 241 {
 			if self.cycle == 1 {
-				self.vblank_started = Some(());
+				self.frame_ready = Some(());
 				self.stat.set(Stat::vblank, !self.nmi_skip);
-				self.stat.insert(Stat::vblank);
 
-				if self.ctrl.contains(Ctrl::nmi_enabled) {
+				if self.ctrl.contains(Ctrl::nmi_enabled) && !self.nmi_skip {
 					self.nmi_requested = Some(());
 				}
 			}
@@ -271,11 +270,6 @@ impl Ppu {
 				self.nmi_skip = false;
 			}
 		}
-	}
-
-	pub fn force_spr0_hit(&mut self) {
-		println!("Forcing Sprite 0 hit");
-		self.stat.insert(Stat::spr0_hit);
 	}
 
 	pub(self) fn rendering_enabled(&self) -> bool {

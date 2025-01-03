@@ -139,11 +139,13 @@ impl Ppu {
     let sprite = self.renderer.spr_scanline[x]
       .take().unwrap_or_default();
 
+    let mut sprite_in_left_strip = false;
     let pixel_color = if self.mask.contains(Mask::spr_enabled) 
       && (sprite.priority == SpritePriority::Front || bg_pixel == 0)
       && sprite.pixel != 0
     {
       if !self.mask.contains(Mask::spr_strip_show) && x < 8 {
+        sprite_in_left_strip = true;
         self.color_from_palette(0, 0)
       } else {
         self.color_from_palette(sprite.pixel, sprite.palette_id)
@@ -159,6 +161,7 @@ impl Ppu {
       && sprite.pixel != 0 && bg_pixel != 0
       && self.mask.contains(Mask::bg_enabled)
       && self.mask.contains(Mask::spr_enabled)
+      && !sprite_in_left_strip
       && x != 255
     {
       self.stat.insert(Stat::spr0_hit);
