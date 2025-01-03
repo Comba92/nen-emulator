@@ -130,8 +130,9 @@ pub struct Apu {
   noise: Noise,
   pub dmc: Dmc,
   
-  frame_write_delay: usize,
   frame_mode: FrameCounterMode,
+  frame_write_delay: u8,
+  frame_tmp: u8,
 
   irq_disabled: bool,
   pub frame_irq_flag: Option<()>,
@@ -162,9 +163,10 @@ impl Apu {
       noise: Noise::new(timing),
       dmc: Dmc::new(timing),
 
-      frame_write_delay: 0,
       frame_mode: FrameCounterMode::Step4,
-      
+      frame_write_delay: 0,
+      frame_tmp: 0,
+
       irq_disabled: false,
       frame_irq_flag: None,
 
@@ -225,31 +227,26 @@ impl Apu {
       self.pulse1.step_timer();
       self.pulse2.step_timer();
       self.noise.step_timer();
+    }
 
-      match self.timing {
-        ConsoleTiming::PAL => self.step_frame_pal(),
-        _ => self.step_frame_ntsc(),
-      }
+    match self.timing {
+      ConsoleTiming::PAL => self.step_frame_pal(),
+      _ => self.step_frame_ntsc(),
     }
     
-    // TODO: i dont know if this is correct thing to do
     if self.frame_write_delay > 0 {
       self.frame_write_delay -= 1;
       if self.frame_write_delay == 0 {
         self.cycles = 0;
+        self.frame_mode = FrameCounterMode::from((self.frame_tmp >> 7) & 1);
+
+        if self.frame_mode == FrameCounterMode::Step5 {
+          self.step_half_frame();
+        }
       }
     }
 
-    // cycles count should reset to zero on the next cycle (thus we do not increase it at that time)
-    if self.cycles == 14914 
-    && self.frame_mode == FrameCounterMode::Step4 { 
-      self.cycles = 0; 
-    } else if self.cycles == 18640 
-    && self.frame_mode == FrameCounterMode::Step5 {
-      self.cycles = 0;
-    } else {
-      self.cycles += 1;
-    }
+    self.cycles += 1;
   }
 
   fn step_quarter_frame(&mut self) {
@@ -271,19 +268,26 @@ impl Apu {
   }
 
   fn step_frame_ntsc(&mut self) {
-    match (self.cycles/2, &self.frame_mode) {
-      (3728 | 11185, _) => self.step_quarter_frame(),
-      (7465, _) => self.step_half_frame(),
-      (14914, FrameCounterMode::Step4) => {
-        self.step_half_frame();
-        self.cycles = 0;
+    // we multiply the steps by 2 
+    // https://www.nesdev.org/wiki/APU_Frame_Counter
+    match (self.cycles, &self.frame_mode) {
+      (7457 | 22371, _) => self.step_quarter_frame(),
+      (14913, _) => self.step_half_frame(),
+      (29828..=29830, FrameCounterMode::Step4) => {
+        if self.cycles == 29829 {
+          self.step_half_frame();
+        }
 
         if !self.irq_disabled {
           self.frame_irq_flag = Some(());
         }
+
+        if self.cycles == 29830 { self.cycles = 0; }
       }
-      (18640, FrameCounterMode::Step5) => {
+      (37281, FrameCounterMode::Step5) => {
         self.step_half_frame();
+      }
+      (37282, FrameCounterMode::Step5) => {
         self.cycles = 0;
       }
       _ => {}
@@ -291,21 +295,22 @@ impl Apu {
   }
 
   fn step_frame_pal(&mut self) {
-    match (self.cycles/2, &self.frame_mode) {
-      (4156 | 12469, _) => self.step_quarter_frame(),
-      (8313, _) => self.step_half_frame(),
-      (16626, FrameCounterMode::Step4) => {
-        self.step_half_frame();
-        self.cycles = 0;
-
+    match (self.cycles, &self.frame_mode) {
+      (8313 | 24939, _) => self.step_quarter_frame(),
+      (16627, _) => self.step_half_frame(),
+      (33252..=33254, FrameCounterMode::Step4) => {
+        if self.cycles == 33252 {
+          self.step_half_frame();
+        }
+        
         if !self.irq_disabled {
           self.frame_irq_flag = Some(());
         }
+
+        if self.cycles == 33254 { self.cycles = 0; }
       }
-      (20783, FrameCounterMode::Step5) => {
-        self.step_half_frame();
-        self.cycles = 0;
-      }
+      (41565, FrameCounterMode::Step5) => self.step_half_frame(),
+      (41566, FrameCounterMode::Step5) => self.cycles = 0,
       _ => {}
     }
   }
@@ -385,8 +390,8 @@ impl Apu {
         self.dmc.irq_flag = None;
       }
       0x4017 => {
-        self.frame_mode = FrameCounterMode::from((val >> 7) & 1);
-        self.irq_disabled = (val >> 6) & 1 != 0;
+        self.frame_tmp = val;
+        self.irq_disabled = val & 0x40 == 0x40;
         if self.irq_disabled {
           self.frame_irq_flag = None;
         }
@@ -394,10 +399,6 @@ impl Apu {
         // the timer is reset after 3 or 4 cpu cycles
         // https://www.nesdev.org/wiki/APU_Frame_Counter
         self.frame_write_delay = if self.cycles % 2 == 1 { 3 } else { 4 };
-
-        if self.frame_mode == FrameCounterMode::Step5 {
-          self.step_half_frame();
-        }
       }
     _ => {}
     }
