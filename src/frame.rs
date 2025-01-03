@@ -21,14 +21,14 @@ pub const GREYSCALE_PALETTE: [u8; 4] = [0x3F, 0x00, 0x10, 0x20];
 
 const PIXEL_BYTES: usize = 4;
 pub struct FrameBuffer {
-  pub buffer: Vec<u8>,
+  pub buffer: Box<[u8]>,
   pub width: usize,
   pub height: usize,
 }
 
 impl FrameBuffer {
   pub fn new(width: usize, height: usize) -> Self {
-    let buffer = vec![0; width * height * PIXEL_BYTES];
+    let buffer = vec![0; width * height * PIXEL_BYTES].into_boxed_slice();
     Self { buffer, width, height }
   }
 

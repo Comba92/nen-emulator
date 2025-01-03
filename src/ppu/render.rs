@@ -8,7 +8,7 @@ pub(super) struct Fetcher {
 	data: FetcherData,
   bg_fifo: VecDeque<(u8, u8)>,
   oam_tmp: Vec<OamEntry>,
-  spr_scanline: Vec<Option<SprData>>,
+  spr_scanline: Box<[Option<SprData>]>,
 }
 
 impl Fetcher {
@@ -19,7 +19,7 @@ impl Fetcher {
       // TODO: this is hacky as hell, find another way
       bg_fifo: VecDeque::from([(0,0)].repeat(9)),
       oam_tmp: Vec::new(),
-      spr_scanline: vec![None; 256],
+      spr_scanline: vec![None; 256].into(),
     }
   }
 }

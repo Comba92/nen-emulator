@@ -201,8 +201,8 @@ pub type SharedCart = Rc<RefCell<Cart>>;
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Cart {
   pub header: CartHeader,
-  pub prg: Vec<u8>,
-  pub chr: Vec<u8>,
+  pub prg: Box<[u8]>,
+  pub chr: Box<[u8]>,
   pub mapper: Box<dyn Mapper>,
 }
 
@@ -226,13 +226,13 @@ impl Cart {
     let prg_start = HEADER_SIZE + if header.has_trainer { 512 } else { 0 };
     let chr_start = prg_start + header.prg_size;
 
-    let prg = rom[prg_start..chr_start].to_vec();
+    let prg = rom[prg_start..chr_start].to_vec().into_boxed_slice();
     let chr = if header.uses_chr_ram {
       vec![0; header.chr_ram_size]
     }
     else { 
       rom[chr_start..chr_start+header.chr_size].to_vec()
-    };
+    }.into_boxed_slice();
 
     let sram_size = if header.has_battery && header.eeprom_size > 0 { 
       header.eeprom_size
@@ -243,7 +243,7 @@ impl Cart {
   }
   
   pub fn empty() -> Self {
-    Cart { header: CartHeader::default(), prg: Vec::new(), chr: Vec::new(), mapper: Box::new(Dummy) }
+    Cart { header: CartHeader::default(), prg: Vec::new().into(), chr: Vec::new().into(), mapper: Box::new(Dummy) }
   }
 
   pub fn cart_read(&mut self, addr: usize) -> u8 {

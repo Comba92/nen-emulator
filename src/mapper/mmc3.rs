@@ -18,7 +18,7 @@ pub struct Mmc3 {
     
     bank_selects: [Bank; 8],
 
-    sram: Vec<u8>,
+    sram: Box<[u8]>,
     sram_read_enabled: bool,
     sram_write_enabled: bool,
 
@@ -32,7 +32,7 @@ pub struct Mmc3 {
 
 impl Default for Mmc3 {
     fn default() -> Self {
-        Self { bank_select: Default::default(), prg_mode: Default::default(), chr_mode: Default::default(), mirroring: Default::default(), bank_selects: Default::default(), sram: vec![0; 8 * 1024], sram_read_enabled: Default::default(), sram_write_enabled: Default::default(), irq_counter: Default::default(), irq_latch: Default::default(), irq_reload: Default::default(), irq_enabled: Default::default(), irq_requested: Default::default() }
+        Self { bank_select: Default::default(), prg_mode: Default::default(), chr_mode: Default::default(), mirroring: Default::default(), bank_selects: Default::default(), sram: vec![0; 8 * 1024].into(), sram_read_enabled: Default::default(), sram_write_enabled: Default::default(), irq_counter: Default::default(), irq_latch: Default::default(), irq_reload: Default::default(), irq_enabled: Default::default(), irq_requested: Default::default() }
     }
 }
 

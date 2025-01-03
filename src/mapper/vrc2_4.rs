@@ -52,7 +52,7 @@ impl<'de> serde::Deserialize<'de> for Byte {
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Vrc2_4 {
   mapper: u16,
-  sram: Vec<u8>,
+  sram: Box<[u8]>,
 
   swap_mode: bool,
   wram_ctrl: bool,
@@ -74,7 +74,7 @@ pub struct Vrc2_4 {
 
 impl Default for Vrc2_4 {
   fn default() -> Self {
-    Self { mapper: Default::default(), sram: vec![0; 8 * 1024], swap_mode: Default::default(), wram_ctrl: Default::default(), prg_bank0_select: Default::default(), prg_bank1_select: Default::default(), chr_banks_selects: Default::default(), latch: Default::default(), prescaler: Default::default(), irq_count: Default::default(), irq_latch: Default::default(), irq_enabled_after_ack: Default::default(), irq_enabled: Default::default(), irq_mode: Default::default(), irq_requested: Default::default(), mirroring: Default::default() }
+    Self { mapper: Default::default(), sram: vec![0; 8 * 1024].into(), swap_mode: Default::default(), wram_ctrl: Default::default(), prg_bank0_select: Default::default(), prg_bank1_select: Default::default(), chr_banks_selects: Default::default(), latch: Default::default(), prescaler: Default::default(), irq_count: Default::default(), irq_latch: Default::default(), irq_enabled_after_ack: Default::default(), irq_enabled: Default::default(), irq_mode: Default::default(), irq_requested: Default::default(), mirroring: Default::default() }
   }
 }
 

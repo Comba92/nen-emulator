@@ -10,7 +10,7 @@ enum BusDst {
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Bus {
   timing: ConsoleTiming,
-  ram: Vec<u8>,
+  ram: Box<[u8]>,
   // #[serde(serialize_with = "serialize_cart", deserialize_with = "deserialize_cart")]
   pub cart: SharedCart,
   pub ppu: Ppu,
@@ -133,7 +133,7 @@ impl Bus {
 
     Self {
       timing,
-      ram: vec![0; 0x800], 
+      ram: vec![0; 0x800].into_boxed_slice(), 
       ppu,
       ppu_pal_cycles: 0,
       apu: Apu::new(timing),

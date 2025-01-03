@@ -11,7 +11,7 @@ enum ChrMode { #[default] Bank8kb, Bank4kb }
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Mmc1 {
-    sram: Vec<u8>,
+    sram: Box<[u8]>,
 
     shift_reg: u8,
     shift_writes: usize,
@@ -36,7 +36,7 @@ impl Default for Mmc1 {
 impl Mmc1 {
     pub fn new(sram_size: usize) -> Self {
         let mut res = Self::default();
-        res.sram = vec![0; sram_size];
+        res.sram = vec![0; sram_size].into_boxed_slice();
         res
     }
 

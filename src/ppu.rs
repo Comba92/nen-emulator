@@ -156,9 +156,9 @@ pub struct Ppu {
 	
   // #[serde(serialize_with = "serialize_cart", deserialize_with = "deserialize_cart")]
 	cart: SharedCart,
-	vram: Vec<u8>,
+	vram: Box<[u8]>,
 	palettes: [u8; 32],
-	oam: Vec<u8>,
+	oam: Box<[u8]>,
 	
 	pub scanline: usize,
 	pub last_scanline: usize,
@@ -184,9 +184,9 @@ impl Ppu {
 			w: WriteLatch::FirstWrite,
 
 			cart,
-			vram: vec![0; 0x800],
+			vram: vec![0; 0x800].into_boxed_slice(),
 			palettes: [0; 32],
-			oam: vec![0; 256],
+			oam: vec![0; 256].into_boxed_slice(),
 
 			oam_addr: 0,
 			data_buf: 0,
