@@ -11,7 +11,6 @@ enum BusDst {
 pub struct Bus {
   timing: ConsoleTiming,
   ram: Box<[u8]>,
-  // #[serde(serialize_with = "serialize_cart", deserialize_with = "deserialize_cart")]
   pub cart: SharedCart,
   pub ppu: Ppu,
   ppu_pal_cycles: u8,

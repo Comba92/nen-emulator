@@ -101,8 +101,8 @@ impl Nes {
     self.cpu.bus.cart.borrow().header.clone()
   }
 
-  pub fn get_fps(&mut self) -> f32 {
-    self.get_bus().cart.borrow().header.timing.fps()
+  pub fn get_fps(&self) -> f32 {
+    self.cpu.bus.cart.borrow().header.timing.fps()
   }
 
   pub fn get_resolution(&mut self) -> (usize, usize) { (32*8, 30*8) }

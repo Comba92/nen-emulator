@@ -94,12 +94,17 @@ impl ConsoleTiming {
   }
 }
 
+pub fn is_nes_rom(rom: &[u8]) -> bool {
+  let magic_str = &rom[0..=3];
+  magic_str == NES_MAGIC 
+}
+
 impl CartHeader {
+
   pub fn new(rom: &[u8]) -> Result<Self, &'static str> {
     let mut header = CartHeader::default();
 
-    let magic_str = &rom[0..=3];
-    if magic_str != NES_MAGIC {
+    if !is_nes_rom(rom) {
       return Err("Nintendo header magic values not found");
     }
 
@@ -200,7 +205,9 @@ impl CartHeader {
 pub type SharedCart = Rc<RefCell<Cart>>;
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Cart {
+  #[serde(skip)]
   pub header: CartHeader,
+  #[serde(skip)]
   pub prg: Box<[u8]>,
   pub chr: Box<[u8]>,
   pub mapper: Box<dyn Mapper>,

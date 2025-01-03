@@ -154,7 +154,6 @@ pub struct Ppu {
 	oam_addr: u8,
 	data_buf: u8,
 	
-  // #[serde(serialize_with = "serialize_cart", deserialize_with = "deserialize_cart")]
 	cart: SharedCart,
 	vram: Box<[u8]>,
 	palettes: [u8; 32],

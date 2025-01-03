@@ -69,7 +69,7 @@ impl Pulse {
   }
 
   pub fn step_sweep(&mut self, complement: bool) {
-    self.sweep_count -= 1;
+    self.sweep_count = self.sweep_count.wrapping_sub(1);
     
     if self.sweep_count == 0 {
       self.sweep_count = self.sweep_period + 1;
