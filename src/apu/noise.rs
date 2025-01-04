@@ -73,12 +73,12 @@ impl Channel for Noise {
       });
     }
 
-    fn step_half(&mut self) {
-      self.length.step();
-    }
-    
     fn step_quarter(&mut self) {
       self.envelope.step();
+    }
+
+    fn step_half(&mut self) {
+      self.length.step();
     }
 
     fn is_enabled(&self) -> bool { self.length.is_enabled() }
@@ -91,7 +91,6 @@ impl Channel for Noise {
       }
     }
 
-    // TODO: something makes it too noisy
     fn get_sample(&self) -> u8 {
       if !self.is_muted() && self.is_enabled() {
         self.envelope.volume()

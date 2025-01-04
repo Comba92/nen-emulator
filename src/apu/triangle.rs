@@ -48,7 +48,8 @@ impl Channel for Triangle {
     self.timer.step(|timer| {
       // timer period higher than 2 silences ultrasonic frequencies
       if self.length.count > 0 && self.linear_count > 0 
-      && timer.period >= 2 && timer.period < 0x7FE {
+        && timer.period >= 2 && timer.period < 0x7FE
+      {
         self.duty_idx = 
           (self.duty_idx + 1) % TRIANGLE_SEQUENCE.len();
       }
@@ -72,11 +73,10 @@ impl Channel for Triangle {
   }
 
   fn is_enabled(&self) -> bool {
-    self.length.count != 0
+    self.length.count > 0
   }
 
   fn get_sample(&self) -> u8 {
-    let sample = TRIANGLE_SEQUENCE[self.duty_idx];
-    sample
+    TRIANGLE_SEQUENCE[self.duty_idx]
   }
 }

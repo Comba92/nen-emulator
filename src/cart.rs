@@ -95,12 +95,13 @@ impl ConsoleTiming {
 }
 
 pub fn is_nes_rom(rom: &[u8]) -> bool {
+  if rom.len() < 4 { return false; }
+
   let magic_str = &rom[0..=3];
   magic_str == NES_MAGIC 
 }
 
 impl CartHeader {
-
   pub fn new(rom: &[u8]) -> Result<Self, &'static str> {
     let mut header = CartHeader::default();
 
@@ -206,9 +207,17 @@ pub type SharedCart = Rc<RefCell<Cart>>;
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Cart {
   pub header: CartHeader,
+  #[serde(skip)]
   pub prg: Box<[u8]>,
+  // TODO: for some reason skipping this ser/de crashes the mapper
   pub chr: Box<[u8]>,
   pub mapper: Box<dyn Mapper>,
+}
+
+impl Default for Cart {
+  fn default() -> Self {
+    Self { header: Default::default(), prg: Default::default(), chr: Default::default(), mapper: Box::new(Dummy) }
+  }
 }
 
 impl Cart {
@@ -218,9 +227,9 @@ impl Cart {
     }
     
     let header = CartHeader::new(&rom)
-      .map_err(|e| format!("Not a valid iNES/Nes2.0 rom, {e}"))?;
+      .map_err(|e| format!("Not a valid iNES/Nes2.0 rom: {e}"))?;
 
-    println!("Loaded ROM: {:#?}", header);
+    println!("Loaded NES ROM: {:#?}", header);
     if header.format == HeaderFormat::INes 
       && (header.mapper == 1 || header.mapper == 5)
     {

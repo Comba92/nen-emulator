@@ -116,7 +116,6 @@ impl Channel for Dmc {
         self.shift_reg >>= 1;
       }
 
-      self.bits_remaining = self.bits_remaining.wrapping_sub(1);
       if self.bits_remaining == 0 {
         self.bits_remaining = 8;
 
@@ -127,6 +126,8 @@ impl Channel for Dmc {
           self.shift_reg = self.buffer;
           self.buffer_empty = true;
         }
+      } else if self.bits_remaining > 0 {
+        self.bits_remaining -= 1;
       }
     });
   }

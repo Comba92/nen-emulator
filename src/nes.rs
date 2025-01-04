@@ -7,21 +7,15 @@ pub struct Nes {
 }
 
 impl Nes {
-  pub fn from_bytes(rom: &[u8]) -> Result<Self, String> {
+  pub fn boot_from_bytes(rom: &[u8]) -> Result<Self, String> {
     let cart = Cart::new(rom)?;
-    Ok(Nes::with_cart(cart))
+    Ok(Nes::boot_from_cart(cart))
   }
 
-  pub fn empty() -> Self {
+  pub fn boot_empty() -> Self {
     Self {
       cpu: Cpu::with_cart(Cart::empty()),
     }
-  }
-
-  pub fn load_bytes(&mut self, bytes: &[u8]) -> Result<(), String> {
-    let cart = Cart::new(bytes)?;
-    self.load_cart(cart);
-    Ok(())
   }
 
   pub fn step(&mut self) {
@@ -55,14 +49,15 @@ impl Nes {
 }
 
 impl Nes {
-  pub fn with_cart(cart: Cart) -> Self {
+  pub fn boot_from_cart(cart: Cart) -> Self {
     Self {
       cpu: Cpu::with_cart(cart),
     }
   }
 
-  pub fn load_cart(&mut self, cart: Cart) {
-    self.cpu.load_cart(cart);
+  pub fn load_rom_only(&mut self, cart: &Cart) {
+    let mut curr_cart = self.get_bus().cart.borrow_mut();
+    curr_cart.prg = cart.prg.clone();
   }
 
   pub fn get_bus(&mut self) -> &mut Bus {
@@ -86,7 +81,7 @@ impl Nes {
   }
 
   pub fn get_fps(&self) -> f32 {
-    self.cpu.bus.cart.borrow().header.timing.fps()
+    self.get_cart().timing.fps()
   }
 
   pub fn get_resolution(&mut self) -> (usize, usize) { (32*8, 30*8) }
