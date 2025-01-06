@@ -100,8 +100,11 @@ impl Cpu<Bus> {
       bus: Bus::new(cart),
     };
 
-    // cpu should start by executing the reset subroutine
-    cpu.pc = cpu.read16(PC_RESET);
+    // boot only if cart contains prg
+    if !cpu.bus.cart.borrow().prg.is_empty() {
+      // cpu should start by executing the reset subroutine
+      cpu.pc = cpu.read16(PC_RESET);
+    }
     cpu
   }
 }
@@ -802,6 +805,7 @@ impl<M: Memory> Cpu<M> {
   // also called KIL, HLT
   fn jam(&mut self, _: &mut Operand) {
     self.jammed = true;
+    // TODO: shouldn't panic, just stop the emulation.
     panic!("System jammed! (reached JAM instruction)")
   }
 }

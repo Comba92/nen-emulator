@@ -8,6 +8,7 @@ use super::{Bank, Mapper};
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct INesMapper071 {
   prg_bank_select: Bank,
+  // https://www.nesdev.org/wiki/INES_Mapper_071#Mirroring_($8000-$9FFF)
   mirroring: Option<Mirroring>,
 }
 

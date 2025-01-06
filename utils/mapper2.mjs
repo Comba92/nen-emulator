@@ -7,9 +7,12 @@ let res = ''
 for (let instr of json) {
   let addressing = (instr.addressingMode?.charAt(0).toUpperCase() + instr.addressingMode?.slice(1))
     ?? 'Implied'
+
   let name = instr.mnemonics[0].toLowerCase()
+  if (name === "jam") addressing = 'Implied'
+
   let opcode = instr.opcode.toString(16).toUpperCase().padStart(2, '0')
-  res += `0x${opcode} => self.${name}(op, ${addressing}::default()),\n`
+  res += `0x${opcode} => self.${name}(${addressing}::load(self)),\n`
 }
 
 console.log(res)

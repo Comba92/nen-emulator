@@ -14,7 +14,7 @@ impl Nes {
 
   pub fn boot_empty() -> Self {
     Self {
-      cpu: Cpu::with_cart(Cart::empty()),
+      cpu: Cpu::with_cart(Cart::default()),
     }
   }
 

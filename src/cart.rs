@@ -29,6 +29,24 @@ pub struct CartHeader {
   pub eeprom_size: usize,
   pub chr_nvram_size: usize,
 }
+impl CartHeader {
+  pub fn chr_real_size(&self) -> usize {
+    // TODO: we dont account of chr nvram here, but ive never seen games using it
+    if self.uses_chr_ram {
+      self.chr_ram_size
+    } else {
+      self.chr_size
+    }
+  }
+
+  pub fn sram_real_size(&self) -> usize {
+    if self.has_battery && self.eeprom_size > 0 { 
+      self.eeprom_size
+    } else if self.prg_ram_size > 0 { 
+      self.prg_ram_size 
+    } else { 8 * 1024 }
+  }
+}
 
 const NES_MAGIC: [u8; 4] = [0x4E, 0x45, 0x53, 0x1A];
 const HEADER_SIZE: usize = 16;
@@ -211,12 +229,13 @@ pub struct Cart {
   pub prg: Box<[u8]>,
   // TODO: for some reason skipping this ser/de crashes the mapper
   pub chr: Box<[u8]>,
+  pub sram: Box<[u8]>,
   pub mapper: Box<dyn Mapper>,
 }
 
 impl Default for Cart {
   fn default() -> Self {
-    Self { header: Default::default(), prg: Default::default(), chr: Default::default(), mapper: Box::new(Dummy) }
+    Self { header: Default::default(), prg: Default::default(), chr: Default::default(), sram: Default::default(), mapper: Box::new(Dummy) }
   }
 }
 
@@ -240,7 +259,8 @@ impl Cart {
     let prg_start = HEADER_SIZE + if header.has_trainer { 512 } else { 0 };
     let chr_start = prg_start + header.prg_size;
 
-    let prg = rom[prg_start..chr_start].to_vec().into_boxed_slice();
+    let prg = rom[prg_start..chr_start]
+      .to_vec().into_boxed_slice();
     let chr = if header.uses_chr_ram {
       vec![0; header.chr_ram_size]
     }
@@ -250,35 +270,44 @@ impl Cart {
 
     let sram_size = if header.has_battery && header.eeprom_size > 0 { 
       header.eeprom_size
-    } else { header.prg_ram_size };
+    } else if header.prg_ram_size > 0 {
+      header.prg_ram_size
+    } else {
+      8 * 1024
+    };
+    let sram = vec![0; sram_size].into_boxed_slice();
 
-    let mapper = mapper::new_mapper(header.mapper, header.submapper, sram_size)?;
-    Ok(Cart { header, prg, chr, mapper })
-  }
-  
-  pub fn empty() -> Self {
-    Cart { header: CartHeader::default(), prg: Vec::new().into(), chr: Vec::new().into(), mapper: Box::new(Dummy) }
+    let mapper = mapper::new_mapper(&header)?;
+    Ok(Cart { header, prg, chr, sram, mapper })
   }
 
   pub fn cart_read(&mut self, addr: usize) -> u8 {
-    self.mapper.cart_read(addr)
+    // self.mapper.cart_read(addr)
+    0
   }
   pub fn cart_write(&mut self, addr: usize, val: u8) {
-    self.mapper.cart_write(addr, val);
+    // self.mapper.cart_write(addr, val);
   }
 
   pub fn prg_read(&mut self, addr: usize) -> u8 {
-    self.mapper.prg_read(&self.prg, addr)
+    self.prg[self.mapper.prg_addr(addr)]
   }
   pub fn prg_write(&mut self, addr: usize, val: u8) {
-    self.mapper.prg_write(&mut self.prg, addr, val);
+    self.mapper.write(addr, val);
   }
 
   pub fn chr_read(&mut self, addr: usize) -> u8 {
-    self.mapper.chr_read(&self.chr, addr)
+    self.chr[self.mapper.chr_addr(addr)]
   }
   pub fn chr_write(&mut self, addr: usize, val: u8) {
-    self.mapper.chr_write(&mut self.chr, addr, val);
+    self.chr[self.mapper.chr_addr(addr)] = val;
+  }
+
+  pub fn sram_read(&mut self, addr: usize) -> u8 {
+    self.mapper.sram_read(&self.sram, addr)
+  }
+  pub fn sram_write(&mut self, addr: usize, val: u8) {
+    self.mapper.sram_write(&mut self.sram, addr, val);
   }
 
   pub fn vram_read(&mut self, vram: &[u8], addr: usize) -> u8 {
