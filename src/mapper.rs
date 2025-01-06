@@ -1,8 +1,8 @@
 use std::marker::{self, PhantomData};
 
-use mmc1::Mmc1;
-use mmc3::Mmc3;
-use vrc2_4::Vrc2_4;
+use mmc1::MMC1;
+use mmc3::MMC3;
+use vrc2_4::VRC2_4;
 
 use crate::cart::{CartHeader, Mirroring};
 
@@ -12,16 +12,16 @@ mod vrc2_4;
 
 pub fn new_mapper(header: &CartHeader) -> Result<Box<dyn Mapper>, String> {
   let mapper: Box<dyn Mapper> = match header.mapper {
-    0 => NRom::new(header),
-    1 => Mmc1::new(header),
-    2 => UxRom::new(header),
-    3 => CnRom::new(header),
-    4 => Mmc3::new(header),
-    7 => AxRom::new(header),
-    9 => Mmc2::new(header),
+    0 => NROM::new(header),
+    1 => MMC1::new(header),
+    2 => UxROM::new(header),
+    3 => CNROM::new(header),
+    4 => MMC3::new(header),
+    7 => AxROM::new(header),
+    9 => MMC2::new(header),
     11 => ColorDreams::new(header),
-    21 | 22 | 23 | 25 => Vrc2_4::new(header),
-    66 => GxRom::new(header),
+    21 | 22 | 23 | 25 => VRC2_4::new(header),
+    66 => GxROM::new(header),
     71 => Codemasters::new(header),
     _ => return Err(format!("Mapper {} not implemented", header.mapper))
   };
@@ -85,11 +85,13 @@ pub trait Mapper {
   fn poll_irq(&mut self) -> bool { false }
 }
 
-
+#[derive(Debug)]
 struct PrgBanking;
+#[derive(Debug)]
 struct ChrBanking;
+#[derive(Debug)]
 struct RamBanking;
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Banking<T> {
   data_size: usize,
   bank_size: usize,
@@ -100,7 +102,7 @@ pub struct Banking<T> {
 }
 
 impl<T> Banking<T> {
-  fn new(rom_size: usize, page_size: usize, pages_count: usize) -> Self {
+  pub fn new(rom_size: usize, page_size: usize, pages_count: usize) -> Self {
     let bankings = vec![0; pages_count].into_boxed_slice();
     let bank_size = page_size;
     let banks_count = rom_size / bank_size;
@@ -174,12 +176,12 @@ impl Mapper for Dummy {
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
-pub struct NRom {
+pub struct NROM {
   prg_banks: Banking<PrgBanking>,
 }
 
 #[typetag::serde]
-impl Mapper for NRom {
+impl Mapper for NROM {
   fn new(header: &CartHeader) -> Box<Self> {
     let mut prg_banks = Banking::new_prg(header, 2);
 
@@ -200,12 +202,12 @@ impl Mapper for NRom {
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
-pub struct UxRom {
+pub struct UxROM {
   prg_banks: Banking<PrgBanking>,
 }
 
 #[typetag::serde]
-impl Mapper for UxRom {
+impl Mapper for UxROM {
   fn new(header: &CartHeader) -> Box<Self> {
     let mut prg_banks = Banking::new_prg(header, 2);
     prg_banks.set_page_to_last_bank(1);
@@ -223,12 +225,12 @@ impl Mapper for UxRom {
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
-pub struct CnRom {
+pub struct CNROM {
   chr_banks: Banking<ChrBanking>,
 }
 
 #[typetag::serde]
-impl Mapper for CnRom {
+impl Mapper for CNROM {
   fn new(header: &CartHeader) -> Box<Self>where Self:Sized {
     let chr_banks = Banking::new_chr(header, 1);
     Box::new(Self { chr_banks })
@@ -244,13 +246,13 @@ impl Mapper for CnRom {
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
-pub struct AxRom {
+pub struct AxROM {
   prg_banks: Banking<PrgBanking>,
   mirroring: Mirroring,
 }
 
 #[typetag::serde]
-impl Mapper for AxRom {
+impl Mapper for AxROM {
   fn new(header: &CartHeader) -> Box<Self> {
     let prg_banks = Banking::new_prg(header, 1);
     Box::new(Self {prg_banks, mirroring: Mirroring::SingleScreenA })
@@ -307,13 +309,13 @@ impl Mapper for ColorDreams {
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
-pub struct GxRom {
+pub struct GxROM {
   prg_banks: Banking<PrgBanking>,
   chr_banks: Banking<ChrBanking>,
 }
 
 #[typetag::serde]
-impl Mapper for GxRom {
+impl Mapper for GxROM {
   fn new(header: &CartHeader) -> Box<Self> {
     let prg_banks = Banking::new_prg(header, 1);
     let chr_banks = Banking::new_chr(header, 1);
@@ -379,7 +381,7 @@ impl Mapper for Codemasters {
 #[derive(Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
 enum Mmc2Latch { FD, #[default] FE }
 #[derive(serde::Serialize, serde::Deserialize)]
-pub struct Mmc2 {
+pub struct MMC2 {
   prg_banks: Banking<PrgBanking>,
   chr_banks0: Banking<ChrBanking>,
   chr_banks1: Banking<ChrBanking>,
@@ -390,7 +392,7 @@ pub struct Mmc2 {
 }
 
 #[typetag::serde]
-impl Mapper for Mmc2 {
+impl Mapper for MMC2 {
   fn new(header: &CartHeader) -> Box<Self> {
     let mut prg_banks = Banking::new_prg(header, 4);
     let chr_banks0 = Banking::new_chr(header, 2);
@@ -456,3 +458,24 @@ impl Mapper for Mmc2 {
     Some(self.mirroring)
   }
 }
+
+// pub struct FC_001 {
+//   prg_banks: Banking<PrgBanking>,
+//   chr_banks: Banking<ChrBanking>,
+// }
+
+// impl Mapper for FC_001 {
+//   fn new(header: &CartHeader) -> Box<Self> {
+    
+//   }
+
+//   fn write(&mut self, addr: usize, val: u8) {
+//     match addr {
+//       0x5000 => ,
+//       0x5200 => ,
+//       0x5100 | 0x5101 =>,
+//       0x5300 => ,
+//     }
+//   }
+// }
+

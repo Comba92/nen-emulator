@@ -281,6 +281,10 @@ impl Cart {
     Ok(Cart { header, prg, chr, sram, mapper })
   }
 
+  pub fn reset(&mut self) {
+    self.mapper = mapper::new_mapper(&self.header).unwrap();
+  }
+
   pub fn cart_read(&mut self, addr: usize) -> u8 {
     // self.mapper.cart_read(addr)
     0

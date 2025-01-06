@@ -48,7 +48,7 @@ impl<'de> serde::Deserialize<'de> for Byte {
 enum IrqMode { #[default] Cycle, Scanline }
 
 #[derive(serde::Serialize, serde::Deserialize)]
-pub struct Vrc2_4 {
+pub struct VRC2_4 {
   prg_banks: Banking<PrgBanking>,
   chr_banks: Banking<ChrBanking>,
   
@@ -72,7 +72,7 @@ pub struct Vrc2_4 {
   mirroring: Mirroring,
 }
 
-impl Vrc2_4 {
+impl VRC2_4 {
   fn translate_addr(&self, addr: usize) -> usize {
     // Taken from Mesen emulator source, this trick makes it work without discriminating submapper
     // https://github.com/SourMesen/Mesen2/blob/master/Core/NES/Mappers/Konami/VRC2_4.h
@@ -175,7 +175,7 @@ impl Vrc2_4 {
 }
 
 #[typetag::serde]
-impl Mapper for Vrc2_4 {
+impl Mapper for VRC2_4 {
   fn new(header: &crate::cart::CartHeader) -> Box<Self> {
     let mut prg_banks = Banking::new_prg(header, 4);
     let chr_banks = Banking::new_chr(header, 8);
@@ -231,7 +231,7 @@ impl Mapper for Vrc2_4 {
         2 => Mirroring::SingleScreenA,
         _ => Mirroring::SingleScreenB,
       },
-      0xB000..0xE003 => self.update_chr_banks(addr, val),
+      0xB000..=0xE003 => self.update_chr_banks(addr, val),
 
       0xF000 => self.irq_latch.set_lo(val & 0b1111),
       0xF001 => self.irq_latch.set_hi(val & 0b1111),

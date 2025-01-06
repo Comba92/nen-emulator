@@ -33,6 +33,7 @@ impl Nes {
     self.get_cpu().reset();
     self.get_ppu().reset();
     self.get_apu().reset();
+    self.get_bus().cart.borrow_mut().reset();
   }
 
   pub fn get_raw_screen(&self) -> *const u8 {

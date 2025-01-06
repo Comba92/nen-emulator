@@ -1,4 +1,4 @@
-use crate::cart::Mirroring;
+use crate::cart::{CartHeader, Mirroring};
 
 use super::{Banking, ChrBanking, Mapper, PrgBanking, RamBanking};
 
@@ -8,12 +8,12 @@ enum PrgMode { Bank32kb, FixFirstPage, #[default] FixLastPage }
 enum ChrMode { #[default] Bank8kb, Bank4kb }
 
 #[derive(serde::Serialize, serde::Deserialize)]
-pub struct Mmc1 {
+pub struct MMC1 {
   prg_select: usize,
   has_512kb_prg: bool,
   chr_select0: usize,
   chr_select1: usize,
-  last_wrote_chr_bank1: bool,
+  last_wrote_chr_select1: bool,
 
   prg_banks: Banking<PrgBanking>,
   chr_banks: Banking<ChrBanking>,
@@ -26,7 +26,7 @@ pub struct Mmc1 {
   chr_mode: ChrMode,
 }
 
-impl Mmc1 {
+impl MMC1 {
   fn write_ctrl(&mut self, val: u8) {
     self.mirroring = match val & 0b11 {
       0 => Mirroring::SingleScreenA,
@@ -50,17 +50,20 @@ impl Mmc1 {
   }
 
   fn update_prg_banks(&mut self) {
-    let (bank0, bank1) = match self.prg_mode {
+    let (bank0, mut bank1) = match self.prg_mode {
       PrgMode::Bank32kb => {
-        let bank = self.prg_select & !1;
+        let bank = self.prg_select >> 1;
         (bank, bank+1)
       },
       PrgMode::FixFirstPage => (0, self.prg_select),
       PrgMode::FixLastPage => 
         (self.prg_select, self.prg_banks.banks_count-1),
     };
-
+    
     let bank_256kb = if self.has_512kb_prg {
+      if bank1 == self.prg_banks.banks_count-1 {
+        bank1 = self.prg_banks.banks_count/2 - 1;
+      }
       self.sxrom_select() & 0b1_0000
     } else { 0 };
     
@@ -70,8 +73,8 @@ impl Mmc1 {
 
   fn sxrom_select(&self) -> usize {
       // SxRom register at 0xA000 and 0xC000
-      if self.last_wrote_chr_bank1 
-      && self.chr_mode != ChrMode::Bank8kb 
+      if self.last_wrote_chr_select1 
+      && self.chr_mode == ChrMode::Bank4kb 
       {
         self.chr_select1
       } else { self.chr_select0 }
@@ -80,7 +83,7 @@ impl Mmc1 {
   fn update_chr_and_sram_banks(&mut self) {
     match self.chr_mode {
       ChrMode::Bank8kb => {
-        let bank = self.chr_select0 & !1;
+        let bank = self.chr_select0 >> 1;
         self.chr_banks.set(0, bank);
         self.chr_banks.set(1, bank+1);
       }
@@ -105,31 +108,39 @@ impl Mmc1 {
 }
 
 #[typetag::serde]
-impl Mapper for Mmc1 {
-  fn new(header: &crate::cart::CartHeader) -> Box<Self> {
-    let prg_banks = Banking::new_prg(header, 2);
-    let chr_banks = Banking::new_chr(header, 2);
+impl Mapper for MMC1 {
+  fn new(header: &CartHeader) -> Box<Self> {
+    let mut prg_banks = Banking::new_prg(header, 2);
+    let mut chr_banks = Banking::new_chr(header, 2);
     let sram_banks = Banking::new_sram(header);
+    
+    // mode 3 by default
+    if header.prg_size > 256 * 1024 {
+      prg_banks.set(1, prg_banks.banks_count/2 -1);
+    } else {
+      prg_banks.set(1, prg_banks.banks_count-1);
+    }
 
-    let mut mapper = Self {
+    // bank 8kb by default
+    chr_banks.set(0, 0);
+    chr_banks.set(1, 1);
+
+    let mapper = Self {
       prg_select: 0,
-      has_512kb_prg: header.prg_size >= 512 * 1024,
+      has_512kb_prg: header.prg_size > 256 * 1024,
       chr_select0: 0,
-      chr_select1: 1,
+      chr_select1: 0,
       prg_banks,
       chr_banks,
       sram_banks,
 
-      last_wrote_chr_bank1: false,
+      last_wrote_chr_select1: false,
       shift_reg: 0,
       shift_writes: 0,
       mirroring: Default::default(),
       prg_mode: Default::default(),
       chr_mode: Default::default(),
     };
-
-    mapper.update_prg_banks();
-    mapper.update_chr_and_sram_banks();
 
     Box::new(mapper)
   }
@@ -150,12 +161,12 @@ impl Mapper for Mmc1 {
         0xA000..=0xBFFF => {
           self.chr_select0 = self.shift_reg as usize & 0b1_1111;
           self.update_chr_and_sram_banks();
-          self.last_wrote_chr_bank1 = false;
+          self.last_wrote_chr_select1 = false;
         }
         0xC000..=0xDFFF => {
           self.chr_select1 = self.shift_reg as usize & 0b1_1111;
           self.update_chr_and_sram_banks();
-          self.last_wrote_chr_bank1 = true;
+          self.last_wrote_chr_select1 = true;
         }
         0xE000..=0xFFFF => {
           self.prg_select  = self.shift_reg as usize & 0b1111;

@@ -8,7 +8,7 @@ enum PrgMode { #[default] FixLastPages, FixFirstPages }
 enum ChrMode { #[default] BiggerFirst, BiggerLast }
 
 #[derive(serde::Serialize, serde::Deserialize)]
-pub struct Mmc3 {
+pub struct MMC3 {
   reg_select: u8,
 
   prg_banks: Banking<PrgBanking>,
@@ -29,7 +29,7 @@ pub struct Mmc3 {
   irq_requested: Option<()>,
 }
 
-impl Mmc3 {
+impl MMC3 {
   fn write_bank_select(&mut self, val: u8) {
     self.reg_select = val & 0b111;
 
@@ -119,7 +119,7 @@ impl Mmc3 {
 }
 
 #[typetag::serde]
-impl Mapper for Mmc3 {
+impl Mapper for MMC3 {
   fn new(header: &CartHeader) -> Box<Self>where Self:Sized {
     let mut prg_banks = Banking::new_prg(header, 4);
     let chr_banks = Banking::new_chr(header, 8);
