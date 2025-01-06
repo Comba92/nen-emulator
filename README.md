@@ -14,6 +14,7 @@
 
 [x] Mappers
 - Implementation is solid, but could be better (and faster)
+- Convert usizes to u8
 - https://www.nesdev.org/wiki/Sunsoft_FME-7
 - https://www.nesdev.org/wiki/INES_Mapper_048
 - https://www.nesdev.org/wiki/INES_Mapper_093
