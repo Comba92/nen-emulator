@@ -1,12 +1,14 @@
 use crate::cart::{CartHeader, Mirroring};
 
-use super::{Banking, ChrBanking, Mapper, PrgBanking, RamBanking};
+use super::{Banking, ChrBanking, Mapper, PrgBanking, SRamBanking};
 
 #[derive(Default, PartialEq, serde::Serialize, serde::Deserialize)]
 enum PrgMode { Bank32kb, FixFirstPage, #[default] FixLastPage }
 #[derive(Default, PartialEq, serde::Serialize, serde::Deserialize)]
 enum ChrMode { #[default] Bank8kb, Bank4kb }
 
+// Mapper 01
+// https://www.nesdev.org/wiki/MMC1
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct MMC1 {
   prg_select: usize,
@@ -19,7 +21,7 @@ pub struct MMC1 {
 
   prg_banks: Banking<PrgBanking>,
   chr_banks: Banking<ChrBanking>,
-  sram_banks: Banking<RamBanking>,
+  sram_banks: Banking<SRamBanking>,
 
   shift_reg: u8,
   shift_writes: usize,

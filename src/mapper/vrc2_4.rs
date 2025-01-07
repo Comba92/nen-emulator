@@ -2,7 +2,7 @@ use bitfield_struct::bitfield;
 
 use crate::cart::Mirroring;
 
-use super::{Banking, ChrBanking, Mapper, PrgBanking};
+use super::{konami_irq::{IrqMode, KonamiIrq}, Banking, ChrBanking, Mapper, PrgBanking};
 
 #[bitfield(u16, order = Lsb)]
 struct Byte {
@@ -44,9 +44,8 @@ impl<'de> serde::Deserialize<'de> for Byte {
 	}
 }
 
-#[derive(Default, serde::Serialize, serde::Deserialize)]
-enum IrqMode { #[default] Cycle, Scanline }
-
+// Mappers 21, 22, 23, 25
+// https://www.nesdev.org/wiki/VRC2_and_VRC4
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct VRC2_4 {
   prg_banks: Banking<PrgBanking>,
@@ -61,18 +60,13 @@ pub struct VRC2_4 {
   sram_ctrl: bool,
   latch: bool,
 
-  prescaler: isize,
-  irq_count: u16,
-  irq_latch: Byte,
-  irq_enabled_after_ack: bool,
-  irq_enabled: bool,
-  irq_mode: IrqMode,
-  irq_requested: Option<()>,
+  irq: KonamiIrq,
 
   mirroring: Mirroring,
 }
 
 impl VRC2_4 {
+  // iNes compatibility
   fn translate_addr(&self, addr: usize) -> usize {
     // Taken from Mesen emulator source, this trick makes it work without discriminating submapper
     // https://github.com/SourMesen/Mesen2/blob/master/Core/NES/Mappers/Konami/VRC2_4.h
@@ -194,14 +188,8 @@ impl Mapper for VRC2_4 {
       swap_mode: false,
       sram_ctrl: false,
       latch: false,
-
-      prescaler: 0,
-      irq_count: 0,
-      irq_latch: Default::default(),
-      irq_enabled_after_ack: false,
-      irq_enabled: false,
-      irq_mode: Default::default(),
-      irq_requested: None,
+      irq: Default::default(),
+      
       mirroring: Default::default(),
     };
 
@@ -233,26 +221,10 @@ impl Mapper for VRC2_4 {
       },
       0xB000..=0xE003 => self.update_chr_banks(addr, val),
 
-      0xF000 => self.irq_latch.set_lo(val & 0b1111),
-      0xF001 => self.irq_latch.set_hi(val & 0b1111),
-      0xF002 => {
-        self.irq_enabled_after_ack = val & 0b001 != 0;
-        self.irq_enabled = val & 0b010 != 0;
-        self.irq_mode = match val & 0b100 != 0 {
-          false => IrqMode::Scanline,
-          true  => IrqMode::Cycle,
-        };
-
-        self.irq_requested = None;
-        if self.irq_enabled {
-          self.irq_count = self.irq_latch.0;
-          self.prescaler = 341;
-        }
-      }
-      0xF003 => {
-        self.irq_requested = None;
-        self.irq_enabled = self.irq_enabled_after_ack;
-      }
+      0xF000 => self.irq.latch = (self.irq.latch & 0xF0) | (val as u16 & 0b1111),
+      0xF001 => self.irq.latch = (self.irq.latch & 0x0F) | ((val as u16 & 0b1111) << 4),
+      0xF002 => self.irq.write_ctrl(val),
+      0xF003 => self.irq.write_ack(val),
       _ => {}
     }
   }
@@ -280,29 +252,29 @@ impl Mapper for VRC2_4 {
   }
 
   fn notify_cpu_cycle(&mut self) {
-    if !self.irq_enabled || self.mapper == 22 { return; }
+    if !self.irq.enabled || self.mapper == 22 { return; }
 
-    match self.irq_mode {
-      IrqMode::Cycle => {
-        self.irq_count += 1;
+    match self.irq.mode {
+      IrqMode::Mode1 => {
+        self.irq.count += 1;
       }
-      IrqMode::Scanline => {
-        self.prescaler -= 3;
-        if self.prescaler <= 0 {
-          self.prescaler += 341;
-          self.irq_count += 1;
+      IrqMode::Mode0 => {
+        self.irq.prescaler -= 3;
+        if self.irq.prescaler <= 0 {
+          self.irq.prescaler += 341;
+          self.irq.count += 1;
         }
       }
     }
 
-    if self.irq_count >= 0xFF {
-      self.irq_requested = Some(());
-      self.irq_count = self.irq_latch.0;
+    if self.irq.count > 0xFF {
+      self.irq.requested = Some(());
+      self.irq.count = self.irq.latch;
     }
   }
 
   fn poll_irq(&mut self) -> bool {
-    self.irq_requested.is_some()
+    self.irq.requested.is_some()
   }
 
   fn mirroring(&self) -> Option<Mirroring> {

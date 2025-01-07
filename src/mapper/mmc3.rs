@@ -7,6 +7,8 @@ enum PrgMode { #[default] FixLastPages, FixFirstPages }
 #[derive(Default, PartialEq, serde::Serialize, serde::Deserialize)]
 enum ChrMode { #[default] BiggerFirst, BiggerLast }
 
+// Mapper 04
+// https://www.nesdev.org/wiki/MMC3
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct MMC3 {
   reg_select: u8,

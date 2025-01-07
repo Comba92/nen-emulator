@@ -3,12 +3,16 @@ use std::marker::{self, PhantomData};
 use mmc1::MMC1;
 use mmc3::MMC3;
 use vrc2_4::VRC2_4;
+use vrc3::VRC3;
 
 use crate::cart::{CartHeader, Mirroring};
 
 mod mmc1;
 mod mmc3;
+mod konami_irq;
 mod vrc2_4;
+mod vrc3;
+mod vrc6;
 
 pub fn new_mapper(header: &CartHeader) -> Result<Box<dyn Mapper>, String> {
   let mapper: Box<dyn Mapper> = match header.mapper {
@@ -21,8 +25,11 @@ pub fn new_mapper(header: &CartHeader) -> Result<Box<dyn Mapper>, String> {
     9 => MMC2::new(header),
     11 => ColorDreams::new(header),
     21 | 22 | 23 | 25 => VRC2_4::new(header),
+    // 24 | 26 => VRC6::new(header),
     66 => GxROM::new(header),
     71 => Codemasters::new(header),
+    73 => VRC3::new(header),
+    78 => INesMapper078::new(header),
     _ => return Err(format!("Mapper {} not implemented", header.mapper))
   };
 
@@ -35,7 +42,7 @@ pub fn mapper_name(id: u16) -> &'static str {
     .map(|m| m.1)
     .unwrap_or("Not implemented")
 }
-const MAPPERS_TABLE: [(u16, &'static str); 16] = [
+const MAPPERS_TABLE: [(u16, &'static str); 20] = [
   (0, "NRom"),
   (1, "MMC1"),
   (2, "UxRom"),
@@ -43,15 +50,19 @@ const MAPPERS_TABLE: [(u16, &'static str); 16] = [
   (4, "MMC3"),
   (5, "MMC5"),
   (7, "AxRom"),
-  (9, "MMC2"),
+  (9, "MMC2 (Punch-Out!!)"),
   (11, "ColorDreams"),
   (21, "VRC2/VRC4"),
   (22, "VRC2/VRC4"),
   (23, "VRC2/VRC4"),
+  (24, "VRC6a (Akumajou Densetsu)"),
   (25, "VRC2/VRC4"),
+  (26, "VRC6b (Madara and Esper Dream 2)"),
   (66, "GxRom"),
   (69, "Sunsoft FME-7"),
   (71, "Codemasters (INesMapper071)"),
+  (73, "VRC3 (Salamander)"),
+  (78, "INesMapper078 (Holy Diver and Cosmo Carrier)"),
 ];
 
 #[typetag::serde]
@@ -85,12 +96,10 @@ pub trait Mapper {
   fn poll_irq(&mut self) -> bool { false }
 }
 
-#[derive(Debug)]
 struct PrgBanking;
-#[derive(Debug)]
 struct ChrBanking;
-#[derive(Debug)]
-struct RamBanking;
+struct SRamBanking;
+struct VRamBanking;
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Banking<T> {
   data_size: usize,
@@ -154,7 +163,18 @@ impl Banking<ChrBanking> {
   }
 }
 
-impl Banking<RamBanking> {
+impl Banking<VRamBanking> {
+  pub fn new_vram(pages_count: usize) -> Self {
+    Self::new(4 * 1024, 1024, pages_count)
+  }
+
+  pub fn addr(&self, addr: usize) -> usize {
+    let page = (addr - 0x2000) / self.bank_size;
+    self.page_to_bank_addr(page, addr)
+  }
+}
+
+impl Banking<SRamBanking> {
   pub fn new_sram(header: &CartHeader) -> Self {
     Self::new(header.sram_real_size(), 8*1024, 1)
   }
@@ -163,6 +183,10 @@ impl Banking<RamBanking> {
     let page = (addr - 0x6000) / self.bank_size;
     self.page_to_bank_addr(page, addr)
   }
+}
+
+impl Banking<VRamBanking> {
+
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -175,6 +199,8 @@ impl Mapper for Dummy {
   fn write(&mut self, _: usize, _: u8) {}
 }
 
+// Mapper 00
+// https://www.nesdev.org/wiki/NROM
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct NROM {
   prg_banks: Banking<PrgBanking>,
@@ -201,6 +227,8 @@ impl Mapper for NROM {
   }
 }
 
+// Mapper 02
+// https://www.nesdev.org/wiki/UxROM
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct UxROM {
   prg_banks: Banking<PrgBanking>,
@@ -224,6 +252,8 @@ impl Mapper for UxROM {
   }
 }
 
+// Mapper 03
+// https://www.nesdev.org/wiki/INES_Mapper_003
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct CNROM {
   chr_banks: Banking<ChrBanking>,
@@ -245,6 +275,8 @@ impl Mapper for CNROM {
   }
 }
 
+// Mapper 07
+// https://www.nesdev.org/wiki/AxROM
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct AxROM {
   prg_banks: Banking<PrgBanking>,
@@ -276,7 +308,9 @@ impl Mapper for AxROM {
   }
 }
 
-// ColorDreams and GxRom are the same, use PhantomData generics
+// Mapper 11
+// https://www.nesdev.org/wiki/Color_Dreams
+// TODO: ColorDreams and GxRom are basically the same, use PhantomData generics
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct ColorDreams {
   prg_banks: Banking<PrgBanking>,
@@ -308,6 +342,8 @@ impl Mapper for ColorDreams {
   }
 }
 
+// Mapper 66
+// https://www.nesdev.org/wiki/GxROM
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct GxROM {
   prg_banks: Banking<PrgBanking>,
@@ -339,6 +375,8 @@ impl Mapper for GxROM {
   }
 }
 
+// Mapper 71
+// https://www.nesdev.org/wiki/INES_Mapper_071
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Codemasters {
   prg_banks: Banking<PrgBanking>,
@@ -378,6 +416,8 @@ impl Mapper for Codemasters {
   }
 }
 
+// Mapper 09
+// https://www.nesdev.org/wiki/MMC2
 #[derive(Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
 enum Mmc2Latch { FD, #[default] FE }
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -479,3 +519,64 @@ impl Mapper for MMC2 {
 //   }
 // }
 
+// Mapper 78 (Holy Diver and Cosmo Carrier)
+// https://www.nesdev.org/wiki/INES_Mapper_078
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct INesMapper078 {
+  prg_banks: Banking<PrgBanking>,
+  chr_banks: Banking<ChrBanking>,
+  mirroring: Mirroring,
+  uses_hv_mirroring: bool,
+}
+
+#[typetag::serde]
+impl Mapper for INesMapper078 {
+  fn new(header: &CartHeader) -> Box<Self> {
+    let uses_hv_mirroring = 
+      header.has_alt_mirroring || header.submapper == 3;
+    
+    let mut prg_banks = Banking::new_prg(header, 2);
+    let chr_banks = Banking::new_chr(header, 1);
+    
+    let mirroring = if uses_hv_mirroring {
+      Mirroring::Horizontal
+    } else {
+      Mirroring::SingleScreenA
+    };
+
+    prg_banks.set_page_to_last_bank(1);
+    Box::new(Self{prg_banks,chr_banks,uses_hv_mirroring,mirroring})
+  }
+
+  fn write(&mut self, _: usize, val: u8) {
+    let prg_bank = val & 0b111;
+    let chr_bank = val >> 4;
+
+    self.prg_banks.set(0, prg_bank as usize);
+    self.chr_banks.set(0, chr_bank as usize);
+
+    self.mirroring = if self.uses_hv_mirroring {
+      match (val >> 3) & 1 != 0 {
+        false => Mirroring::Horizontal,
+        true  => Mirroring::Vertical,
+      }
+    } else {
+      match (val >> 3) & 1 != 0 {
+        false => Mirroring::SingleScreenA,
+        true  => Mirroring::SingleScreenB,
+      }
+    };
+  }
+
+  fn prg_addr(&mut self, addr: usize) -> usize {
+    self.prg_banks.addr(addr)
+  }
+
+  fn chr_addr(&mut self, addr: usize) -> usize {
+    self.chr_banks.addr(addr)
+  }
+
+  fn mirroring(&self) -> Option<Mirroring> {
+    Some(self.mirroring)
+  }
+} 
