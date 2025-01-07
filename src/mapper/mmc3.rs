@@ -186,7 +186,7 @@ impl Mapper for MMC3 {
 
   fn notify_scanline(&mut self) {
     if self.irq_counter == 0 || self.irq_reload {
-      self.irq_counter = self.irq_latch-1;
+      self.irq_counter = self.irq_latch;
       self.irq_reload = false;
     } else {
       self.irq_counter -= 1;
