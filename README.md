@@ -15,6 +15,8 @@
 [x] Mappers
 - Implementation is solid, but could be better (and faster)
 - Convert usizes to u8
+- Cart, Sram, Prg ranges should all be in the same mapper functions, mapper should be able to target all of them
+
 - https://www.nesdev.org/wiki/Sunsoft_FME-7
 - https://www.nesdev.org/wiki/INES_Mapper_048 -- MMC3 like
 - https://www.nesdev.org/wiki/INES_Mapper_093

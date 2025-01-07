@@ -415,8 +415,8 @@ impl Mapper for GxROM {
   }
 
   fn write(&mut self, _: usize, val: u8) {
-    let prg_bank = val as usize & 0b11;
-    let chr_bank = (val as usize >> 4) & 0b11;
+    let chr_bank = val as usize & 0b11;
+    let prg_bank = (val as usize >> 4) & 0b11;
 
     self.prg_banks.set(0, prg_bank);
     self.chr_banks.set(0, chr_bank);
