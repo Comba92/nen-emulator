@@ -172,7 +172,7 @@ impl Mapper for MMC3 {
         self.irq_requested = None;
       }
       (0xE001..=0xFFFF, false) => self.irq_enabled = true,
-      _ => unreachable!()
+      _ => {}
     }
   }
 
@@ -186,7 +186,7 @@ impl Mapper for MMC3 {
 
   fn notify_scanline(&mut self) {
     if self.irq_counter == 0 || self.irq_reload {
-      self.irq_counter = self.irq_latch;
+      self.irq_counter = self.irq_latch-1;
       self.irq_reload = false;
     } else {
       self.irq_counter -= 1;
@@ -201,7 +201,6 @@ impl Mapper for MMC3 {
     self.irq_requested.is_some()
   }
 
-  fn mirroring(&self) -> Option<Mirroring> {
-    Some(self.mirroring)
-  }
+  fn mirroring(&self) -> Mirroring { self.mirroring }
+
 }

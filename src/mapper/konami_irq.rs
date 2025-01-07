@@ -32,7 +32,7 @@ impl KonamiIrq {
     }
   }
 
-  pub fn write_ack(&mut self, val: u8) {
+  pub fn write_ack(&mut self) {
     self.requested = None;
     self.enabled = self.enabled_after_ack;    
   }

@@ -286,11 +286,10 @@ impl Cart {
   }
 
   pub fn cart_read(&mut self, addr: usize) -> u8 {
-    // self.mapper.cart_read(addr)
-    0
+    self.mapper.cart_read(addr)
   }
   pub fn cart_write(&mut self, addr: usize, val: u8) {
-    // self.mapper.cart_write(addr, val);
+    self.mapper.cart_write(addr, val);
   }
 
   pub fn prg_read(&mut self, addr: usize) -> u8 {
@@ -315,46 +314,31 @@ impl Cart {
   }
 
   pub fn vram_read(&mut self, vram: &[u8], addr: usize) -> u8 {
-    vram[self.mirror_vram(addr)]
+    self.mapper.vram_read(vram, addr)
   }
 
-  pub fn vram_write(&self, vram: &mut [u8], addr: usize, val: u8) {
-    vram[self.mirror_vram(addr)] = val;
+  pub fn vram_write(&mut self, vram: &mut [u8], addr: usize, val: u8) {
+    self.mapper.vram_write(vram, addr, val);
   }
 
-  // Horizontal:
-	// 0x0800 [ B ]  [ A ] [ a ]
-	// 0x0400 [ A ]  [ B ] [ b ]
 
-	// Vertical:
-	// 0x0800 [ B ]  [ A ] [ B ]
-	// 0x0400 [ A ]  [ a ] [ b ]
+  // pub fn mirror_vram(&self, addr: usize) -> usize {
+  //   let addr = addr - 0x2000;
+	// 	let nametbl_idx = addr / 0x400;
 
-	// Single-page: (based on mapper register)
-	// 0x0800 [ B ]  [ A ] [ a ]    [ B ] [ b ]
-	// 0x0400 [ A ]  [ a ] [ a ] or [ b ] [ b ]
-  pub fn mirror_vram(&self, addr: usize) -> usize {
-    let addr = addr - 0x2000;
-		let nametbl_idx = addr / 0x400;
-
-		let mirroring = self.mirroring();
+	// 	let mirroring = self.mirroring();
     
-		use Mirroring::*;
-		match (mirroring, nametbl_idx) {
-			(Horizontal, 1) | (Horizontal, 2) => addr - 0x400,
-			(Horizontal, 3) => addr - 0x400 * 2,
-			(Vertical, 2) | (Vertical, 3) => addr - 0x400 * 2,
-			(SingleScreenA, _) => addr % 0x400,
-			(SingleScreenB, _) => (addr % 0x400) + 0x400,
-			// TODO: eventually implement this
-			(FourScreen, _) => todo!("Four screen mirroring not implemented"),
-			_ => addr,
-		}
-  }
-
-  pub fn mirroring(&self) -> Mirroring {
-    self.mapper.mirroring().unwrap_or(self.header.mirroring)
-  }
+	// 	use Mirroring::*;
+	// 	match (mirroring, nametbl_idx) {
+	// 		(Horizontal, 1) | (Horizontal, 2) => addr - 0x400,
+	// 		(Horizontal, 3) => addr - 0x400 * 2,
+	// 		(Vertical, 2) | (Vertical, 3) => addr - 0x400 * 2,
+	// 		(SingleScreenA, _) => addr % 0x400,
+	// 		(SingleScreenB, _) => (addr % 0x400) + 0x400,
+	// 		(FourScreen, _) => addr,
+	// 		_ => unreachable!(),
+	// 	}
+  // }
 }
 
 #[cfg(test)]

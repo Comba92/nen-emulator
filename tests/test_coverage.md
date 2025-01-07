@@ -1,12 +1,13 @@
 [] window5
 [] vbl_nmi_timing
+- [x] 1, 4, 
 [] stress
-[] stomper
-[] stars_se
+[x] stomper
+[x] stars_se
 [] sprite_overflow_tests
-- [x] 1, 2
+- [x] 1, 2, 5
 [] sprite_hit_tests_2005
-- [x] 1 .. 6, 8, 11
+- [x] All except 5
 [x] spritecans
 [] sprdma_and_dmc_dma_512
 [] scrolltest
@@ -14,6 +15,7 @@
 [] scanline
 [x] read_joy3
 [] ppu_vbl_nmi
+- [x] 1, 3, 9
 [] ppu_read_buffer
 [] ppu_open_bus
 [] oam_stress
@@ -42,14 +44,12 @@
 [] cpu_exec_space
 [] cpu_dummy_writes
 [x] cpu_dummy_reads
-[x] branc_timing_tests
+[x] branch_timing_tests
 [] blargg_ppu_tests_2005
 - [x] palette_ram
 - [x] sprite_ram
-[] blargg_nes_cpu_test5
-- [x] official
+[x] blargg_nes_cpu_test5
 [] blargg_apu_2005
 [] apu_test
 [] apu_reset
-[] apu_mixer_recordings
-[] apu_mixer
+  - [x] 4015_cleared, irq_flag_cleared

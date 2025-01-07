@@ -5,7 +5,7 @@ use crate::cart::Mirroring;
 use super::{konami_irq::{IrqMode, KonamiIrq}, Banking, ChrBanking, Mapper, PrgBanking};
 
 #[bitfield(u16, order = Lsb)]
-struct Byte {
+struct ChrSelectByte {
   #[bits(4)]
   lo: u8,
   #[bits(5)]
@@ -15,20 +15,20 @@ struct Byte {
   __: u8
 }
 
-impl serde::Serialize for Byte {
+impl serde::Serialize for ChrSelectByte {
 	fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
 	where
 		S: serde::Serializer {
 		serializer.serialize_u16(self.0)
 	}
 }
-impl<'de> serde::Deserialize<'de> for Byte {
+impl<'de> serde::Deserialize<'de> for ChrSelectByte {
 	fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
 	where
 		D: serde::Deserializer<'de> {
 		struct ByteVisitor;
 		impl<'de> serde::de::Visitor<'de> for ByteVisitor {
-			type Value = Byte;
+			type Value = ChrSelectByte;
 
 			fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
 				formatter.write_str("u16")
@@ -37,7 +37,7 @@ impl<'de> serde::Deserialize<'de> for Byte {
 			fn visit_u16<E>(self, v: u16) -> Result<Self::Value, E>
 				where
 					E: serde::de::Error, {
-				Ok(Byte::from_bits(v))
+				Ok(ChrSelectByte::from_bits(v))
 			}
 		}
 		deserializer.deserialize_u16(ByteVisitor)
@@ -53,7 +53,7 @@ pub struct VRC2_4 {
   
   prg_select0: u8,
   prg_select1: u8,
-  chr_selects: [Byte; 8],
+  chr_selects: [ChrSelectByte; 8],
 
   mapper: u16,
   swap_mode: bool,
@@ -224,7 +224,7 @@ impl Mapper for VRC2_4 {
       0xF000 => self.irq.latch = (self.irq.latch & 0xF0) | (val as u16 & 0b1111),
       0xF001 => self.irq.latch = (self.irq.latch & 0x0F) | ((val as u16 & 0b1111) << 4),
       0xF002 => self.irq.write_ctrl(val),
-      0xF003 => self.irq.write_ack(val),
+      0xF003 => self.irq.write_ack(),
       _ => {}
     }
   }
@@ -277,7 +277,5 @@ impl Mapper for VRC2_4 {
     self.irq.requested.is_some()
   }
 
-  fn mirroring(&self) -> Option<Mirroring> {
-    Some(self.mirroring)
-  }
+  fn mirroring(&self) -> Mirroring { self.mirroring }
 }

@@ -1,4 +1,4 @@
-use crate::cart::CartHeader;
+use crate::cart::{CartHeader, Mirroring};
 
 use super::{konami_irq::{self, KonamiIrq}, Banking, Mapper, PrgBanking};
 
@@ -7,6 +7,7 @@ use super::{konami_irq::{self, KonamiIrq}, Banking, Mapper, PrgBanking};
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct VRC3 {
   prg_banks: Banking<PrgBanking>,
+  mirroring: Mirroring,
   irq: KonamiIrq,
 }
 
@@ -15,7 +16,8 @@ impl Mapper for VRC3 {
   fn new(header: &CartHeader) -> Box<Self> {
     let mut prg_banks = Banking::new_prg(header, 2);
     prg_banks.set_page_to_last_bank(1);
-    Box::new(Self{prg_banks, irq: Default::default()})
+    let mirroring = header.mirroring;
+    Box::new(Self{prg_banks, irq: Default::default(),mirroring})
   }
 
   fn write(&mut self, addr: usize, val: u8) {
@@ -26,7 +28,7 @@ impl Mapper for VRC3 {
       0xA000..=0xAFFF => self.irq.latch = (self.irq.latch & 0xF0FF) | ((val as u16 & 0b1111) << 8),
       0xB000..=0xBFFF => self.irq.latch = (self.irq.latch & 0x0FFF) | ((val as u16 & 0b1111) << 12),
       0xC000..=0xCFFF => self.irq.write_ctrl(val),
-      0xD000..=0xDFFF => self.irq.write_ack(val),
+      0xD000..=0xDFFF => self.irq.write_ack(),
       _ => {}
     }
   }
@@ -65,4 +67,6 @@ impl Mapper for VRC3 {
   fn poll_irq(&mut self) -> bool {
     self.irq.requested.is_some()
   }
+
+  fn mirroring(&self) -> Mirroring { self.mirroring }
 }

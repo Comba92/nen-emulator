@@ -33,7 +33,6 @@ impl Nes {
     self.get_cpu().reset();
     self.get_ppu().reset();
     self.get_apu().reset();
-    self.get_bus().cart.borrow_mut().reset();
   }
 
   pub fn get_raw_screen(&self) -> *const u8 {
@@ -59,6 +58,7 @@ impl Nes {
   pub fn load_rom_only(&mut self, cart: &Cart) {
     let mut curr_cart = self.get_bus().cart.borrow_mut();
     curr_cart.prg = cart.prg.clone();
+    curr_cart.chr = cart.chr.clone();
   }
 
   pub fn get_bus(&mut self) -> &mut Bus {

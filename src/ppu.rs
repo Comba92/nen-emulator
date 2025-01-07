@@ -226,6 +226,8 @@ impl Ppu {
 	pub fn step(&mut self) {
 		if (0..=239).contains(&self.scanline) {
 			self.render_step();
+		} else if self.scanline == 240 && self.cycle == 2 {
+			// self.cart.borrow_mut().mapper.notify_in_frame(false);
 		} else if self.scanline == 241 {
 			if self.cycle == 1 {
 				self.frame_ready = Some(());

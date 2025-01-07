@@ -180,7 +180,7 @@ impl Mapper for MMC1 {
           self.prg_select  = self.shift_reg as usize & 0b1111;
           self.update_prg_banks();
         }
-        _ => unreachable!("Accessed {addr:x}")
+        _ => {}
       }
       
       self.shift_writes = 0;
@@ -204,7 +204,5 @@ impl Mapper for MMC1 {
     ram[self.sram_banks.addr(addr)] = val;
   }
 
-  fn mirroring(&self) -> Option<Mirroring> {
-    Some(self.mirroring)
-  }
+  fn mirroring(&self) -> Mirroring { self.mirroring }
 }

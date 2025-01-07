@@ -106,6 +106,10 @@ impl Ppu {
   pub(super) fn render_step(&mut self) {
     if (1..=256).contains(&self.cycle) || (321..=336).contains(&self.cycle) {
       self.bg_step();
+
+      if self.cycle == 3 {
+        // self.cart.borrow_mut().mapper.notify_in_frame(true);
+      }
     } else if self.cycle == 257 {
       self.increase_coarse_y();
       self.reset_render_x();
