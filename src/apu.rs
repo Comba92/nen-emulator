@@ -143,6 +143,9 @@ pub struct Apu {
   sample_cycles: f32,
 
   low_pass_filter: LowPassIIR,
+  high_pass_filter0: HighPassIIR,
+  high_pass_filter1: HighPassIIR,
+  quality_filter: LowPassIIR,
 
   cycles: usize,
 }
@@ -155,7 +158,8 @@ impl Apu {
   pub fn new(timing: ConsoleTiming) -> Self {
     let samples_per_second = 
       timing.frame_cpu_cycles() / ((44100.0 / timing.fps()) as f32);
-    
+    let cpu_hz = timing.cpu_hz() as f32;
+
     Self {
       timing,
       pulse1: Pulse::default(),
@@ -175,8 +179,14 @@ impl Apu {
       samples_per_second,
       sample_cycles: 0.0,
 
+      high_pass_filter0: HighPassIIR
+        ::new(cpu_hz, 90.0),
+      high_pass_filter1: HighPassIIR
+        ::new(cpu_hz, 440.0),
       low_pass_filter: LowPassIIR
-        ::new(timing.cpu_hz() as f32, 0.45 * 44100.0),
+        ::new(cpu_hz, 14_000.0),
+      quality_filter: LowPassIIR
+        ::new(cpu_hz, 0.40 * 44_100.0),
 
       cycles: 0,
     }
@@ -213,10 +223,13 @@ impl Apu {
 
     // OPT: this if is EXTREMELY costly
     let sample = self.mix_channels();
-    self.low_pass_filter.consume(sample);
+    self.high_pass_filter0.consume(sample);
+    self.high_pass_filter1.consume(self.high_pass_filter0.output());
+    self.low_pass_filter.consume(self.high_pass_filter1.output());
+    self.quality_filter.consume(self.low_pass_filter.output());
 
     if self.sample_cycles >= self.samples_per_second {
-      let output = self.low_pass_filter.output();
+      let output = self.quality_filter.output();
       self.samples.push(output);
       self.sample_cycles -= self.samples_per_second;
     }
@@ -429,5 +442,37 @@ impl LowPassIIR {
 
   pub fn output(&self) -> f32 {
     return self.previous_output + self.alpha * self.delta;
+  }
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct HighPassIIR {
+  alpha: f32,
+  previous_output: f32,
+  previous_input: f32,
+  delta: f32,
+}
+
+impl HighPassIIR {
+  pub fn new(sample_rate: f32, cutoff_frequency: f32) -> HighPassIIR {
+      let delta_t = 1.0 / sample_rate;
+      let time_constant = 1.0 / cutoff_frequency;
+      let alpha = time_constant / (time_constant + delta_t);
+      return HighPassIIR {
+          alpha: alpha,
+          previous_output: 0.0,
+          previous_input: 0.0,
+          delta: 0.0,
+      }
+  }
+
+  fn consume(&mut self, new_input: f32) {
+      self.previous_output = self.output();
+      self.delta = new_input - self.previous_input;
+      self.previous_input = new_input;
+  }
+
+  fn output(&self) -> f32 {
+      return self.alpha * self.previous_output + self.alpha * self.delta;
   }
 }

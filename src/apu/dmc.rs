@@ -18,8 +18,7 @@ pub struct Dmc {
   pub loop_enabled: bool,
   timer: Timer,
 
-  buffer_empty: bool,
-  buffer: u8,
+  buffer: Option<u8>,
   level: u8,
   bits_remaining: u8,
   address: u16,
@@ -32,10 +31,9 @@ pub struct Dmc {
 
 impl Default for Dmc {
   fn default() -> Self {
-    Self { timing: Default::default(), irq_enabled: Default::default(), irq_flag: Default::default(), loop_enabled: Default::default(), timer: Default::default(), level: Default::default(), buffer_empty: true, buffer: Default::default(), bits_remaining: Default::default(), address: Default::default(), length: Default::default(), shift_reg: Default::default(), silence: true, reader: Default::default() }
+    Self { timing: Default::default(), irq_enabled: Default::default(), irq_flag: Default::default(), loop_enabled: Default::default(), timer: Default::default(), level: Default::default(), buffer: Default::default(), bits_remaining: Default::default(), address: Default::default(), length: Default::default(), shift_reg: Default::default(), silence: true, reader: Default::default() }
   }
 }
-
 
 impl Dmc {
   pub fn new(timing: ConsoleTiming) -> Self {
@@ -82,8 +80,7 @@ impl Dmc {
   }
 
   pub fn load_sample(&mut self, sample: u8) {
-    self.buffer = sample;
-    self.buffer_empty = false;
+    self.buffer = Some(sample);
     self.bits_remaining = 8;
 
     if !self.reader.is_transfering() {
@@ -100,7 +97,7 @@ impl Dmc {
   }
 
   pub fn is_empty(&self) -> bool {
-    self.buffer_empty
+    self.buffer.is_none()
   }
 }
 
@@ -119,12 +116,11 @@ impl Channel for Dmc {
       if self.bits_remaining == 0 {
         self.bits_remaining = 8;
 
-        if self.buffer_empty {
-          self.silence = true;
-        } else {
+        if let Some(data) = self.buffer.take() {
           self.silence = false;
-          self.shift_reg = self.buffer;
-          self.buffer_empty = true;
+          self.shift_reg = data;
+        } else {
+          self.silence = true;
         }
       } else if self.bits_remaining > 0 {
         self.bits_remaining -= 1;

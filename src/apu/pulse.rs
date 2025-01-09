@@ -69,31 +69,27 @@ impl Pulse {
   }
 
   pub fn step_sweep(&mut self, complement: bool) {
-    
-    if self.sweep_count > 0 {
-      self.sweep_count -= 1;
-    } else if self.sweep_count == 0 {
-      self.sweep_count = self.sweep_period + 1;
-
-      if self.sweep_shift > 0 && self.sweep_enabled
-        && !self.is_muted()
-      {
-        let change_amount = self.timer.period >> self.sweep_shift;
-        
-        if self.sweep_negate {
-          self.timer.period = self.timer.period.saturating_sub(change_amount);
-          if complement { 
-            self.timer.period = self.timer.period.saturating_sub(1);
-          }     
-        } else {
-          self.timer.period = self.timer.period + change_amount;
-        }
+    if self.sweep_count == 0 
+      && self.sweep_enabled 
+      && self.sweep_shift != 0
+      && !self.is_muted() 
+    {
+      let change_amount = self.timer.period >> self.sweep_shift;
+      if self.sweep_negate {
+        self.timer.period = self.timer.period.saturating_sub(change_amount);
+        if complement { 
+          self.timer.period = self.timer.period.saturating_sub(1);
+        }     
+      } else {
+        self.timer.period = self.timer.period + change_amount;
       }
     }
 
-    if self.sweep_reload {
-      self.sweep_count = self.sweep_period + 1;
+    if self.sweep_count == 0 || self.sweep_reload {
+      self.sweep_count = self.sweep_period;
       self.sweep_reload = false;
+    } else {
+      self.sweep_count -= 1;
     }
   }
 
