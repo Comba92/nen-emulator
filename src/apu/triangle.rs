@@ -1,4 +1,4 @@
-use super::{Channel, LengthCounter, Timer};
+use super::{Channel, LengthCounter, ApuDivider};
 
 const TRIANGLE_SEQUENCE: [u8; 32] = [
   15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0,
@@ -11,7 +11,7 @@ pub(super) struct Triangle {
   linear_period: u8,
   linear_count: u8,
   length: LengthCounter,
-  timer: Timer,
+  timer: ApuDivider,
   duty_idx: usize,
 }
 

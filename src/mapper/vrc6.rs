@@ -1,4 +1,4 @@
-use crate::cart::{CartHeader, Mirroring, VRamTarget};
+use crate::{apu::{ApuDivider, Channel}, cart::{CartHeader, Mirroring, VRamTarget}};
 
 use super::{konami_irq::{IrqMode, KonamiIrq}, mirror_nametbl, Banking, ChrBanking, Mapper, PrgBanking, VRamBanking};
 
@@ -26,6 +26,14 @@ pub struct VRC6 {
   nametbl_mode: u8,
   chr_latch: bool,
   sram_enabled: bool,
+
+  apu_halted: bool,
+  apu_freq16: bool,
+  apu_freq256: bool,
+
+  pulse1: PulseVRC6,
+  pulse2: PulseVRC6,
+  sawtooth: SawtoothVRC6,
 }
 
 impl VRC6 {
@@ -137,6 +145,36 @@ impl VRC6 {
       }
     }
   }
+
+  fn handle_irq(&mut self) {
+    if !self.irq.enabled { return; }
+
+    match self.irq.mode {
+      IrqMode::Mode1 => {
+        self.irq.count += 1;
+      }
+      IrqMode::Mode0 => {
+        self.irq.prescaler -= 3;
+        if self.irq.prescaler <= 0 {
+          self.irq.prescaler += 341;
+          self.irq.count += 1;
+        }
+      }
+    }
+
+    if self.irq.count > 0xFF {
+      self.irq.requested = Some(());
+      self.irq.count = self.irq.latch;
+    }
+  }
+
+  fn handle_apu(&mut self) {
+    if self.apu_halted { return; }
+
+    self.pulse1.step_timer();
+    self.pulse2.step_timer();
+    self.sawtooth.step_timer();
+  }
 }
 
 #[typetag::serde]
@@ -164,6 +202,12 @@ impl Mapper for VRC6 {
       nametbl_src: NametblSrc::CiRam,
       nametbl_mode: 0,
       sram_enabled: false,
+      apu_halted: true,
+      apu_freq16: false,
+      apu_freq256: false,
+      pulse1: Default::default(),
+      pulse2: Default::default(),
+      sawtooth: Default::default(),
     };
     mapper.update_chr_banks();
     mapper.update_mirroring();
@@ -220,6 +264,34 @@ impl Mapper for VRC6 {
       0xF000 => self.irq.latch = val as u16,
       0xF001 => self.irq.write_ctrl(val),
       0xF002 => self.irq.write_ack(),
+      
+      0x9003 => {
+        self.apu_halted = val & 1 != 0;
+        self.apu_freq16 = (val >> 1) & 1 != 0;
+        self.apu_freq256 = (val >> 2) & 1 != 0;
+
+        if self.apu_freq256 {
+          self.pulse1.freq_shift = 8;
+          self.pulse2.freq_shift = 8;
+          self.sawtooth.freq_shift = 8;
+        } else if self.apu_freq16 {
+          self.pulse1.freq_shift = 4;
+          self.pulse2.freq_shift = 4;
+          self.sawtooth.freq_shift = 4;
+        }
+      }
+
+      0x9000 => self.pulse1.set_ctrl(val),
+      0x9001 => self.pulse1.set_period_low(val),
+      0x9002 => self.pulse1.set_period_high(val),
+
+      0xA000 => self.pulse2.set_ctrl(val),
+      0xA001 => self.pulse2.set_period_low(val),
+      0xA002 => self.pulse2.set_period_high(val),
+
+      0xB000 => self.sawtooth.set_acc(val),
+      0xB001 => self.sawtooth.set_period_low(val),
+      0xB002 => self.sawtooth.set_period_high(val),
       _ => {}
     }
   }
@@ -251,25 +323,18 @@ impl Mapper for VRC6 {
   }
 
   fn notify_cpu_cycle(&mut self) {
-    if !self.irq.enabled { return; }
+    self.handle_irq();
+    self.handle_apu();
+  }
 
-    match self.irq.mode {
-      IrqMode::Mode1 => {
-        self.irq.count += 1;
-      }
-      IrqMode::Mode0 => {
-        self.irq.prescaler -= 3;
-        if self.irq.prescaler <= 0 {
-          self.irq.prescaler += 341;
-          self.irq.count += 1;
-        }
-      }
-    }
+  fn get_sample(&self) -> f32 {
+    let sum = self.pulse1.get_sample() 
+      + self.pulse2.get_sample()
+      + self.sawtooth.get_sample();
 
-    if self.irq.count > 0xFF {
-      self.irq.requested = Some(());
-      self.irq.count = self.irq.latch;
-    }
+    // magic value taken from here
+    // https://github.com/zeta0134/rustico/blob/e1ee2211cc6173fe2df0df036c9c2a30e9966136/core/src/mmc/vrc6.rs
+    0.00845 * sum as f32
   }
 
   fn poll_irq(&mut self) -> bool {
@@ -277,4 +342,119 @@ impl Mapper for VRC6 {
   }
 
   fn mirroring(&self) -> Mirroring { self.mirroring }
+}
+
+
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+struct PulseVRC6 {
+  timer: ApuDivider,
+  pub freq_shift: u8,
+  volume: u8,
+  duty_idx: u8,
+  duty_cycle: u8,
+  ignore_duty: bool,
+  enabled: bool,
+}
+impl PulseVRC6 {
+  pub fn set_ctrl(&mut self, val: u8) {
+    self.volume = val & 0b1111;
+    self.duty_cycle = (val >> 4) & 1;
+    self.ignore_duty = (val >> 7) == 1;
+  }
+
+  pub fn set_period_low(&mut self, val: u8) {
+    self.timer.set_period_low(val);
+  }
+
+  pub fn set_period_high(&mut self, val: u8) {
+    self.timer.period = self.timer.period & 0x00FF
+    | ((val as u16 & 0b1111) << 8);
+    self.enabled = (val >> 7) != 0;
+    if !self.enabled {
+      self.duty_idx = 0;
+    }
+  }
+}
+impl Channel for PulseVRC6 {
+  fn step_timer(&mut self) {
+    self.timer.step(|timer| {
+      self.duty_idx = (self.duty_idx + 1) % 16;
+      timer.count = (timer.period >> self.freq_shift) + 1
+    });
+  }
+
+  fn step_quarter(&mut self) {}
+  fn step_half(&mut self) {}
+
+  fn is_enabled(&self) -> bool { self.enabled }
+
+  fn set_enabled(&mut self, enabled: bool) {
+    self.enabled = enabled;
+  }
+
+  fn get_sample(&self) -> u8 {
+    if (self.ignore_duty || self.duty_idx <= self.duty_cycle)  
+      && self.enabled
+    { 
+      self.volume
+    } else { 0 }
+  }
+}
+
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+struct SawtoothVRC6 {
+  timer: ApuDivider,
+  freq_shift: u8,
+  acc_rate: u8,
+  acc: u8,
+  duty: u8,
+  enabled: bool,
+}
+impl SawtoothVRC6 {
+  pub fn set_acc(&mut self, val: u8) {
+    self.acc_rate = val & 0b11_1111;
+  }
+
+  pub fn set_period_low(&mut self, val: u8) {
+    self.timer.set_period_low(val);
+  }
+
+  pub fn set_period_high(&mut self, val: u8) {
+    self.timer.period = self.timer.period & 0x00FF
+    | ((val as u16 & 0b1111) << 8);
+    self.enabled = (val >> 7) != 0;
+    if !self.enabled {
+      self.acc = 0;
+      self.duty = 0;
+    }
+  }
+}
+impl Channel for SawtoothVRC6 {
+  fn step_timer(&mut self) {
+    self.timer.step(|timer| {
+      self.duty = (self.duty + 1) % 14;
+      timer.count = (timer.period >> self.freq_shift) + 1;
+
+      if self.duty == 0 {
+        self.acc = 0;
+      } else if self.duty % 2 == 0 {
+        self.acc += self.acc_rate;
+      }
+    });
+  }
+
+  fn step_quarter(&mut self) {}
+  fn step_half(&mut self) {}
+  fn is_enabled(&self) -> bool {
+    self.enabled
+  }
+  fn set_enabled(&mut self, enabled: bool) {
+    self.enabled = enabled;
+  }
+
+  fn get_sample(&self) -> u8 {
+    if self.enabled {
+      self.acc >> 3
+    } else { 0 }
+  }
 }

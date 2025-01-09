@@ -274,7 +274,7 @@ impl Ppu {
 			let dist_from_scanline = self.scanline as isize - spr_y;
 
 			if dist_from_scanline >= 0 && dist_from_scanline < self.ctrl.spr_height() as isize {
-				if self.renderer.oam_tmp.len() < 32 {
+				if self.renderer.oam_tmp.len() < 8 {
 					self.renderer.oam_tmp
 						.push(OamEntry::from_bytes(&self.oam[i..i + 4], i));
 				}

@@ -6,7 +6,7 @@ use noise::Noise;
 use pulse::Pulse;
 use triangle::Triangle;
 
-use crate::cart::ConsoleTiming;
+use crate::cart::{ConsoleTiming, SharedCart};
 
 mod envelope;
 
@@ -16,11 +16,11 @@ mod noise;
 mod dmc;
 
 #[derive(Default, serde::Serialize, serde::Deserialize)]
-struct Timer {
+pub struct ApuDivider {
   pub period: u16,
-  count: u16,
+  pub count: u16,
 }
-impl Timer {
+impl ApuDivider {
   pub fn set_period_low(&mut self, val: u8) {
     self.period = self.period & 0xFF00
     | val as u16;
@@ -131,6 +131,8 @@ pub struct Apu {
   noise: Noise,
   pub dmc: Dmc,
   
+  cart: SharedCart,
+  
   frame_mode: FrameCounterMode,
   frame_write_delay: u8,
   frame_tmp: u8,
@@ -155,13 +157,16 @@ pub struct Apu {
 // }
 
 impl Apu {
-  pub fn new(timing: ConsoleTiming) -> Self {
+  pub fn new(cart: SharedCart) -> Self {
+    let timing = cart.borrow().header.timing;
+
     let samples_per_second = 
       timing.frame_cpu_cycles() / ((44100.0 / timing.fps()) as f32);
     let cpu_hz = timing.cpu_hz() as f32;
 
     Self {
       timing,
+      cart,
       pulse1: Pulse::default(),
       pulse2: Pulse::default(),
       triangle: Triangle::default(),
@@ -333,13 +338,15 @@ impl Apu {
     let noise    = self.noise.get_sample();
     let dmc = self.dmc.get_sample();
 
+    let ext_out = self.cart.borrow_mut().mapper.get_sample();
+
     let pulse_out = 0.00752 * (pulse1 + pulse2) as f32;
     let tnd_out = 
       0.00851 * triangle as f32
       + 0.00494 * noise as f32
       + 0.00335 * dmc as f32;
       
-    let sum = pulse_out + tnd_out;
+    let sum = pulse_out + tnd_out + ext_out;
     sum
   }
 
@@ -459,7 +466,7 @@ impl HighPassIIR {
       let time_constant = 1.0 / cutoff_frequency;
       let alpha = time_constant / (time_constant + delta_t);
       return HighPassIIR {
-          alpha: alpha,
+          alpha,
           previous_output: 0.0,
           previous_input: 0.0,
           delta: 0.0,

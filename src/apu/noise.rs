@@ -1,6 +1,6 @@
 use crate::cart::ConsoleTiming;
 
-use super::{envelope::Envelope, Channel, LengthCounter, Timer};
+use super::{envelope::Envelope, Channel, LengthCounter, ApuDivider};
 
 const NOISE_PERIOD_NTSC: [u16; 16] = [
   4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068,
@@ -14,7 +14,7 @@ pub(super) struct Noise {
   timing: ConsoleTiming,
   envelope: Envelope,
   loop_enabled: bool,
-  timer: Timer,
+  timer: ApuDivider,
   shift_reg: u16,
   length: LengthCounter,
   envelope_enabled: bool,

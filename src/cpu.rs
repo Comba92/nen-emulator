@@ -230,10 +230,8 @@ impl<M: Memory> Cpu<M> {
   pub fn step(&mut self) {
     if self.jammed { return; }
 
-    if self.bus.is_dma_transfering() {
-      self.bus.handle_dma();
-      return;
-    }
+    if self.bus.handle_dma() { return; }
+
     self.interrupts_poll();
     
     let opcode = self.pc_fetch();

@@ -128,11 +128,12 @@ pub trait Mapper {
 
   fn mirroring(&self) -> Mirroring;
 
+  // Generic cpu cycle notify / apu extension clocking
+  fn notify_cpu_cycle(&mut self) {}
+  fn get_sample(&self) -> f32 { 0.0 }
+
   // Mmc3 scanline notify
   fn notify_scanline(&mut self) {}
-
-  // Generic cpu cycle notify
-  fn notify_cpu_cycle(&mut self) {}
 
   // Mmc5 ppu notify
   fn notify_ppuctrl(&mut self, _val: u8) {}

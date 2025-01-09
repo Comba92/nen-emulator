@@ -1,7 +1,7 @@
 #![allow(unused)]
 
 use crate::{cart::ConsoleTiming, dma::{Dma, DmcDma}};
-use super::{Channel, Timer};
+use super::{Channel, ApuDivider};
 
 const RATE_TABLE_NTSC: [u16; 16] = [
   428, 380, 340, 320, 286, 254, 226, 214, 190, 160, 142, 128, 106,  84,  72,  54
@@ -16,7 +16,7 @@ pub struct Dmc {
   pub irq_enabled: bool,
   pub irq_flag: Option<()>,
   pub loop_enabled: bool,
-  timer: Timer,
+  timer: ApuDivider,
 
   buffer: Option<u8>,
   level: u8,

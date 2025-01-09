@@ -1,4 +1,4 @@
-use super::{envelope::Envelope, Channel, LengthCounter, Timer};
+use super::{envelope::Envelope, Channel, LengthCounter, ApuDivider};
 
 const PULSE_SEQUENCES: [[u8; 8]; 4] = [
   [ 0, 1, 0, 0, 0, 0, 0, 0 ],
@@ -29,7 +29,7 @@ impl From<u8> for PulseDutyMode {
 
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 pub(super) struct Pulse {
-  timer: Timer,
+  timer: ApuDivider,
   duty_mode: PulseDutyMode,
   duty_idx: usize,
 

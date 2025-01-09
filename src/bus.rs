@@ -101,12 +101,7 @@ impl Memory for Bus {
     self.cart.borrow_mut().mapper.notify_cpu_cycle();
   }
 
-  fn is_dma_transfering(&self) -> bool {
-    (self.apu.dmc.reader.is_transfering() && self.apu.dmc.is_empty())
-      || self.oam_dma.is_transfering()
-  }
-
-  fn handle_dma(&mut self) {
+  fn handle_dma(&mut self) -> bool {
     if self.apu.dmc.reader.is_transfering() && self.apu.dmc.is_empty() {
       self.tick();
       self.tick();
@@ -116,13 +111,19 @@ impl Memory for Bus {
       self.tick();
       self.apu.dmc.load_sample(to_write);
       self.tick();
+
+      return true;
     } else if self.oam_dma.is_transfering() {
       let addr = self.oam_dma.current();
       let to_write = self.read(addr);
       self.tick();
       self.write(0x2004, to_write);
       self.tick();
+
+      return true;
     }
+
+    return false;
   }
 }
 
@@ -131,13 +132,14 @@ impl Bus {
     let timing = cart.header.timing;
     let cart = Rc::new(RefCell::new(cart));
     let ppu = Ppu::new(cart.clone());
+    let apu = Apu::new(cart.clone());
 
     Self {
       timing,
       ram: vec![0; 0x800].into_boxed_slice(), 
       ppu,
       ppu_pal_cycles: 0,
-      apu: Apu::new(timing),
+      apu,
       cart,
       joypad: Joypad::new(),
       oam_dma: OamDma::default(),
