@@ -16,15 +16,15 @@ The terminal window shows basic informations and warnings, such as the ROM infor
 ### Controls
 Keyboard and controllers are supported.
 
-<kbd>A</kbd> A button
-<kbd>B</kbd> B button
-<kbd>W</kbd> Start
-<kbd>E</kbd> Select
-<kbd>ArrowKeys</kbd> You know what they do!
+<kbd>A</kbd> A button<br>
+<kbd>B</kbd> B button<br>
+<kbd>W</kbd> Start<br>
+<kbd>E</kbd> Select<br>
+<kbd>ArrowKeys</kbd> You know what they do!<br>
 
-<kbd>Space</kbd>Pause/unpause the emulator
-<kbd>R</kbd>Reset current game
-<kbd>M</kbd>Mute/unmute sound
+<kbd>Space</kbd>Pause/unpause the emulator<br>
+<kbd>R</kbd>Reset current game<br>
+<kbd>M</kbd>Mute/unmute sound<br>
 
 ## Compatibility
 The emulator supports mostly all the basic NES features you'd expect from a NES emulator.
