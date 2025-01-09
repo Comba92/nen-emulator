@@ -1,4 +1,4 @@
-// use crate::cart::{AccessTarget, CartHeader, Mirroring};
+// use crate::cart::{CartHeader, Mirroring, PrgTarget};
 
 // use super::{Banking, ChrBanking, Mapper, PrgBanking, SRamBanking};
 
@@ -27,8 +27,7 @@
 // #[typetag::serde]
 // impl Mapper for SunsoftFME7 {
 //   fn new(header: &CartHeader) -> Box<Self> {
-//     let mut prg_banks = Banking
-//       ::new(header.prg_size, 0x6000, 8*1024, 5);
+//     let mut prg_banks = Banking::new_prg(header, 5);
 //     let chr_banks = Banking::new_chr(header, 8);
 //     let sram_banks = Banking::new_sram(header);
 //     let mirroring = header.mirroring;
@@ -50,6 +49,8 @@
 //   }
 
 //   fn write(&mut self, addr: usize, val: u8) {
+//     println!("Addr: {addr:x} with Val: {val:x}");
+
 //     match addr {
 //       0x8000..=0x9FFF => {
 //         self.command = match val & 0b1111 {
@@ -77,6 +78,7 @@
 //             }
 //           }
 //           Command::Prg1(page) => 
+//             // remeber the first page might be sram, hence the + 1
 //             self.prg_banks.set(page as usize - 0x9 + 1, val as usize & 0b11_1111),
 //           Command::Nametbl => {
 //             self.mirroring = match val & 0b11 {
@@ -99,18 +101,16 @@
 //     }
 //   }
 
-//   fn prg_addr(&mut self, addr: usize) -> (AccessTarget, usize) {
-//     if (0x4020..=0x5FFF).contains(&addr) {
-//       (AccessTarget::Cart, addr - 0x4020)
-//     } else if (0x6000..=0x7FFF).contains(&addr) {
-//       if self.sram_banked {
-//         (AccessTarget::SRam, self.sram_banks.addr(addr))
-//       } else {
-//         (AccessTarget::Prg,  self.prg_banks.addr(addr))
-//       }
+//   fn prg_addr(&mut self, addr: usize) -> (PrgTarget, usize) {
+//     if self.sram_banked {
+//       (PrgTarget::Sram(self.sram_enabled), self.sram_banks.addr(addr))
 //     } else {
-//       (AccessTarget::Prg,  self.prg_banks.addr(addr))
+//       (PrgTarget::Prg, self.prg_banks.addr(addr))
 //     }
+//   }
+
+//   fn sram_addr(&mut self, addr: usize) -> (PrgTarget, usize) {
+//     self.prg_addr(addr)
 //   }
 
 //   fn chr_addr(&mut self, addr: usize) -> usize {

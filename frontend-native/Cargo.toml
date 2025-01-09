@@ -3,7 +3,10 @@ name = "frontend-native"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+static = ["sdl2/bundled", "sdl2/static-link"]
+
 [dependencies]
 nen-emulator = {path = ".."}
-sdl2 = "0.37.0"
+sdl2 = { version = "0.37.0" }
 zip = "2.2.2"

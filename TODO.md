@@ -15,6 +15,7 @@
 
 - [x] Mappers
 - Convert usizes to u8
+- Nametable mirroring can be optimized with the bankings method
 - Cart, Sram, Prg ranges should all be in the same mapper functions, mappe should be able to target all of them
 
 - https://www.nesdev.org/wiki/INES_Mapper_016
@@ -33,6 +34,7 @@
 - Cleaner implementation (it is better now but work can still be done)
 
 - [x] Support for zip files
+
 [] Game DB ??
 
 ## Tricky games
