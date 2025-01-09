@@ -204,7 +204,6 @@ fn main() {
   'running: loop {
     let ms_since_start = Instant::now();
 
-    
     if !ctx.is_paused {
       ctx.emu.step_until_vblank();
 
@@ -222,7 +221,9 @@ fn main() {
     }
 
     for event in events.poll_iter() {
-      handle_input(&keymaps, &event, &mut ctx);
+      if !ctx.is_paused {
+        handle_input(&keymaps, &event, &mut ctx);
+      }
 
       match event {
         Event::Quit { .. } => {

@@ -303,7 +303,9 @@ impl Cart {
     self.chr[self.mapper.chr_addr(addr)]
   }
   pub fn chr_write(&mut self, addr: usize, val: u8) {
-    self.chr[self.mapper.chr_addr(addr)] = val;
+    if self.header.uses_chr_ram {
+      self.chr[self.mapper.chr_addr(addr)] = val;
+    }
   }
 
   pub fn sram_read(&mut self, addr: usize) -> u8 {

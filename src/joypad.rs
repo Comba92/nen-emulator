@@ -50,7 +50,8 @@ impl Joypad {
 
 		let res = (self.buttons1.bits() >> self.button_idx1) & 1;
 		self.button_idx1 = (self.button_idx1 + 1) % 8;
-		res
+		// some games expect the highest bit to best due to open bus
+		res | 0x40
 	}
 
 	pub fn read2(&mut self) -> u8 {
@@ -60,6 +61,7 @@ impl Joypad {
 
 		let res = (self.buttons2.bits() >> self.button_idx2) & 1;
 		self.button_idx2 = (self.button_idx2 + 1) % 8;
-		res
+		// some games expect the highest bit to best due to open bus
+		res | 0x40
 	}
 }

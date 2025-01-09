@@ -18,7 +18,7 @@ pub fn new_mapper(header: &CartHeader) -> Result<Box<dyn Mapper>, String> {
   let mapper: Box<dyn Mapper> = match header.mapper {
     0 => NROM::new(header),
     1 => MMC1::new(header),
-    2 => UxROM::new(header),
+    2 | 94 => UxROM::new(header),
     3 => CNROM::new(header),
     4 => MMC3::new(header),
     7 => AxROM::new(header),
@@ -43,14 +43,14 @@ pub fn mapper_name(id: u16) -> &'static str {
     .map(|m| m.1)
     .unwrap_or("Not implemented")
 }
-const MAPPERS_TABLE: [(u16, &'static str); 27] = [
-  (0, "NRom"),
+const MAPPERS_TABLE: [(u16, &'static str); 29] = [
+  (0, "NROM"),
   (1, "MMC1"),
-  (2, "UxRom"),
-  (3, "CNRom (INesMapper003)"),
+  (2, "UxROM"),
+  (3, "CNROM (INesMapper003)"),
   (4, "MMC3"),
   (5, "MMC5"),
-  (7, "AxRom (Rare)"),
+  (7, "AxROM (Rare)"),
   (9, "MMC2 (Punch-Out!!)"),
   (10, "MMC4"),
   (11, "ColorDreams"),
@@ -63,13 +63,15 @@ const MAPPERS_TABLE: [(u16, &'static str); 27] = [
   (25, "Konami VRC2/VRC4"),
   (26, "Konami VRC6b (Madara and Esper Dream 2)"),
   (48, "Taito TC0690 (INesMapper048)"),
-  (66, "GxRom"),
+  (66, "GxROM"),
   (68, "Sunsoft4 (INesMapper068)"),
   (69, "Sunsoft5 FME-7"),
-  (71, "Codemasters UNRom (INesMapper071)"),
+  (71, "Codemasters UNROM (INesMapper071)"),
   (73, "Konami VRC3 (Salamander)"),
   (75, "Konami VRC1"),
   (78, "Irem 74HC161 (INesMapper078) (Holy Diver and Cosmo Carrier)"),
+  (94, "UNROM (Senjou no Ookami)"),
+  (180, "UNROM (Crazy Climber)"),
   (210, "Namco 175/340 (INesMapper210"),
 ];
 
@@ -281,6 +283,7 @@ impl Mapper for NROM {
 // https://www.nesdev.org/wiki/UxROM
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct UxROM {
+  banked_page: u8,
   prg_banks: Banking<PrgBanking>,
   mirroring: Mirroring,
 }
@@ -289,14 +292,22 @@ pub struct UxROM {
 impl Mapper for UxROM {
   fn new(header: &CartHeader) -> Box<Self> {
     let mut prg_banks = Banking::new_prg(header, 2);
-    prg_banks.set_page_to_last_bank(1);
     let mirroring = header.mirroring;
-    Box::new(Self { prg_banks, mirroring })
+
+    // https://www.nesdev.org/wiki/INES_Mapper_180
+    let banked_page = if header.mapper == 180 {
+      1
+    } else {
+      prg_banks.set_page_to_last_bank(1);
+      0
+    };
+
+    Box::new(Self { prg_banks, mirroring, banked_page })
   }
 
   fn write(&mut self, _: usize, val: u8) {
     let select = val & 0b1111;
-    self.prg_banks.set(0, select as usize);
+    self.prg_banks.set(self.banked_page as usize, select as usize);
   }
 
   fn prg_addr(&mut self, addr: usize) -> usize {

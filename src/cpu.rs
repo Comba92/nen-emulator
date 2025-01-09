@@ -1,4 +1,4 @@
-use core::{cell::OnceCell, fmt, ops::{BitAnd, BitOr, BitXor, Not, Shl, Shr}, panic};
+use core::{cell::OnceCell, fmt, ops::{BitAnd, BitOr, BitXor, Not, Shl, Shr}};
 
 use bitflags::bitflags;
 
@@ -228,6 +228,8 @@ enum InstrDst {
 
 impl<M: Memory> Cpu<M> {
   pub fn step(&mut self) {
+    if self.jammed { return; }
+
     if self.bus.is_dma_transfering() {
       self.bus.handle_dma();
       return;
@@ -805,8 +807,7 @@ impl<M: Memory> Cpu<M> {
   // also called KIL, HLT
   fn jam(&mut self, _: &mut Operand) {
     self.jammed = true;
-    // TODO: shouldn't panic, just stop the emulation.
-    panic!("System jammed! (reached JAM instruction)")
+    eprintln!("System jammed! (reached JAM instruction)")
   }
 }
 

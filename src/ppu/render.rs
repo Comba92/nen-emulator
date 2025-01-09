@@ -105,7 +105,7 @@ fn pixel_from_planes(bit: u8, plane0: u8, plane1: u8) -> u8 {
 impl Ppu {
   pub(super) fn render_step(&mut self) {
     if (1..=256).contains(&self.cycle) || (321..=336).contains(&self.cycle) {
-      self.bg_step();
+      self.fetch_bg_step();
 
       if self.cycle == 3 {
         // self.cart.borrow_mut().mapper.notify_in_frame(true);
@@ -175,7 +175,7 @@ impl Ppu {
   }
 
 
-  pub(super) fn bg_step(&mut self) {
+  pub(super) fn fetch_bg_step(&mut self) {
     self.renderer.bg_fifo.pop_front();
     // We render only during the visilbe frames (1 to 256)
     if self.cycle-1 < 256 && self.scanline != self.last_scanline { self.render_pixel(); }
@@ -274,7 +274,7 @@ impl Ppu {
 			let dist_from_scanline = self.scanline as isize - spr_y;
 
 			if dist_from_scanline >= 0 && dist_from_scanline < self.ctrl.spr_height() as isize {
-				if self.renderer.oam_tmp.len() < 8 {
+				if self.renderer.oam_tmp.len() < 32 {
 					self.renderer.oam_tmp
 						.push(OamEntry::from_bytes(&self.oam[i..i + 4], i));
 				}
@@ -371,7 +371,7 @@ impl Ppu {
 	}
 
   // https://www.nesdev.org/wiki/PPU_scrolling#Wrapping_around
-	fn increase_coarse_x(&mut self) {
+	pub(super) fn increase_coarse_x(&mut self) {
     if !self.rendering_enabled() { return; }
     
 		if self.v.coarse_x() == 31 {
@@ -383,7 +383,7 @@ impl Ppu {
 	}
 
 	// https://www.nesdev.org/wiki/PPU_scrolling#Wrapping_around
-	fn increase_coarse_y(&mut self) {
+	pub(super) fn increase_coarse_y(&mut self) {
 		if !self.rendering_enabled() { return; }
 
 		if self.v.fine_y() < 7 {

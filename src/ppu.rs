@@ -307,6 +307,12 @@ impl Ppu {
 	}
 
 	fn increase_vram_address(&mut self) {
+		// https://www.nesdev.org/wiki/PPU_scrolling#$2007_(PPUDATA)_reads_and_writes
+		if (0..=239).contains(&self.scanline) || self.scanline == self.last_scanline {
+			self.increase_coarse_x();
+			self.increase_coarse_y();
+		}
+		
 		self.v.0 = self.v.0.wrapping_add(self.ctrl.vram_addr_incr());
 	}
 
@@ -320,6 +326,7 @@ impl Ppu {
 
 		self.data_buf = self.peek_vram(self.v.0);
 		self.increase_vram_address();
+		
 		res
 	}
 

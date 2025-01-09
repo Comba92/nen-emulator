@@ -36,6 +36,14 @@
 - [x] Support for zip files
 [] Game DB ??
 
+## Tricky games
+- [] MMC1 consecutive reads (Bill & Ted's Excellent Adventure and some other MMC1 games)
+- [x] PPUDATA access during rendering (Burai Fighter (U))
+- [x] CHR ROM write should have no effect
+- [x] Controller open bus (Captain Planet, Dirty Harry, Infiltrator, Mad Max, Paperboy, The Last Starfighter)
+- [] RAM random content to seed RNG
+- [] G.I Joe not working
+
 # Resources
 - https://www.nesdev.org/NESDoc.pdf
 
