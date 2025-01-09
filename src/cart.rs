@@ -55,7 +55,7 @@ const CHR_ROM_PAGE_SIZE: usize = 1024 * 8;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum HeaderFormat { #[default] INes, Nes2_0 }
-#[derive(Debug, Default, Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum Mirroring { 
   #[default] Horizontal, 
   Vertical,
@@ -239,6 +239,9 @@ impl Default for Cart {
   }
 }
 
+pub enum VRamTarget { Chr, CiRam }
+pub enum PrgTarget { Prg, Sram, Cart }
+
 impl Cart {
   pub fn new(rom: &[u8]) -> Result<Self, String> {
     if rom.len() < HEADER_SIZE {
@@ -316,31 +319,20 @@ impl Cart {
   }
 
   pub fn vram_read(&mut self, vram: &[u8], addr: usize) -> u8 {
-    self.mapper.vram_read(vram, addr)
+    let (target, addr) = self.mapper.vram_addr(addr);
+    match target {
+      VRamTarget::CiRam => vram[addr],
+      VRamTarget::Chr   => self.chr_read(addr)
+    }
   }
 
   pub fn vram_write(&mut self, vram: &mut [u8], addr: usize, val: u8) {
-    self.mapper.vram_write(vram, addr, val);
+    let (target, addr) = self.mapper.vram_addr(addr);
+    match target {
+      VRamTarget::CiRam => vram[addr] = val,
+      VRamTarget::Chr   => self.chr_write(addr, val),
+    }
   }
-
-
-  // pub fn mirror_vram(&self, addr: usize) -> usize {
-  //   let addr = addr - 0x2000;
-	// 	let nametbl_idx = addr / 0x400;
-
-	// 	let mirroring = self.mirroring();
-    
-	// 	use Mirroring::*;
-	// 	match (mirroring, nametbl_idx) {
-	// 		(Horizontal, 1) | (Horizontal, 2) => addr - 0x400,
-	// 		(Horizontal, 3) => addr - 0x400 * 2,
-	// 		(Vertical, 2) | (Vertical, 3) => addr - 0x400 * 2,
-	// 		(SingleScreenA, _) => addr % 0x400,
-	// 		(SingleScreenB, _) => (addr % 0x400) + 0x400,
-	// 		(FourScreen, _) => addr,
-	// 		_ => unreachable!(),
-	// 	}
-  // }
 }
 
 #[cfg(test)]

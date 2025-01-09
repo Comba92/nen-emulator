@@ -56,7 +56,7 @@ impl MMC1 {
   fn update_prg_banks(&mut self) {
     let (bank0, bank1) = match self.prg_mode {
       PrgMode::Bank32kb => {
-        let bank = self.prg_select & !1;
+        let bank = self.prg_select << 1;
         (bank, bank+1)
       },
       PrgMode::FixFirstPage => (0, self.prg_select),
@@ -71,7 +71,7 @@ impl MMC1 {
   fn update_all_banks(&mut self) {
     match self.chr_mode {
       ChrMode::Bank8kb => {
-        let bank = self.chr_select0 & !1;
+        let bank = self.chr_select0 << 1;
         self.chr_banks.set(0, bank);
         self.chr_banks.set(1, bank+1);
       }

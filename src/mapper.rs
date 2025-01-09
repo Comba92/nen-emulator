@@ -4,8 +4,9 @@ use mmc1::MMC1;
 use mmc3::MMC3;
 use vrc2_4::VRC2_4;
 use vrc3::VRC3;
+use vrc6::VRC6;
 
-use crate::cart::{CartHeader, Mirroring};
+use crate::cart::{CartHeader, Mirroring, VRamTarget};
 
 mod mmc1;
 mod mmc3;
@@ -25,8 +26,7 @@ pub fn new_mapper(header: &CartHeader) -> Result<Box<dyn Mapper>, String> {
     9 | 10 => MMC2::new(header),
     11 => ColorDreams::new(header),
     21 | 22 | 23 | 25 => VRC2_4::new(header),
-    // not implemented
-    // 24 | 26 => VRC6::new(header),
+    24 | 26 => VRC6::new(header),
     66 => GxROM::new(header),
     71 => Codemasters::new(header),
     73 => VRC3::new(header),
@@ -43,7 +43,7 @@ pub fn mapper_name(id: u16) -> &'static str {
     .map(|m| m.1)
     .unwrap_or("Not implemented")
 }
-const MAPPERS_TABLE: [(u16, &'static str); 29] = [
+const MAPPERS_TABLE: [(u16, &'static str); 30] = [
   (0, "NROM"),
   (1, "MMC1"),
   (2, "UxROM"),
@@ -71,9 +71,38 @@ const MAPPERS_TABLE: [(u16, &'static str); 29] = [
   (75, "Konami VRC1"),
   (78, "Irem 74HC161 (INesMapper078) (Holy Diver and Cosmo Carrier)"),
   (94, "UNROM (Senjou no Ookami)"),
+  (163, "FC-001 (INesMapper163)"),
   (180, "UNROM (Crazy Climber)"),
   (210, "Namco 175/340 (INesMapper210"),
 ];
+
+// Horizontal:
+// 0x0800 [ B ]  [ A ] [ a ]
+// 0x0400 [ A ]  [ B ] [ b ]
+
+// Vertical:
+// 0x0800 [ B ]  [ A ] [ B ]
+// 0x0400 [ A ]  [ a ] [ b ]
+
+// Single-page: (based on mapper register)
+// 0x0800 [ B ]  [ A ] [ a ]    [ B ] [ b ]
+// 0x0400 [ A ]  [ a ] [ a ] or [ b ] [ b ]
+pub fn mirror_nametbl(mirroring: Mirroring, addr: usize) -> usize {
+  let addr = addr - 0x2000;
+  let nametbl_idx = addr / 0x400;
+  
+  use Mirroring::*;
+  match (mirroring, nametbl_idx) {
+    (Horizontal, 1) | (Horizontal, 2) => addr - 0x400,
+    (Horizontal, 3) => addr - 0x400 * 2,
+    (Vertical, 2) | (Vertical, 3) => addr - 0x400 * 2,
+    (SingleScreenA, _) => addr % 0x400,
+    (SingleScreenB, _) => (addr % 0x400) + 0x400,
+    (FourScreen, _) => addr,
+    _ => addr,
+  }
+}
+
 
 #[typetag::serde]
 pub trait Mapper {
@@ -83,39 +112,8 @@ pub trait Mapper {
   fn prg_addr(&mut self, addr: usize) -> usize { addr - 0x8000 }
   fn chr_addr(&mut self, addr: usize) -> usize { addr }
 
-  // Horizontal:
-	// 0x0800 [ B ]  [ A ] [ a ]
-	// 0x0400 [ A ]  [ B ] [ b ]
-
-	// Vertical:
-	// 0x0800 [ B ]  [ A ] [ B ]
-	// 0x0400 [ A ]  [ a ] [ b ]
-
-	// Single-page: (based on mapper register)
-	// 0x0800 [ B ]  [ A ] [ a ]    [ B ] [ b ]
-	// 0x0400 [ A ]  [ a ] [ a ] or [ b ] [ b ]
-  fn vram_addr(&mut self, addr: usize) -> usize {
-    let addr = addr - 0x2000;
-		let nametbl_idx = addr / 0x400;
-		let mirroring = self.mirroring();
-    
-		use Mirroring::*;
-		match (mirroring, nametbl_idx) {
-			(Horizontal, 1) | (Horizontal, 2) => addr - 0x400,
-			(Horizontal, 3) => addr - 0x400 * 2,
-			(Vertical, 2) | (Vertical, 3) => addr - 0x400 * 2,
-			(SingleScreenA, _) => addr % 0x400,
-			(SingleScreenB, _) => (addr % 0x400) + 0x400,
-			(FourScreen, _) => addr,
-			_ => addr,
-		}
-  }
-
-  fn vram_read(&mut self, vram: &[u8], addr: usize) -> u8 {
-    vram[self.vram_addr(addr)]
-  }
-  fn vram_write(&mut self, vram: &mut[u8], addr: usize, val: u8) {
-    vram[self.vram_addr(addr)] = val;
+  fn vram_addr(&mut self, addr: usize) -> (VRamTarget, usize) {
+    (VRamTarget::CiRam, mirror_nametbl(self.mirroring(), addr))
   }
 
   fn cart_read(&self, _addr: usize) -> u8 { 0xFF }
@@ -211,8 +209,8 @@ impl Banking<ChrBanking> {
 }
 
 impl Banking<VRamBanking> {
-  pub fn new_vram(pages_count: usize) -> Self {
-    Self::new(4 * 1024, 1024, pages_count)
+  pub fn new_vram(vram_size: usize) -> Self {
+    Self::new(vram_size, 1024, 4)
   }
 
   pub fn addr(&self, addr: usize) -> usize {
@@ -230,10 +228,6 @@ impl Banking<SRamBanking> {
     let page = (addr - 0x6000) / self.bank_size;
     self.page_to_bank_addr(page, addr)
   }
-}
-
-impl Banking<VRamBanking> {
-
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -591,26 +585,6 @@ impl Mapper for MMC2 {
 
   fn mirroring(&self) -> Mirroring { self.mirroring }
 }
-
-// pub struct FC_001 {
-//   prg_banks: Banking<PrgBanking>,
-//   chr_banks: Banking<ChrBanking>,
-// }
-
-// impl Mapper for FC_001 {
-//   fn new(header: &CartHeader) -> Box<Self> {
-    
-//   }
-
-//   fn write(&mut self, addr: usize, val: u8) {
-//     match addr {
-//       0x5000 => ,
-//       0x5200 => ,
-//       0x5100 | 0x5101 =>,
-//       0x5300 => ,
-//     }
-//   }
-// }
 
 // Mapper 78 (Holy Diver and Cosmo Carrier)
 // https://www.nesdev.org/wiki/INES_Mapper_078

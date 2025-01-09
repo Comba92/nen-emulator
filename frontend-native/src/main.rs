@@ -143,6 +143,7 @@ fn handle_input(keys: &Keymaps, event: &Event, ctx: &mut EmuCtx) {
 struct EmuCtx {
   emu: Nes,
   is_paused: bool,
+  is_running: bool,
   audio: AudioQueue<f32>,
   ms_frame: Duration,
 }
@@ -195,6 +196,7 @@ fn main() {
   let mut ctx = EmuCtx {
     ms_frame: Duration::from_secs_f32(1.0 / emu.get_fps()),
     is_paused: true,
+    is_running: false,
     audio: audio_dev,
     emu,
   };
@@ -221,7 +223,7 @@ fn main() {
     }
 
     for event in events.poll_iter() {
-      if !ctx.is_paused {
+      if ctx.is_running {
         handle_input(&keymaps, &event, &mut ctx);
       }
 
@@ -238,6 +240,7 @@ fn main() {
             Ok(new_emu) => {
               ctx.emu = new_emu;
               ctx.is_paused = false;
+              ctx.is_running = true;
               ctx.ms_frame = Duration::from_secs_f32(1.0 / ctx.emu.get_fps());
             },
             Err(e) => eprintln!("{e}"),
