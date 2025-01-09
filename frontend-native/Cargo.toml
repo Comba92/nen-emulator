@@ -1,0 +1,9 @@
+[package]
+name = "frontend-native"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+nen-emulator = {path = ".."}
+sdl2 = "0.37.0"
+zip = "2.2.2"

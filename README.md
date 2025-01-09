@@ -2,17 +2,17 @@
 - Battletoads 2 open bus
 - Get rid of refcell?
 
-[x] CPU COMPLETED
+- [x] CPU COMPLETED
 - Better operand handling?
 - Open bus behaviour
 
-[x] Implement Memory Bus, Interrupts, synchronization
+- [x] Implement Memory Bus, Interrupts, synchronization
 - Sram saving
 
-[x] Implement PPU
+- [x] Implement PPU
 - Cleaner implementation (it is better now but work can still be done)
 
-[x] Mappers
+- [x] Mappers
 - Implementation is solid, but could be better (and faster)
 - Convert usizes to u8
 - Cart, Sram, Prg ranges should all be in the same mapper functions, mapper should be able to target all of them
@@ -29,13 +29,12 @@
 - https://www.nesdev.org/wiki/INES_Mapper_019
 - https://www.nesdev.org/wiki/MMC5
 
-[x] APU
+- [x] APU
 - Cleaner implementation (it is better now but work can still be done)
 - Audio filters?
 
-[x] Support for zip files
-[] Consider making the core lib no_std
-[] Game info fetcher from online db ??
+- [x] Support for zip files
+[] Game DB ??
 
 # Resources
 - https://www.nesdev.org/NESDoc.pdf
