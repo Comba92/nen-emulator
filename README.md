@@ -17,22 +17,17 @@
 - Convert usizes to u8
 - Cart, Sram, Prg ranges should all be in the same mapper functions, mapper should be able to target all of them
 
-- https://www.nesdev.org/wiki/Sunsoft_FME-7
+- https://www.nesdev.org/wiki/INES_Mapper_016
 - https://www.nesdev.org/wiki/INES_Mapper_048 -- MMC3 like
-- https://www.nesdev.org/wiki/INES_Mapper_093
-- https://www.nesdev.org/wiki/INES_Mapper_185 -- CNROM with submappers required
-- https://www.nesdev.org/wiki/INES_Mapper_184
-- https://www.nesdev.org/wiki/INES_Mapper_067
+- https://www.nesdev.org/wiki/INES_Mapper_210
 - https://www.nesdev.org/wiki/INES_Mapper_068
 - https://www.nesdev.org/wiki/VRC1
-- https://www.nesdev.org/wiki/INES_Mapper_163
 - https://www.nesdev.org/wiki/INES_Mapper_206
-- https://www.nesdev.org/wiki/INES_Mapper_210
 - https://www.nesdev.org/wiki/INES_Mapper_016
+- https://www.nesdev.org/wiki/Sunsoft_FME-7
 - https://www.nesdev.org/wiki/VRC6
 - https://www.nesdev.org/wiki/INES_Mapper_019
 - https://www.nesdev.org/wiki/MMC5
-
 
 [x] APU
 - Cleaner implementation (it is better now but work can still be done)

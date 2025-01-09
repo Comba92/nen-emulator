@@ -22,7 +22,7 @@ pub fn new_mapper(header: &CartHeader) -> Result<Box<dyn Mapper>, String> {
     3 => CNROM::new(header),
     4 => MMC3::new(header),
     7 => AxROM::new(header),
-    9 => MMC2::new(header),
+    9 | 10 => MMC2::new(header),
     11 => ColorDreams::new(header),
     21 | 22 | 23 | 25 => VRC2_4::new(header),
     // not implemented
@@ -43,27 +43,34 @@ pub fn mapper_name(id: u16) -> &'static str {
     .map(|m| m.1)
     .unwrap_or("Not implemented")
 }
-const MAPPERS_TABLE: [(u16, &'static str); 20] = [
+const MAPPERS_TABLE: [(u16, &'static str); 27] = [
   (0, "NRom"),
   (1, "MMC1"),
   (2, "UxRom"),
   (3, "CNRom (INesMapper003)"),
   (4, "MMC3"),
   (5, "MMC5"),
-  (7, "AxRom"),
+  (7, "AxRom (Rare)"),
   (9, "MMC2 (Punch-Out!!)"),
+  (10, "MMC4"),
   (11, "ColorDreams"),
-  (21, "VRC2/VRC4"),
-  (22, "VRC2/VRC4"),
-  (23, "VRC2/VRC4"),
-  (24, "VRC6a (Akumajou Densetsu)"),
-  (25, "VRC2/VRC4"),
-  (26, "VRC6b (Madara and Esper Dream 2)"),
+  (16, "Bandai FCG"),
+  (19, "Namco 129/163"),
+  (21, "Konami VRC2/VRC4"),
+  (22, "Konami VRC2/VRC4"),
+  (23, "Konami VRC2/VRC4"),
+  (24, "Konami VRC6a (Akumajou Densetsu)"),
+  (25, "Konami VRC2/VRC4"),
+  (26, "Konami VRC6b (Madara and Esper Dream 2)"),
+  (48, "Taito TC0690 (INesMapper048)"),
   (66, "GxRom"),
-  (69, "Sunsoft FME-7"),
-  (71, "Codemasters (INesMapper071)"),
-  (73, "VRC3 (Salamander)"),
-  (78, "INesMapper078 (Holy Diver and Cosmo Carrier)"),
+  (68, "Sunsoft4 (INesMapper068)"),
+  (69, "Sunsoft5 FME-7"),
+  (71, "Codemasters UNRom (INesMapper071)"),
+  (73, "Konami VRC3 (Salamander)"),
+  (75, "Konami VRC1"),
+  (78, "Irem 74HC161 (INesMapper078) (Holy Diver and Cosmo Carrier)"),
+  (210, "Namco 175/340 (INesMapper210"),
 ];
 
 #[typetag::serde]
@@ -471,12 +478,14 @@ impl Mapper for Codemasters {
   fn mirroring(&self) -> Mirroring { self.mirroring }
 }
 
-// Mapper 09
+// Mapper 09 / 10
 // https://www.nesdev.org/wiki/MMC2
+// https://www.nesdev.org/wiki/MMC4 
 #[derive(Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
 enum Mmc2Latch { FD, #[default] FE }
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct MMC2 {
+  mapper: u16,
   prg_banks: Banking<PrgBanking>,
   chr_banks0: Banking<ChrBanking>,
   chr_banks1: Banking<ChrBanking>,
@@ -493,12 +502,23 @@ impl Mapper for MMC2 {
     let chr_banks0 = Banking::new_chr(header, 2);
     let chr_banks1 = Banking::new_chr(header, 2);
 
-    // Three 8 KB PRG ROM banks, fixed to the last three banks
-    prg_banks.set(1, prg_banks.banks_count-3);
-    prg_banks.set(2, prg_banks.banks_count-2);
-    prg_banks.set(3, prg_banks.banks_count-1);
+    match header.mapper {
+      9 => {
+        // MMC2 - Three 8 KB PRG ROM banks, fixed to the last three banks
+        prg_banks.set(1, prg_banks.banks_count-3);
+        prg_banks.set(2, prg_banks.banks_count-2);
+        prg_banks.set(3, prg_banks.banks_count-1);
+      }
+      10 => {
+        // MMC4
+        prg_banks.set_page_to_last_bank(1);
+      }
+      _ => unreachable!(),
+    }
+
 
     Box::new(Self{
+      mapper: header.mapper,
       prg_banks, 
       chr_banks0, chr_banks1,
       latch0: Mmc2Latch::FE, 
@@ -538,9 +558,18 @@ impl Mapper for MMC2 {
     };
 
     // https://www.nesdev.org/wiki/MMC2#CHR_banking
+    // https://www.nesdev.org/wiki/MMC4#Banks
+    match (addr, self.mapper) {
+      (0x0FD8, 9) | (0x0FD8..0x0FDF, 10) => self.latch0 = Mmc2Latch::FD,
+      (0x0FE8, 9) | (0x0FE8..0x0FEF, 10) => self.latch0 = Mmc2Latch::FE,
+      (0x1FD8..=0x1FDF, _) => self.latch1 = Mmc2Latch::FD,
+      (0x1FE8..=0x1FEF, _) => self.latch1 = Mmc2Latch::FE,
+      _ => {}
+    };
+
     match addr {
-      0x0FD8 => self.latch0 = Mmc2Latch::FD,
-      0x0FE8 => self.latch0 = Mmc2Latch::FE,
+      0x0FD8..0x0FDF => self.latch0 = Mmc2Latch::FD,
+      0x0FE8..0x0FEF => self.latch0 = Mmc2Latch::FE,
       0x1FD8..=0x1FDF => self.latch1 = Mmc2Latch::FD,
       0x1FE8..=0x1FEF => self.latch1 = Mmc2Latch::FE,
       _ => {}
