@@ -1,4 +1,4 @@
 run:
-	make build && simple-http-server
+	make build && http-server
 build:
 	wasm-pack build --target web --out-dir "./pkg/"

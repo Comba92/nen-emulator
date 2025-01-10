@@ -13,10 +13,10 @@ nesScreen.width = SCREEN_WIDTH
 nesScreen.height = SCREEN_HEIGHT
 
 const keymap = [
-    { key: 'z', button: 1 },
-    { key: 'x', button: 2 },
-    { key: 'n', button: 4 },
-    { key: 'm', button: 8 },
+    { key: 's', button: 1 },
+    { key: 'd', button: 2 },
+    { key: 'w', button: 4 },
+    { key: 'e', button: 8 },
     { key: 'ArrowUp', button: 16 },
     { key: 'ArrowDown', button: 32 },
     { key: 'ArrowLeft', button: 64 },
@@ -60,10 +60,10 @@ window.addEventListener("gamepadconnected", (e) => {
     );
 });
 
-import init, {Nes} from './pkg/nen_emulator.js'
+import init, {Nes} from './frontend-wasm/pkg/nen_emulator.js'
 const instance = await init()
 
-let emu = Nes.empty()
+let emu = Nes.boot_empty()
 let screen = emu.get_raw_screen()
 let animationId = null
 
@@ -71,7 +71,7 @@ inputRom.addEventListener('change', async event => {
     let rom = await inputRom.files[0].arrayBuffer()
     let bytes = new Uint8Array(rom)
     try {
-        emu.load_rom(bytes)
+        emu = Nes.boot_from_bytes(bytes)
         screen = emu.get_raw_screen()
         pauseBtn.innerText = '⏸️'
         animationId = renderLoop()

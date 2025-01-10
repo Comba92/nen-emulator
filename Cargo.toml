@@ -1,11 +1,14 @@
 [package]
 name = "nen-emulator"
 version = "0.1.0"
+authors = ["Comba"]
 edition = "2021"
+readme = "README.md"
+repository = "https://github.com/Comba92/nen-emulator"
+license-file = "LICENSE"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
-
 
 [dependencies]
 bitflags = { version = "2.6.0", features = ["serde"] }
