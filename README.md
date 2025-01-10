@@ -17,7 +17,7 @@ The terminal window shows basic informations and warnings, such as the ROM infor
 Keyboard and controllers are supported.
 
 <kbd>A</kbd> A button<br>
-<kbd>B</kbd> B button<br>
+<kbd>S</kbd> B button<br>
 <kbd>W</kbd> Start<br>
 <kbd>E</kbd> Select<br>
 <kbd>ArrowKeys</kbd> You know what they do!<br>
@@ -59,7 +59,7 @@ The emulator supports mostly all the basic NES features you'd expect from a NES 
 - [x] 24. [VRC6a](https://www.nesdev.org/wiki/VRC6)
 - [x] 26. [VRC6b](https://www.nesdev.org/wiki/VRC6)
 - [x] 66. [GxROM](https://www.nesdev.org/wiki/GxROM)
-- [ ] 69. [Sunsoft5 FME-7](https://www.nesdev.org/wiki/Sunsoft_FME-7)
+- [ ] 69. [Sunsoft5 FME-7 (TODO)](https://www.nesdev.org/wiki/Sunsoft_FME-7)
 - [x] 71. [Codemasters](https://www.nesdev.org/wiki/INES_Mapper_071)
 - [x] 73. [VRC3 (used for Salamander)](https://www.nesdev.org/wiki/VRC3)
 - [x] 78. [Irem 74HC161 (used for Holy Diver and Cosmo Carrier)](https://www.nesdev.org/wiki/INES_Mapper_078)
@@ -108,10 +108,13 @@ Adding more user features is a pain, tho.
 ### What's missing
 - [] MMC1 consecutive writes behaviour
 - [] RAM initializing for games which uses it to seed RNG
+- [] MMC3 4four screen mirroring
 
 - [] SaveRam saving/loading
 - [] Savestates
 - [] Custom keybindings
+- [] Custom palettes
+- [] Sprite limit per scanline
 - [] Headerless ROMs support
 
 ## Various resources

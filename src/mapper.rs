@@ -46,7 +46,7 @@ pub fn mapper_name(id: u16) -> &'static str {
     .map(|m| m.1)
     .unwrap_or("Not implemented")
 }
-const MAPPERS_TABLE: [(u16, &'static str); 30] = [
+const MAPPERS_TABLE: [(u16, &'static str); 31] = [
   (0, "NROM"),
   (1, "MMC1"),
   (2, "UxROM"),
@@ -73,6 +73,7 @@ const MAPPERS_TABLE: [(u16, &'static str); 30] = [
   (73, "Konami VRC3 (Salamander)"),
   (75, "Konami VRC1"),
   (78, "Irem 74HC161 (INesMapper078) (Holy Diver and Cosmo Carrier)"),
+  (91, "INesMapper091"),
   (94, "UNROM (Senjou no Ookami)"),
   (163, "FC-001 (INesMapper163)"),
   (180, "UNROM (Crazy Climber)"),
@@ -215,6 +216,36 @@ impl Banking<ChrBanking> {
 impl Banking<VRamBanking> {
   pub fn new_vram(vram_size: usize) -> Self {
     Self::new(vram_size, 0x2000, 1024, 4)
+  }
+
+  pub fn update(&mut self, mirroring: Mirroring) {
+    match mirroring {
+      Mirroring::Horizontal => {
+        self.set(0, 0);
+        self.set(1, 0);
+        self.set(2, 1);
+        self.set(3, 1);
+      }
+      Mirroring::Vertical => {
+        self.set(0, 0);
+        self.set(1, 1);
+        self.set(2, 0);
+        self.set(3, 1);
+      }
+      Mirroring::SingleScreenA => {
+        self.set(0, 0);
+        self.set(1, 0);
+        self.set(2, 0);
+        self.set(3, 0);
+      }
+      Mirroring::SingleScreenB => {
+        self.set(0, 1);
+        self.set(1, 1);
+        self.set(2, 1);
+        self.set(3, 1);
+      }
+      _ => {}
+    }
   }
 }
 
@@ -640,4 +671,4 @@ impl Mapper for INesMapper078 {
   }
 
   fn mirroring(&self) -> Mirroring { self.mirroring }
-} 
+}

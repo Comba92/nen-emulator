@@ -156,7 +156,7 @@ impl CartHeader {
     header.format = if rom[7] & 0b0000_1100 == 0x8 { HeaderFormat::Nes2_0 } else { HeaderFormat::INes };
     // This field was a later addition to iNes, so most games do not use it, even if they contain prg_ram.
     // If it is 0, prg ram is inferred as 8kb.
-    header.prg_ram_size = if rom[8] > 0 { rom[8] } else { 8 } as usize * 1024;
+    header.prg_ram_size = rom[8] as usize * 1024;
 
     let title_start = HEADER_SIZE + header.prg_size-32;
     let title_bytes = &rom[title_start..title_start+16];
@@ -172,7 +172,7 @@ impl CartHeader {
     }
 
     if rom[9] & 0b1111 == 0xF || rom[9] >> 4 == 0xF {
-      return Err("NES 2.0 'exponent-multiplier' notation for rom sizes not implemented")
+      return Err("NES 2.0 'exponent-multiplier' notation for ROM sizes not implemented")
     }
 
     header.console_type = match rom[7] & 0b11 {

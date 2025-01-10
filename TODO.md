@@ -22,11 +22,11 @@
 - https://www.nesdev.org/wiki/INES_Mapper_048 -- MMC3 like
 - https://www.nesdev.org/wiki/INES_Mapper_210
 - https://www.nesdev.org/wiki/INES_Mapper_068
+- https://www.nesdev.org/wiki/INES_Mapper_091
 - https://www.nesdev.org/wiki/VRC1
 - https://www.nesdev.org/wiki/INES_Mapper_206
 - https://www.nesdev.org/wiki/INES_Mapper_016
 - https://www.nesdev.org/wiki/Sunsoft_FME-7
-- https://www.nesdev.org/wiki/VRC6
 - https://www.nesdev.org/wiki/INES_Mapper_019
 - https://www.nesdev.org/wiki/MMC5
 
