@@ -32,9 +32,8 @@ impl Mapper for SunsoftFME7 {
     let chr_banks = Banking::new_chr(header, 8);
     let sram_banks = Banking::new_sram(header);
     let mirroring = header.mirroring;
-
+    
     prg_banks.set_page_to_last_bank(4);
-    println!("{prg_banks:x?}");
 
     let mapper = Self {
       prg_banks,chr_banks,sram_banks,
@@ -71,6 +70,7 @@ impl Mapper for SunsoftFME7 {
             self.sram_enabled = val >> 7 != 0;
 
             let bank = val as usize & 0b11_1111;
+
             if self.sram_banked {
               self.sram_banks.set(0, bank);
             } else {
@@ -106,7 +106,7 @@ impl Mapper for SunsoftFME7 {
       0x4020..=0x5FFF => PrgTarget::Cart,
       0x6000..=0x7FFF => {
         if self.sram_banked {
-          PrgTarget::Sram(true, self.sram_addr(addr))
+          PrgTarget::Sram(self.sram_enabled, self.sram_addr(addr))
         } else {
           PrgTarget::Prg(self.prg_addr(addr))
         }

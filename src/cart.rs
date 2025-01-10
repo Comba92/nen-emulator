@@ -271,13 +271,7 @@ impl Cart {
       rom[chr_start..chr_start+header.chr_size].to_vec()
     }.into_boxed_slice();
 
-    let sram_size = if header.has_battery && header.eeprom_size > 0 { 
-      header.eeprom_size
-    } else if header.prg_ram_size > 0 {
-      header.prg_ram_size
-    } else {
-      8 * 1024
-    };
+    let sram_size = header.sram_real_size();
     let sram = vec![0; sram_size].into_boxed_slice();
 
     let mapper = mapper::new_mapper(&header)?;
@@ -301,7 +295,7 @@ impl Cart {
       PrgTarget::Cart => self.cart_read(addr),
       PrgTarget::Sram(enabled, mapped) => if enabled {
           self.sram_read(mapped)
-        } else { 0 }
+        } else { 0xde }
       PrgTarget::Prg(mapped) => self.prg[mapped],
     }
   }

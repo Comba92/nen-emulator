@@ -59,7 +59,9 @@ The emulator supports mostly all the basic NES features you'd expect from a NES 
 - [x] 24. [VRC6a](https://www.nesdev.org/wiki/VRC6)
 - [x] 26. [VRC6b](https://www.nesdev.org/wiki/VRC6)
 - [x] 66. [GxROM](https://www.nesdev.org/wiki/GxROM)
-- [ ] 69. [Sunsoft5 FME-7 (TODO)](https://www.nesdev.org/wiki/Sunsoft_FME-7)
+- [x] 69. [Sunsoft5 FME-7](https://www.nesdev.org/wiki/Sunsoft_FME-7)
+- Note: Batman: Return of Joker works, but doesn't start unless you press Start.
+- Note: no audio chip emulation.
 - [x] 71. [Codemasters](https://www.nesdev.org/wiki/INES_Mapper_071)
 - [x] 73. [VRC3 (used for Salamander)](https://www.nesdev.org/wiki/VRC3)
 - [x] 78. [Irem 74HC161 (used for Holy Diver and Cosmo Carrier)](https://www.nesdev.org/wiki/INES_Mapper_078)
@@ -108,7 +110,7 @@ Adding more user features is a pain, tho.
 ### What's missing
 - [] MMC1 consecutive writes behaviour
 - [] RAM initializing for games which uses it to seed RNG
-- [] MMC3 4four screen mirroring
+- [] MMC3 four screen mirroring
 
 - [] SaveRam saving/loading
 - [] Savestates
