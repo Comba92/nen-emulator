@@ -22,7 +22,7 @@ pub fn new_mapper(header: &CartHeader) -> Result<Box<dyn Mapper>, String> {
   let mapper: Box<dyn Mapper> = match header.mapper {
     0 => NROM::new(header),
     1 => MMC1::new(header),
-    2 | 94 => UxROM::new(header),
+    2 | 94 | 180 => UxROM::new(header),
     3 => CNROM::new(header),
     4 => MMC3::new(header),
     // 5 => MMC5::new(header),
@@ -31,6 +31,7 @@ pub fn new_mapper(header: &CartHeader) -> Result<Box<dyn Mapper>, String> {
     11 => ColorDreams::new(header),
     21 | 22 | 23 | 25 => VRC2_4::new(header),
     24 | 26 => VRC6::new(header),
+    31 => INesMapper031::new(header),
     66 => GxROM::new(header),
     69 => SunsoftFME7::new(header),
     71 => Codemasters::new(header),
@@ -48,11 +49,11 @@ pub fn mapper_name(id: u16) -> &'static str {
     .map(|m| m.1)
     .unwrap_or("Not implemented")
 }
-const MAPPERS_TABLE: [(u16, &'static str); 31] = [
+const MAPPERS_TABLE: [(u16, &'static str); 33] = [
   (0, "NROM"),
   (1, "MMC1"),
   (2, "UxROM"),
-  (3, "CNROM (INesMapper003)"),
+  (3, "CNROM"),
   (4, "MMC3"),
   (5, "MMC5"),
   (7, "AxROM (Rare)"),
@@ -67,19 +68,21 @@ const MAPPERS_TABLE: [(u16, &'static str); 31] = [
   (24, "Konami VRC6a (Akumajou Densetsu)"),
   (25, "Konami VRC2/VRC4"),
   (26, "Konami VRC6b (Madara and Esper Dream 2)"),
-  (48, "Taito TC0690 (INesMapper048)"),
+  (31, "NSF"),
+  (34, "BNROM/NINA-001"),
+  (48, "Taito TC0690"),
   (66, "GxROM"),
-  (68, "Sunsoft4 (INesMapper068)"),
+  (68, "Sunsoft4"),
   (69, "Sunsoft5 FME-7"),
-  (71, "Codemasters UNROM (INesMapper071)"),
+  (71, "Codemasters UNROM"),
   (73, "Konami VRC3 (Salamander)"),
   (75, "Konami VRC1"),
-  (78, "Irem 74HC161 (INesMapper078) (Holy Diver and Cosmo Carrier)"),
+  (78, "Irem 74HC161 (Holy Diver and Cosmo Carrier)"),
   (91, "INesMapper091"),
   (94, "UNROM (Senjou no Ookami)"),
-  (163, "FC-001 (INesMapper163)"),
+  (163, "FC-001"),
   (180, "UNROM (Crazy Climber)"),
-  (210, "Namco 175/340 (INesMapper210"),
+  (210, "Namco 175/340"),
 ];
 
 // Horizontal:
@@ -216,38 +219,9 @@ impl Banking<ChrBanking> {
 }
 
 impl Banking<VRamBanking> {
+  // TODO: This doesn't work
   pub fn new_vram(vram_size: usize) -> Self {
     Self::new(vram_size, 0x2000, 1024, 4)
-  }
-
-  pub fn update(&mut self, mirroring: Mirroring) {
-    match mirroring {
-      Mirroring::Horizontal => {
-        self.set(0, 0);
-        self.set(1, 0);
-        self.set(2, 1);
-        self.set(3, 1);
-      }
-      Mirroring::Vertical => {
-        self.set(0, 0);
-        self.set(1, 1);
-        self.set(2, 0);
-        self.set(3, 1);
-      }
-      Mirroring::SingleScreenA => {
-        self.set(0, 0);
-        self.set(1, 0);
-        self.set(2, 0);
-        self.set(3, 0);
-      }
-      Mirroring::SingleScreenB => {
-        self.set(0, 1);
-        self.set(1, 1);
-        self.set(2, 1);
-        self.set(3, 1);
-      }
-      _ => {}
-    }
   }
 }
 
@@ -576,7 +550,7 @@ impl Mapper for MMC2 {
               _ => Mirroring::Horizontal,
           };
       }
-      _ => unreachable!()
+      _ => {}
     }
   }
 
@@ -673,4 +647,42 @@ impl Mapper for INesMapper078 {
   }
 
   fn mirroring(&self) -> Mirroring { self.mirroring }
+}
+
+// Mapper 31
+// https://www.nesdev.org/wiki/INES_Mapper_031
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct INesMapper031 {
+  prg_banks: Banking<PrgBanking>,
+  mirroring: Mirroring,
+}
+
+#[typetag::serde]
+impl Mapper for INesMapper031 {
+  fn new(header: &CartHeader) -> Box<Self> {
+    let mut prg_banks = Banking::new_prg(header, 8);
+    prg_banks.set_page_to_last_bank(7);
+
+    let mirroring = header.mirroring;
+    Box::new(Self{prg_banks, mirroring})
+  }
+
+  fn write(&mut self, _: usize, _: u8) {}
+
+  fn cart_write(&mut self, addr: usize, val: u8) {
+    match addr { 
+      0x5000..=0x5FFFF => {
+        self.prg_banks.set(addr, val as usize);
+      }
+      _ => {}
+    }
+  }
+
+  fn prg_addr(&mut self, addr: usize) -> usize {
+    self.prg_banks.addr(addr)
+  }
+
+  fn mirroring(&self) -> Mirroring {
+    self.mirroring
+  }
 }

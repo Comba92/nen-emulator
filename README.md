@@ -59,6 +59,7 @@ The emulator supports mostly all the basic NES features you'd expect from a NES 
 - [x] 21, 22, 23, 25. [VRC2 and VRC4](https://www.nesdev.org/wiki/VRC2_and_VRC4)
 - [x] 24. [VRC6a](https://www.nesdev.org/wiki/VRC6)
 - [x] 26. [VRC6b](https://www.nesdev.org/wiki/VRC6)
+- [x] 31. [NSF](https://www.nesdev.org/wiki/INES_Mapper_031)
 - [x] 66. [GxROM](https://www.nesdev.org/wiki/GxROM)
 - [x] 69. [Sunsoft5 FME-7](https://www.nesdev.org/wiki/Sunsoft_FME-7)
 - Note: Batman: Return of Joker works, but doesn't start unless you press Start.

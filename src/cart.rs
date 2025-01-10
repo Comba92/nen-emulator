@@ -196,6 +196,12 @@ impl CartHeader {
       header.mapper_name.push_str(ext);
     } else if header.mapper == 4 && header.submapper == 1 {
       header.mapper_name = String::from("MMC6");
+    } else if header.mapper == 34 {
+      if header.submapper == 1 {
+        header.mapper_name = String::from("NINA-001");
+      } else if header.submapper == 2 {
+        header.mapper_name = String::from("BNROM");
+      }
     }
 
     header.prg_16kb_banks = ((rom[9] as usize & 0b1111) << 8) + rom[4] as usize;
