@@ -229,26 +229,20 @@ impl Mapper for VRC2_4 {
     }
   }
 
-  fn sram_read(&self, ram: &[u8], addr: usize) -> u8 {
-    if self.mapper == 22 {
-      self.latch as u8
-    } else { ram[addr - 0x6000] }
-  }
-
-  fn sram_write(&mut self, ram: &mut [u8], addr: usize, val: u8) {
-    if self.mapper == 22 {
-      self.latch = val & 1 != 0;
-    } else {
-      ram[addr - 0x6000] = val;
-    }
-  }
-
   fn prg_addr(&mut self, addr: usize) -> usize {
     self.prg_banks.addr(addr)
   }
 
   fn chr_addr(&mut self, addr: usize) -> usize {
     self.chr_banks.addr(addr)
+  }
+
+  fn sram_addr(&mut self, addr: usize) -> usize {
+    if self.mapper == 22 {
+      // we simulate the 1bit latch by always reading the first sram address
+      // hoping this will work! 
+      0
+    } else { addr - 0x6000 }
   }
 
   fn notify_cpu_cycle(&mut self) {

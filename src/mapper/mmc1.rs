@@ -196,12 +196,8 @@ impl Mapper for MMC1 {
     self.chr_banks.addr(addr)
   }
 
-  fn sram_read(&self, ram: &[u8], addr: usize) -> u8 {
-    ram[self.sram_banks.addr(addr)]
-  }
-
-  fn sram_write(&mut self, ram: &mut[u8], addr: usize, val: u8) {
-    ram[self.sram_banks.addr(addr)] = val;
+  fn sram_addr(&mut self, addr: usize) -> usize {
+    self.sram_banks.addr(addr)
   }
 
   fn mirroring(&self) -> Mirroring { self.mirroring }

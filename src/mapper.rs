@@ -2,11 +2,12 @@ use std::marker::{self, PhantomData};
 
 use mmc1::MMC1;
 use mmc3::MMC3;
+use sunsoft_fme_7::SunsoftFME7;
 use vrc2_4::VRC2_4;
 use vrc3::VRC3;
 use vrc6::VRC6;
 
-use crate::cart::{CartHeader, Mirroring, VRamTarget};
+use crate::cart::{CartHeader, Mirroring, PrgTarget, VRamTarget};
 
 mod mmc1;
 mod mmc3;
@@ -14,6 +15,7 @@ mod konami_irq;
 mod vrc2_4;
 mod vrc3;
 mod vrc6;
+mod sunsoft_fme_7;
 
 pub fn new_mapper(header: &CartHeader) -> Result<Box<dyn Mapper>, String> {
   let mapper: Box<dyn Mapper> = match header.mapper {
@@ -28,6 +30,7 @@ pub fn new_mapper(header: &CartHeader) -> Result<Box<dyn Mapper>, String> {
     21 | 22 | 23 | 25 => VRC2_4::new(header),
     24 | 26 => VRC6::new(header),
     66 => GxROM::new(header),
+    69 => SunsoftFME7::new(header),
     71 => Codemasters::new(header),
     73 => VRC3::new(header),
     78 => INesMapper078::new(header),
@@ -108,9 +111,19 @@ pub fn mirror_nametbl(mirroring: Mirroring, addr: usize) -> usize {
 pub trait Mapper {
   fn new(header: &CartHeader) -> Box<Self> where Self: Sized;
   fn write(&mut self, addr: usize, val: u8);
-  
+
+  fn map_addr(&mut self, addr: usize) -> PrgTarget {
+    match addr {
+      0x4020..=0x5FFF => PrgTarget::Cart,
+      0x6000..=0x7FFF => PrgTarget::Sram(true, self.sram_addr(addr)),
+      0x8000..=0xFFFF => PrgTarget::Prg(self.prg_addr(addr)),
+      _ => unreachable!()
+    }
+  }
+
   fn prg_addr(&mut self, addr: usize) -> usize { addr - 0x8000 }
   fn chr_addr(&mut self, addr: usize) -> usize { addr }
+  fn sram_addr(&mut self, addr: usize) -> usize { addr - 0x6000 }
 
   fn vram_addr(&mut self, addr: usize) -> (VRamTarget, usize) {
     (VRamTarget::CiRam, mirror_nametbl(self.mirroring(), addr))
@@ -118,13 +131,6 @@ pub trait Mapper {
 
   fn cart_read(&self, _addr: usize) -> u8 { 0xFF }
   fn cart_write(&mut self, _addr: usize, _val: u8) {}
-  fn sram_read(&self, ram: &[u8], addr: usize) -> u8 {
-    ram[(addr - 0x6000) % ram.len()]
-  }
-
-  fn sram_write(&mut self, ram: &mut[u8], addr: usize, val: u8) {
-    ram[(addr - 0x6000) % ram.len()] = val;
-  }
 
   fn mirroring(&self) -> Mirroring;
 
@@ -142,6 +148,7 @@ pub trait Mapper {
   fn poll_irq(&mut self) -> bool { false }
 }
 
+#[derive(Debug)]
 struct PrgBanking;
 struct ChrBanking;
 struct SRamBanking;
@@ -151,17 +158,18 @@ pub struct Banking<T> {
   data_size: usize,
   bank_size: usize,
   banks_count: usize,
+  pages_start: usize,
   // TODO: probably can be just a Vec of u8
   bankings: Box<[usize]>,
   kind: marker::PhantomData<T>
 }
 
 impl<T> Banking<T> {
-  pub fn new(rom_size: usize, page_size: usize, pages_count: usize) -> Self {
+  pub fn new(rom_size: usize, pages_start: usize, page_size: usize, pages_count: usize) -> Self {
     let bankings = vec![0; pages_count].into_boxed_slice();
     let bank_size = page_size;
     let banks_count = rom_size / bank_size;
-    Self { bankings, data_size: rom_size, bank_size, banks_count, kind: PhantomData::<T> }
+    Self { bankings, data_size: rom_size, pages_start, bank_size, banks_count, kind: PhantomData::<T> }
   }
 
   pub fn set(&mut self, page: usize, bank: usize) {
@@ -183,51 +191,36 @@ impl<T> Banking<T> {
     let pages_count = self.bankings.len();
     self.bankings[page % pages_count] + (addr % self.bank_size)
   }
+
+  pub fn addr(&self, addr: usize) -> usize {
+    let page = (addr - self.pages_start) / self.bank_size;
+    self.page_to_bank_addr(page, addr)
+  }
 }
 
 impl Banking<PrgBanking> {
   pub fn new_prg(header: &CartHeader, pages_count: usize) -> Self {
     let pages_size = 32*1024 / pages_count;
-    Self::new(header.prg_size, pages_size, pages_count)
-  }
-
-  pub fn addr(&self, addr: usize) -> usize {
-    let page = (addr - 0x8000) / self.bank_size;
-    self.page_to_bank_addr(page, addr)
+    Self::new(header.prg_size, 0x8000, pages_size, pages_count)
   }
 }
 
 impl Banking<ChrBanking> {
   pub fn new_chr(header: &CartHeader, pages_count: usize) -> Self {
     let pages_size = 8*1024 / pages_count;
-    Self::new(header.chr_real_size(), pages_size, pages_count)
-  }
-
-  pub fn addr(&self, addr: usize) -> usize {
-    let page = addr / self.bank_size;
-    self.page_to_bank_addr(page, addr)
+    Self::new(header.chr_real_size(), 0, pages_size, pages_count)
   }
 }
 
 impl Banking<VRamBanking> {
   pub fn new_vram(vram_size: usize) -> Self {
-    Self::new(vram_size, 1024, 4)
-  }
-
-  pub fn addr(&self, addr: usize) -> usize {
-    let page = (addr - 0x2000) / self.bank_size;
-    self.page_to_bank_addr(page, addr)
+    Self::new(vram_size, 0x2000, 1024, 4)
   }
 }
 
 impl Banking<SRamBanking> {
   pub fn new_sram(header: &CartHeader) -> Self {
-    Self::new(header.sram_real_size(), 8*1024, 1)
-  }
-
-  pub fn addr(&self, addr: usize) -> usize {
-    let page = (addr - 0x6000) / self.bank_size;
-    self.page_to_bank_addr(page, addr)
+    Self::new(header.sram_real_size(), 0x6000, 8*1024, 1)
   }
 }
 
@@ -504,24 +497,26 @@ pub struct MMC2 {
 #[typetag::serde]
 impl Mapper for MMC2 {
   fn new(header: &CartHeader) -> Box<Self> {
-    let mut prg_banks = Banking::new_prg(header, 4);
     let chr_banks0 = Banking::new_chr(header, 2);
     let chr_banks1 = Banking::new_chr(header, 2);
-
-    match header.mapper {
+    
+    let prg_banks = match header.mapper {
       9 => {
         // MMC2 - Three 8 KB PRG ROM banks, fixed to the last three banks
+        let mut prg_banks = Banking::new_prg(header, 4);
         prg_banks.set(1, prg_banks.banks_count-3);
         prg_banks.set(2, prg_banks.banks_count-2);
         prg_banks.set(3, prg_banks.banks_count-1);
+        prg_banks
       }
       10 => {
-        // MMC4
+        // MMC4 - 16 KB PRG ROM bank, fixed to the last bank
+        let mut prg_banks = Banking::new_prg(header, 2);
         prg_banks.set_page_to_last_bank(1);
+        prg_banks
       }
       _ => unreachable!(),
-    }
-
+    };
 
     Box::new(Self{
       mapper: header.mapper,
@@ -566,8 +561,8 @@ impl Mapper for MMC2 {
     // https://www.nesdev.org/wiki/MMC2#CHR_banking
     // https://www.nesdev.org/wiki/MMC4#Banks
     match (addr, self.mapper) {
-      (0x0FD8, 9) | (0x0FD8..0x0FDF, 10) => self.latch0 = Mmc2Latch::FD,
-      (0x0FE8, 9) | (0x0FE8..0x0FEF, 10) => self.latch0 = Mmc2Latch::FE,
+      (0x0FD8, 9) | (0x0FD8..=0x0FDF, 10) => self.latch0 = Mmc2Latch::FD,
+      (0x0FE8, 9) | (0x0FE8..=0x0FEF, 10) => self.latch0 = Mmc2Latch::FE,
       (0x1FD8..=0x1FDF, _) => self.latch1 = Mmc2Latch::FD,
       (0x1FE8..=0x1FEF, _) => self.latch1 = Mmc2Latch::FE,
       _ => {}
