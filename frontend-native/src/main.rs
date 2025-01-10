@@ -1,4 +1,4 @@
-use std::{collections::HashMap, error::Error, fs, io::Read, path::{Path, PathBuf}, time::{Duration, Instant}};
+use std::{collections::HashMap, error::Error, fs, io::Read, path::PathBuf, time::{Duration, Instant}};
 use nen_emulator::{joypad::JoypadButton as NesJoypadButton, nes::Nes};
 use sdl2::{audio::{AudioQueue, AudioSpecDesired, AudioStatus}, controller::{Axis, Button}, event::Event, keyboard::Keycode};
 
@@ -24,7 +24,9 @@ impl Keymaps {
       (Keycode::W, InputAction::Game(NesJoypadButton::start)),
       (Keycode::Space, InputAction::Pause),
       (Keycode::R, InputAction::Reset),
-      (Keycode::M, InputAction::Mute)
+      (Keycode::M, InputAction::Mute),
+      (Keycode::NUM_9, InputAction::Save),
+      (Keycode::NUM_0, InputAction::Load),
     ]);
 
     let default_padmap = HashMap::from([
@@ -44,7 +46,7 @@ impl Keymaps {
   }
 }
 
-fn open_rom(path: &Path) -> Result<Nes, Box<dyn Error>> {
+fn open_rom(path: &str) -> Result<Nes, Box<dyn Error>> {
 	let mut bytes = Vec::new();
 	let file = fs::File::open(path)?;
 
@@ -61,6 +63,29 @@ fn open_rom(path: &Path) -> Result<Nes, Box<dyn Error>> {
 	
   Nes::boot_from_bytes(&bytes)
     .map_err(|msg| msg.into())
+}
+
+fn save_sram(ctx: &EmuCtx) {
+  if let Some(data) = ctx.emu.save_sram() {
+    let path = PathBuf::from(&ctx.rom_path).with_extension("srm");
+    let _ = fs::write(path, data)
+      .inspect_err(|e| eprintln!("Couldn't save: {e}"));
+  }
+}
+
+fn load_sram(ctx: &mut EmuCtx) {
+  let path = PathBuf::from(&ctx.rom_path).with_extension("srm");
+  if let Ok(data) = fs::read(path) {
+    ctx.emu.load_sram(data);
+  }
+}
+
+fn save_state(ctx: &EmuCtx) {
+  todo!()
+}
+
+fn load_state(ctx: &mut EmuCtx) {
+  todo!()
 }
 
 fn handle_input(keys: &Keymaps, event: &Event, ctx: &mut EmuCtx) {
@@ -89,6 +114,8 @@ fn handle_input(keys: &Keymaps, event: &Event, ctx: &mut EmuCtx) {
                 _=> ctx.audio.resume(),
               }
             }
+            (InputAction::Save, Event::KeyDown {..}) => save_state(ctx),
+            (InputAction::Load, Event::KeyDown {..}) => load_state(ctx),
             _ => {}
           }
         }
@@ -146,6 +173,7 @@ struct EmuCtx {
   is_running: bool,
   audio: AudioQueue<f32>,
   ms_frame: Duration,
+  rom_path: String,
 }
 
 fn main() {
@@ -199,6 +227,7 @@ fn main() {
     is_running: false,
     audio: audio_dev,
     emu,
+    rom_path: String::new(),
   };
 
   const SAMPLES_PER_FRAME: u32 = 735;
@@ -229,19 +258,25 @@ fn main() {
 
       match event {
         Event::Quit { .. } => {
+          save_sram(&ctx);
           break 'running;
         }
         Event::DropFile { filename, .. } => {
           ctx.audio.pause();
           ctx.audio.clear();
 
-          let res = open_rom(&PathBuf::from(filename));
+          let res = open_rom(&filename);
           match res {
             Ok(new_emu) => {
+              save_sram(&ctx);
+
+              ctx.rom_path = filename;
               ctx.emu = new_emu;
               ctx.is_paused = false;
               ctx.is_running = true;
               ctx.ms_frame = Duration::from_secs_f32(1.0 / ctx.emu.get_fps());
+
+              load_sram(&mut ctx);
             },
             Err(e) => eprintln!("{e}"),
           }

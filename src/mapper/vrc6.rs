@@ -304,7 +304,7 @@ impl Mapper for VRC6 {
     self.chr_banks.addr(addr)
   }
 
-  fn vram_addr(&mut self, addr: usize) -> (VRamTarget, usize) {
+  fn vram_addr(&mut self, addr: usize) -> VRamTarget {
     match self.nametbl_src {
       NametblSrc::CiRam => {
         let ciram_addr = if self.mirroring != Mirroring::FourScreen {
@@ -313,11 +313,11 @@ impl Mapper for VRC6 {
           self.vram_ciram_banks.addr(addr)
         };
 
-        (VRamTarget::CiRam, ciram_addr)
+        VRamTarget::CiRam(ciram_addr)
       }
       NametblSrc::ChrRom => {
         let chr_rom_addr = self.vram_chr_rom_banks.addr(addr);
-        (VRamTarget::Chr, chr_rom_addr)
+        VRamTarget::Chr(chr_rom_addr)
       }
     }
   }

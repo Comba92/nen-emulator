@@ -11,6 +11,7 @@ use crate::cart::{CartHeader, Mirroring, PrgTarget, VRamTarget};
 
 mod mmc1;
 mod mmc3;
+mod mmc5;
 mod konami_irq;
 mod vrc2_4;
 mod vrc3;
@@ -24,6 +25,7 @@ pub fn new_mapper(header: &CartHeader) -> Result<Box<dyn Mapper>, String> {
     2 | 94 => UxROM::new(header),
     3 => CNROM::new(header),
     4 => MMC3::new(header),
+    // 5 => MMC5::new(header),
     7 => AxROM::new(header),
     9 | 10 => MMC2::new(header),
     11 => ColorDreams::new(header),
@@ -116,7 +118,7 @@ pub trait Mapper {
   fn map_addr(&mut self, addr: usize) -> PrgTarget {
     match addr {
       0x4020..=0x5FFF => PrgTarget::Cart,
-      0x6000..=0x7FFF => PrgTarget::Sram(true, self.sram_addr(addr)),
+      0x6000..=0x7FFF => PrgTarget::SRam(true, self.sram_addr(addr)),
       0x8000..=0xFFFF => PrgTarget::Prg(self.prg_addr(addr)),
       _ => unreachable!()
     }
@@ -126,11 +128,11 @@ pub trait Mapper {
   fn chr_addr(&mut self, addr: usize) -> usize { addr }
   fn sram_addr(&mut self, addr: usize) -> usize { addr - 0x6000 }
 
-  fn vram_addr(&mut self, addr: usize) -> (VRamTarget, usize) {
-    (VRamTarget::CiRam, mirror_nametbl(self.mirroring(), addr))
+  fn vram_addr(&mut self, addr: usize) -> VRamTarget {
+    VRamTarget::CiRam(mirror_nametbl(self.mirroring(), addr))
   }
 
-  fn cart_read(&self, _addr: usize) -> u8 { 0xFF }
+  fn cart_read(&mut self, _addr: usize) -> u8 { 0xFF }
   fn cart_write(&mut self, _addr: usize, _val: u8) {}
 
   fn mirroring(&self) -> Mirroring;

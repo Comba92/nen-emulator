@@ -2,21 +2,19 @@
 - Get rid of refcell?
 
 - [x] CPU COMPLETED
-- Better operand handling?
-- Getting rid of the instructions json
+- [ ] Better operand handling?
+- [ ] Getting rid of the instructions json
 - Open bus behaviour?
 
 - [x] MMU COMPLETED
-- Sram saving
-- MMC5 and other mappers can map SRAM to PRG ROM addresses
+- [ ] Sram saving
 
 - [x] PPU COMPLETED
 - Cleaner implementation (it is better now but work can still be done)
 
 - [x] Mappers
-- Convert usizes to u8
-- Nametable mirroring can be optimized with the bankings method
-- Cart, Sram, Prg ranges should all be in the same mapper functions, mappe should be able to target all of them
+- [ ] Convert usizes to u8
+- [ ] Nametable mirroring can be optimized with the bankings method
 
 - https://www.nesdev.org/wiki/INES_Mapper_016
 - https://www.nesdev.org/wiki/INES_Mapper_048 -- MMC3 like
@@ -35,7 +33,7 @@
 
 - [x] Support for zip files
 
-[] Game DB ??
+- [] Game DB ??
 
 ## Tricky games
 - [ ] MMC1 consecutive reads (Bill & Ted's Excellent Adventure and some other MMC1 games)

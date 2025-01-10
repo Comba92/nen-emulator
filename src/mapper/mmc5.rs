@@ -1,5 +1,5 @@
-// use crate::cart::{AccessTarget, CartHeader, Mirroring};
-// use super::{Banking, ChrBanking, Mapper};
+// use crate::cart::{CartHeader, Mirroring, PrgTarget, VRamTarget};
+// use super::{Banking, ChrBanking, Mapper, PrgBanking, SRamBanking};
 
 // #[derive(Default, serde::Serialize, serde::Deserialize)]
 // enum PrgMode { Bank32kb, Bank16kb, BankMixed, #[default] Bank8kb }
@@ -8,7 +8,9 @@
 // #[derive(Default, serde::Serialize, serde::Deserialize)]
 // enum ExRamMode { Nametbl, NametblEx, ReadWrite, #[default] ReadOnly }
 // #[derive(Copy, Clone, Default, serde::Serialize, serde::Deserialize)]
-// enum NametblMapping { #[default] Page0, Page1, ExRam, FillMode }
+// enum NametblMapping { #[default] CiRam0, CiRam1, ExRam, FillMode }
+// #[derive(Clone, Copy, serde::Serialize, serde::Deserialize)]
+// enum AccessTarget { Prg, SRam }
 
 // // Mapper 5
 // // https://www.nesdev.org/wiki/MMC5
@@ -19,6 +21,8 @@
   
 //   prg_mode: PrgMode,
 //   prg_selects: [(AccessTarget, usize); 5],
+//   prg_banks: Banking<PrgBanking>,
+//   sram_banks: Banking<SRamBanking>,
 
 //   sram_write_lock1: bool,
 //   sram_write_lock2: bool,
@@ -49,79 +53,79 @@
 // }
 
 // impl MMC5 {
-//   // pub fn update_prg_and_sram_banks(&mut self) {
-//   //   use PrgMode::*;
+//   pub fn update_prg_and_sram_banks(&mut self) {
+//     use PrgMode::*;
 
-//   //   // this is banked here on every mode
-//   //   self.sram_banks.set(0, self.prg_selects[0].1);
+//     // this is banked here on every mode
+//     self.sram_banks.set(0, self.prg_selects[0].1);
 
-//   //   match self.prg_mode {
-//   //     Bank32kb => {
-//   //       // ignore bit 0,1
-//   //       let prg_bank = self.prg_selects[4].1 >> 2;
-//   //       self.prg_banks.set(0, prg_bank);
-//   //       self.prg_banks.set(1, prg_bank+1);
-//   //       self.prg_banks.set(2, prg_bank+2);
-//   //       self.prg_banks.set(3, prg_bank+3);
-//   //     }
-//   //     Bank16kb => {
-//   //       // ignore bit 0
-//   //       let (target, upper_bank) = self.prg_selects[2];
-//   //       match target {
-//   //         AccessTarget::Prg => {
-//   //           self.prg_banks.set(1, upper_bank);
-//   //           self.prg_banks.set(2, upper_bank+1);
-//   //         }
-//   //         AccessTarget::SRam => {
-//   //           self.sram_banks.set(1, upper_bank);
-//   //           self.sram_banks.set(1, upper_bank+1);
-//   //         }
-//   //       }
+//     match self.prg_mode {
+//       Bank32kb => {
+//         // ignore bit 0,1
+//         let prg_bank = self.prg_selects[4].1 << 2;
+//         self.prg_banks.set(0, prg_bank);
+//         self.prg_banks.set(1, prg_bank+1);
+//         self.prg_banks.set(2, prg_bank+2);
+//         self.prg_banks.set(3, prg_bank+3);
+//       }
+//       Bank16kb => {
+//         // ignore bit 0
+//         let (target, upper_bank) = self.prg_selects[2];
+//         match target {
+//           AccessTarget::Prg => {
+//             self.prg_banks.set(1, upper_bank);
+//             self.prg_banks.set(2, upper_bank+1);
+//           }
+//           AccessTarget::SRam => {
+//             self.sram_banks.set(1, upper_bank);
+//             self.sram_banks.set(1, upper_bank+1);
+//           }
+//         }
 
-//   //       let lower_bank = self.prg_selects[4].1 >> 1;
-//   //       self.prg_banks.set(3, lower_bank);
-//   //       self.prg_banks.set(4, lower_bank);
-//   //     }
-//   //     BankMixed => {
-//   //       // ignore bit 0
-//   //       let (target, upper_bank) = self.prg_selects[2];
-//   //       match target {
-//   //         AccessTarget::Prg => {
-//   //           self.prg_banks.set(1, upper_bank);
-//   //           self.prg_banks.set(2, upper_bank+1);
-//   //         }
-//   //         AccessTarget::SRam => {
-//   //           self.sram_banks.set(1, upper_bank);
-//   //           self.sram_banks.set(1, upper_bank+1);
-//   //         }
-//   //       }
+//         let lower_bank = self.prg_selects[4].1 << 1;
+//         self.prg_banks.set(3, lower_bank);
+//         self.prg_banks.set(4, lower_bank);
+//       }
+//       BankMixed => {
+//         // ignore bit 0
+//         let (target, upper_bank) = self.prg_selects[2];
+//         match target {
+//           AccessTarget::Prg => {
+//             self.prg_banks.set(1, upper_bank);
+//             self.prg_banks.set(2, upper_bank+1);
+//           }
+//           AccessTarget::SRam => {
+//             self.sram_banks.set(1, upper_bank);
+//             self.sram_banks.set(1, upper_bank+1);
+//           }
+//         }
 
-//   //       let (target, lower_bank) = self.prg_selects[3];
-//   //       match target {
-//   //         AccessTarget::Prg => {
-//   //           self.prg_banks.set(2, lower_bank);
-//   //         }
-//   //         AccessTarget::SRam => {
-//   //           self.sram_banks.set(3, lower_bank);
-//   //         }
-//   //       }
+//         let (target, lower_bank) = self.prg_selects[3];
+//         match target {
+//           AccessTarget::Prg => {
+//             self.prg_banks.set(2, lower_bank);
+//           }
+//           AccessTarget::SRam => {
+//             self.sram_banks.set(3, lower_bank);
+//           }
+//         }
 
-//   //       self.prg_banks.set(4, self.prg_selects[4].1);
-//   //     }
-//   //     Bank8kb => {
-//   //       for (page, (target, bank)) in self.prg_selects.iter()
-//   //         .skip(1).take(3).enumerate()
-//   //       {
-//   //         match target {
-//   //           AccessTarget::Prg  => self.prg_banks.set(page, *bank),
-//   //           AccessTarget::SRam => self.sram_banks.set(page+1, *bank),
-//   //         }
-//   //       }
+//         self.prg_banks.set(4, self.prg_selects[4].1);
+//       }
+//       Bank8kb => {
+//         for (page, (target, bank)) in self.prg_selects.iter()
+//           .skip(1).take(3).enumerate()
+//         {
+//           match target {
+//             AccessTarget::Prg  => self.prg_banks.set(page, *bank),
+//             AccessTarget::SRam => self.sram_banks.set(page+1, *bank),
+//           }
+//         }
 
-//   //       self.prg_banks.set(4, self.prg_selects[4].1);
-//   //     }
-//   //   }
-//   // }
+//         self.prg_banks.set(4, self.prg_selects[4].1);
+//       }
+//     }
+//   }
 
 //   fn update_chr_banks(&mut self, addr: usize) {
 //     let higher_regs = addr > 0x5127;
@@ -208,9 +212,11 @@
 // #[typetag::serde]
 // impl Mapper for MMC5 {
 //   fn new(header: &CartHeader) -> Box<Self>  {
+//     let prg_banks = Banking::new_prg(header, 4);
 //     let chr_banks = Banking::new_chr(header, 8);
+//     let sram_banks = Banking::new(header.sram_real_size(), 0x6000, 8*1024, 4);
 
-//     let mut prg_selects = [(AccessTarget::default(), 0); 5];
+//     let mut prg_selects = [const { (AccessTarget::Prg, 0) } ; 5];
 //     // 5117 is 0xFF at start
 //     prg_selects[4].1 = 0xFF;
 
@@ -223,6 +229,8 @@
 
 //       prg_mode: Default::default(),
 //       prg_selects,
+//       prg_banks,
+//       sram_banks, 
 //       sram_write_lock1: false,
 //       sram_write_lock2: false,
 
@@ -301,8 +309,8 @@
 //         for i in 0..4 {
 //           let bits = (val >> (i*2)) & 0b11;
 //           self.vram_mapping[i] = match bits {
-//             0 => NametblMapping::Page0,
-//             1 => NametblMapping::Page1,
+//             0 => NametblMapping::CiRam0,
+//             1 => NametblMapping::CiRam1,
 //             2 => NametblMapping::ExRam,
 //             _ => NametblMapping::FillMode,
 //           };
@@ -314,6 +322,8 @@
 
 //       0x5113..=0x5117 => {
 //         // https://www.nesdev.org/wiki/MMC5#PRG_Bankswitching_($5113-$5117)
+
+        
 //         let target = match addr {
 //           0x5113 => AccessTarget::SRam,
 //           0x5117 => AccessTarget::Prg,
@@ -322,9 +332,10 @@
 //             true  => AccessTarget::Prg,
 //           },
 //         };
-
-//         self.prg_selects[addr - 0x5113] = (target, val as usize & 0b0111_1111);
-//         // self.update_prg_and_sram_banks();
+        
+//         let mapped = val as usize & 0b0111_1111;
+//         self.prg_selects[addr - 0x5113] = (target, mapped);
+//         self.update_prg_and_sram_banks();
 //       }
 
 //       0x5120..=0x512B => {
@@ -373,80 +384,69 @@
 //     }
 //   }
 
-//   // 0x6000..=07FFF always returns the first bank_select
-//   // this returns the other 4, starting from 0x8000
-//   fn prg_addr(&mut self, addr: usize) -> (AccessTarget,usize) {
-//     if (0xFFFA..=0xFFFB).contains(&(addr - 0x8000)) {
-//       self.irq_in_frame = false;
-//       self.irq_scanline = None;
-//       // TODO: reset counter
+//   fn map_addr(&mut self, addr: usize) -> PrgTarget {
+//     match addr { 
+//       0x4020..=0x5FFF => PrgTarget::Cart,
+//       0x6000..=0xFFFF => {
+//         let page = (addr - 0x6000) / (8*1024);
+//         let (target, _) = self.prg_selects[page];
+//         match target {
+//           AccessTarget::SRam => PrgTarget::SRam(true, self.sram_addr(addr)),
+//           AccessTarget::Prg => PrgTarget::Prg(self.prg_addr(addr))
+//         }
+//       }
+//       _ => unreachable!()
 //     }
+//   }
 
-//     // (addr - start_offset) / bank_size
-//     let page = (addr - 0x8000) / 0x2000;
-    
-//     use PrgMode::*;
-//     match self.prg_mode {
-//       Bank32kb => {
-//         // ignore bit 0,1
-//         let prg_bank = self.prg_selects[4].1 & !0b11;
-//         (AccessTarget::Prg, prg_bank + page)
-//       }
-//       Bank16kb => {
-//         // ignore bit 0
-//         match page {
-//           0 | 1 => {
-//             let (target, upper_bank) = self.prg_selects[2];
-//             (target, (upper_bank & !1) + page)
-//           }
-//           _ => {
-//             let lower_bank = self.prg_selects[4].1 & !1;
-//             (AccessTarget::Prg, lower_bank + (page-2))
-//           }
-//         }
-//       }
-//       BankMixed => {
-//         // ignore bit 0
-//         match page {
-//           0 | 1 => {
-//             let (target, upper_bank) = self.prg_selects[2];
-//             (target, upper_bank & !1)
-//           }
-//           _ => self.prg_selects[(page-2)+1],
-//         }
-//       }
-//       Bank8kb => self.prg_selects[page+1]
-//     }
+//   fn prg_addr(&mut self, addr: usize) -> usize {
+//     self.prg_banks.addr(addr)
 //   }
 
 //   fn chr_addr(&mut self, addr: usize) -> usize {
 //     self.chr_banks.addr(addr)
 //   }
 
-//   fn vram_read(&mut self, vram: &[u8], addr: usize) -> u8 {
-//     let addr = addr - 0x2000;
-//     let page = addr / 0x400;
+//   fn sram_addr(&mut self, addr: usize) -> usize {
+//     self.sram_banks.addr(addr)
+//   }
 
+//   fn vram_addr(&mut self, addr: usize) -> VRamTarget {
+//     let page = (addr - 0x2000) / 0x400;
 //     let target = self.vram_mapping[page];
+
 //     match target {
-//       NametblMapping::ExRam => self.exram[addr % 0x400],
-//       NametblMapping::Page0 => vram[addr % 0x400],
-//       NametblMapping::Page1 => vram[(addr % 0x400) + 0x400],
-//       NametblMapping::FillMode => self.fill_mode_tile,
+//       NametblMapping::ExRam => VRamTarget::ExRam(addr % 0x400),
+//       NametblMapping::CiRam0 => VRamTarget::CiRam(addr % 0x400),
+//       NametblMapping::CiRam1 => VRamTarget::CiRam((addr % 0x400) + 0x400),
+//       NametblMapping::FillMode => VRamTarget::ExRam(0),
 //     }
 //   }
-//   fn vram_write(&mut self, vram: &mut[u8], addr: usize, val: u8) {
-//     let addr = addr - 0x2000;
-//     let page = addr / 0x400;
 
-//     let target = self.vram_mapping[page];
-//     match target {
-//       NametblMapping::ExRam => self.exram[addr % 0x400] = val,
-//       NametblMapping::Page0 => vram[addr % 0x400] = val,
-//       NametblMapping::Page1 => vram[(addr % 0x400) + 0x400] = val,
-//       _ => {}
-//     }
-//   }
+//   // fn vram_read(&mut self, vram: &[u8], addr: usize) -> u8 {
+//   //   let addr = addr - 0x2000;
+//   //   let page = addr / 0x400;
+
+//   //   let target = self.vram_mapping[page];
+//   //   match target {
+//   //     NametblMapping::ExRam => self.exram[addr % 0x400],
+//   //     NametblMapping::CiRam0 => vram[addr % 0x400],
+//   //     NametblMapping::CiRam1 => vram[(addr % 0x400) + 0x400],
+//   //     NametblMapping::FillMode => self.fill_mode_tile,
+//   //   }
+//   // }
+//   // fn vram_write(&mut self, vram: &mut[u8], addr: usize, val: u8) {
+//   //   let addr = addr - 0x2000;
+//   //   let page = addr / 0x400;
+
+//   //   let target = self.vram_mapping[page];
+//   //   match target {
+//   //     NametblMapping::ExRam => self.exram[addr % 0x400] = val,
+//   //     NametblMapping::CiRam0 => vram[addr % 0x400] = val,
+//   //     NametblMapping::CiRam1 => vram[(addr % 0x400) + 0x400] = val,
+//   //     _ => {}
+//   //   }
+//   // }
 
 //   fn notify_ppuctrl(&mut self, val: u8) {
 //     self.ppu_spr_16 = (val >> 5) != 0;
@@ -459,11 +459,11 @@
 //     }
 //   }
 
-//   fn notify_in_frame(&mut self, cond: bool) {
-//     if self.ppu_data_sub {
-//       self.irq_in_frame = cond;
-//     }
-//   }
+//   // fn notify_in_frame(&mut self, cond: bool) {
+//   //   if self.ppu_data_sub {
+//   //     self.irq_in_frame = cond;
+//   //   }
+//   // }
 
 //   fn poll_irq(&mut self) -> bool {
 //     self.irq_enabled && self.irq_scanline.is_some()

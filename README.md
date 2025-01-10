@@ -39,6 +39,7 @@ The emulator supports mostly all the basic NES features you'd expect from a NES 
 - [x] BATTLETOADS & BATTLETOADS 2 RUN!
 
 - [x] iNes and NES2.0 headers are supported.
+- [x] Saving/loading of battery RAM when the game is changed or the emulator is closed.
 - [ ] Headerless games are not supported.
 
 ### Supported Mappers
@@ -112,7 +113,6 @@ Adding more user features is a pain, tho.
 - [] RAM initializing for games which uses it to seed RNG
 - [] MMC3 four screen mirroring
 
-- [] SaveRam saving/loading
 - [] Savestates
 - [] Custom keybindings
 - [] Custom palettes

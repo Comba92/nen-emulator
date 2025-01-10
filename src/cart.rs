@@ -239,8 +239,8 @@ impl Default for Cart {
   }
 }
 
-pub enum VRamTarget { Chr, CiRam }
-pub enum PrgTarget { Prg(usize), Sram(bool, usize), Cart }
+pub enum VRamTarget { Chr(usize), CiRam(usize) }
+pub enum PrgTarget { Prg(usize), SRam(bool, usize), Cart }
 
 impl Cart {
   pub fn new(rom: &[u8]) -> Result<Self, String> {
@@ -282,18 +282,21 @@ impl Cart {
     self.mapper = mapper::new_mapper(&self.header).unwrap();
   }
 
-  pub fn cart_read(&mut self, addr: usize) -> u8 {
-    self.mapper.cart_read(addr)
+  pub fn get_sram(&self) -> Option<Vec<u8>> {
+    if self.header.has_battery {
+      Some(self.sram.to_vec())
+    } else { None }
   }
-  pub fn cart_write(&mut self, addr: usize, val: u8) {
-    self.mapper.cart_write(addr, val);
+
+  pub fn set_sram(&mut self, data: Vec<u8>) {
+    self.sram = data.into_boxed_slice();
   }
 
   pub fn prg_read(&mut self, addr: usize) -> u8 {
     let target = self.mapper.map_addr(addr);
     match target {
       PrgTarget::Cart => self.cart_read(addr),
-      PrgTarget::Sram(enabled, mapped) => if enabled {
+      PrgTarget::SRam(enabled, mapped) => if enabled {
           self.sram_read(mapped)
         } else { 0xde }
       PrgTarget::Prg(mapped) => self.prg[mapped],
@@ -303,11 +306,25 @@ impl Cart {
     let target = self.mapper.map_addr(addr);
     match target {
       PrgTarget::Cart => self.cart_write(addr, val),
-      PrgTarget::Sram(enabled, mapped) => if enabled {
+      PrgTarget::SRam(enabled, mapped) => if enabled {
         self.sram_write(mapped, val);
       }
       PrgTarget::Prg(_) => self.mapper.write(addr, val),
     }
+  }
+
+  pub fn cart_read(&mut self, addr: usize) -> u8 {
+    self.mapper.cart_read(addr)
+  }
+  pub fn cart_write(&mut self, addr: usize, val: u8) {
+    self.mapper.cart_write(addr, val);
+  }
+
+  pub fn sram_read(&mut self, addr: usize) -> u8 {
+    self.sram[addr % self.sram.len()]
+  }
+  pub fn sram_write(&mut self, addr: usize, val: u8) {
+    self.sram[addr % self.sram.len()] = val;
   }
 
   pub fn chr_read(&mut self, addr: usize) -> u8 {
@@ -319,26 +336,21 @@ impl Cart {
     }
   }
 
-  pub fn sram_read(&mut self, addr: usize) -> u8 {
-    self.sram[addr % self.sram.len()]
-  }
-  pub fn sram_write(&mut self, addr: usize, val: u8) {
-    self.sram[addr % self.sram.len()] = val;
-  }
-
   pub fn vram_read(&mut self, vram: &[u8], addr: usize) -> u8 {
-    let (target, addr) = self.mapper.vram_addr(addr);
+    let target = self.mapper.vram_addr(addr);
     match target {
-      VRamTarget::CiRam => vram[addr],
-      VRamTarget::Chr   => self.chr_read(addr)
+      VRamTarget::CiRam(mapped) => vram[mapped],
+      VRamTarget::Chr(mapped)   => self.chr_read(mapped),
+      // VRamTarget::ExRam(mapped) => self.mapper.exram_read(mapped),
     }
   }
 
   pub fn vram_write(&mut self, vram: &mut [u8], addr: usize, val: u8) {
-    let (target, addr) = self.mapper.vram_addr(addr);
+    let target = self.mapper.vram_addr(addr);
     match target {
-      VRamTarget::CiRam => vram[addr] = val,
-      VRamTarget::Chr   => self.chr_write(addr, val),
+      VRamTarget::CiRam(mapped) => vram[mapped] = val,
+      VRamTarget::Chr(mapped)   => self.chr_write(mapped, val),
+      // VRamTarget::ExRam(mapped) => self.mapper.exram_write(mapped, val),
     }
   }
 }

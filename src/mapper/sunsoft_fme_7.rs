@@ -106,7 +106,7 @@ impl Mapper for SunsoftFME7 {
       0x4020..=0x5FFF => PrgTarget::Cart,
       0x6000..=0x7FFF => {
         if self.sram_banked {
-          PrgTarget::Sram(self.sram_enabled, self.sram_addr(addr))
+          PrgTarget::SRam(self.sram_enabled, self.sram_addr(addr))
         } else {
           PrgTarget::Prg(self.prg_addr(addr))
         }

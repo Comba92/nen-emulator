@@ -228,8 +228,6 @@ enum InstrDst {
 
 impl<M: Memory> Cpu<M> {
   pub fn step(&mut self) {
-    if self.jammed { return; }
-
     if self.bus.handle_dma() { return; }
 
     self.interrupts_poll();

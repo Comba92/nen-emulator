@@ -39,12 +39,28 @@ impl Nes {
     self.cpu.bus.ppu.screen.0.buffer.as_ptr()
   }
 
+  pub fn get_raw_samples(&mut self) -> *const f32 {
+    self.get_apu().get_samples().as_ptr()
+  }
+
   pub fn button_pressed(&mut self, button: u8) {
     self.get_joypad().buttons1.insert(JoypadButton::from_bits_retain(button));
   }
 
   pub fn button_released(&mut self, button: u8) {
     self.get_joypad().buttons1.remove(JoypadButton::from_bits_retain(button));
+  }
+  
+  pub fn get_fps(&self) -> f32 {
+    self.get_cart().timing.fps()
+  }
+
+  pub fn save_sram(&self) -> Option<Vec<u8>> {
+    self.cpu.bus.cart.borrow().get_sram()
+  }
+
+  pub fn load_sram(&mut self, data: Vec<u8>) {
+    self.get_bus().cart.borrow_mut().set_sram(data);
   }
 }
 
@@ -79,10 +95,6 @@ impl Nes {
 
   pub fn get_cart(&self) -> CartHeader {
     self.cpu.bus.cart.borrow().header.clone()
-  }
-
-  pub fn get_fps(&self) -> f32 {
-    self.get_cart().timing.fps()
   }
 
   pub fn get_resolution(&mut self) -> (usize, usize) { (32*8, 30*8) }
