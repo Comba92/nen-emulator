@@ -60,7 +60,7 @@ window.addEventListener("gamepadconnected", (e) => {
     );
 });
 
-import init, {Nes} from './frontend-wasm/pkg/nen_emulator.js'
+import init, {Nes} from './pkg/nen_emulator.js'
 const instance = await init()
 
 let emu = Nes.boot_empty()
