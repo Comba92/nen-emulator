@@ -3,7 +3,6 @@
 
 ## Download
 Download is avaible in the [release](https://github.com/Comba92/nen-emulator/releases/tag/alpha) section.
-
 The emulator frontend is built with SDL2, with very basic (sadly) user functionality.
 
 ## Usage
@@ -47,7 +46,6 @@ The emulator supports mostly all the basic NES features you'd expect from a NES 
 - [x] 1. [MMC1](https://www.nesdev.org/wiki/MMC1)
 - [x] [SxROM variants](https://www.nesdev.org/wiki/MMC1#SxROM_connection_variants)
 - [x] 2. [UxROM](https://www.nesdev.org/wiki/UxROM)
-- [x] 94. [UNROM (used for Crazy Climber)](https://www.nesdev.org/wiki/INES_Mapper_180)
 - [x] 3. [CNROM](https://www.nesdev.org/wiki/INES_Mapper_003)
 - [x] 4. [MMC3](https://www.nesdev.org/wiki/MMC3)
 - [x] [MMC6 variant](https://www.nesdev.org/wiki/MMC3#iNES_Mapper_004_and_MMC6)
@@ -57,6 +55,7 @@ The emulator supports mostly all the basic NES features you'd expect from a NES 
 - [x] 10. [MMC4](https://www.nesdev.org/wiki/MMC4)
 - [x] 11. [ColorDreams](https://www.nesdev.org/wiki/Color_Dreams)
 - [x] 21, 22, 23, 25. [VRC2 and VRC4](https://www.nesdev.org/wiki/VRC2_and_VRC4)
+- Note: compatibility might not be the best. (TODO: use submappers to discriminate board)
 - [x] 24. [VRC6a](https://www.nesdev.org/wiki/VRC6)
 - [x] 26. [VRC6b](https://www.nesdev.org/wiki/VRC6)
 - [x] 31. [NSF](https://www.nesdev.org/wiki/INES_Mapper_031)
@@ -67,6 +66,7 @@ The emulator supports mostly all the basic NES features you'd expect from a NES 
 - [x] 71. [Codemasters](https://www.nesdev.org/wiki/INES_Mapper_071)
 - [x] 73. [VRC3 (used for Salamander)](https://www.nesdev.org/wiki/VRC3)
 - [x] 78. [Irem 74HC161 (used for Holy Diver and Cosmo Carrier)](https://www.nesdev.org/wiki/INES_Mapper_078)
+- [x] 180. [UNROM (used for Crazy Climber)](https://www.nesdev.org/wiki/INES_Mapper_180)
 
 ## Building
 The emulator is served as a stand-alone Rust library. It provides a basic API in `src/nes.rs`, which can be used by any frontend. (TODO: move the Nes struct to `lib.rs`)
@@ -110,15 +110,16 @@ Adding more user features is a pain, tho.
 #### TODO: detailed explanation of the architecture. ;)
 
 ### What's missing
-- [] MMC1 consecutive writes behaviour
-- [] RAM initializing for games which uses it to seed RNG
-- [] MMC3 four screen mirroring
+- [ ] MMC1 consecutive writes behaviour
+- [ ] RAM initializing for games which uses it to seed RNG
+- [ ] MMC3 four screen mirroring
+- [ ] MMC5
 
-- [] Savestates
-- [] Custom keybindings
-- [] Custom palettes
-- [] Sprite limit per scanline
-- [] Headerless ROMs support
+- [ ] Savestates
+- [ ] Custom keybindings
+- [ ] Custom palettes
+- [ ] Sprite limit per scanline
+- [ ] Headerless ROMs support
 
 ## Various resources
 This section contains some of the resources I've used during development. Sadly I didn't keep track of all of them. I did found a lot of interesting articles, blogs, and readings, but forgot to add them here.
