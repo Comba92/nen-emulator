@@ -7,7 +7,6 @@
 - Open bus behaviour?
 
 - [x] MMU COMPLETED
-- [ ] Sram saving
 
 - [x] PPU COMPLETED
 - Cleaner implementation (it is better now but work can still be done)

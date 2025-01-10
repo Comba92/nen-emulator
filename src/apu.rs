@@ -131,6 +131,7 @@ pub struct Apu {
   noise: Noise,
   pub dmc: Dmc,
   
+  #[serde(skip)]
   cart: SharedCart,
   
   frame_mode: FrameCounterMode,
@@ -196,6 +197,10 @@ impl Apu {
       cycles: 0,
     }
   }
+
+  pub fn wire_cart(&mut self, cart: SharedCart) {
+		self.cart = cart;
+	}
 
   pub fn reset(&mut self) {
     self.pulse1.set_enabled(false);

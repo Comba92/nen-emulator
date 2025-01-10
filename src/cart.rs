@@ -1,5 +1,7 @@
 use std::{cell::RefCell, rc::Rc};
 
+use serde::ser::SerializeStruct;
+
 use crate::mapper::{self, Dummy, Mapper};
 
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
@@ -228,12 +230,11 @@ impl CartHeader {
 
 
 pub type SharedCart = Rc<RefCell<Cart>>;
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(serde::Deserialize)]
 pub struct Cart {
   pub header: CartHeader,
   #[serde(skip)]
   pub prg: Box<[u8]>,
-  // TODO: for some reason skipping this ser/de crashes the mapper
   pub chr: Box<[u8]>,
   pub sram: Box<[u8]>,
   pub mapper: Box<dyn Mapper>,
@@ -242,6 +243,28 @@ pub struct Cart {
 impl Default for Cart {
   fn default() -> Self {
     Self { header: Default::default(), prg: Default::default(), chr: Default::default(), sram: Default::default(), mapper: Box::new(Dummy) }
+  }
+}
+
+impl serde::Serialize for Cart {
+  fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+  where
+      S: serde::Serializer {
+    let mut se = serializer.serialize_struct("Cart", 4)?;
+    // we do not care to serialize prg
+    se.skip_field("prg")?;
+    se.serialize_field("header", &self.header)?;
+    se.serialize_field("sram", &self.sram)?;
+    se.serialize_field("mapper", &self.mapper)?;
+
+    // we only serialize chr if it is chr ram
+    if self.header.uses_chr_ram {
+      se.serialize_field("chr", &self.chr)?;
+    } else {
+      se.serialize_field("chr", &Vec::<u8>::new().into_boxed_slice())?;
+    }
+
+    se.end()
   }
 }
 

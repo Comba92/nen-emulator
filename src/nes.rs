@@ -71,10 +71,32 @@ impl Nes {
     }
   }
 
-  pub fn load_rom_only(&mut self, cart: &Cart) {
-    let mut curr_cart = self.get_bus().cart.borrow_mut();
-    curr_cart.prg = cart.prg.clone();
-    curr_cart.chr = cart.chr.clone();
+  pub fn load_from_emu(&mut self, other: Nes) {
+    // save prg and chr in temp values
+    let mut self_cart = self.get_bus().cart.borrow_mut();
+    let prg = core::mem::take(&mut self_cart.prg);
+    let chr = core::mem::take(&mut self_cart.chr);
+    drop(self_cart);
+    
+    // copy the new emulator
+    *self = other;
+
+    // the new emulator is missing prg and chr; we take the temp ones
+    let mut self_cart = self.get_bus().cart.borrow_mut();
+    self_cart.prg = prg;
+    // we only copy the temp chr if it is not chr ram, as that has already been deserialized by serde
+    if !self_cart.header.uses_chr_ram {
+      self_cart.chr = chr;
+    }
+    drop(self_cart);
+
+    // As the cart is an rc, serde makes a new copy (so distinct rcs) for each referece.
+    // When loading a savestate, we have to clone again the new cart, 
+    // and re-wire it to the relative devices.
+    let ppu_cart = self.cpu.bus.cart.clone();
+    self.get_ppu().wire_cart(ppu_cart);
+    let apu_cart = self.cpu.bus.cart.clone();
+    self.get_apu().wire_cart(apu_cart);
   }
 
   pub fn get_bus(&mut self) -> &mut Bus {

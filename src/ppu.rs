@@ -156,7 +156,9 @@ pub struct Ppu {
 	oam_addr: u8,
 	data_buf: u8,
 	
+  #[serde(skip)]
 	cart: SharedCart,
+	
 	vram: Box<[u8]>,
 	palettes: [u8; 32],
 	oam: Box<[u8]>,
@@ -206,6 +208,10 @@ impl Ppu {
 			nmi_skip: false,
 			frame_ready: None,
 		}
+	}
+
+	pub fn wire_cart(&mut self, cart: SharedCart) {
+		self.cart = cart;
 	}
 	
 	pub fn reset(&mut self) {

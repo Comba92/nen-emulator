@@ -113,7 +113,7 @@ pub fn mirror_nametbl(mirroring: Mirroring, addr: usize) -> usize {
 }
 
 
-#[typetag::serde]
+#[typetag::serde(tag = "mmu")]
 pub trait Mapper {
   fn new(header: &CartHeader) -> Box<Self> where Self: Sized;
   fn write(&mut self, addr: usize, val: u8);

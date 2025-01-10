@@ -13,7 +13,8 @@ ROMS with iNes or NES2.0 headers are supported.
 The terminal window shows basic informations and warnings, such as the ROM information.
 
 ### Controls
-Keyboard and controllers are supported.
+Both keyboards and controllers are supported.
+A save/load state feature is avaible.
 
 <kbd>A</kbd> A button<br>
 <kbd>S</kbd> B button<br>
@@ -24,6 +25,8 @@ Keyboard and controllers are supported.
 <kbd>Space</kbd>Pause/unpause the emulator<br>
 <kbd>R</kbd>Reset current game<br>
 <kbd>M</kbd>Mute/unmute sound<br>
+<kbd>9</kbd>Save state<br>
+<kbd>0</kbd>Load state<br>
 
 ## Compatibility
 The emulator supports mostly all the basic NES features you'd expect from a NES emulator.
@@ -39,6 +42,7 @@ The emulator supports mostly all the basic NES features you'd expect from a NES 
 
 - [x] iNes and NES2.0 headers are supported.
 - [x] Saving/loading of battery RAM when the game is changed or the emulator is closed.
+- [x] Savestates
 - [ ] Headerless games are not supported.
 
 ### Supported Mappers
@@ -115,7 +119,6 @@ Adding more user features is a pain, tho.
 - [ ] MMC3 four screen mirroring
 - [ ] MMC5
 
-- [ ] Savestates
 - [ ] Custom keybindings
 - [ ] Custom palettes
 - [ ] Sprite limit per scanline

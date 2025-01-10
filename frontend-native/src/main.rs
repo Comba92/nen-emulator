@@ -81,11 +81,43 @@ fn load_sram(ctx: &mut EmuCtx) {
 }
 
 fn save_state(ctx: &EmuCtx) {
-  todo!()
+  let path = PathBuf::from(&ctx.rom_path).with_extension("cmbsv");
+  let file = fs::File::create(path).unwrap();
+  ron::ser::to_writer(file, &ctx.emu);
+  // ciborium::into_writer(&ctx.emu, file).unwrap();
+
+  // let data = bincode::serialize(&ctx.emu);
+  // match data {
+  //   Ok(ser) => {
+  //     let path = PathBuf::from(&ctx.rom_path).with_extension("cmbsv");
+  //     let _ = fs::write(path, ser)
+  //       .inspect_err(|e| eprintln!("Couldn't save state: {e:?}"));
+  //   }
+  //   Err(e) => eprintln!("Couldn't serialize emu: {e:?}"),
+  // }
 }
 
 fn load_state(ctx: &mut EmuCtx) {
-  todo!()
+  let path = PathBuf::from(&ctx.rom_path).with_extension("cmbsv");
+  let file = fs::read_to_string(path).unwrap();
+  let mut new_emu: Nes = ron::from_str(&file).unwrap();
+  // let file = fs::File::open(path).unwrap();
+  // let new_emu = ciborium::from_reader(file).unwrap();
+  ctx.emu.load_from_emu(new_emu);
+
+  // let savestate = fs::read(path);
+  // match savestate {
+  //   Ok(de) => {
+  //     let new_emu: Result<Nes, _> = bincode::deserialize(&de);
+  //     match new_emu {
+  //       Ok(new_emu) => {
+  //         ctx.emu.load_from_emu(new_emu);
+  //       }
+  //       Err(e) => eprintln!("Couldn't deserialize emu: {e:?}")
+  //     }
+  //   }
+  //   Err(e) => eprintln!("Couldn't load state: {e:?}")
+  // }
 }
 
 fn handle_input(keys: &Keymaps, event: &Event, ctx: &mut EmuCtx) {
