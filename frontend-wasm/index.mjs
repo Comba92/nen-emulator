@@ -83,6 +83,11 @@ inputRom.addEventListener('change', async event => {
 
 
 pauseBtn.addEventListener('click', event => {
+    if (emu.is_paused) {
+        renderLoop()
+    } else {
+        cancelAnimationFrame(animationId)
+    }
     emu.is_paused = !emu.is_paused
     pauseBtn.innerText = emu.is_paused ? '▶️' : '⏸️' 
 })
@@ -97,10 +102,6 @@ const FRAME_MS = (1.0 / 60.0) * 1000
 
 // https://developer.mozilla.org/en-US/docs/Web/API/Canvas_API/Tutorial/Pixel_manipulation_with_canvas
 function renderLoop() {
-    if (emu.is_paused) {
-        cancelAnimationFrame(animationId)
-        return
-    }
     let start = performance.now()
     
     emu.step_until_vblank()

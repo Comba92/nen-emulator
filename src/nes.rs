@@ -1,11 +1,13 @@
-
 use crate::{apu::Apu, bus::Bus, cart::{Cart, CartHeader}, cpu::Cpu, frame::FrameBuffer, joypad::{Joypad, JoypadButton}, ppu::Ppu};
+use wasm_bindgen::prelude::wasm_bindgen;
 
+#[wasm_bindgen]
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Nes {
   cpu: Cpu<Bus>,
 }
 
+#[wasm_bindgen]
 impl Nes {
   pub fn boot_from_bytes(rom: &[u8]) -> Result<Self, String> {
     let cart = Cart::new(rom)?;
@@ -62,14 +64,6 @@ impl Nes {
   pub fn load_sram(&mut self, data: Vec<u8>) {
     self.get_bus().cart.borrow_mut().set_sram(data);
   }
-}
-
-impl Nes {
-  pub fn boot_from_cart(cart: Cart) -> Self {
-    Self {
-      cpu: Cpu::with_cart(cart),
-    }
-  }
 
   pub fn load_from_emu(&mut self, other: Nes) {
     // save prg and chr in temp values
@@ -97,6 +91,14 @@ impl Nes {
     self.get_ppu().wire_cart(ppu_cart);
     let apu_cart = self.cpu.bus.cart.clone();
     self.get_apu().wire_cart(apu_cart);
+  }
+}
+
+impl Nes {
+  pub fn boot_from_cart(cart: Cart) -> Self {
+    Self {
+      cpu: Cpu::with_cart(cart),
+    }
   }
 
   pub fn get_bus(&mut self) -> &mut Bus {
