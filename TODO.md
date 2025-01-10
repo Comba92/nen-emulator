@@ -32,6 +32,8 @@
 
 - [x] Support for zip files
 
+- [] Find a fast serializer which WORKS out of the box
+
 - [] Game DB ??
 
 ## Tricky games

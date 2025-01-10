@@ -83,8 +83,7 @@ fn load_sram(ctx: &mut EmuCtx) {
 fn save_state(ctx: &EmuCtx) {
   let path = PathBuf::from(&ctx.rom_path).with_extension("cmbsv");
   let file = fs::File::create(path).unwrap();
-  ron::ser::to_writer(file, &ctx.emu);
-  // ciborium::into_writer(&ctx.emu, file).unwrap();
+  pot::to_writer(&ctx.emu, file).unwrap();
 
   // let data = bincode::serialize(&ctx.emu);
   // match data {
@@ -99,10 +98,8 @@ fn save_state(ctx: &EmuCtx) {
 
 fn load_state(ctx: &mut EmuCtx) {
   let path = PathBuf::from(&ctx.rom_path).with_extension("cmbsv");
-  let file = fs::read_to_string(path).unwrap();
-  let mut new_emu: Nes = ron::from_str(&file).unwrap();
-  // let file = fs::File::open(path).unwrap();
-  // let new_emu = ciborium::from_reader(file).unwrap();
+  let file = fs::File::open(path).unwrap();
+  let new_emu = pot::from_reader(file).unwrap();
   ctx.emu.load_from_emu(new_emu);
 
   // let savestate = fs::read(path);

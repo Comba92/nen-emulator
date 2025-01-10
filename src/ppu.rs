@@ -156,7 +156,7 @@ pub struct Ppu {
 	oam_addr: u8,
 	data_buf: u8,
 	
-  #[serde(skip)]
+  #[serde(skip, default = "crate::cart::Cart::empty")]
 	cart: SharedCart,
 	
 	vram: Box<[u8]>,

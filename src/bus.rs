@@ -1,4 +1,3 @@
-use std::{cell::RefCell, rc::Rc};
 
 use crate::{apu::Apu, cart::{Cart, ConsoleTiming, SharedCart}, dma::{Dma, OamDma}, joypad::Joypad, mem::Memory, ppu::Ppu};
 
@@ -130,7 +129,7 @@ impl Memory for Bus {
 impl Bus {
   pub fn new(cart: Cart) -> Self {
     let timing = cart.header.timing;
-    let cart = Rc::new(RefCell::new(cart));
+    let cart = cart.shared();
     let ppu = Ppu::new(cart.clone());
     let apu = Apu::new(cart.clone());
 

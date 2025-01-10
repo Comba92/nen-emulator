@@ -307,6 +307,14 @@ impl Cart {
     Ok(Cart { header, prg, chr, sram, mapper })
   }
 
+  pub fn shared(self) -> SharedCart {
+    Rc::new(RefCell::new(self))
+  }
+
+  pub fn empty() -> SharedCart {
+    Cart::default().shared()
+  }
+
   pub fn reset(&mut self) {
     self.mapper = mapper::new_mapper(&self.header).unwrap();
   }

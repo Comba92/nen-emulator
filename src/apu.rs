@@ -131,7 +131,7 @@ pub struct Apu {
   noise: Noise,
   pub dmc: Dmc,
   
-  #[serde(skip)]
+  #[serde(skip, default = "crate::cart::Cart::empty")]
   cart: SharedCart,
   
   frame_mode: FrameCounterMode,
