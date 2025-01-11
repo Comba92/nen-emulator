@@ -364,29 +364,29 @@ impl Cart {
     self.sram[addr % self.sram.len()] = val;
   }
 
-  pub fn chr_read(&mut self, addr: usize) -> u8 {
-    self.chr[self.mapper.chr_addr(addr)]
-  }
-  pub fn chr_write(&mut self, addr: usize, val: u8) {
-    if self.header.uses_chr_ram {
-      self.chr[self.mapper.chr_addr(addr)] = val;
-    }
-  }
+  // pub fn chr_read(&mut self, addr: usize) -> u8 {
+  //   self.chr[self.mapper.chr_addr(addr)]
+  // }
+  // pub fn chr_write(&mut self, addr: usize, val: u8) {
+  //   if self.header.uses_chr_ram {
+  //     self.chr[self.mapper.chr_addr(addr)] = val;
+  //   }
+  // }
 
   pub fn vram_read(&mut self, vram: &[u8], addr: usize) -> u8 {
-    let target = self.mapper.vram_addr(addr);
+    let target = self.mapper.map_chr_addr(addr);
     match target {
       VRamTarget::CiRam(mapped) => vram[mapped],
-      VRamTarget::Chr(mapped)   => self.chr_read(mapped),
+      VRamTarget::Chr(mapped)   => self.chr[mapped],
       // VRamTarget::ExRam(mapped) => self.mapper.exram_read(mapped),
     }
   }
 
   pub fn vram_write(&mut self, vram: &mut [u8], addr: usize, val: u8) {
-    let target = self.mapper.vram_addr(addr);
+    let target = self.mapper.map_chr_addr(addr);
     match target {
       VRamTarget::CiRam(mapped) => vram[mapped] = val,
-      VRamTarget::Chr(mapped)   => self.chr_write(mapped, val),
+      VRamTarget::Chr(mapped)   => if self.header.uses_chr_ram { self.chr[mapped] = val; }
       // VRamTarget::ExRam(mapped) => self.mapper.exram_write(mapped, val),
     }
   }

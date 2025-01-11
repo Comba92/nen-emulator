@@ -133,9 +133,8 @@ pub trait Mapper {
 
   fn map_chr_addr(&mut self, addr: usize) -> VRamTarget {
     match addr {
-      0x0000..=0x1FFF => VRamTarget::Chr(addr),
-      0x2000..=0x2FFF => VRamTarget
-        ::CiRam(mirror_nametbl(self.mirroring(), addr)),
+      0x0000..=0x1FFF => VRamTarget::Chr(self.chr_addr(addr)),
+      0x2000..=0x2FFF => self.vram_addr(addr),
       _ => unreachable!()
     }
   }

@@ -305,8 +305,8 @@ impl Ppu {
 
 		let (dst, addr) = self.map_address(addr);
 		match dst {
-			VramDst::Patterntbl => self.cart.borrow_mut().chr_read(addr),
-			VramDst::Nametbl => self.cart.borrow_mut().vram_read(&self.vram, addr),
+			VramDst::Patterntbl | VramDst::Nametbl => self.cart.borrow_mut()
+				.vram_read(&self.vram, addr),
 			VramDst::Palettes => self.palettes[addr],
 			VramDst::Unused => 0,
 		}
@@ -339,8 +339,8 @@ impl Ppu {
 	pub fn write_vram(&mut self, val: u8) {
 		let (dst, addr) = self.map_address(self.v.0);
 		match dst {
-			VramDst::Patterntbl => self.cart.borrow_mut().chr_write(addr, val),
-			VramDst::Nametbl => self.cart.borrow_mut().vram_write(&mut self.vram, addr, val),
+			VramDst::Patterntbl | VramDst::Nametbl => self.cart.borrow_mut()
+				.vram_write(&mut self.vram, addr, val),
 			VramDst::Palettes => self.palettes[addr] = val & 0b0011_1111,
 			VramDst::Unused => {}
 		}
