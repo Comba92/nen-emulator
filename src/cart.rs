@@ -330,7 +330,7 @@ impl Cart {
   }
 
   pub fn prg_read(&mut self, addr: usize) -> u8 {
-    let target = self.mapper.map_addr(addr);
+    let target = self.mapper.map_prg_addr(addr);
     match target {
       PrgTarget::Cart => self.cart_read(addr),
       PrgTarget::SRam(enabled, mapped) => if enabled {
@@ -340,7 +340,7 @@ impl Cart {
     }
   }
   pub fn prg_write(&mut self, addr: usize, val: u8) {
-    let target = self.mapper.map_addr(addr);
+    let target = self.mapper.map_prg_addr(addr);
     match target {
       PrgTarget::Cart => self.cart_write(addr, val),
       PrgTarget::SRam(enabled, mapped) => if enabled {

@@ -2,6 +2,7 @@ use std::marker::{self, PhantomData};
 
 use mmc1::MMC1;
 use mmc3::MMC3;
+use namco129_163::Namco129_163;
 use sunsoft_fme_7::SunsoftFME7;
 use vrc2_4::VRC2_4;
 use vrc3::VRC3;
@@ -17,6 +18,7 @@ mod vrc2_4;
 mod vrc3;
 mod vrc6;
 mod sunsoft_fme_7;
+mod namco129_163;
 
 pub fn new_mapper(header: &CartHeader) -> Result<Box<dyn Mapper>, String> {
   let mapper: Box<dyn Mapper> = match header.mapper {
@@ -29,6 +31,7 @@ pub fn new_mapper(header: &CartHeader) -> Result<Box<dyn Mapper>, String> {
     7 => AxROM::new(header),
     9 | 10 => MMC2::new(header),
     11 => ColorDreams::new(header),
+    19 => Namco129_163::new(header),
     21 | 22 | 23 | 25 => VRC2_4::new(header),
     24 | 26 => VRC6::new(header),
     31 => INesMapper031::new(header),
@@ -36,6 +39,7 @@ pub fn new_mapper(header: &CartHeader) -> Result<Box<dyn Mapper>, String> {
     69 => SunsoftFME7::new(header),
     71 => Codemasters::new(header),
     73 => VRC3::new(header),
+    75 => VRC1::new(header),
     78 => INesMapper078::new(header),
     _ => return Err(format!("Mapper {} not implemented", header.mapper))
   };
@@ -118,11 +122,20 @@ pub trait Mapper {
   fn new(header: &CartHeader) -> Box<Self> where Self: Sized;
   fn write(&mut self, addr: usize, val: u8);
 
-  fn map_addr(&mut self, addr: usize) -> PrgTarget {
+  fn map_prg_addr(&mut self, addr: usize) -> PrgTarget {
     match addr {
       0x4020..=0x5FFF => PrgTarget::Cart,
       0x6000..=0x7FFF => PrgTarget::SRam(true, self.sram_addr(addr)),
       0x8000..=0xFFFF => PrgTarget::Prg(self.prg_addr(addr)),
+      _ => unreachable!()
+    }
+  }
+
+  fn map_chr_addr(&mut self, addr: usize) -> VRamTarget {
+    match addr {
+      0x0000..=0x1FFF => VRamTarget::Chr(addr),
+      0x2000..=0x2FFF => VRamTarget
+        ::CiRam(mirror_nametbl(self.mirroring(), addr)),
       _ => unreachable!()
     }
   }
@@ -680,6 +693,65 @@ impl Mapper for INesMapper031 {
 
   fn prg_addr(&mut self, addr: usize) -> usize {
     self.prg_banks.addr(addr)
+  }
+
+  fn mirroring(&self) -> Mirroring {
+    self.mirroring
+  }
+}
+
+
+// Mapper 75
+// https://www.nesdev.org/wiki/VRC1
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct VRC1 {
+  prg_banks: Banking<PrgBanking>,
+  chr_banks: Banking<ChrBanking>,
+  mirroring: Mirroring,
+}
+
+#[typetag::serde]
+impl Mapper for VRC1 {
+  fn new(header: &CartHeader) -> Box<Self> {
+    let mut prg_banks = Banking::new_prg(header, 4);
+    prg_banks.set_page_to_last_bank(3);
+    
+    let chr_banks = Banking::new_chr(header, 2);
+    let mirroring = header.mirroring;
+
+    Box::new(Self{prg_banks,chr_banks,mirroring})
+  }
+
+  fn write(&mut self, addr: usize, val: u8) {
+    match addr {
+      0x8000..=0x8FFF => self.prg_banks.set(0, val as usize & 0b1111),
+      0xA000..=0xAFFF => self.prg_banks.set(1, val as usize & 0b1111),
+      0xC000..=0xCFFF => self.prg_banks.set(2, val as usize & 0b1111),
+      0x9000..=0x9FFF => {
+        self.mirroring = match val & 1 != 0 {
+          false => Mirroring::Vertical,
+          true  => Mirroring::Horizontal,
+        };
+        let bank0 = self.chr_banks.bankings[0];
+        let bank0_hi = (val as usize >> 1) & 1;
+        self.chr_banks.set(0, (bank0_hi << 5) | bank0);
+
+        let bank1 = self.chr_banks.bankings[1];
+        let bank1_hi = (val as usize >> 1) & 1;
+        self.chr_banks.set(1, (bank1_hi << 5) | bank1);
+      }
+      0xE000..=0xEFFF => self.chr_banks.set(0, val as usize),
+      0xF000..=0xFFFF => self.chr_banks.set(1, val as usize),
+      _ => {}
+    }
+  }
+
+  fn prg_addr(&mut self,addr:usize) -> usize {
+    self.prg_banks.addr(addr)
+  }
+
+  fn chr_addr(&mut self,addr:usize) -> usize {
+    self.chr_banks.addr(addr)
   }
 
   fn mirroring(&self) -> Mirroring {
