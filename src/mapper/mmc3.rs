@@ -11,14 +11,14 @@ enum ChrMode { #[default] BiggerFirst, BiggerLast }
 // https://www.nesdev.org/wiki/MMC3
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct MMC3 {
-  reg_select: u8,
+  pub reg_select: u8,
 
-  prg_banks: Banking<PrgBanking>,
-  chr_banks: Banking<ChrBanking>,
+  pub prg_banks: Banking<PrgBanking>,
+  pub chr_banks: Banking<ChrBanking>,
 
   prg_mode: PrgMode,
   chr_mode: ChrMode,
-  mirroring: Mirroring,
+  pub mirroring: Mirroring,
 
   sram_read_enabled: bool,
   sram_write_enabled: bool,
@@ -122,7 +122,7 @@ impl MMC3 {
 
 #[typetag::serde]
 impl Mapper for MMC3 {
-  fn new(header: &CartHeader) -> Box<Self>where Self:Sized {
+  fn new(header: &CartHeader) -> Box<Self> {
     let mut prg_banks = Banking::new_prg(header, 4);
     let chr_banks = Banking::new_chr(header, 8);
 

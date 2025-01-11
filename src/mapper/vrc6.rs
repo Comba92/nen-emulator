@@ -49,16 +49,16 @@ impl VRC6 {
       ChrMode::Bank2kb => 
         for reg in (0..self.chr_selects.len()).step_by(2) {
           self.chr_banks.set(reg, self.chr_selects[reg/2] as usize);
-          self.chr_banks.set(reg, self.chr_selects[reg/2] as usize+bank_half);
+          self.chr_banks.set(reg, self.chr_selects[reg/2] as usize | bank_half);
         }
       ChrMode::BankMixed => {
         for reg in 0..self.chr_selects.len()/2 {
           self.chr_banks.set(reg, self.chr_selects[reg] as usize);
         }
         self.chr_banks.set(4, self.chr_selects[4] as usize);
-        self.chr_banks.set(5, self.chr_selects[4] as usize+bank_half);
+        self.chr_banks.set(5, self.chr_selects[4] as usize | bank_half);
         self.chr_banks.set(6, self.chr_selects[5] as usize);
-        self.chr_banks.set(7, self.chr_selects[5] as usize+bank_half);
+        self.chr_banks.set(7, self.chr_selects[5] as usize | bank_half);
       }
     }
   }
