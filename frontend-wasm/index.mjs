@@ -3,9 +3,10 @@ const pauseBtn = document.getElementById("play-pause")
 const resetBtn = document.getElementById("reset")
 
 const nesScreen = document.getElementById("nes-screen")
-const nesCtx = nesScreen.getContext('2d')
+const nesVideoCtx = nesScreen.getContext('2d')
+let nesAudioCtx  = null
+let audioNode = null
 
-const SCALING = 2
 const SCREEN_WIDTH = 32*8
 const SCREEN_HEIGHT = 30*8
 
@@ -15,8 +16,8 @@ nesScreen.height = SCREEN_HEIGHT
 const keymap = [
     { key: 's', button: 1 },
     { key: 'd', button: 2 },
-    { key: 'w', button: 4 },
-    { key: 'e', button: 8 },
+    { key: 'e', button: 4 },
+    { key: 'w', button: 8 },
     { key: 'ArrowUp', button: 16 },
     { key: 'ArrowDown', button: 32 },
     { key: 'ArrowLeft', button: 64 },
@@ -51,7 +52,7 @@ window.addEventListener('keyup', event => {
 
 // TODO: controller not working
 window.addEventListener("gamepadconnected", (e) => {
-    console.log(
+    console.warn(
         "Gamepad connected at index %d: %s. %d buttons, %d axes.",
         e.gamepad.index,
         e.gamepad.id,
@@ -64,7 +65,7 @@ import init, {Nes} from './pkg/nen_emulator.js'
 const instance = await init()
 
 let emu = Nes.boot_empty()
-let screen = emu.get_raw_screen()
+let nesScreenPtr = emu.get_raw_screen()
 let animationId = null
 
 inputRom.addEventListener('change', async event => {
@@ -72,11 +73,27 @@ inputRom.addEventListener('change', async event => {
     let bytes = new Uint8Array(rom)
     try {
         emu = Nes.boot_from_bytes(bytes)
-        screen = emu.get_raw_screen()
+        nesScreenPtr = emu.get_raw_screen()
         pauseBtn.innerText = '⏸️'
+
+        nesAudioCtx = new AudioContext()
+
+        // try {
+        //     nesAudioCtx = new AudioContext()
+        //     await nesAudioCtx
+        //     .audioWorklet
+        //     .addModule('audioWorker.js')
+        //     audioNode = new AudioWorkletNode(nesAudioCtx, 'NesAudioWorker')
+        //     audioNode.connect(nesAudioCtx.destination)
+
+        //     nesAudioCtx.resume()
+        // } catch (e) {
+        //     console.error("Couldn't start audio worker")
+        // }
+
         animationId = renderLoop()
     } catch(err) {
-        console.log(err)
+        console.error(err)
         emu.is_paused = true
     }
 })
@@ -84,7 +101,7 @@ inputRom.addEventListener('change', async event => {
 
 pauseBtn.addEventListener('click', event => {
     if (emu.is_paused) {
-        renderLoop()
+        animationId = renderLoop()
     } else {
         cancelAnimationFrame(animationId)
     }
@@ -93,41 +110,56 @@ pauseBtn.addEventListener('click', event => {
 })
 
 resetBtn.addEventListener('click', event => {
-    emu.reset()
+    if (emu.is_paused) {
+        animationId = renderLoop()
+    }
     emu.is_paused = false
+    emu.reset()
     pauseBtn.innerText = '⏸️'
 })
 
-const FRAME_MS = (1.0 / 60.0) * 1000
+const FRAME_MS = 1000/60
+let then = 0
 
-// https://developer.mozilla.org/en-US/docs/Web/API/Canvas_API/Tutorial/Pixel_manipulation_with_canvas
+// Thanks to: https://github.com/jeffrey-xiao/neso-web/blob/master/src/index.js
 function renderLoop() {
-    let start = performance.now()
-    
-    emu.step_until_vblank()
-    let frame = new Uint8ClampedArray(instance.memory.buffer, screen, nesScreen.width*nesScreen.height*4)
-    let image = new ImageData(frame, nesScreen.width, nesScreen.height)
-    nesCtx.putImageData(image, 0, 0)
-    
-    let elapsed_ms = performance.now() - start
-    let delay = FRAME_MS - elapsed_ms
-
-    // TODO: this shit doesnt work
-    // setTimeout(
-    //     () => { animationId = requestAnimationFrame(renderLoop) },
-    //     delay > 0 ? delay : 0
-    // )
     animationId = requestAnimationFrame(renderLoop)
+
+    let now = Date.now()
+    let elapsed = now - then
+
+    if (elapsed > FRAME_MS) {
+        then = now - (elapsed % FRAME_MS)
+
+        emu.step_until_vblank()
+        renderVideo()
+        // renderAudio()   
+    }
 }
 
-
-function playRandomAudio() {
-    var context = new (window.AudioContext || window.webkitAudioContext)();
-    var osc = context.createOscillator(); // instantiate an oscillator
-    osc.type = 'sine'; // this is the default - also square, sawtooth, triangle
-    osc.frequency.value = 440; // Hz
-    osc.connect(context.destination); // connect it to the destination
-    osc.start(); // start the oscillator
-    osc.stop(context.currentTime + 2); // stop 2 seconds after the current time
+function renderVideo() {
+    let frame = new Uint8ClampedArray(
+        instance.memory.buffer,
+        nesScreenPtr,
+        nesScreen.width*nesScreen.height*4
+    )
+    let image = new ImageData(frame, nesScreen.width, nesScreen.height)
+    nesVideoCtx.putImageData(image, 0, 0)
 }
 
+function renderAudio() {
+    let samplesCount = emu.get_samples_count()
+    let frame = new Float32Array(
+        instance.memory.buffer,
+        emu.get_raw_samples(),
+        samplesCount
+    )
+    let buffer = nesAudioCtx.createBuffer(1, samplesCount, 44100)
+    buffer.copyToChannel(frame, 0, 0)
+    emu.consume_samples()
+
+    let audioNode = nesAudioCtx.createBufferSource()
+    audioNode.connect(nesAudioCtx.destination)
+    audioNode.buffer = buffer
+    audioNode.start()
+}

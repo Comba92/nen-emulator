@@ -41,8 +41,17 @@ impl Nes {
     self.cpu.bus.ppu.screen.0.buffer.as_ptr()
   }
 
-  pub fn get_raw_samples(&mut self) -> *const f32 {
-    self.get_apu().get_samples().as_ptr()
+  pub fn get_raw_samples(&self) -> *const f32 {
+    self.cpu.bus.apu.samples.as_ptr()
+  }
+
+  pub fn get_samples_count(&self) -> f32 {
+    self.cpu.bus.apu.samples.len() as f32
+  }
+  
+  pub fn consume_samples(&mut self) {
+    self.get_apu().samples.clear();
+    self.get_apu().samples.reserve(800);
   }
 
   pub fn button_pressed(&mut self, button: u8) {
@@ -128,7 +137,7 @@ impl Nes {
   }
 
   pub fn get_samples(&mut self) -> Vec<f32> {
-    self.get_apu().get_samples()
+    self.get_apu().consume_samples()
   }
 
   pub fn get_joypad(&mut self) -> &mut Joypad {

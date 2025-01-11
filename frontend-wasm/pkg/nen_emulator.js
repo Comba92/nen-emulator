@@ -113,6 +113,16 @@ export class Nes {
         return ret >>> 0;
     }
     /**
+     * @returns {number}
+     */
+    get_samples_count() {
+        const ret = wasm.nes_get_samples_count(this.__wbg_ptr);
+        return ret;
+    }
+    consume_samples() {
+        wasm.nes_consume_samples(this.__wbg_ptr);
+    }
+    /**
      * @param {number} button
      */
     button_pressed(button) {

@@ -213,8 +213,10 @@ impl Apu {
     self.sample_cycles = 0.0;
   }
 
-  pub fn get_samples(&mut self) -> Vec<f32> {
-    mem::take(&mut self.samples)
+  pub fn consume_samples(&mut self) -> Vec<f32> {
+    let samples = mem::take(&mut self.samples);
+    self.samples.reserve(800);
+    samples
   }
 
   pub fn step(&mut self) {

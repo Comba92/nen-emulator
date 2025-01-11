@@ -13,6 +13,7 @@
 
 - [x] Mappers
 - [ ] Convert usizes to u8
+- [ ] MMC1 seems to still be a little problematic
 - [ ] Nametable mirroring can be optimized with the bankings method
 
 - https://www.nesdev.org/wiki/INES_Mapper_016
