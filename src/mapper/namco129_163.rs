@@ -137,7 +137,7 @@ impl Mapper for Namco129_163 {
     }
   }
 
-  fn map_chr_addr(&mut self, banks: &mut CartBanking, addr: usize) -> VramTarget {
+  fn map_ppu_addr(&mut self, banks: &mut CartBanking, addr: usize) -> VramTarget {
     let page = addr / 0x400;
 
     match self.chr_selects[page] {

@@ -10,6 +10,7 @@ mod konami_irq;
 mod vrc2_4;
 mod vrc3;
 mod vrc6;
+mod sunsoft4;
 mod sunsoft_fme_7;
 mod namco129_163;
 
@@ -38,11 +39,13 @@ pub fn new_mapper(header: &CartHeader, banks: &mut CartBanking) -> Result<Box<dy
     24 | 26 => VRC6::new(header, banks),
     31 => INesMapper031::new(header, banks),
     66 => GxROM::new(header, banks),
+    // 68 => Sunsoft4::new(header, banks),
     69 => SunsoftFME7::new(header, banks),
     71 => Codemasters::new(header, banks),
     73 => VRC3::new(header, banks),
     75 => VRC1::new(header, banks),
     78 => INesMapper078::new(header, banks),
+    206 => INesMapper206::new(header, banks),
     _ => return Err(format!("Mapper {} not implemented", header.mapper))
   };
 
@@ -55,7 +58,7 @@ pub fn mapper_name(id: u16) -> &'static str {
     .map(|m| m.1)
     .unwrap_or("Not implemented")
 }
-const MAPPERS_TABLE: [(u16, &'static str); 33] = [
+const MAPPERS_TABLE: [(u16, &'static str); 34] = [
   (0, "NROM"),
   (1, "MMC1"),
   (2, "UxROM"),
@@ -84,40 +87,13 @@ const MAPPERS_TABLE: [(u16, &'static str); 33] = [
   (73, "Konami VRC3 (Salamander)"),
   (75, "Konami VRC1"),
   (78, "Irem 74HC161 (Holy Diver and Cosmo Carrier)"),
-  (91, "INesMapper091"),
+  (91, "J.Y. Company"),
   (94, "UNROM (Senjou no Ookami)"),
   (163, "FC-001"),
   (180, "UNROM (Crazy Climber)"),
+  (206, "Namco 118/Tengen MIMIC-1"),
   (210, "Namco 175/340"),
 ];
-
-// Horizontal:
-// 0x0800 [ B ]  [ A ] [ a ]
-// 0x0400 [ A ]  [ B ] [ b ]
-
-// Vertical:
-// 0x0800 [ B ]  [ A ] [ B ]
-// 0x0400 [ A ]  [ a ] [ b ]
-
-// Single-page: (based on mapper register)
-// 0x0800 [ B ]  [ A ] [ a ]    [ B ] [ b ]
-// 0x0400 [ A ]  [ a ] [ a ] or [ b ] [ b ]
-// pub fn mirror_nametbl( addr: usize) -> usize {
-//   let addr = addr - 0x2000;
-//   let nametbl_idx = addr / 0x400;
-  
-//   use Mirroring::*;
-//   match (mirroring, nametbl_idx) {
-//     (Horizontal, 1) | (Horizontal, 2) => addr - 0x400,
-//     (Horizontal, 3) => addr - 0x400 * 2,
-//     (Vertical, 2) | (Vertical, 3) => addr - 0x400 * 2,
-//     (SingleScreenA, _) => addr % 0x400,
-//     (SingleScreenB, _) => (addr % 0x400) + 0x400,
-//     (FourScreen, _) => addr,
-//     _ => addr,
-//   }
-// }
-
 
 #[typetag::serde(tag = "mmu")]
 pub trait Mapper {
@@ -133,7 +109,7 @@ pub trait Mapper {
     }
   }
 
-  fn map_chr_addr(&mut self, banks: &mut CartBanking, addr: usize) -> VramTarget {
+  fn map_ppu_addr(&mut self, banks: &mut CartBanking, addr: usize) -> VramTarget {
     match addr {
       0x0000..=0x1FFF => VramTarget::Chr(banks.chr.addr(addr)),
       0x2000..=0x2FFF => VramTarget::CiRam(banks.vram.addr(addr)),
@@ -200,9 +176,9 @@ impl<T> Banking<T> {
     self.bankings[page % pages_count] = last_bank * self.bank_size;
   }
 
-  fn page_to_bank_addr(&self, page: usize, addr: usize) -> usize {
+  fn page_to_bank_addr(&self, page: usize, offset: usize) -> usize {
     let pages_count = self.bankings.len();
-    self.bankings[page % pages_count] + (addr % self.bank_size)
+    self.bankings[page % pages_count] + (offset % self.bank_size)
   }
 
   pub fn addr(&self, addr: usize) -> usize {
@@ -557,5 +533,24 @@ impl Mapper for VRC1 {
       0xF000..=0xFFFF => banks.chr.set(1, val as usize),
       _ => {}
     }
+  }
+}
+
+// Mapper 206
+// https://www.nesdev.org/wiki/INES_Mapper_206
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct INesMapper206 {
+  mmc3: MMC3,
+}
+
+#[typetag::serde]
+impl Mapper for INesMapper206 {
+  fn new(header: &CartHeader, banks: &mut CartBanking) -> Box<Self> {
+    let mmc3 = *MMC3::new(header, banks);
+    Box::new(Self{mmc3})
+  }
+
+  fn write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {
+    self.mmc3.write(banks, addr, val);
   }
 }

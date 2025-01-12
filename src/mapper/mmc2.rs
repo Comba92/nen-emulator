@@ -66,7 +66,7 @@ impl Mapper for MMC2 {
     }
   }
 
-  fn map_chr_addr(&mut self, banks: &mut CartBanking, addr: usize) -> VramTarget {
+  fn map_ppu_addr(&mut self, banks: &mut CartBanking, addr: usize) -> VramTarget {
     let res = match addr {
       0x0000..=0x0FFF => VramTarget::Chr(self.chr_banks0.page_to_bank_addr(self.latch0 as usize, addr)),
       0x1000..=0x1FFF => VramTarget::Chr(self.chr_banks1.page_to_bank_addr(self.latch1 as usize, addr)),

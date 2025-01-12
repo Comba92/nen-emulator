@@ -123,11 +123,11 @@ impl Mapper for MMC3 {
     banks.prg = Banking::new_prg(header, 4);
     banks.chr = Banking::new_chr(header, 8);
 
-    // last page always fixed to last bank
-    banks.prg.set_page_to_last_bank(3);
     // bank second last page to second last bank by default
     // this page is never set by registers, so not setting it here fuck up everything
     banks.prg.set(2, banks.prg.banks_count-2);
+    // last page always fixed to last bank
+    banks.prg.set_page_to_last_bank(3);
 
     let mapper = Self {
       reg_select: 0,

@@ -285,7 +285,7 @@ impl Mapper for VRC6 {
     }
   }
 
-  fn map_chr_addr(&mut self, banks: &mut CartBanking, addr: usize) -> VramTarget {
+  fn map_ppu_addr(&mut self, banks: &mut CartBanking, addr: usize) -> VramTarget {
     match addr {
       0x0000..=0x1FFF => VramTarget::Chr(banks.chr.addr(addr)),
       0x2000..=0x2FFF => match self.nametbl_src {

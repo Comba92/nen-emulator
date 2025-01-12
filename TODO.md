@@ -15,17 +15,13 @@
 - [ ] Convert usizes to u8
 - [ ] Nametable mirroring can be optimized with the bankings method
 
-
-- https://www.nesdev.org/wiki/INES_Mapper_037 -- MMC3 like
-- https://www.nesdev.org/wiki/INES_Mapper_048 -- MMC3 like
 - https://www.nesdev.org/wiki/INES_Mapper_210 -- Mapper19 like
+
+- https://www.nesdev.org/wiki/INES_Mapper_037 -- MMC3 like multicart
+- https://www.nesdev.org/wiki/INES_Mapper_048 -- MMC3 like
 - https://www.nesdev.org/wiki/INES_Mapper_068
 - https://www.nesdev.org/wiki/INES_Mapper_091
 - [x] https://www.nesdev.org/wiki/INES_Mapper_206 -- MMC3 like 
-  -- https://www.nesdev.org/wiki/INES_Mapper_076
-  -- https://www.nesdev.org/wiki/INES_Mapper_088
-  -- https://www.nesdev.org/wiki/INES_Mapper_154
-  -- https://www.nesdev.org/wiki/INES_Mapper_095
 
 - https://www.nesdev.org/wiki/INES_Mapper_016
 - https://www.nesdev.org/wiki/Sunsoft_FME-7

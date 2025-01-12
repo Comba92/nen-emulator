@@ -305,7 +305,7 @@ impl serde::Serialize for Cart {
   }
 }
 
-pub enum VramTarget { Chr(usize), CiRam(usize) }
+pub enum VramTarget { Chr(usize), CiRam(usize), ExRam(u8) }
 pub enum PrgTarget { Prg(usize), SRam(bool, usize), Cart }
 
 impl Cart {
@@ -318,12 +318,13 @@ impl Cart {
       .map_err(|e| format!("Not a valid iNES/Nes2.0 rom: {e}"))?;
 
     println!("Loaded NES ROM: {:#?}", header);
-    if header.format == HeaderFormat::INes 
-      && (header.mapper == 1 || header.mapper == 5)
-    {
-      eprintln!("WARNING: this game is using the {} mapper, and the rom file has a iNes header. \
-        Compatibility is not garanteed. A rom file with a Nes2.0 header is preferred.", header.mapper_name);
-    }
+    
+    // if header.format == HeaderFormat::INes 
+    //   && (header.mapper == 1 || header.mapper == 5)
+    // {
+    //   eprintln!("WARNING: this game is using the {} mapper, and the rom file has a iNes header. \
+    //     Compatibility is not garanteed. A rom file with a Nes2.0 header is preferred.", header.mapper_name);
+    // }
 
     let prg_start = HEADER_SIZE + if header.has_trainer { 512 } else { 0 };
     let chr_start = prg_start + header.prg_size;
@@ -406,20 +407,20 @@ impl Cart {
   }
 
   pub fn vram_read(&mut self, addr: usize) -> u8 {
-    let target = self.mapper.map_chr_addr(&mut self.banks, addr);
+    let target = self.mapper.map_ppu_addr(&mut self.banks, addr);
     match target {
       VramTarget::CiRam(mapped) => self.vram[mapped],
       VramTarget::Chr(mapped)   => self.chr[mapped],
-      // VRamTarget::ExRam(mapped) => self.mapper.exram_read(mapped),
+      _ => 0,
     }
   }
 
   pub fn vram_write(&mut self, addr: usize, val: u8) {
-    let target = self.mapper.map_chr_addr(&mut self.banks, addr);
+    let target = self.mapper.map_ppu_addr(&mut self.banks, addr);
     match target {
       VramTarget::CiRam(mapped) => self.vram[mapped] = val,
       VramTarget::Chr(mapped)   => if self.header.uses_chr_ram { self.chr[mapped] = val; }
-      // VRamTarget::ExRam(mapped) => self.mapper.exram_write(mapped, val),
+      _ => {}
     }
   }
 }
