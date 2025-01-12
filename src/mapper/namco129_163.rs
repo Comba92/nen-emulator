@@ -1,6 +1,9 @@
-use crate::cart::{CartBanking, CartHeader, Mirroring};
+use crate::cart::{CartBanking, CartHeader, VramTarget};
 
 use super::{Banking, Mapper};
+
+#[derive(Default, Clone, Copy, serde::Serialize, serde::Deserialize)]
+enum ChrTarget { #[default] Chr, Ciram0, Ciram1 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Namco129_163 {
@@ -8,9 +11,10 @@ pub struct Namco129_163 {
   irq_enabled: bool,
   irq_requested: Option<()>,
 
-  chr_ram0_enabled: bool,
-  chr_ram1_enabled: bool,
-  sram_write_enabled: [bool; 4],
+  chr_selects: [ChrTarget; 12],
+  chrram0_enabled: bool,
+  chrram1_enabled: bool,
+  exram_write_enabled: [bool; 4],
 
   apu_enabled: bool,
 }
@@ -21,15 +25,17 @@ impl Mapper for Namco129_163 {
     banks.prg = Banking::new_prg(header, 4);
     banks.prg.set_page_to_last_bank(3);
     
-    banks.chr = Banking::new_chr(header, 12);
+    banks.chr = Banking::new(header.chr_real_size(), 0, 1024, 12);
+    let chr_selects = [Default::default(); 12];
 
     Box::new(Self{
+      chr_selects,
       irq_enabled: false,
       irq_value: 0,
       irq_requested: None,
-      chr_ram0_enabled: false,
-      chr_ram1_enabled: false,
-      sram_write_enabled: [false; 4],
+      chrram0_enabled: false,
+      chrram1_enabled: false,
+      exram_write_enabled: [false; 4],
       apu_enabled: false,
     })
   }
@@ -45,7 +51,6 @@ impl Mapper for Namco129_163 {
       }
       _ => 0xFF,
     }
-
   }
 
   fn cart_write(&mut self, _: &mut CartBanking, addr: usize, val: u8) {
@@ -64,19 +69,44 @@ impl Mapper for Namco129_163 {
     }
   }
 
-  fn write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {
+  fn write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {    
     match addr {
-      0x8000..=0xDFFF => {
-        if val <= 0xDF {
-          let page = (addr as usize - 0x8000) / 0x800;
-          banks.chr.set(page, val as usize);
+      0x8000..=0x9FFF => {
+        let page = (addr as usize - 0x8000) / 0x800;
+
+        if val >= 0xE0 && self.chrram0_enabled {
+          self.chr_selects[page] = ChrTarget::Ciram0;
         } else {
-          let mirroring = match val % 2 == 0 {
-            true  => Mirroring::SingleScreenA,
-            false => Mirroring::SingleScreenB,
-          };
-          banks.vram.update(mirroring);
+          self.chr_selects[page] = ChrTarget::Chr;
         }
+
+        banks.chr.set(page, val as usize);
+      }
+      0xA000..=0xBFFF => {
+        let page = (addr as usize - 0x8000) / 0x800;
+
+        if val >= 0xE0 && self.chrram1_enabled {
+          self.chr_selects[page] = ChrTarget::Ciram1;
+        } else {
+          self.chr_selects[page] = ChrTarget::Chr;
+        }
+
+        banks.chr.set(page, val as usize);
+      }
+      0xC000..=0xDFFF => {
+        let page = (addr as usize - 0x8000) / 0x800;
+
+        if val >= 0xE0 {
+          if val % 2 == 0 {
+            self.chr_selects[page] = ChrTarget::Ciram0;
+          } else {
+            self.chr_selects[page] = ChrTarget::Ciram1;
+          }
+        } else {
+          self.chr_selects[page] = ChrTarget::Chr;
+        }
+
+        banks.chr.set(page, val as usize);
       }
       0xE000..=0xE7FF => {
         let bank = val as usize & 0b11_1111;
@@ -86,8 +116,9 @@ impl Mapper for Namco129_163 {
       0xE800..=0xEFFF => {
         let bank = val as usize & 0b11_1111;
         banks.prg.set(1, bank);
-        self.chr_ram0_enabled = (val >> 6) & 1 != 0;
-        self.chr_ram1_enabled = (val >> 7) & 1 != 0;
+
+        self.chrram0_enabled = (val >> 6) & 1 == 0;
+        self.chrram1_enabled = (val >> 7) & 1 == 0;
       }
       0xF000..=0xF7FF => {
         let bank = val as usize & 0b11_1111;
@@ -95,14 +126,24 @@ impl Mapper for Namco129_163 {
       }
       0xF800..=0xFFFF => {
         if val >> 6 == 0 {
-          self.sram_write_enabled.fill(false);
+          self.exram_write_enabled.fill(false);
         } else {
-          for i in 0..self.sram_write_enabled.len() {
-            self.sram_write_enabled[i] = val as usize >> i == 0; 
+          for i in 0..self.exram_write_enabled.len() {
+            self.exram_write_enabled[i] = val as usize >> i == 0; 
           }
         }
       }
       _ => {}
+    }
+  }
+
+  fn map_chr_addr(&mut self, banks: &mut CartBanking, addr: usize) -> VramTarget {
+    let page = addr / 0x400;
+
+    match self.chr_selects[page] {
+      ChrTarget::Chr => VramTarget::Chr(banks.chr.addr(addr)),
+      ChrTarget::Ciram0 => VramTarget::CiRam(addr % 0x400),
+      ChrTarget::Ciram1 => VramTarget::CiRam((addr % 0x400) + 0x400),
     }
   }
 

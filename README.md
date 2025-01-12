@@ -59,6 +59,7 @@ The emulator supports mostly all the basic NES features you'd expect from a NES 
 - [x] 10. [MMC4](https://www.nesdev.org/wiki/MMC4)
 - [x] 11. [ColorDreams](https://www.nesdev.org/wiki/Color_Dreams)
 - [x] 19. [Namco 129/163](https://www.nesdev.org/wiki/INES_Mapper_019)
+- Note: no audio chip emulation.
 - [x] 21, 22, 23, 25. [VRC2 and VRC4](https://www.nesdev.org/wiki/VRC2_and_VRC4)
 - Note: compatibility might not be the best. (TODO: use submappers to discriminate board)
 - [x] 24. [VRC6a](https://www.nesdev.org/wiki/VRC6)
