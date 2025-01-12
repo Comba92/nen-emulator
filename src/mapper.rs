@@ -27,7 +27,7 @@ pub fn new_mapper(header: &CartHeader, banks: &mut CartBanking) -> Result<Box<dy
   let mapper: Box<dyn Mapper> = match header.mapper {
     0 => NROM::new(header, banks),
     1 => MMC1::new(header, banks),
-    2 | 94 | 180 => UxROM::new(header, banks),
+    2 | 180 => UxROM::new(header, banks),
     3 => CNROM::new(header, banks),
     4 => MMC3::new(header, banks),
     // // 5 => MMC5::new(header, banks),
@@ -210,7 +210,10 @@ impl Banking<ChrBanking> {
 impl Banking<VramBanking> {
   pub fn new_vram(header: &CartHeader) -> Self {
     let mut res = Self::new(4*1024, 0x2000, 1024, 4);
-    res.banks_count = 2;
+    if header.mirroring != Mirroring::FourScreen {
+      res.banks_count = 2;
+    }
+
     res.update(header.mirroring);
     res
   }

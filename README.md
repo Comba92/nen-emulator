@@ -39,6 +39,7 @@ The emulator supports mostly all the basic NES features you'd expect from a NES 
 - [x] PAL games and speeds are supported.
 - [x] Games with tricky and obscure behaviour run correctly, except for one or two exceptions. For more information: https://www.nesdev.org/wiki/Tricky-to-emulate_games
 - [x] BATTLETOADS & BATTLETOADS 2 RUN!
+- [x] MMC3 four screen mirroring
 
 - [x] iNes and NES2.0 headers are supported.
 - [x] Saving/loading of battery RAM when the game is changed or the emulator is closed.
@@ -126,7 +127,6 @@ Adding more user features is a pain, tho.
 ### What's missing
 - [ ] MMC1 consecutive writes behaviour
 - [ ] RAM initializing for games which uses it to seed RNG
-- [ ] MMC3 four screen mirroring
 - [ ] MMC5
 
 - [ ] Custom keybindings
