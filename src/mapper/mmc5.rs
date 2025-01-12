@@ -211,7 +211,7 @@
 
 // #[typetag::serde]
 // impl Mapper for MMC5 {
-//   fn new(header: &CartHeader) -> Box<Self>  {
+//   fn new(header: &CartHeader, banks: &CartBanking -> Box<Self>  {
 //     let prg_banks = Banking::new_prg(header, 4);
 //     let chr_banks = Banking::new_chr(header, 8);
 //     let sram_banks = Banking::new(header.sram_real_size(), 0x6000, 8*1024, 4);

@@ -1,18 +1,11 @@
 use std::marker::{self, PhantomData};
 
-use mmc1::MMC1;
-use mmc3::MMC3;
-use namco129_163::Namco129_163;
-use sunsoft_fme_7::SunsoftFME7;
-use vrc2_4::VRC2_4;
-use vrc3::VRC3;
-use vrc6::VRC6;
-
-use crate::cart::{CartHeader, Mirroring, PrgTarget, VRamTarget};
+use crate::cart::{CartBanking, CartHeader, Mirroring, PrgTarget, VramTarget};
 
 mod mmc1;
+mod mmc2;
 mod mmc3;
-mod mmc5;
+// mod mmc5;
 mod konami_irq;
 mod vrc2_4;
 mod vrc3;
@@ -20,27 +13,36 @@ mod vrc6;
 mod sunsoft_fme_7;
 mod namco129_163;
 
-pub fn new_mapper(header: &CartHeader) -> Result<Box<dyn Mapper>, String> {
+use mmc1::MMC1;
+use mmc2::MMC2;
+use mmc3::MMC3;
+use vrc2_4::VRC2_4;
+use vrc3::VRC3;
+use vrc6::VRC6;
+use sunsoft_fme_7::SunsoftFME7;
+use namco129_163::Namco129_163;
+
+pub fn new_mapper(header: &CartHeader, banks: &mut CartBanking) -> Result<Box<dyn Mapper>, String> {
   let mapper: Box<dyn Mapper> = match header.mapper {
-    0 => NROM::new(header),
-    1 => MMC1::new(header),
-    2 | 94 | 180 => UxROM::new(header),
-    3 => CNROM::new(header),
-    4 => MMC3::new(header),
-    // 5 => MMC5::new(header),
-    7 => AxROM::new(header),
-    9 | 10 => MMC2::new(header),
-    11 => ColorDreams::new(header),
-    19 => Namco129_163::new(header),
-    21 | 22 | 23 | 25 => VRC2_4::new(header),
-    24 | 26 => VRC6::new(header),
-    31 => INesMapper031::new(header),
-    66 => GxROM::new(header),
-    69 => SunsoftFME7::new(header),
-    71 => Codemasters::new(header),
-    73 => VRC3::new(header),
-    75 => VRC1::new(header),
-    78 => INesMapper078::new(header),
+    0 => NROM::new(header, banks),
+    1 => MMC1::new(header, banks),
+    2 | 94 | 180 => UxROM::new(header, banks),
+    3 => CNROM::new(header, banks),
+    4 => MMC3::new(header, banks),
+    // // 5 => MMC5::new(header, banks),
+    7 => AxROM::new(header, banks),
+    9 | 10 => MMC2::new(header, banks),
+    11 => ColorDreams::new(header, banks),
+    19 => Namco129_163::new(header, banks),
+    21 | 22 | 23 | 25 => VRC2_4::new(header, banks),
+    24 | 26 => VRC6::new(header, banks),
+    31 => INesMapper031::new(header, banks),
+    66 => GxROM::new(header, banks),
+    69 => SunsoftFME7::new(header, banks),
+    71 => Codemasters::new(header, banks),
+    73 => VRC3::new(header, banks),
+    75 => VRC1::new(header, banks),
+    78 => INesMapper078::new(header, banks),
     _ => return Err(format!("Mapper {} not implemented", header.mapper))
   };
 
@@ -100,57 +102,47 @@ const MAPPERS_TABLE: [(u16, &'static str); 33] = [
 // Single-page: (based on mapper register)
 // 0x0800 [ B ]  [ A ] [ a ]    [ B ] [ b ]
 // 0x0400 [ A ]  [ a ] [ a ] or [ b ] [ b ]
-pub fn mirror_nametbl(mirroring: Mirroring, addr: usize) -> usize {
-  let addr = addr - 0x2000;
-  let nametbl_idx = addr / 0x400;
+// pub fn mirror_nametbl( addr: usize) -> usize {
+//   let addr = addr - 0x2000;
+//   let nametbl_idx = addr / 0x400;
   
-  use Mirroring::*;
-  match (mirroring, nametbl_idx) {
-    (Horizontal, 1) | (Horizontal, 2) => addr - 0x400,
-    (Horizontal, 3) => addr - 0x400 * 2,
-    (Vertical, 2) | (Vertical, 3) => addr - 0x400 * 2,
-    (SingleScreenA, _) => addr % 0x400,
-    (SingleScreenB, _) => (addr % 0x400) + 0x400,
-    (FourScreen, _) => addr,
-    _ => addr,
-  }
-}
+//   use Mirroring::*;
+//   match (mirroring, nametbl_idx) {
+//     (Horizontal, 1) | (Horizontal, 2) => addr - 0x400,
+//     (Horizontal, 3) => addr - 0x400 * 2,
+//     (Vertical, 2) | (Vertical, 3) => addr - 0x400 * 2,
+//     (SingleScreenA, _) => addr % 0x400,
+//     (SingleScreenB, _) => (addr % 0x400) + 0x400,
+//     (FourScreen, _) => addr,
+//     _ => addr,
+//   }
+// }
 
 
 #[typetag::serde(tag = "mmu")]
 pub trait Mapper {
-  fn new(header: &CartHeader) -> Box<Self> where Self: Sized;
-  fn write(&mut self, addr: usize, val: u8);
+  fn new(header: &CartHeader, banks: &mut CartBanking) -> Box<Self> where Self: Sized;
+  fn write(&mut self, banks: &mut CartBanking, addr: usize, val: u8);
 
-  fn map_prg_addr(&mut self, addr: usize) -> PrgTarget {
+  fn map_prg_addr(&self, banks: &mut CartBanking, addr: usize) -> PrgTarget {
     match addr {
       0x4020..=0x5FFF => PrgTarget::Cart,
-      0x6000..=0x7FFF => PrgTarget::SRam(true, self.sram_addr(addr)),
-      0x8000..=0xFFFF => PrgTarget::Prg(self.prg_addr(addr)),
+      0x6000..=0x7FFF => PrgTarget::SRam(true, banks.sram.addr(addr)),
+      0x8000..=0xFFFF => PrgTarget::Prg(banks.prg.addr(addr)),
       _ => unreachable!()
     }
   }
 
-  fn map_chr_addr(&mut self, addr: usize) -> VRamTarget {
+  fn map_chr_addr(&mut self, banks: &mut CartBanking, addr: usize) -> VramTarget {
     match addr {
-      0x0000..=0x1FFF => VRamTarget::Chr(self.chr_addr(addr)),
-      0x2000..=0x2FFF => self.vram_addr(addr),
+      0x0000..=0x1FFF => VramTarget::Chr(banks.chr.addr(addr)),
+      0x2000..=0x2FFF => VramTarget::CiRam(banks.vram.addr(addr)),
       _ => unreachable!()
     }
-  }
-
-  fn prg_addr(&mut self, addr: usize) -> usize { addr - 0x8000 }
-  fn chr_addr(&mut self, addr: usize) -> usize { addr }
-  fn sram_addr(&mut self, addr: usize) -> usize { addr - 0x6000 }
-
-  fn vram_addr(&mut self, addr: usize) -> VRamTarget {
-    VRamTarget::CiRam(mirror_nametbl(self.mirroring(), addr))
   }
 
   fn cart_read(&mut self, _addr: usize) -> u8 { 0xFF }
-  fn cart_write(&mut self, _addr: usize, _val: u8) {}
-
-  fn mirroring(&self) -> Mirroring;
+  fn cart_write(&mut self, _banks: &mut CartBanking, _addr: usize, _val: u8) {}
 
   // Generic cpu cycle notify / apu extension clocking
   fn notify_cpu_cycle(&mut self) {}
@@ -166,12 +158,15 @@ pub trait Mapper {
   fn poll_irq(&mut self) -> bool { false }
 }
 
-#[derive(Debug)]
-struct PrgBanking;
-struct ChrBanking;
-struct SRamBanking;
-struct VRamBanking;
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Default)]
+pub struct PrgBanking;
+#[derive(Debug, Default)]
+pub struct ChrBanking;
+#[derive(Debug, Default)]
+pub struct SramBanking;
+#[derive(Debug, Default)]
+pub struct VramBanking;
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Banking<T> {
   data_size: usize,
   bank_size: usize,
@@ -223,6 +218,12 @@ impl Banking<PrgBanking> {
   }
 }
 
+impl Banking<SramBanking> {
+  pub fn new_sram(header: &CartHeader) -> Self {
+    Self::new(header.sram_real_size(), 0x6000, 8*1024, 1)
+  }
+}
+
 impl Banking<ChrBanking> {
   pub fn new_chr(header: &CartHeader, pages_count: usize) -> Self {
     let pages_size = 8*1024 / pages_count;
@@ -230,16 +231,38 @@ impl Banking<ChrBanking> {
   }
 }
 
-impl Banking<VRamBanking> {
-  // TODO: This doesn't work
-  pub fn new_vram(vram_size: usize) -> Self {
-    Self::new(vram_size, 0x2000, 1024, 4)
+impl Banking<VramBanking> {
+  pub fn new_vram(header: &CartHeader) -> Self {
+    let mut res = Self::new(4*1024, 0x2000, 1024, 4);
+    res.banks_count = 2;
+    res.update(header.mirroring);
+    res
   }
-}
 
-impl Banking<SRamBanking> {
-  pub fn new_sram(header: &CartHeader) -> Self {
-    Self::new(header.sram_real_size(), 0x6000, 8*1024, 1)
+  pub fn update(&mut self, mirroring: Mirroring) {
+    match mirroring {
+      Mirroring::Horizontal => {
+        self.set(0, 0);
+        self.set(1, 0);
+        self.set(2, 1);
+        self.set(3, 1);
+      }
+      Mirroring::Vertical => {
+        self.set(0, 0);
+        self.set(1, 1);
+        self.set(2, 0);
+        self.set(3, 1);
+      }
+      Mirroring::SingleScreenA => for i in 0..4 {
+        self.set(i, 0);
+      }
+      Mirroring::SingleScreenB => for i in 0..4 {
+        self.set(i, 1);
+      }
+      Mirroring::FourScreen => for i in 0..4 {
+        self.set(i, i);
+      }
+    }
   }
 }
 
@@ -247,43 +270,32 @@ impl Banking<SRamBanking> {
 pub struct Dummy;
 #[typetag::serde]
 impl Mapper for Dummy {
-  fn new(_: &CartHeader) -> Box<Self> where Self: Sized {
-    Box::new(Dummy)
+  fn new(_: &CartHeader, _: &mut CartBanking) -> Box<Self> {
+    Box::new(Self)
   }
-  fn write(&mut self, _: usize, _: u8) {}
-  fn mirroring(&self) -> Mirroring { Default::default() }
+  fn write(&mut self, _: &mut CartBanking, _: usize, _: u8) {}
 }
 
 // Mapper 00
 // https://www.nesdev.org/wiki/NROM
 #[derive(serde::Serialize, serde::Deserialize)]
-pub struct NROM {
-  prg_banks: Banking<PrgBanking>,
-  mirroring: Mirroring,
-}
+pub struct NROM;
 
 #[typetag::serde]
 impl Mapper for NROM {
-  fn new(header: &CartHeader) -> Box<Self> {
-    let mut prg_banks = Banking::new_prg(header, 2);
+  fn new(header: &CartHeader, banks: &mut CartBanking)-> Box<Self> {
+    banks.prg = Banking::new_prg(header, 2);
 
     if header.prg_size <= 16*1024 {
-      prg_banks.set(1, 0);
+      banks.prg.set(1, 0);
     } else {
-      prg_banks.set(1, 1);
+      banks.prg.set(1, 1);
     }
 
-    let mirroring = header.mirroring;
-    Box::new(Self { prg_banks, mirroring })
+    Box::new(Self)
   }
 
-  fn write(&mut self, _: usize, _: u8) {}
-
-  fn prg_addr(&mut self, addr: usize) -> usize {
-    self.prg_banks.addr(addr)
-  }
-
-  fn mirroring(&self) -> Mirroring { self.mirroring }
+  fn write(&mut self, _: &mut CartBanking, _: usize, _: u8) {}
 }
 
 // Mapper 02
@@ -291,353 +303,183 @@ impl Mapper for NROM {
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct UxROM {
   banked_page: u8,
-  prg_banks: Banking<PrgBanking>,
-  mirroring: Mirroring,
 }
 
 #[typetag::serde]
 impl Mapper for UxROM {
-  fn new(header: &CartHeader) -> Box<Self> {
-    let mut prg_banks = Banking::new_prg(header, 2);
-    let mirroring = header.mirroring;
+  fn new(header: &CartHeader, banks: &mut CartBanking)-> Box<Self> {
+    banks.prg = Banking::new_prg(header, 2);
 
     // https://www.nesdev.org/wiki/INES_Mapper_180
     let banked_page = if header.mapper == 180 {
       1
     } else {
-      prg_banks.set_page_to_last_bank(1);
+      banks.prg.set_page_to_last_bank(1);
       0
     };
 
-    Box::new(Self { prg_banks, mirroring, banked_page })
+    Box::new(Self { banked_page })
   }
 
-  fn write(&mut self, _: usize, val: u8) {
+  fn write(&mut self, banks: &mut CartBanking, _: usize, val: u8) {
     let select = val & 0b1111;
-    self.prg_banks.set(self.banked_page as usize, select as usize);
+    banks.prg.set(self.banked_page as usize, select as usize);
   }
-
-  fn prg_addr(&mut self, addr: usize) -> usize {
-    self.prg_banks.addr(addr)
-  }
-
-  fn mirroring(&self) -> Mirroring { self.mirroring }
 }
 
 // Mapper 03
 // https://www.nesdev.org/wiki/INES_Mapper_003
 #[derive(serde::Serialize, serde::Deserialize)]
-pub struct CNROM {
-  chr_banks: Banking<ChrBanking>,
-  mirroring: Mirroring,
-}
+pub struct CNROM;
 
 #[typetag::serde]
 impl Mapper for CNROM {
-  fn new(header: &CartHeader) -> Box<Self>where Self:Sized {
-    let chr_banks = Banking::new_chr(header, 1);
-    let mirroring = header.mirroring;
-
-    Box::new(Self { chr_banks, mirroring })
+  fn new(header: &CartHeader, banks: &mut CartBanking)-> Box<Self> {
+    banks.chr = Banking::new_chr(header, 1);
+    Box::new(Self)
   }
 
-  fn write(&mut self, _: usize, val: u8) {
-    self.chr_banks.set(0, val as usize);
+  fn write(&mut self, banks: &mut CartBanking, _: usize, val: u8) {
+    banks.chr.set(0, val as usize);
   }
-
-  fn chr_addr(&mut self, addr: usize) -> usize {
-    self.chr_banks.addr(addr)
-  }
-
-  fn mirroring(&self) -> Mirroring { self.mirroring }
 }
 
 // Mapper 07
 // https://www.nesdev.org/wiki/AxROM
 #[derive(serde::Serialize, serde::Deserialize)]
-pub struct AxROM {
-  prg_banks: Banking<PrgBanking>,
-  mirroring: Mirroring,
-}
+pub struct AxROM;
 
 #[typetag::serde]
 impl Mapper for AxROM {
-  fn new(header: &CartHeader) -> Box<Self> {
-    let prg_banks = Banking::new_prg(header, 1);
-    Box::new(Self {prg_banks, mirroring: Mirroring::SingleScreenA })
+  fn new(header: &CartHeader, banks: &mut CartBanking)-> Box<Self> {
+    banks.prg = Banking::new_prg(header, 1);
+    Box::new(Self)
   }
 
-  fn write(&mut self, _: usize, val: u8) {
+  fn write(&mut self, banks: &mut CartBanking, _: usize, val: u8) {
     let bank = val as usize & 0b111;
-    self.prg_banks.set(0, bank);
-    self.mirroring = match val & 0b1_0000 != 0 {
+    banks.prg.set(0, bank);
+    let mirroring = match val & 0b1_0000 != 0 {
       false => Mirroring::SingleScreenA,
       true  => Mirroring::SingleScreenB,
     };
+    banks.vram.update(mirroring);
   }
-
-  fn prg_addr(&mut self, addr: usize) -> usize {
-    self.prg_banks.addr(addr)
-  }
-
-  fn mirroring(&self) -> Mirroring { self.mirroring }
 }
 
 // Mapper 11
 // https://www.nesdev.org/wiki/Color_Dreams
 // TODO: ColorDreams and GxRom are basically the same, use PhantomData generics
 #[derive(serde::Serialize, serde::Deserialize)]
-pub struct ColorDreams {
-  prg_banks: Banking<PrgBanking>,
-  chr_banks: Banking<ChrBanking>,
-  mirroring: Mirroring,
-}
+pub struct ColorDreams;
 
 #[typetag::serde]
 impl Mapper for ColorDreams {
-  fn new(header: &CartHeader) -> Box<Self> {
-    let prg_banks = Banking::new_prg(header, 1);
-    let chr_banks = Banking::new_chr(header, 1);
-    let mirroring = header.mirroring;
-    Box::new(Self {prg_banks, chr_banks, mirroring})
+  fn new(header: &CartHeader, banks: &mut CartBanking)-> Box<Self> {
+    banks.prg = Banking::new_prg(header, 1);
+    banks.chr = Banking::new_chr(header, 1);
+    Box::new(Self)
   }
 
-  fn write(&mut self, _: usize, val: u8) {
+  fn write(&mut self, banks: &mut CartBanking, _: usize, val: u8) {
     let prg_bank = val as usize & 0b11;
     let chr_bank = val as usize >> 4;
 
-    self.prg_banks.set(0, prg_bank);
-    self.chr_banks.set(0, chr_bank);
+    banks.prg.set(0, prg_bank);
+    banks.chr.set(0, chr_bank);
   }
-
-  fn prg_addr(&mut self, addr: usize) -> usize {
-    self.prg_banks.addr(addr)
-  }
-
-  fn chr_addr(&mut self, addr: usize) -> usize {
-    self.chr_banks.addr(addr)
-  }
-
-  fn mirroring(&self) -> Mirroring { self.mirroring }
 }
 
 // Mapper 66
 // https://www.nesdev.org/wiki/GxROM
 #[derive(serde::Serialize, serde::Deserialize)]
-pub struct GxROM {
-  prg_banks: Banking<PrgBanking>,
-  chr_banks: Banking<ChrBanking>,
-  mirroring: Mirroring,
-}
+pub struct GxROM;
 
 #[typetag::serde]
 impl Mapper for GxROM {
-  fn new(header: &CartHeader) -> Box<Self> {
-    let prg_banks = Banking::new_prg(header, 1);
-    let chr_banks = Banking::new_chr(header, 1);
-    let mirroring = header.mirroring;
-    Box::new(Self {prg_banks, chr_banks, mirroring})
+  fn new(header: &CartHeader, banks: &mut CartBanking)-> Box<Self> {
+    banks.prg = Banking::new_prg(header, 1);
+    banks.chr = Banking::new_chr(header, 1);
+    
+    Box::new(Self)
   }
 
-  fn write(&mut self, _: usize, val: u8) {
+  fn write(&mut self, banks: &mut CartBanking, _: usize, val: u8) {
     let chr_bank = val as usize & 0b11;
     let prg_bank = (val as usize >> 4) & 0b11;
 
-    self.prg_banks.set(0, prg_bank);
-    self.chr_banks.set(0, chr_bank);
+    banks.prg.set(0, prg_bank);
+    banks.chr.set(0, chr_bank);
   }
-
-  fn prg_addr(&mut self, addr: usize) -> usize {
-    self.prg_banks.addr(addr)
-  }
-
-  fn chr_addr(&mut self, addr: usize) -> usize {
-    self.chr_banks.addr(addr)
-  }
-
-  fn mirroring(&self) -> Mirroring { self.mirroring }
 }
 
 // Mapper 71
 // https://www.nesdev.org/wiki/INES_Mapper_071
 #[derive(serde::Serialize, serde::Deserialize)]
-pub struct Codemasters {
-  prg_banks: Banking<PrgBanking>,
-  mirroring: Mirroring,
-}
+pub struct Codemasters;
 
 #[typetag::serde]
 impl Mapper for Codemasters {
-  fn new(header: &CartHeader) -> Box<Self> {
-    let mut prg_banks = Banking::new_prg(header, 2);
-    prg_banks.set_page_to_last_bank(1);
-    let mirroring = header.mirroring;
-    Box::new(Self {prg_banks, mirroring })
+  fn new(header: &CartHeader, banks: &mut CartBanking)-> Box<Self> {
+    banks.prg = Banking::new_prg(header, 2);
+    banks.prg.set_page_to_last_bank(1);
+    Box::new(Self)
   }
 
-  fn write(&mut self, addr: usize, val: u8) {
+  fn write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {
     match addr {
-      0x9000..=0x9FFF => self.mirroring = match (val >> 4) & 1 != 0 {
-        false => Mirroring::SingleScreenA,
-        true  => Mirroring::SingleScreenB,
-      },
+      0x9000..=0x9FFF => {
+        let mirroring = match (val >> 4) & 1 != 0 {
+          false => Mirroring::SingleScreenA,
+          true  => Mirroring::SingleScreenB,
+        };
+        banks.vram.update(mirroring);
+      }
       0xC000..=0xFFFF => {
         let bank = val as usize & 0b1111;
-        self.prg_banks.set(0, bank);
+        banks.prg.set(0, bank);
       }
       _ => {}
     }
-  }
-
-  fn prg_addr(&mut self, addr: usize) -> usize {
-    self.prg_banks.addr(addr)
-  }
-
-  fn mirroring(&self) -> Mirroring { self.mirroring }
-}
-
-// Mapper 09 / 10
-// https://www.nesdev.org/wiki/MMC2
-// https://www.nesdev.org/wiki/MMC4 
-#[derive(Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
-enum Mmc2Latch { FD, #[default] FE }
-#[derive(serde::Serialize, serde::Deserialize)]
-pub struct MMC2 {
-  mapper: u16,
-  prg_banks: Banking<PrgBanking>,
-  chr_banks0: Banking<ChrBanking>,
-  chr_banks1: Banking<ChrBanking>,
-  latch0: Mmc2Latch,
-  latch1: Mmc2Latch,
-
-  mirroring: Mirroring,
-}
-
-#[typetag::serde]
-impl Mapper for MMC2 {
-  fn new(header: &CartHeader) -> Box<Self> {
-    let chr_banks0 = Banking::new_chr(header, 2);
-    let chr_banks1 = Banking::new_chr(header, 2);
-    
-    let prg_banks = match header.mapper {
-      9 => {
-        // MMC2 - Three 8 KB PRG ROM banks, fixed to the last three banks
-        let mut prg_banks = Banking::new_prg(header, 4);
-        prg_banks.set(1, prg_banks.banks_count-3);
-        prg_banks.set(2, prg_banks.banks_count-2);
-        prg_banks.set(3, prg_banks.banks_count-1);
-        prg_banks
-      }
-      10 => {
-        // MMC4 - 16 KB PRG ROM bank, fixed to the last bank
-        let mut prg_banks = Banking::new_prg(header, 2);
-        prg_banks.set_page_to_last_bank(1);
-        prg_banks
-      }
-      _ => unreachable!(),
-    };
-
-    Box::new(Self{
-      mapper: header.mapper,
-      prg_banks, 
-      chr_banks0, chr_banks1,
-      latch0: Mmc2Latch::FE, 
-      latch1: Mmc2Latch::FE, 
-      mirroring: Default::default()
-    })
-  }
-
-  fn write(&mut self, addr: usize, val: u8) {
-    let val = val as usize & 0b1_1111;
-    
-    match addr {
-      0xA000..=0xAFFF => self.prg_banks.set(0, val & 0b1111),
-      0xB000..=0xBFFF => self.chr_banks0.set(0, val),
-      0xC000..=0xCFFF => self.chr_banks0.set(1, val),
-      0xD000..=0xDFFF => self.chr_banks1.set(0, val),
-      0xE000..=0xEFFF => self.chr_banks1.set(1, val),
-      0xF000..=0xFFFF => {
-          self.mirroring = match val & 1 {
-              0 => Mirroring::Vertical,
-              _ => Mirroring::Horizontal,
-          };
-      }
-      _ => {}
-    }
-  }
-
-  fn prg_addr(&mut self, addr: usize) -> usize {
-    self.prg_banks.addr(addr)
-  }
-
-  fn chr_addr(&mut self, addr: usize) -> usize {
-    let res = match addr {
-      0x0000..=0x0FFF => self.chr_banks0.page_to_bank_addr(self.latch0 as usize, addr),
-      0x1000..=0x1FFF => self.chr_banks1.page_to_bank_addr(self.latch1 as usize, addr),
-      _ => unreachable!()
-    };
-
-    // https://www.nesdev.org/wiki/MMC2#CHR_banking
-    // https://www.nesdev.org/wiki/MMC4#Banks
-    match (addr, self.mapper) {
-      (0x0FD8, 9) | (0x0FD8..=0x0FDF, 10) => self.latch0 = Mmc2Latch::FD,
-      (0x0FE8, 9) | (0x0FE8..=0x0FEF, 10) => self.latch0 = Mmc2Latch::FE,
-      (0x1FD8..=0x1FDF, _) => self.latch1 = Mmc2Latch::FD,
-      (0x1FE8..=0x1FEF, _) => self.latch1 = Mmc2Latch::FE,
-      _ => {}
-    };
-
-    match addr {
-      0x0FD8..0x0FDF => self.latch0 = Mmc2Latch::FD,
-      0x0FE8..0x0FEF => self.latch0 = Mmc2Latch::FE,
-      0x1FD8..=0x1FDF => self.latch1 = Mmc2Latch::FD,
-      0x1FE8..=0x1FEF => self.latch1 = Mmc2Latch::FE,
-      _ => {}
-    };
-
-    res
-  }
-
-  fn mirroring(&self) -> Mirroring { self.mirroring }
+  }  
 }
 
 // Mapper 78 (Holy Diver and Cosmo Carrier)
 // https://www.nesdev.org/wiki/INES_Mapper_078
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct INesMapper078 {
-  prg_banks: Banking<PrgBanking>,
-  chr_banks: Banking<ChrBanking>,
-  mirroring: Mirroring,
   uses_hv_mirroring: bool,
 }
 
 #[typetag::serde]
 impl Mapper for INesMapper078 {
-  fn new(header: &CartHeader) -> Box<Self> {
+  fn new(header: &CartHeader, banks: &mut CartBanking)-> Box<Self> {
     let uses_hv_mirroring = 
       header.has_alt_mirroring || header.submapper == 3;
     
-    let mut prg_banks = Banking::new_prg(header, 2);
-    let chr_banks = Banking::new_chr(header, 1);
+    banks.prg = Banking::new_prg(header, 2);
+    banks.chr = Banking::new_chr(header, 1);
     
     let mirroring = if uses_hv_mirroring {
       Mirroring::Horizontal
     } else {
       Mirroring::SingleScreenA
     };
+    
+    banks.prg.set_page_to_last_bank(1);
+    banks.vram.update(mirroring);
 
-    prg_banks.set_page_to_last_bank(1);
-    Box::new(Self{prg_banks,chr_banks,uses_hv_mirroring,mirroring})
+    Box::new(Self{uses_hv_mirroring})
   }
 
-  fn write(&mut self, _: usize, val: u8) {
+  fn write(&mut self, banks: &mut CartBanking, _: usize, val: u8) {
     let prg_bank = val & 0b111;
     let chr_bank = val >> 4;
 
-    self.prg_banks.set(0, prg_bank as usize);
-    self.chr_banks.set(0, chr_bank as usize);
+    banks.prg.set(0, prg_bank as usize);
+    banks.chr.set(0, chr_bank as usize);
 
-    self.mirroring = if self.uses_hv_mirroring {
+    let mirroring = if self.uses_hv_mirroring {
       match (val >> 3) & 1 != 0 {
         false => Mirroring::Horizontal,
         true  => Mirroring::Vertical,
@@ -648,112 +490,72 @@ impl Mapper for INesMapper078 {
         true  => Mirroring::SingleScreenB,
       }
     };
-  }
 
-  fn prg_addr(&mut self, addr: usize) -> usize {
-    self.prg_banks.addr(addr)
+    banks.vram.update(mirroring);
   }
-
-  fn chr_addr(&mut self, addr: usize) -> usize {
-    self.chr_banks.addr(addr)
-  }
-
-  fn mirroring(&self) -> Mirroring { self.mirroring }
 }
 
 // Mapper 31
 // https://www.nesdev.org/wiki/INES_Mapper_031
 #[derive(serde::Serialize, serde::Deserialize)]
-pub struct INesMapper031 {
-  prg_banks: Banking<PrgBanking>,
-  mirroring: Mirroring,
-}
+pub struct INesMapper031;
 
 #[typetag::serde]
 impl Mapper for INesMapper031 {
-  fn new(header: &CartHeader) -> Box<Self> {
-    let mut prg_banks = Banking::new_prg(header, 8);
-    prg_banks.set_page_to_last_bank(7);
-
-    let mirroring = header.mirroring;
-    Box::new(Self{prg_banks, mirroring})
+  fn new(header: &CartHeader, banks: &mut CartBanking)-> Box<Self> {
+    banks.prg = Banking::new_prg(header, 8);
+    banks.prg.set_page_to_last_bank(7);
+    
+    Box::new(Self)
   }
 
-  fn write(&mut self, _: usize, _: u8) {}
+  fn write(&mut self, _: &mut CartBanking, _: usize, _: u8) {}
 
-  fn cart_write(&mut self, addr: usize, val: u8) {
+  fn cart_write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {
     match addr { 
-      0x5000..=0x5FFFF => {
-        self.prg_banks.set(addr, val as usize);
-      }
+      0x5000..=0x5FFFF => banks.prg.set(addr, val as usize),
       _ => {}
     }
   }
-
-  fn prg_addr(&mut self, addr: usize) -> usize {
-    self.prg_banks.addr(addr)
-  }
-
-  fn mirroring(&self) -> Mirroring {
-    self.mirroring
-  }
 }
-
 
 // Mapper 75
 // https://www.nesdev.org/wiki/VRC1
 #[derive(serde::Serialize, serde::Deserialize)]
-pub struct VRC1 {
-  prg_banks: Banking<PrgBanking>,
-  chr_banks: Banking<ChrBanking>,
-  mirroring: Mirroring,
-}
+pub struct VRC1;
 
 #[typetag::serde]
 impl Mapper for VRC1 {
-  fn new(header: &CartHeader) -> Box<Self> {
-    let mut prg_banks = Banking::new_prg(header, 4);
-    prg_banks.set_page_to_last_bank(3);
-    
-    let chr_banks = Banking::new_chr(header, 2);
-    let mirroring = header.mirroring;
-
-    Box::new(Self{prg_banks,chr_banks,mirroring})
+  fn new(header: &CartHeader, banks: &mut CartBanking)-> Box<Self> {
+    banks.prg = Banking::new_prg(header, 4);
+    banks.prg.set_page_to_last_bank(3);
+    banks.chr = Banking::new_chr(header, 2);
+    Box::new(Self)
   }
 
-  fn write(&mut self, addr: usize, val: u8) {
+  fn write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {
     match addr {
-      0x8000..=0x8FFF => self.prg_banks.set(0, val as usize & 0b1111),
-      0xA000..=0xAFFF => self.prg_banks.set(1, val as usize & 0b1111),
-      0xC000..=0xCFFF => self.prg_banks.set(2, val as usize & 0b1111),
+      0x8000..=0x8FFF => banks.prg.set(0, val as usize & 0b1111),
+      0xA000..=0xAFFF => banks.prg.set(1, val as usize & 0b1111),
+      0xC000..=0xCFFF => banks.prg.set(2, val as usize & 0b1111),
       0x9000..=0x9FFF => {
-        self.mirroring = match val & 1 != 0 {
+        let mirroring = match val & 1 != 0 {
           false => Mirroring::Vertical,
           true  => Mirroring::Horizontal,
         };
-        let bank0 = self.chr_banks.bankings[0];
-        let bank0_hi = (val as usize >> 1) & 1;
-        self.chr_banks.set(0, (bank0_hi << 5) | bank0);
+        banks.vram.update(mirroring);
 
-        let bank1 = self.chr_banks.bankings[1];
+        let bank0 = banks.chr.bankings[0];
+        let bank0_hi = (val as usize >> 1) & 1;
+        banks.chr.set(0, (bank0_hi << 5) | bank0);
+
+        let bank1 = banks.chr.bankings[1];
         let bank1_hi = (val as usize >> 1) & 1;
-        self.chr_banks.set(1, (bank1_hi << 5) | bank1);
+        banks.chr.set(1, (bank1_hi << 5) | bank1);
       }
-      0xE000..=0xEFFF => self.chr_banks.set(0, val as usize),
-      0xF000..=0xFFFF => self.chr_banks.set(1, val as usize),
+      0xE000..=0xEFFF => banks.chr.set(0, val as usize),
+      0xF000..=0xFFFF => banks.chr.set(1, val as usize),
       _ => {}
     }
-  }
-
-  fn prg_addr(&mut self,addr:usize) -> usize {
-    self.prg_banks.addr(addr)
-  }
-
-  fn chr_addr(&mut self,addr:usize) -> usize {
-    self.chr_banks.addr(addr)
-  }
-
-  fn mirroring(&self) -> Mirroring {
-    self.mirroring
   }
 }

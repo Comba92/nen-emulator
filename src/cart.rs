@@ -2,7 +2,7 @@ use std::{cell::RefCell, rc::Rc};
 
 use serde::ser::SerializeStruct;
 
-use crate::mapper::{self, Dummy, Mapper};
+use crate::mapper::{self, Banking, ChrBanking, Dummy, Mapper, PrgBanking, SramBanking, VramBanking};
 
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CartHeader {
@@ -228,6 +228,33 @@ impl CartHeader {
   }
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct CartBanking {
+  pub prg:  Banking<PrgBanking>,
+  pub chr:  Banking<ChrBanking>,
+  pub sram: Banking<SramBanking>,
+  pub vram: Banking<VramBanking>,
+}
+impl Default for CartBanking {
+  fn default() -> Self {
+    let header = &Default::default();
+    let prg = Banking::new_prg(header, 1);
+    let chr = Banking::new_chr(header, 1);
+    let sram = Banking::new_sram(header);
+    let vram = Banking::new_vram(header);
+    Self {prg, chr, sram, vram}
+  }
+}
+
+impl CartBanking {
+  pub fn new(header: &CartHeader) -> Self {
+    let prg = Banking::new_prg(header, 1);
+    let chr = Banking::new_chr(header, 1);
+    let sram = Banking::new_sram(header);
+    let vram = Banking::new_vram(header);
+    Self {prg, chr, sram, vram}
+  }
+}
 
 pub type SharedCart = Rc<RefCell<Cart>>;
 #[derive(serde::Deserialize)]
@@ -237,12 +264,22 @@ pub struct Cart {
   pub prg: Box<[u8]>,
   pub chr: Box<[u8]>,
   pub sram: Box<[u8]>,
+  pub vram: Box<[u8]>,
+  pub banks: CartBanking,
   pub mapper: Box<dyn Mapper>,
 }
 
 impl Default for Cart {
   fn default() -> Self {
-    Self { header: Default::default(), prg: Default::default(), chr: Default::default(), sram: Default::default(), mapper: Box::new(Dummy) }
+    Self { 
+      header: Default::default(),
+      prg: Default::default(),
+      chr: Default::default(),
+      vram: Default::default(),
+      sram: Default::default(),
+      banks: Default::default(),
+      mapper: Box::new(Dummy)
+    }
   }
 }
 
@@ -268,7 +305,7 @@ impl serde::Serialize for Cart {
   }
 }
 
-pub enum VRamTarget { Chr(usize), CiRam(usize) }
+pub enum VramTarget { Chr(usize), CiRam(usize) }
 pub enum PrgTarget { Prg(usize), SRam(bool, usize), Cart }
 
 impl Cart {
@@ -303,8 +340,12 @@ impl Cart {
     let sram_size = header.sram_real_size();
     let sram = vec![0; sram_size].into_boxed_slice();
 
-    let mapper = mapper::new_mapper(&header)?;
-    Ok(Cart { header, prg, chr, sram, mapper })
+    let vram = vec![0; 4 * 1024].into_boxed_slice();
+    
+    let mut banks = CartBanking::new(&header);
+    let mapper = mapper::new_mapper(&header, &mut banks)?;
+    
+    Ok(Cart { header, prg, chr, sram, vram, banks, mapper })
   }
 
   pub fn shared(self) -> SharedCart {
@@ -316,7 +357,7 @@ impl Cart {
   }
 
   pub fn reset(&mut self) {
-    self.mapper = mapper::new_mapper(&self.header).unwrap();
+    self.mapper = mapper::new_mapper(&self.header, &mut self.banks).unwrap();
   }
 
   pub fn get_sram(&self) -> Option<Vec<u8>> {
@@ -330,7 +371,7 @@ impl Cart {
   }
 
   pub fn prg_read(&mut self, addr: usize) -> u8 {
-    let target = self.mapper.map_prg_addr(addr);
+    let target = self.mapper.map_prg_addr(&mut self.banks, addr);
     match target {
       PrgTarget::Cart => self.cart_read(addr),
       PrgTarget::SRam(enabled, mapped) => if enabled {
@@ -340,13 +381,13 @@ impl Cart {
     }
   }
   pub fn prg_write(&mut self, addr: usize, val: u8) {
-    let target = self.mapper.map_prg_addr(addr);
+    let target = self.mapper.map_prg_addr(&mut self.banks, addr);
     match target {
       PrgTarget::Cart => self.cart_write(addr, val),
       PrgTarget::SRam(enabled, mapped) => if enabled {
         self.sram_write(mapped, val);
       }
-      PrgTarget::Prg(_) => self.mapper.write(addr, val),
+      PrgTarget::Prg(_) => self.mapper.write(&mut self.banks, addr, val),
     }
   }
 
@@ -354,7 +395,7 @@ impl Cart {
     self.mapper.cart_read(addr)
   }
   pub fn cart_write(&mut self, addr: usize, val: u8) {
-    self.mapper.cart_write(addr, val);
+    self.mapper.cart_write(&mut self.banks, addr, val);
   }
 
   pub fn sram_read(&mut self, addr: usize) -> u8 {
@@ -364,29 +405,20 @@ impl Cart {
     self.sram[addr % self.sram.len()] = val;
   }
 
-  // pub fn chr_read(&mut self, addr: usize) -> u8 {
-  //   self.chr[self.mapper.chr_addr(addr)]
-  // }
-  // pub fn chr_write(&mut self, addr: usize, val: u8) {
-  //   if self.header.uses_chr_ram {
-  //     self.chr[self.mapper.chr_addr(addr)] = val;
-  //   }
-  // }
-
-  pub fn vram_read(&mut self, vram: &[u8], addr: usize) -> u8 {
-    let target = self.mapper.map_chr_addr(addr);
+  pub fn vram_read(&mut self, addr: usize) -> u8 {
+    let target = self.mapper.map_chr_addr(&mut self.banks, addr);
     match target {
-      VRamTarget::CiRam(mapped) => vram[mapped],
-      VRamTarget::Chr(mapped)   => self.chr[mapped],
+      VramTarget::CiRam(mapped) => self.vram[mapped],
+      VramTarget::Chr(mapped)   => self.chr[mapped],
       // VRamTarget::ExRam(mapped) => self.mapper.exram_read(mapped),
     }
   }
 
-  pub fn vram_write(&mut self, vram: &mut [u8], addr: usize, val: u8) {
-    let target = self.mapper.map_chr_addr(addr);
+  pub fn vram_write(&mut self, addr: usize, val: u8) {
+    let target = self.mapper.map_chr_addr(&mut self.banks, addr);
     match target {
-      VRamTarget::CiRam(mapped) => vram[mapped] = val,
-      VRamTarget::Chr(mapped)   => if self.header.uses_chr_ram { self.chr[mapped] = val; }
+      VramTarget::CiRam(mapped) => self.vram[mapped] = val,
+      VramTarget::Chr(mapped)   => if self.header.uses_chr_ram { self.chr[mapped] = val; }
       // VRamTarget::ExRam(mapped) => self.mapper.exram_write(mapped, val),
     }
   }

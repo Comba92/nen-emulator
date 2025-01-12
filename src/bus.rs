@@ -47,8 +47,7 @@ impl Memory for Bus {
       BusDst::Joypad1 => self.joypad.read1(),
       BusDst::Joypad2 => self.joypad.read2(),
       BusDst::Cart => self.cart.borrow_mut().cart_read(addr),
-      BusDst::SRam => self.cart.borrow_mut().sram_read(addr),
-      BusDst::Prg  => self.cart.borrow_mut().prg_read(addr),
+      BusDst::SRam | BusDst::Prg  => self.cart.borrow_mut().prg_read(addr),
       _ => { 0 }
     }
   }
@@ -73,8 +72,7 @@ impl Memory for Bus {
         self.tick();
       }
       BusDst::Cart => self.cart.borrow_mut().cart_write(addr, val),
-      BusDst::SRam => self.cart.borrow_mut().sram_write(addr, val),
-      BusDst::Prg => self.cart.borrow_mut().prg_write(addr, val),
+      BusDst::SRam | BusDst::Prg => self.cart.borrow_mut().prg_write(addr, val),
       BusDst::NoImpl => {}
     }
   }

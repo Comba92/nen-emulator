@@ -1,6 +1,5 @@
-use crate::{apu::{ApuDivider, Channel}, cart::{CartHeader, Mirroring, VRamTarget}};
-
-use super::{konami_irq::{IrqMode, KonamiIrq}, mirror_nametbl, Banking, ChrBanking, Mapper, PrgBanking, VRamBanking};
+use crate::{apu::{ApuDivider, Channel}, cart::{CartBanking, CartHeader, Mirroring, VramTarget}};
+use super::{konami_irq::{IrqMode, KonamiIrq}, Banking, Mapper, VramBanking};
 
 #[derive(serde::Serialize, serde::Deserialize)]
 enum ChrMode { Bank1kb, Bank2kb, BankMixed }
@@ -10,18 +9,14 @@ enum NametblSrc { CiRam, ChrRom }
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct VRC6 {
   mapper: u16,
-  prg_banks: Banking<PrgBanking>,
-  chr_banks: Banking<ChrBanking>,
 
-  vram_chr_rom_banks: Banking<VRamBanking>,
-  vram_ciram_banks: Banking<VRamBanking>,
-
+  vram_chrrom_banks: Banking<VramBanking>,
+  vram_ciram_banks: Banking<VramBanking>,
   chr_selects: [usize; 8],
 
   irq: KonamiIrq,
 
   chr_mode: ChrMode,
-  mirroring: Mirroring,
   nametbl_src: NametblSrc,
   nametbl_mode: u8,
   chr_latch: bool,
@@ -37,28 +32,28 @@ pub struct VRC6 {
 }
 
 impl VRC6 {
-  fn update_chr_banks(&mut self) {
+  fn update_chr_banks(&self, banks: &mut CartBanking) {
     let bank_half = self.chr_latch as usize;
 
     match &self.chr_mode {
       ChrMode::Bank1kb => {
         for (reg, &bank) in self.chr_selects.iter().enumerate() {
-          self.chr_banks.set(reg, bank as usize);
+          banks.chr.set(reg, bank as usize);
         }
       }
       ChrMode::Bank2kb => 
         for reg in (0..self.chr_selects.len()).step_by(2) {
-          self.chr_banks.set(reg, self.chr_selects[reg/2] as usize);
-          self.chr_banks.set(reg, self.chr_selects[reg/2] as usize | bank_half);
+          banks.chr.set(reg, self.chr_selects[reg/2] as usize);
+          banks.chr.set(reg, self.chr_selects[reg/2] as usize | bank_half);
         }
       ChrMode::BankMixed => {
         for reg in 0..self.chr_selects.len()/2 {
-          self.chr_banks.set(reg, self.chr_selects[reg] as usize);
+          banks.chr.set(reg, self.chr_selects[reg] as usize);
         }
-        self.chr_banks.set(4, self.chr_selects[4] as usize);
-        self.chr_banks.set(5, self.chr_selects[4] as usize | bank_half);
-        self.chr_banks.set(6, self.chr_selects[5] as usize);
-        self.chr_banks.set(7, self.chr_selects[5] as usize | bank_half);
+        banks.chr.set(4, self.chr_selects[4] as usize);
+        banks.chr.set(5, self.chr_selects[4] as usize | bank_half);
+        banks.chr.set(6, self.chr_selects[5] as usize);
+        banks.chr.set(7, self.chr_selects[5] as usize | bank_half);
       }
     }
   }
@@ -70,72 +65,69 @@ impl VRC6 {
     match self.nametbl_src {
       NametblSrc::ChrRom => match self.nametbl_mode {
         0x20 | 0x27 => {
-          self.vram_chr_rom_banks.set(0, self.chr_selects[6]);
-          self.vram_chr_rom_banks.set(1, self.chr_selects[6] | 1);
-          self.vram_chr_rom_banks.set(2, self.chr_selects[7]);
-          self.vram_chr_rom_banks.set(3, self.chr_selects[7] | 1);
+          self.vram_chrrom_banks.set(0, self.chr_selects[6]);
+          self.vram_chrrom_banks.set(1, self.chr_selects[6] | 1);
+          self.vram_chrrom_banks.set(2, self.chr_selects[7]);
+          self.vram_chrrom_banks.set(3, self.chr_selects[7] | 1);
         }
         0x23 | 0x24 => {
-          self.vram_chr_rom_banks.set(0, self.chr_selects[6]);
-          self.vram_chr_rom_banks.set(1, self.chr_selects[7]);
-          self.vram_chr_rom_banks.set(2, self.chr_selects[6] | 1);
-          self.vram_chr_rom_banks.set(3, self.chr_selects[7] | 1);
+          self.vram_chrrom_banks.set(0, self.chr_selects[6]);
+          self.vram_chrrom_banks.set(1, self.chr_selects[7]);
+          self.vram_chrrom_banks.set(2, self.chr_selects[6] | 1);
+          self.vram_chrrom_banks.set(3, self.chr_selects[7] | 1);
         }
         0x28 | 0x2F => {
-          self.vram_chr_rom_banks.set(0, self.chr_selects[6]);
-          self.vram_chr_rom_banks.set(1, self.chr_selects[6]);
-          self.vram_chr_rom_banks.set(2, self.chr_selects[7]);
-          self.vram_chr_rom_banks.set(3, self.chr_selects[7]);
+          self.vram_chrrom_banks.set(0, self.chr_selects[6]);
+          self.vram_chrrom_banks.set(1, self.chr_selects[6]);
+          self.vram_chrrom_banks.set(2, self.chr_selects[7]);
+          self.vram_chrrom_banks.set(3, self.chr_selects[7]);
         }
         0x2B | 0x2C => {
-          self.vram_chr_rom_banks.set(0, self.chr_selects[6] | 1);
-          self.vram_chr_rom_banks.set(1, self.chr_selects[7] | 1);
-          self.vram_chr_rom_banks.set(2, self.chr_selects[6] | 1);
-          self.vram_chr_rom_banks.set(3, self.chr_selects[7] | 1);
+          self.vram_chrrom_banks.set(0, self.chr_selects[6] | 1);
+          self.vram_chrrom_banks.set(1, self.chr_selects[7] | 1);
+          self.vram_chrrom_banks.set(2, self.chr_selects[6] | 1);
+          self.vram_chrrom_banks.set(3, self.chr_selects[7] | 1);
         }
 
         0 | 6 | 7 => {
-          self.vram_chr_rom_banks.set(0, self.chr_selects[6]);
-          self.vram_chr_rom_banks.set(1, self.chr_selects[6]);
-          self.vram_chr_rom_banks.set(2, self.chr_selects[7]);
-          self.vram_chr_rom_banks.set(3, self.chr_selects[7]);
+          self.vram_chrrom_banks.set(0, self.chr_selects[6]);
+          self.vram_chrrom_banks.set(1, self.chr_selects[6]);
+          self.vram_chrrom_banks.set(2, self.chr_selects[7]);
+          self.vram_chrrom_banks.set(3, self.chr_selects[7]);
         }
         1 | 5 => {
-          self.vram_chr_rom_banks.set(0, self.chr_selects[4]);
-          self.vram_chr_rom_banks.set(1, self.chr_selects[5]);
-          self.vram_chr_rom_banks.set(2, self.chr_selects[6]);
-          self.vram_chr_rom_banks.set(3, self.chr_selects[7]);
+          self.vram_chrrom_banks.set(0, self.chr_selects[4]);
+          self.vram_chrrom_banks.set(1, self.chr_selects[5]);
+          self.vram_chrrom_banks.set(2, self.chr_selects[6]);
+          self.vram_chrrom_banks.set(3, self.chr_selects[7]);
         }
         2 | 3 | 4 => {
-          self.vram_chr_rom_banks.set(0, self.chr_selects[6]);
-          self.vram_chr_rom_banks.set(1, self.chr_selects[7]);
-          self.vram_chr_rom_banks.set(2, self.chr_selects[6]);
-          self.vram_chr_rom_banks.set(3, self.chr_selects[7]);
+          self.vram_chrrom_banks.set(0, self.chr_selects[6]);
+          self.vram_chrrom_banks.set(1, self.chr_selects[7]);
+          self.vram_chrrom_banks.set(2, self.chr_selects[6]);
+          self.vram_chrrom_banks.set(3, self.chr_selects[7]);
         }
         _ => {}
       }
       NametblSrc::CiRam => match self.nametbl_mode {
-        0x20 | 0x27 => self.mirroring = Mirroring::Vertical,
-        0x23 | 0x24 => self.mirroring = Mirroring::Horizontal,
-        0x28 | 0x2F => self.mirroring = Mirroring::SingleScreenA,
-        0x2B | 0x2C => self.mirroring = Mirroring::SingleScreenB,
+        0x20 | 0x27 => self.vram_ciram_banks.update(Mirroring::Vertical),
+        0x23 | 0x24 => self.vram_ciram_banks.update(Mirroring::Horizontal),
+        0x28 | 0x2F => self.vram_ciram_banks.update(Mirroring::SingleScreenA),
+        0x2B | 0x2C => self.vram_ciram_banks.update(Mirroring::SingleScreenB),
 
         0 | 6 | 7 => {
-          self.mirroring = Mirroring::FourScreen;
           self.vram_ciram_banks.set(0, self.chr_selects[6]);
           self.vram_ciram_banks.set(1, self.chr_selects[6]);
           self.vram_ciram_banks.set(2, self.chr_selects[7]);
           self.vram_ciram_banks.set(3, self.chr_selects[7]);
         }
         1 | 5 => {
-          self.mirroring = Mirroring::FourScreen;
           self.vram_ciram_banks.set(0, self.chr_selects[4]);
           self.vram_ciram_banks.set(1, self.chr_selects[5]);
           self.vram_ciram_banks.set(2, self.chr_selects[6]);
           self.vram_ciram_banks.set(3, self.chr_selects[7]);
         }
         2 | 3 | 4 => {
-          self.mirroring = Mirroring::FourScreen;
           self.vram_ciram_banks.set(0, self.chr_selects[6]);
           self.vram_ciram_banks.set(1, self.chr_selects[7]);
           self.vram_ciram_banks.set(2, self.chr_selects[6]);
@@ -179,26 +171,22 @@ impl VRC6 {
 
 #[typetag::serde]
 impl Mapper for VRC6 {
-  fn new(header: &CartHeader) -> Box<Self> {
-    let mut prg_banks = Banking::new_prg(header, 4);
-    let chr_banks = Banking::new_chr(header, 8);
-    let vram_chr_rom_banks = Banking::new_vram(header.chr_real_size());
-    let vram_ciram_banks = Banking::new_vram(4 * 1024);
+  fn new(header: &CartHeader, banks: &mut CartBanking) -> Box<Self> {
+    banks.prg = Banking::new_prg(header, 4);
+    banks.chr = Banking::new_chr(header, 8);
+    let vram_chrrom_banks = Banking::new(header.chr_real_size(), 0x2000, 1024, 4);
+    let vram_ciram_banks =  Banking::new_vram(header);
     
-    // prg_banks.set(1, 1);
-    prg_banks.set_page_to_last_bank(3);
+    banks.prg.set_page_to_last_bank(3);
     
     let mut mapper = Self {
       mapper: header.mapper,
-      prg_banks,
-      chr_banks,
-      vram_chr_rom_banks,
+      vram_chrrom_banks,
       vram_ciram_banks,
       chr_selects: [0; 8],
       irq: Default::default(),
       chr_latch: false,
       chr_mode: ChrMode::Bank1kb,
-      mirroring: Mirroring::Vertical,
       nametbl_src: NametblSrc::CiRam,
       nametbl_mode: 0,
       sram_enabled: false,
@@ -209,13 +197,14 @@ impl Mapper for VRC6 {
       pulse2: Default::default(),
       sawtooth: Default::default(),
     };
-    mapper.update_chr_banks();
+
+    mapper.update_chr_banks(banks);
     mapper.update_mirroring();
 
     Box::new(mapper)
   }
 
-  fn write(&mut self, mut addr: usize, val: u8) {
+  fn write(&mut self, banks: &mut CartBanking, mut addr: usize, val: u8) {
 		if self.mapper == 26 {
 			addr = (addr & 0xFFFC) | ((addr & 0x01) << 1) | ((addr & 0x02) >> 1);
 		}
@@ -223,11 +212,11 @@ impl Mapper for VRC6 {
     match addr & 0xF003 {
       0x8000..=0x8003 => {
         let bank = (val as usize & 0b1111) << 1;
-        self.prg_banks.set(0, bank);
-        self.prg_banks.set(1, bank+1);
+        banks.prg.set(0, bank);
+        banks.prg.set(1, bank+1);
       }
       0xC000..=0xC003 => {
-        self.prg_banks.set(2, val as usize & 0b1_1111);
+        banks.prg.set(2, val as usize & 0b1_1111);
       }
       
       0xB003 => {
@@ -236,7 +225,7 @@ impl Mapper for VRC6 {
           1 => ChrMode::Bank2kb,
           _ => ChrMode::BankMixed,
         };
-        self.update_chr_banks();
+        self.update_chr_banks(banks);
 
         self.nametbl_mode = val & 0b10_1111;
 
@@ -253,12 +242,12 @@ impl Mapper for VRC6 {
       0xD000..=0xD003 => {
         let reg = addr - 0xD000;
         self.chr_selects[reg] = val as usize;
-        self.update_chr_banks();
+        self.update_chr_banks(banks);
       }
       0xE000..=0xE003 => {
         let reg = addr - 0xE000;
         self.chr_selects[reg + 4] = val as usize;
-        self.update_chr_banks();
+        self.update_chr_banks(banks);
       }
 
       0xF000 => self.irq.latch = val as u16,
@@ -296,29 +285,20 @@ impl Mapper for VRC6 {
     }
   }
 
-  fn prg_addr(&mut self, addr: usize) -> usize {
-    self.prg_banks.addr(addr)
-  }
-
-  fn chr_addr(&mut self, addr: usize) -> usize {
-    self.chr_banks.addr(addr)
-  }
-
-  fn vram_addr(&mut self, addr: usize) -> VRamTarget {
-    match self.nametbl_src {
-      NametblSrc::CiRam => {
-        let ciram_addr = if self.mirroring != Mirroring::FourScreen {
-          mirror_nametbl(self.mirroring, addr)
-        } else {
-          self.vram_ciram_banks.addr(addr)
-        };
-
-        VRamTarget::CiRam(ciram_addr)
+  fn map_chr_addr(&mut self, banks: &mut CartBanking, addr: usize) -> VramTarget {
+    match addr {
+      0x0000..=0x1FFF => VramTarget::Chr(banks.chr.addr(addr)),
+      0x2000..=0x2FFF => match self.nametbl_src {
+        NametblSrc::CiRam => {
+          let ciram_addr = self.vram_ciram_banks.addr(addr);
+          VramTarget::CiRam(ciram_addr)
+        }
+        NametblSrc::ChrRom => {
+          let chrrom_addr = self.vram_chrrom_banks.addr(addr);
+          VramTarget::Chr(chrrom_addr)
+        }
       }
-      NametblSrc::ChrRom => {
-        let chr_rom_addr = self.vram_chr_rom_banks.addr(addr);
-        VRamTarget::Chr(chr_rom_addr)
-      }
+      _ => unreachable!()
     }
   }
 
@@ -340,8 +320,6 @@ impl Mapper for VRC6 {
   fn poll_irq(&mut self) -> bool {
     self.irq.requested.is_some()
   }
-
-  fn mirroring(&self) -> Mirroring { self.mirroring }
 }
 
 

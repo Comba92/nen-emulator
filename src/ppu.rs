@@ -158,8 +158,7 @@ pub struct Ppu {
 	
   #[serde(skip, default = "crate::cart::Cart::empty")]
 	cart: SharedCart,
-	
-	vram: Box<[u8]>,
+
 	palettes: [u8; 32],
 	oam: Box<[u8]>,
 	
@@ -187,7 +186,6 @@ impl Ppu {
 			w: WriteLatch::FirstWrite,
 
 			cart,
-			vram: vec![0; 0x800].into_boxed_slice(),
 			palettes: [0; 32],
 			oam: vec![0; 256].into_boxed_slice(),
 
@@ -306,7 +304,7 @@ impl Ppu {
 		let (dst, addr) = self.map_address(addr);
 		match dst {
 			VramDst::Patterntbl | VramDst::Nametbl => self.cart.borrow_mut()
-				.vram_read(&self.vram, addr),
+				.vram_read(addr),
 			VramDst::Palettes => self.palettes[addr],
 			VramDst::Unused => 0,
 		}
@@ -340,7 +338,7 @@ impl Ppu {
 		let (dst, addr) = self.map_address(self.v.0);
 		match dst {
 			VramDst::Patterntbl | VramDst::Nametbl => self.cart.borrow_mut()
-				.vram_write(&mut self.vram, addr, val),
+				.vram_write(addr, val),
 			VramDst::Palettes => self.palettes[addr] = val & 0b0011_1111,
 			VramDst::Unused => {}
 		}

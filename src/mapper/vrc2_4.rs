@@ -1,8 +1,7 @@
 use bitfield_struct::bitfield;
 
-use crate::cart::Mirroring;
-
-use super::{konami_irq::{IrqMode, KonamiIrq}, Banking, ChrBanking, Mapper, PrgBanking};
+use crate::cart::{CartBanking, CartHeader, Mirroring, PrgTarget};
+use super::{konami_irq::{IrqMode, KonamiIrq}, Banking, Mapper};
 
 #[bitfield(u16, order = Lsb)]
 struct ChrSelectByte {
@@ -48,9 +47,6 @@ impl<'de> serde::Deserialize<'de> for ChrSelectByte {
 // https://www.nesdev.org/wiki/VRC2_and_VRC4
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct VRC2_4 {
-  prg_banks: Banking<PrgBanking>,
-  chr_banks: Banking<ChrBanking>,
-  
   prg_select0: u8,
   prg_select1: u8,
   chr_selects: [ChrSelectByte; 8],
@@ -61,8 +57,6 @@ pub struct VRC2_4 {
   latch: bool,
 
   irq: KonamiIrq,
-
-  mirroring: Mirroring,
 }
 
 impl VRC2_4 {
@@ -115,20 +109,20 @@ impl VRC2_4 {
     (addr & 0xFF00 | (a1 << 1) | a0) & 0xF00F
   }
 
-  fn update_prg_banks(&mut self) {
+  fn update_prg_banks(&self, banks: &mut CartBanking) {
     match self.swap_mode {
       false => {
-        self.prg_banks.set(0, self.prg_select0 as usize);
-        self.prg_banks.set(2, self.prg_banks.banks_count-2);
+        banks.prg.set(0, self.prg_select0 as usize);
+        banks.prg.set(2, banks.prg.banks_count-2);
       }
       true  => {
-        self.prg_banks.set(0, self.prg_banks.banks_count-2);
-        self.prg_banks.set(2, self.prg_select0 as usize);
+        banks.prg.set(0, banks.prg.banks_count-2);
+        banks.prg.set(2, self.prg_select0 as usize);
       }
     }
   }
 
-  fn update_chr_banks(&mut self, addr: usize, val: u8) {
+  fn update_chr_banks(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {
     let res = match addr {
       0xB000 => Some((0, false)),
       0xB001 => Some((0, true)),
@@ -163,23 +157,21 @@ impl VRC2_4 {
         self.chr_selects[reg].set_lo(val & 0b1111);
       }
 
-      self.chr_banks.set(reg, self.chr_selects[reg].0 as usize);
+      banks.chr.set(reg, self.chr_selects[reg].0 as usize);
     }
   }
 }
 
 #[typetag::serde]
 impl Mapper for VRC2_4 {
-  fn new(header: &crate::cart::CartHeader) -> Box<Self> {
-    let mut prg_banks = Banking::new_prg(header, 4);
-    let chr_banks = Banking::new_chr(header, 8);
+  fn new(header: &CartHeader, banks: &mut CartBanking) -> Box<Self> {
+    banks.prg = Banking::new_prg(header, 4);
+    banks.chr = Banking::new_chr(header, 8);
 
-    prg_banks.set(2, prg_banks.banks_count-2);
-    prg_banks.set(3, prg_banks.banks_count-1);
+    banks.prg.set(2, banks.prg.banks_count-2);
+    banks.prg.set(3, banks.prg.banks_count-1);
 
     let mapper = Self {
-      prg_banks,
-      chr_banks,
       prg_select0: 0,
       prg_select1: 0,
       chr_selects: [Default::default(); 8],
@@ -189,37 +181,38 @@ impl Mapper for VRC2_4 {
       sram_ctrl: false,
       latch: false,
       irq: Default::default(),
-      
-      mirroring: Default::default(),
     };
 
     Box::new(mapper)
   }
 
-  fn write(&mut self, addr: usize, val: u8) {
+  fn write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {
     let addr = self.translate_addr(addr);
     match addr {
       0x9002 => {
         self.sram_ctrl = val & 0b01 != 0;
         self.swap_mode = val & 0b10 != 0 && self.mapper != 22;
-        self.update_prg_banks();
+        self.update_prg_banks(banks);
       }
 
       0x8000..=0x8006 => {
         self.prg_select0 = val & 0b1_1111;
-        self.update_prg_banks();
+        self.update_prg_banks(banks);
       }
       0xA000..=0xA006 => {
         self.prg_select1 = val & 0b1_1111;
-        self.prg_banks.set(1, self.prg_select1 as usize);
+        banks.prg.set(1, self.prg_select1 as usize);
       }
-      0x9000..=0x9003 => self.mirroring = match val & 0b11 {
+      0x9000..=0x9003 => {
+        let mirroring = match val & 0b11 {
         0 => Mirroring::Vertical,
         1 => Mirroring::Horizontal,
         2 => Mirroring::SingleScreenA,
         _ => Mirroring::SingleScreenB,
-      },
-      0xB000..=0xE003 => self.update_chr_banks(addr, val),
+        };
+        banks.vram.update(mirroring);
+      }
+      0xB000..=0xE003 => self.update_chr_banks(banks, addr, val),
 
       0xF000 => self.irq.latch = (self.irq.latch & 0xF0) | (val as u16 & 0b1111),
       0xF001 => self.irq.latch = (self.irq.latch & 0x0F) | ((val as u16 & 0b1111) << 4),
@@ -229,20 +222,18 @@ impl Mapper for VRC2_4 {
     }
   }
 
-  fn prg_addr(&mut self, addr: usize) -> usize {
-    self.prg_banks.addr(addr)
-  }
-
-  fn chr_addr(&mut self, addr: usize) -> usize {
-    self.chr_banks.addr(addr)
-  }
-
-  fn sram_addr(&mut self, addr: usize) -> usize {
-    if self.mapper == 22 {
-      // we simulate the 1bit latch by always reading the first sram address
-      // hoping this will work! 
-      0
-    } else { addr - 0x6000 }
+  fn map_prg_addr(&self, banks: &mut CartBanking, addr: usize) -> PrgTarget {
+    match addr {
+      0x4020..=0x5FFF => PrgTarget::Cart,
+      0x6000..=0x7FFF => {
+        // we simulate the 1bit latch by always reading the first sram address
+        // hoping this will work! 
+        let res = if self.mapper == 2 { 0 } else { banks.sram.addr(addr) };
+        PrgTarget::SRam(true, res)
+      }
+      0x8000..=0xFFFF => PrgTarget::Prg(banks.prg.addr(addr)),
+      _ => unreachable!()
+    }
   }
 
   fn notify_cpu_cycle(&mut self) {
@@ -270,6 +261,4 @@ impl Mapper for VRC2_4 {
   fn poll_irq(&mut self) -> bool {
     self.irq.requested.is_some()
   }
-
-  fn mirroring(&self) -> Mirroring { self.mirroring }
 }
