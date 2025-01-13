@@ -48,19 +48,19 @@ The emulator supports mostly all the basic NES features you'd expect from a NES 
 
 ### Supported Mappers
 #### The most popular
-- [x] 0. [NROM](https://www.nesdev.org/wiki/NROM)
-- [x] 1. [MMC1](https://www.nesdev.org/wiki/MMC1)
-- [x] [SxROM variants](https://www.nesdev.org/wiki/MMC1#SxROM_connection_variants)
-- [x] 2. [UxROM](https://www.nesdev.org/wiki/UxROM)
-- [x] 3. [CNROM](https://www.nesdev.org/wiki/INES_Mapper_003)
-- [x] 4. [MMC3](https://www.nesdev.org/wiki/MMC3)
-- [x] [MMC6 variant](https://www.nesdev.org/wiki/MMC3#iNES_Mapper_004_and_MMC6)
-- [ ] 5. [MMC5 (TODO)](https://www.nesdev.org/wiki/MMC5)
-- [x] 7. [AxROM](https://www.nesdev.org/wiki/AxROM)
+- [x] 00. [NROM](https://www.nesdev.org/wiki/NROM)
+- [x] 01. [MMC1](https://www.nesdev.org/wiki/MMC1)
+- [x] 01. [SxROM variants](https://www.nesdev.org/wiki/MMC1#SxROM_connection_variants)
+- [x] 02. [UxROM](https://www.nesdev.org/wiki/UxROM)
+- [x] 03. [CNROM](https://www.nesdev.org/wiki/INES_Mapper_003)
+- [x] 04. [MMC3](https://www.nesdev.org/wiki/MMC3)
+- [x] 04. [MMC6 variant](https://www.nesdev.org/wiki/MMC3#iNES_Mapper_004_and_MMC6)
+- [x] 07. [AxROM](https://www.nesdev.org/wiki/AxROM)
 - [x] 66. [GxROM](https://www.nesdev.org/wiki/GxROM)
 
 #### Other mappers
-- [x] 9. [MMC2 (used for Punch-Out!!)](https://www.nesdev.org/wiki/MMC2)
+- [ ] 05. [MMC5 (TODO)](https://www.nesdev.org/wiki/MMC5)
+- [x] 09. [MMC2 (used for Punch-Out!!)](https://www.nesdev.org/wiki/MMC2)
 - [x] 10. [MMC4](https://www.nesdev.org/wiki/MMC4)
 - [x] 11. [ColorDreams](https://www.nesdev.org/wiki/Color_Dreams)
 - [ ] 19. [Namco 129/163 (TODO)](https://www.nesdev.org/wiki/INES_Mapper_019)
