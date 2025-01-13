@@ -37,7 +37,7 @@ The emulator supports mostly all the basic NES features you'd expect from a NES 
 - [x] The [pixel fethcer](https://www.nesdev.org/wiki/PPU_rendering) is emulated only for the backrounds. Object sprites are all fetched in one go, then mixed with the backround pixels one by one.
 - [x] The [APU](https://www.nesdev.org/wiki/APU) channels are all fully emulated.
 
-- [x] PAL games are supported.
+- [x] Both NTSC and PAL games are supported.
 - [x] Games with [tricky and obscure behaviour](https://www.nesdev.org/wiki/Tricky-to-emulate_games) run correctly, except for one or two exceptions. For more information: 
 - [x] BATTLETOADS & BATTLETOADS 2 RUN!
 - [x] All [nametable mirrorings](https://www.nesdev.org/wiki/Mirroring) are supported. 
