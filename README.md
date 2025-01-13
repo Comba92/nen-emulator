@@ -3,7 +3,8 @@
 
 ## Download
 Download is avaible in the [release](https://github.com/Comba92/nen-emulator/releases/tag/alpha) section.
-The emulator frontend is built with SDL2, with very basic (sadly) user functionality.
+A SDL2 forntend for the emulator is avaible, with very basic user functionality, such as pausing, muting, single savestate save/load, and cartridge-ram savig to disk.
+A (WIP) WASM frontend is also avaible here: https://comba92.github.io/nen-emulator/frontend-wasm/index.html
 
 ## Usage
 Game ROMs can be loaded by dragging and dropping the files into the window.
@@ -30,21 +31,24 @@ A save/load state feature is avaible.
 
 ## Compatibility
 The emulator supports mostly all the basic NES features you'd expect from a NES emulator.
-- [x] The emulator is cycle accurate. A list of tests coverage is avaible [here](https://github.com/Comba92/nen-emulator/blob/master/tests/TESTS_COVERAGE.md).
+- [x] The emulator is [cycle accurate](https://www.nesdev.org/wiki/Accuracy). A list of tests coverage is avaible [here](https://github.com/Comba92/nen-emulator/blob/master/tests/TESTS_COVERAGE.md).
+- [x] The [6502 CPU](https://www.nesdev.org/wiki/CPU) is emulated with most of its quirks.
+- [x] The PPU is emulated as a pixel renderer, and emulates the [LoopyRegister behaviour](https://www.nesdev.org/wiki/PPU_scrolling#PPU_internal_registers). 
+- [x] The [pixel fethcer](https://www.nesdev.org/wiki/PPU_rendering) is emulated only for the backrounds. Object sprites are all fetched in one go, then mixed with the backround pixels one by one.
+- [x] The [APU](https://www.nesdev.org/wiki/APU) channels are all fully emulated.
 
-- [x] The PPU is emulated as a pixel renderer, and emulates the LoopyRegister behaviour. This means it draws pixels to a framebuffer in the same way it draws in a CRT.
-- [x] The pixel fethcer is emulated only for the backrounds. Object sprites are all fetched in one go, then mixed with the backround pixels one by one.
-- [x] The APU is fully emulated.
-
-- [x] PAL games and speeds are supported.
-- [x] Games with tricky and obscure behaviour run correctly, except for one or two exceptions. For more information: https://www.nesdev.org/wiki/Tricky-to-emulate_games
+- [x] PAL games are supported.
+- [x] Games with [tricky and obscure behaviour](https://www.nesdev.org/wiki/Tricky-to-emulate_games) run correctly, except for one or two exceptions. For more information: 
 - [x] BATTLETOADS & BATTLETOADS 2 RUN!
-- [x] MMC3 four screen mirroring
+- [x] All [nametable mirrorings](https://www.nesdev.org/wiki/Mirroring) are supported. 
 
-- [x] iNes and NES2.0 headers are supported.
+- [x] [iNes](https://www.nesdev.org/wiki/INES) and [NES2.0](https://www.nesdev.org/wiki/NES_2.0) headers are supported.
 - [x] Saving/loading of battery RAM when the game is changed or the emulator is closed.
 - [x] Savestates
 - [ ] Headerless games are not supported.
+
+### Games compatibility list
+I haven't kept track of a game compatibility list, but most of the development was driven by testing random games and beign sure they could boot, and run correctly for a minute or two. Right now, most games I've tried, popular and what not, are all running correctly. You are free to try some games and inform me about any issue!
 
 ### Supported Mappers
 #### The most popular
@@ -93,17 +97,18 @@ cargo build -r
 ```
 
 Two frontends are avaible.
-A SDL2 frontend, in frontend-native.
+The SDL2 frontend, in frontend-native.
 To build, again, it's simply:
 ```bash
 cargo build -r                   # Dynamically linked with SDL2
 cargo build --features="static"  # Statically linked with SDL2
 ```
 
-A WASM frontend is still WIP.
+The WASM frontend is still WIP, but already avaible here: https://comba92.github.io/nen-emulator/frontend-wasm/index.html
+It is missing audio playback, savestates, and with a lackluster UI.
 
-### Architecture
-#### Dependency tree
+## Architecture
+### Dependency tree
 The emulator is organized as a tree (sort of) of dependencies. The root is the CPU. which contains the BUS, and which in turn contains all the peripherals:
 - PPU
 - DMA
@@ -122,9 +127,9 @@ An alternative solution would be having a global "god struct" (as the folks at [
 As the NES is a relatively simple machine, restricting the design to a dependency tree proved to be beneficial. Everything is tightly coupled, and the codebase is manageable.
 Adding more user features is a pain, tho.
 
-#### TODO: detailed explanation of the architecture. ;)
+### TODO: detailed explanation of the architecture. ;)
 
-### What's missing
+## What's missing
 - [ ] MMC1 consecutive writes behaviour
 - [ ] RAM initializing for games which uses it to seed RNG
 - [ ] MMC5
