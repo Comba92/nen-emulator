@@ -1,4 +1,4 @@
-use crate::cart::{CartBanking, CartHeader, VramTarget};
+use crate::cart::{CartBanking, CartHeader, PpuTarget};
 
 use super::{Banking, Mapper};
 
@@ -69,7 +69,7 @@ impl Mapper for Namco129_163 {
     }
   }
 
-  fn write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {    
+  fn prg_write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {    
     match addr {
       0x8000..=0x9FFF => {
         let page = (addr as usize - 0x8000) / 0x800;
@@ -80,7 +80,7 @@ impl Mapper for Namco129_163 {
           self.chr_selects[page] = ChrTarget::Chr;
         }
 
-        banks.chr.set(page, val as usize);
+        banks.chr.set_page(page, val as usize);
       }
       0xA000..=0xBFFF => {
         let page = (addr as usize - 0x8000) / 0x800;
@@ -91,7 +91,7 @@ impl Mapper for Namco129_163 {
           self.chr_selects[page] = ChrTarget::Chr;
         }
 
-        banks.chr.set(page, val as usize);
+        banks.chr.set_page(page, val as usize);
       }
       0xC000..=0xDFFF => {
         let page = (addr as usize - 0x8000) / 0x800;
@@ -106,23 +106,23 @@ impl Mapper for Namco129_163 {
           self.chr_selects[page] = ChrTarget::Chr;
         }
 
-        banks.chr.set(page, val as usize);
+        banks.chr.set_page(page, val as usize);
       }
       0xE000..=0xE7FF => {
         let bank = val as usize & 0b11_1111;
-        banks.prg.set(0, bank);
+        banks.prg.set_page(0, bank);
         self.apu_enabled = (val >> 6) & 1 == 0;
       }
       0xE800..=0xEFFF => {
         let bank = val as usize & 0b11_1111;
-        banks.prg.set(1, bank);
+        banks.prg.set_page(1, bank);
 
         self.chrram0_enabled = (val >> 6) & 1 == 0;
         self.chrram1_enabled = (val >> 7) & 1 == 0;
       }
       0xF000..=0xF7FF => {
         let bank = val as usize & 0b11_1111;
-        banks.prg.set(2, bank);
+        banks.prg.set_page(2, bank);
       }
       0xF800..=0xFFFF => {
         if val >> 6 == 0 {
@@ -137,13 +137,13 @@ impl Mapper for Namco129_163 {
     }
   }
 
-  fn map_ppu_addr(&mut self, banks: &mut CartBanking, addr: usize) -> VramTarget {
+  fn map_ppu_addr(&mut self, banks: &mut CartBanking, addr: usize) -> PpuTarget {
     let page = addr / 0x400;
 
     match self.chr_selects[page] {
-      ChrTarget::Chr => VramTarget::Chr(banks.chr.addr(addr)),
-      ChrTarget::Ciram0 => VramTarget::CiRam(addr % 0x400),
-      ChrTarget::Ciram1 => VramTarget::CiRam((addr % 0x400) + 0x400),
+      ChrTarget::Chr => PpuTarget::Chr(banks.chr.translate(addr)),
+      ChrTarget::Ciram0 => PpuTarget::CiRam(addr % 0x400),
+      ChrTarget::Ciram1 => PpuTarget::CiRam((addr % 0x400) + 0x400),
     }
   }
 

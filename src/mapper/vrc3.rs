@@ -16,9 +16,9 @@ impl Mapper for VRC3 {
     Box::new(Self{irq: Default::default()})
   }
 
-  fn write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {
+  fn prg_write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {
     match addr {
-      0xF000..=0xFFFF => banks.prg.set(0, val as usize & 0b111),
+      0xF000..=0xFFFF => banks.prg.set_page(0, val as usize & 0b111),
       0x8000..=0x8FFF => self.irq.latch = (self.irq.latch & 0xFFF0) | ((val as u16 & 0b1111)),
       0x9000..=0x9FFF => self.irq.latch = (self.irq.latch & 0xFF0F) | ((val as u16 & 0b1111) << 4),
       0xA000..=0xAFFF => self.irq.latch = (self.irq.latch & 0xF0FF) | ((val as u16 & 0b1111) << 8),

@@ -112,12 +112,12 @@ impl VRC2_4 {
   fn update_prg_banks(&self, banks: &mut CartBanking) {
     match self.swap_mode {
       false => {
-        banks.prg.set(0, self.prg_select0 as usize);
-        banks.prg.set(2, banks.prg.banks_count-2);
+        banks.prg.set_page(0, self.prg_select0 as usize);
+        banks.prg.set_page(2, banks.prg.banks_count-2);
       }
       true  => {
-        banks.prg.set(0, banks.prg.banks_count-2);
-        banks.prg.set(2, self.prg_select0 as usize);
+        banks.prg.set_page(0, banks.prg.banks_count-2);
+        banks.prg.set_page(2, self.prg_select0 as usize);
       }
     }
   }
@@ -157,7 +157,7 @@ impl VRC2_4 {
         self.chr_selects[reg].set_lo(val & 0b1111);
       }
 
-      banks.chr.set(reg, self.chr_selects[reg].0 as usize);
+      banks.chr.set_page(reg, self.chr_selects[reg].0 as usize);
     }
   }
 }
@@ -168,8 +168,8 @@ impl Mapper for VRC2_4 {
     banks.prg = Banking::new_prg(header, 4);
     banks.chr = Banking::new_chr(header, 8);
 
-    banks.prg.set(2, banks.prg.banks_count-2);
-    banks.prg.set(3, banks.prg.banks_count-1);
+    banks.prg.set_page(2, banks.prg.banks_count-2);
+    banks.prg.set_page(3, banks.prg.banks_count-1);
 
     let mapper = Self {
       prg_select0: 0,
@@ -186,7 +186,7 @@ impl Mapper for VRC2_4 {
     Box::new(mapper)
   }
 
-  fn write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {
+  fn prg_write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {
     let addr = self.translate_addr(addr);
     match addr {
       0x9002 => {
@@ -201,7 +201,7 @@ impl Mapper for VRC2_4 {
       }
       0xA000..=0xA006 => {
         self.prg_select1 = val & 0b1_1111;
-        banks.prg.set(1, self.prg_select1 as usize);
+        banks.prg.set_page(1, self.prg_select1 as usize);
       }
       0x9000..=0x9003 => {
         let mirroring = match val & 0b11 {
@@ -210,7 +210,7 @@ impl Mapper for VRC2_4 {
         2 => Mirroring::SingleScreenA,
         _ => Mirroring::SingleScreenB,
         };
-        banks.vram.update(mirroring);
+        banks.ciram.update_mirroring(mirroring);
       }
       0xB000..=0xE003 => self.update_chr_banks(banks, addr, val),
 
@@ -228,10 +228,10 @@ impl Mapper for VRC2_4 {
       0x6000..=0x7FFF => {
         // we simulate the 1bit latch by always reading the first sram address
         // hoping this will work! 
-        let res = if self.mapper == 2 { 0 } else { banks.sram.addr(addr) };
+        let res = if self.mapper == 2 { 0 } else { banks.sram.translate(addr) };
         PrgTarget::SRam(true, res)
       }
-      0x8000..=0xFFFF => PrgTarget::Prg(banks.prg.addr(addr)),
+      0x8000..=0xFFFF => PrgTarget::Prg(banks.prg.translate(addr)),
       _ => unreachable!()
     }
   }

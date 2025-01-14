@@ -33,7 +33,7 @@ impl MMC1 {
       2 => Mirroring::Vertical,
       _ => Mirroring::Horizontal,
     };
-    banks.vram.update(mirroring);
+    banks.ciram.update_mirroring(mirroring);
 
     self.prg_mode = match (val >> 2) & 0b11 {
       2 => PrgMode::FixFirstPage,
@@ -60,20 +60,20 @@ impl MMC1 {
         (self.prg_select, self.prg_last_bank),
     };
     
-    banks.prg.set(0, bank0 | self.prg_256kb_bank);
-    banks.prg.set(1, bank1 | self.prg_256kb_bank);
+    banks.prg.set_page(0, bank0 | self.prg_256kb_bank);
+    banks.prg.set_page(1, bank1 | self.prg_256kb_bank);
   }
 
   fn update_all_banks(&mut self, banks: &mut CartBanking) {
     match self.chr_mode {
       ChrMode::Bank8kb => {
         let bank = self.chr_select0 & !1;
-        banks.chr.set(0, bank);
-        banks.chr.set(1, bank+1);
+        banks.chr.set_page(0, bank);
+        banks.chr.set_page(1, bank+1);
       }
       ChrMode::Bank4kb => {
-        banks.chr.set(0, self.chr_select0);
-        banks.chr.set(1, self.chr_select1);
+        banks.chr.set_page(0, self.chr_select0);
+        banks.chr.set_page(1, self.chr_select1);
       }
     }
 
@@ -99,7 +99,7 @@ impl MMC1 {
         KB32 => (sxrom_select >> 2) & 0b11,
         _ => 0,
     };
-    banks.sram.set(0, bank);
+    banks.sram.set_page(0, bank);
   }
 }
 
@@ -120,11 +120,11 @@ impl Mapper for MMC1 {
     };
 
     // mode 3 by default
-    banks.prg.set(1, banks.prg.banks_count-1);
+    banks.prg.set_page(1, banks.prg.banks_count-1);
 
     // bank 8kb by default
-    banks.chr.set(0, 0);
-    banks.chr.set(1, 1);
+    banks.chr.set_page(0, 0);
+    banks.chr.set_page(1, 1);
 
     let mapper = Self {
       prg_select: 0,
@@ -144,7 +144,7 @@ impl Mapper for MMC1 {
     Box::new(mapper)
   }
   
-  fn write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {
+  fn prg_write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {
     if val & 0b1000_0000 != 0 {
       self.shift_reg = 0;
       self.shift_writes = 0;

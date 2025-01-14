@@ -1,4 +1,4 @@
-use crate::cart::{CartBanking, CartHeader, Mirroring, PrgTarget, VramTarget};
+use crate::cart::{CartBanking, CartHeader, Mirroring, PrgTarget, PpuTarget};
 
 use super::{Banking, Mapper};
 
@@ -17,22 +17,22 @@ impl Sunsoft4 {
     const PAGE: usize = 8;
     match self.mirroring {
       Mirroring::Horizontal => {
-        banks.chr.set(PAGE + 0, self.nametbl0);
-        banks.chr.set(PAGE + 1, self.nametbl0);
-        banks.chr.set(PAGE + 2, self.nametbl1);
-        banks.chr.set(PAGE + 3, self.nametbl1);
+        banks.chr.set_page(PAGE + 0, self.nametbl0);
+        banks.chr.set_page(PAGE + 1, self.nametbl0);
+        banks.chr.set_page(PAGE + 2, self.nametbl1);
+        banks.chr.set_page(PAGE + 3, self.nametbl1);
       }
       Mirroring::Vertical => {
-        banks.chr.set(PAGE + 0, self.nametbl0);
-        banks.chr.set(PAGE + 1, self.nametbl1);
-        banks.chr.set(PAGE + 2, self.nametbl0);
-        banks.chr.set(PAGE + 3, self.nametbl1);
+        banks.chr.set_page(PAGE + 0, self.nametbl0);
+        banks.chr.set_page(PAGE + 1, self.nametbl1);
+        banks.chr.set_page(PAGE + 2, self.nametbl0);
+        banks.chr.set_page(PAGE + 3, self.nametbl1);
       }
       Mirroring::SingleScreenA => for i in 0..4 {
-        banks.chr.set(PAGE + i, self.nametbl0);
+        banks.chr.set_page(PAGE + i, self.nametbl0);
       }
       Mirroring::SingleScreenB => for i in 0..4 {
-        banks.chr.set(PAGE + i, self.nametbl1);
+        banks.chr.set_page(PAGE + i, self.nametbl1);
       }
       _ => {}
     }
@@ -57,13 +57,13 @@ impl Mapper for Sunsoft4 {
     })
   }
 
-  fn write(&mut self, banks: &mut CartBanking ,addr: usize, val: u8) {
+  fn prg_write(&mut self, banks: &mut CartBanking ,addr: usize, val: u8) {
     match addr {
       0x8000..=0xBFFF => {
         let page = 2*((addr - 0x8000) / 0x800);
         let bank = val as usize & !1;
-        banks.chr.set(page, bank);
-        banks.chr.set(page+1, bank | 1);
+        banks.chr.set_page(page, bank);
+        banks.chr.set_page(page+1, bank | 1);
       }
       0xC000..=0xCFFF => {
         if self.chrrom_banked {
@@ -84,12 +84,12 @@ impl Mapper for Sunsoft4 {
           2 => Mirroring::SingleScreenA,
           _ => Mirroring::SingleScreenB,
         };
-        banks.vram.update(self.mirroring);
+        banks.ciram.update_mirroring(self.mirroring);
 
         self.chrrom_banked = val >> 4 != 0;
       }
       0xF000..=0xFFFF => {
-        banks.prg.set(0, val as usize & 0b1111);
+        banks.prg.set_page(0, val as usize & 0b1111);
         self.sram_enabled = (val >> 4) & 1 != 0;
       }
       _ => {}
@@ -98,20 +98,20 @@ impl Mapper for Sunsoft4 {
 
   fn map_prg_addr(&self, banks: &mut CartBanking, addr: usize) -> PrgTarget {
     match addr {
-      0x6000..=0x7FFF => PrgTarget::SRam(self.sram_enabled, banks.sram.addr(addr)),
-      0x8000..=0xFFFF => PrgTarget::Prg(banks.prg.addr(addr)),
+      0x6000..=0x7FFF => PrgTarget::SRam(self.sram_enabled, banks.sram.translate(addr)),
+      0x8000..=0xFFFF => PrgTarget::Prg(banks.prg.translate(addr)),
       _ => unreachable!()
     }
   }
 
-  fn map_ppu_addr(&mut self, banks: &mut CartBanking, addr: usize) -> VramTarget {
+  fn map_ppu_addr(&mut self, banks: &mut CartBanking, addr: usize) -> PpuTarget {
     match addr {
-      0x0000..=0x1FFF => VramTarget::Chr(banks.chr.addr(addr)),
+      0x0000..=0x1FFF => PpuTarget::Chr(banks.chr.translate(addr)),
       0x2000..=0x2FFF => {
         if self.chrrom_banked {
-          VramTarget::Chr(banks.chr.addr(addr))
+          PpuTarget::Chr(banks.chr.translate(addr))
         } else {
-          VramTarget::CiRam(banks.vram.addr(addr))
+          PpuTarget::CiRam(banks.ciram.translate(addr))
         }
       }
       _ => unreachable!()

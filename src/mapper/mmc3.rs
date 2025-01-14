@@ -37,7 +37,7 @@ impl MMC3 {
       true  => PrgMode::FixFirstPages,
     };
     if prg_mode != self.prg_mode {
-      banks.prg.swap(0, 2);
+      banks.prg.swap_pages(0, 2);
     }
     self.prg_mode = prg_mode;
 
@@ -46,10 +46,10 @@ impl MMC3 {
       true  => ChrMode::BiggerLast,
     };
     if chr_mode != self.chr_mode {
-      banks.chr.swap(0, 4);
-      banks.chr.swap(1, 5);
-      banks.chr.swap(2, 6);
-      banks.chr.swap(3, 7);
+      banks.chr.swap_pages(0, 4);
+      banks.chr.swap_pages(1, 5);
+      banks.chr.swap_pages(2, 6);
+      banks.chr.swap_pages(3, 7);
     }
     self.chr_mode = chr_mode;
   }
@@ -72,7 +72,7 @@ impl MMC3 {
       }
     };
 
-    banks.prg.set(page, bank as usize);
+    banks.prg.set_page(page, bank as usize);
   }
 
   fn update_chr_bank(&mut self, banks: &mut CartBanking, bank: u8) {
@@ -82,34 +82,34 @@ impl MMC3 {
       ChrMode::BiggerFirst => {
         match self.reg_select {
           0 => {
-            banks.chr.set(0, bank);
-            banks.chr.set(1, bank+1);
+            banks.chr.set_page(0, bank);
+            banks.chr.set_page(1, bank+1);
           }
           1 => {
-            banks.chr.set(2, bank);
-            banks.chr.set(3, bank+1);
+            banks.chr.set_page(2, bank);
+            banks.chr.set_page(3, bank+1);
           }
-          2 => banks.chr.set(4, bank),
-          3 => banks.chr.set(5, bank),
-          4 => banks.chr.set(6, bank),
-          5 => banks.chr.set(7, bank),
+          2 => banks.chr.set_page(4, bank),
+          3 => banks.chr.set_page(5, bank),
+          4 => banks.chr.set_page(6, bank),
+          5 => banks.chr.set_page(7, bank),
           _ => unreachable!()
         }
       }
       ChrMode::BiggerLast => {
         match self.reg_select {
           0 => {
-            banks.chr.set(4, bank);
-            banks.chr.set(5, bank+1);
+            banks.chr.set_page(4, bank);
+            banks.chr.set_page(5, bank+1);
           }
           1 => {
-            banks.chr.set(6, bank);
-            banks.chr.set(7, bank+1);
+            banks.chr.set_page(6, bank);
+            banks.chr.set_page(7, bank+1);
           }
-          2 => banks.chr.set(0, bank),
-          3 => banks.chr.set(1, bank),
-          4 => banks.chr.set(2, bank),
-          5 => banks.chr.set(3, bank),
+          2 => banks.chr.set_page(0, bank),
+          3 => banks.chr.set_page(1, bank),
+          4 => banks.chr.set_page(2, bank),
+          5 => banks.chr.set_page(3, bank),
           _ => unreachable!()
         }
       }
@@ -125,7 +125,7 @@ impl Mapper for MMC3 {
 
     // bank second last page to second last bank by default
     // this page is never set by registers, so not setting it here fuck up everything
-    banks.prg.set(2, banks.prg.banks_count-2);
+    banks.prg.set_page(2, banks.prg.banks_count-2);
     // last page always fixed to last bank
     banks.prg.set_page_to_last_bank(3);
 
@@ -144,7 +144,7 @@ impl Mapper for MMC3 {
     Box::new(mapper)
   }
 
-  fn write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {
+  fn prg_write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {
     let addr_even = addr % 2 == 0;
     match (addr, addr_even) {
       (0x8000..=0x9FFE, true) => self.write_bank_select(banks, val),
@@ -159,7 +159,7 @@ impl Mapper for MMC3 {
             false => Mirroring::Vertical,
             true  => Mirroring::Horizontal,
           };
-          banks.vram.update(self.mirroring);
+          banks.ciram.update_mirroring(self.mirroring);
         }
       }
       (0xA001..=0xBFFF, false) => {

@@ -1,4 +1,4 @@
-use crate::cart::{CartBanking, CartHeader, Mirroring, VramTarget};
+use crate::cart::{CartBanking, CartHeader, Mirroring, PpuTarget};
 
 use super::{Banking, ChrBanking, Mapper};
 
@@ -26,9 +26,9 @@ impl Mapper for MMC2 {
       9 => {
         // MMC2 - Three 8 KB PRG ROM banks, fixed to the last three banks
         banks.prg = Banking::new_prg(header, 4);
-        banks.prg.set(1, banks.prg.banks_count-3);
-        banks.prg.set(2, banks.prg.banks_count-2);
-        banks.prg.set(3, banks.prg.banks_count-1);
+        banks.prg.set_page(1, banks.prg.banks_count-3);
+        banks.prg.set_page(2, banks.prg.banks_count-2);
+        banks.prg.set_page(3, banks.prg.banks_count-1);
       }
       10 => {
         // MMC4 - 16 KB PRG ROM bank, fixed to the last bank
@@ -46,31 +46,31 @@ impl Mapper for MMC2 {
     })
   }
 
-  fn write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {
+  fn prg_write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {
     let val = val as usize & 0b1_1111;
     
     match addr {
-      0xA000..=0xAFFF => banks.prg.set(0, val & 0b1111),
-      0xB000..=0xBFFF => self.chr_banks0.set(0, val),
-      0xC000..=0xCFFF => self.chr_banks0.set(1, val),
-      0xD000..=0xDFFF => self.chr_banks1.set(0, val),
-      0xE000..=0xEFFF => self.chr_banks1.set(1, val),
+      0xA000..=0xAFFF => banks.prg.set_page(0, val & 0b1111),
+      0xB000..=0xBFFF => self.chr_banks0.set_page(0, val),
+      0xC000..=0xCFFF => self.chr_banks0.set_page(1, val),
+      0xD000..=0xDFFF => self.chr_banks1.set_page(0, val),
+      0xE000..=0xEFFF => self.chr_banks1.set_page(1, val),
       0xF000..=0xFFFF => {
           let mirroring = match val & 1 {
               0 => Mirroring::Vertical,
               _ => Mirroring::Horizontal,
           };
-          banks.vram.update(mirroring);
+          banks.ciram.update_mirroring(mirroring);
       }
       _ => {}
     }
   }
 
-  fn map_ppu_addr(&mut self, banks: &mut CartBanking, addr: usize) -> VramTarget {
+  fn map_ppu_addr(&mut self, banks: &mut CartBanking, addr: usize) -> PpuTarget {
     let res = match addr {
-      0x0000..=0x0FFF => VramTarget::Chr(self.chr_banks0.page_to_bank_addr(self.latch0 as usize, addr)),
-      0x1000..=0x1FFF => VramTarget::Chr(self.chr_banks1.page_to_bank_addr(self.latch1 as usize, addr)),
-      0x2000..=0x2FFF =>  VramTarget::CiRam(banks.vram.addr(addr)),
+      0x0000..=0x0FFF => PpuTarget::Chr(self.chr_banks0.page_to_bank_addr(self.latch0 as usize, addr)),
+      0x1000..=0x1FFF => PpuTarget::Chr(self.chr_banks1.page_to_bank_addr(self.latch1 as usize, addr)),
+      0x2000..=0x2FFF =>  PpuTarget::CiRam(banks.ciram.translate(addr)),
       _ => unreachable!()
     };
 

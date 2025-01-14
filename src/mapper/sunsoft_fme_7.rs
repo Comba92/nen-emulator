@@ -41,7 +41,7 @@ impl Mapper for SunsoftFME7 {
     Box::new(mapper)
   }
 
-  fn write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {
+  fn prg_write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {
     match addr {
       0x8000..=0x9FFF => {
         self.command = match val & 0b1111 {
@@ -56,7 +56,7 @@ impl Mapper for SunsoftFME7 {
       }
       0xA000..=0xBFFF => {
         match self.command {
-          Command::Chr(page) => banks.chr.set(page as usize, val as usize),
+          Command::Chr(page) => banks.chr.set_page(page as usize, val as usize),
           Command::Prg0 => {
             self.sram_banked = (val >> 6) & 1 != 0;
             self.sram_enabled = val >> 7 != 0;
@@ -64,14 +64,14 @@ impl Mapper for SunsoftFME7 {
             let bank = val as usize & 0b11_1111;
 
             if self.sram_banked {
-              banks.sram.set(0, bank);
+              banks.sram.set_page(0, bank);
             } else {
-              banks.prg.set(0, bank);
+              banks.prg.set_page(0, bank);
             }
           }
           Command::Prg1(page) => 
             // remeber the first page might be sram, hence the + 1
-            banks.prg.set(page as usize - 0x9 + 1, val as usize & 0b11_1111),
+            banks.prg.set_page(page as usize - 0x9 + 1, val as usize & 0b11_1111),
           Command::Nametbl => {
             let mirroring = match val & 0b11 {
               0 => Mirroring::Vertical,
@@ -79,7 +79,7 @@ impl Mapper for SunsoftFME7 {
               2 => Mirroring::SingleScreenA,
               _ => Mirroring::SingleScreenB
             };
-            banks.vram.update(mirroring);
+            banks.ciram.update_mirroring(mirroring);
           }
           Command::IrqCtrl => {
             self.irq_enabled = val & 1 != 0;
@@ -99,12 +99,12 @@ impl Mapper for SunsoftFME7 {
       0x4020..=0x5FFF => PrgTarget::Cart,
       0x6000..=0x7FFF => {
         if self.sram_banked {
-          PrgTarget::SRam(self.sram_enabled, banks.sram.addr(addr))
+          PrgTarget::SRam(self.sram_enabled, banks.sram.translate(addr))
         } else {
-          PrgTarget::Prg(banks.prg.addr(addr))
+          PrgTarget::Prg(banks.prg.translate(addr))
         }
       }
-      0x8000..=0xFFFF => PrgTarget::Prg(banks.prg.addr(addr)),
+      0x8000..=0xFFFF => PrgTarget::Prg(banks.prg.translate(addr)),
       _ => unreachable!()
     }
   }
