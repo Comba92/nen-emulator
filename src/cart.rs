@@ -308,7 +308,7 @@ impl serde::Serialize for Cart {
 }
 
 pub enum PpuTarget { Chr(usize), CiRam(usize), ExRam(u8) }
-pub enum PrgTarget { Prg(usize), SRam(bool, usize), Cart }
+pub enum PrgTarget { Prg(usize), SRam(bool, usize), Cart, ExRam(u8) }
 
 impl Cart {
   pub fn new(rom: &[u8]) -> Result<Self, String> {
@@ -382,6 +382,7 @@ impl Cart {
           self.sram_read(mapped)
         } else { 0xde }
       PrgTarget::Prg(mapped) => self.prg[mapped],
+      _ => 0,
     }
   }
   pub fn prg_write(&mut self, addr: usize, val: u8) {
@@ -392,6 +393,7 @@ impl Cart {
         self.sram_write(mapped, val);
       }
       PrgTarget::Prg(_) => self.mapper.prg_write(&mut self.banks, addr, val),
+      _ => {}
     }
   }
 

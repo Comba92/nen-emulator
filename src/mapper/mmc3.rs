@@ -159,7 +159,7 @@ impl Mapper for MMC3 {
             false => Mirroring::Vertical,
             true  => Mirroring::Horizontal,
           };
-          banks.ciram.update_mirroring(self.mirroring);
+          banks.ciram.update(self.mirroring);
         }
       }
       (0xA001..=0xBFFF, false) => {

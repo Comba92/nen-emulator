@@ -33,7 +33,7 @@ impl MMC1 {
       2 => Mirroring::Vertical,
       _ => Mirroring::Horizontal,
     };
-    banks.ciram.update_mirroring(mirroring);
+    banks.ciram.update(mirroring);
 
     self.prg_mode = match (val >> 2) & 0b11 {
       2 => PrgMode::FixFirstPage,

@@ -67,15 +67,20 @@ I haven't kept track of a game compatibility list, but most of the development w
 - [x] 09. [MMC2 (used for Punch-Out!!)](https://www.nesdev.org/wiki/MMC2)
 - [x] 10. [MMC4](https://www.nesdev.org/wiki/MMC4)
 - [x] 11. [ColorDreams](https://www.nesdev.org/wiki/Color_Dreams)
-- [ ] 19. [Namco 129/163 (TODO)](https://www.nesdev.org/wiki/INES_Mapper_019)
+- [ ] 16, [Bandai FCG](https://www.nesdev.org/wiki/INES_Mapper_016)
+- Note: graphical glitches
+- [ ] 19. [Namco 129/163](https://www.nesdev.org/wiki/INES_Mapper_019)
+- Note: works, but not tested properly.
 - Note: no audio chip emulation.
 - [x] 21, 22, 23, 25. [VRC2 and VRC4](https://www.nesdev.org/wiki/VRC2_and_VRC4)
 - Note: compatibility might not be the best. (TODO: use submappers to discriminate board)
 - [x] 24. [VRC6a](https://www.nesdev.org/wiki/VRC6)
 - [x] 26. [VRC6b](https://www.nesdev.org/wiki/VRC6)
 - [x] 31. [NSF](https://www.nesdev.org/wiki/INES_Mapper_031)
-- [ ] 68. [Sunsoft4 (TODO)](https://www.nesdev.org/wiki/INES_Mapper_068)
-- [ ] 69. [Sunsoft5 FME-7 (TODO)](https://www.nesdev.org/wiki/Sunsoft_FME-7)
+- [x] 68. [Sunsoft4](https://www.nesdev.org/wiki/INES_Mapper_068)
+- Note: Nantettatte!! Baseball (J) is not supported.
+- [ ] 69. [Sunsoft5 FME-7](https://www.nesdev.org/wiki/Sunsoft_FME-7)
+- Note: graphical glitches
 - Note: no audio chip emulation.
 - [x] 71. [Codemasters](https://www.nesdev.org/wiki/INES_Mapper_071)
 - [x] 73. [VRC3 (used for Salamander)](https://www.nesdev.org/wiki/VRC3)
@@ -85,7 +90,6 @@ I haven't kept track of a game compatibility list, but most of the development w
 - [ ] 91. [J.Y. Company (TODO)](https://www.nesdev.org/wiki/INES_Mapper_091)
 - [x] 180. [UNROM (used for Crazy Climber)](https://www.nesdev.org/wiki/INES_Mapper_180)
 - [x] 206. [Namco 118/Tengen MIMIC-1](https://www.nesdev.org/wiki/INES_Mapper_206)
-- [ ] 210. [Namco 175 (TODO)](https://www.nesdev.org/wiki/INES_Mapper_210)
 
 ## Building
 The emulator is served as a stand-alone Rust library. It provides a basic API in `src/nes.rs`, which can be used by any frontend. (TODO: move the Nes struct to `lib.rs`)

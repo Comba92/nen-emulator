@@ -1,6 +1,6 @@
 use crate::cart::{CartBanking, CartHeader, PpuTarget};
 
-use super::{Banking, Mapper};
+use super::{set_byte_hi, set_byte_lo, Banking, Mapper};
 
 #[derive(Default, Clone, Copy, serde::Serialize, serde::Deserialize)]
 enum ChrTarget { #[default] Chr, Ciram0, Ciram1 }
@@ -56,12 +56,12 @@ impl Mapper for Namco129_163 {
   fn cart_write(&mut self, _: &mut CartBanking, addr: usize, val: u8) {
     match addr {
       0x5000..=0x57FFF => {
-        self.irq_value = self.irq_value & 0xFF00 | val as u16;
+        self.irq_value = set_byte_lo(self.irq_value, val);
         self.irq_requested = None;
       }
       0x5800..=0x5FFFF => {
         self.irq_value = 
-          self.irq_value & 0x00FF | ((val as u16 & 0b0111_1111) << 8);
+          set_byte_hi(self.irq_value, val) & 0b0111_1111;
         self.irq_enabled = val >> 7 != 0;
         self.irq_requested = None;
       }

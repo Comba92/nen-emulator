@@ -60,7 +60,7 @@ impl Mapper for MMC2 {
               0 => Mirroring::Vertical,
               _ => Mirroring::Horizontal,
           };
-          banks.ciram.update_mirroring(mirroring);
+          banks.ciram.update(mirroring);
       }
       _ => {}
     }

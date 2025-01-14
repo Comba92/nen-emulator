@@ -210,7 +210,7 @@ impl Mapper for VRC2_4 {
         2 => Mirroring::SingleScreenA,
         _ => Mirroring::SingleScreenB,
         };
-        banks.ciram.update_mirroring(mirroring);
+        banks.ciram.update(mirroring);
       }
       0xB000..=0xE003 => self.update_chr_banks(banks, addr, val),
 

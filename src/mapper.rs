@@ -13,13 +13,16 @@ mod vrc6;
 mod sunsoft4;
 mod sunsoft_fme_7;
 mod namco129_163;
+mod bandai_fcg;
 
+use bandai_fcg::Bandai_FCG;
 use mmc1::MMC1;
 use mmc2::MMC2;
 use mmc3::MMC3;
 use vrc2_4::VRC2_4;
 use vrc3::VRC3;
 use vrc6::VRC6;
+use sunsoft4::Sunsoft4;
 use sunsoft_fme_7::SunsoftFME7;
 use namco129_163::Namco129_163;
 
@@ -34,12 +37,13 @@ pub fn new_mapper(header: &CartHeader, banks: &mut CartBanking) -> Result<Box<dy
     7 => AxROM::new(header, banks),
     9 | 10 => MMC2::new(header, banks),
     11 => ColorDreams::new(header, banks),
+    16 => Bandai_FCG::new(header, banks),
     19 => Namco129_163::new(header, banks),
     21 | 22 | 23 | 25 => VRC2_4::new(header, banks),
     24 | 26 => VRC6::new(header, banks),
     31 => INesMapper031::new(header, banks),
     66 => GxROM::new(header, banks),
-    // 68 => Sunsoft4::new(header, banks),
+    68 => Sunsoft4::new(header, banks),
     69 => SunsoftFME7::new(header, banks),
     71 => Codemasters::new(header, banks),
     73 => VRC3::new(header, banks),
@@ -96,6 +100,14 @@ const MAPPERS_TABLE: [(u16, &'static str); 35] = [
   (206, "Namco 118/Tengen MIMIC-1"),
   (210, "Namco 175/340"),
 ];
+
+pub fn set_byte_hi(dst: u16, val: u8) -> u16 {
+  (dst & 0x00FF) | ((val as u16) << 8)
+}
+
+pub fn set_byte_lo(dst: u16, val: u8) -> u16 {
+  (dst & 0xFF00) | val as u16
+}
 
 #[typetag::serde(tag = "mmu")]
 pub trait Mapper {
@@ -216,11 +228,11 @@ impl Banking<CiramBanking> {
       res.banks_count = 2;
     }
 
-    res.update_mirroring(header.mirroring);
+    res.update(header.mirroring);
     res
   }
 
-  pub fn update_mirroring(&mut self, mirroring: Mirroring) {
+  pub fn update(&mut self, mirroring: Mirroring) {
     match mirroring {
       Mirroring::Horizontal => {
         self.set_page(0, 0);
@@ -344,7 +356,7 @@ impl Mapper for AxROM {
       false => Mirroring::SingleScreenA,
       true  => Mirroring::SingleScreenB,
     };
-    banks.ciram.update_mirroring(mirroring);
+    banks.ciram.update(mirroring);
   }
 }
 
@@ -414,7 +426,7 @@ impl Mapper for Codemasters {
           false => Mirroring::SingleScreenA,
           true  => Mirroring::SingleScreenB,
         };
-        banks.ciram.update_mirroring(mirroring);
+        banks.ciram.update(mirroring);
       }
       0xC000..=0xFFFF => {
         let bank = val as usize & 0b1111;
@@ -448,7 +460,7 @@ impl Mapper for INesMapper078 {
     };
     
     banks.prg.set_page_to_last_bank(1);
-    banks.ciram.update_mirroring(mirroring);
+    banks.ciram.update(mirroring);
 
     Box::new(Self{uses_hv_mirroring})
   }
@@ -472,7 +484,7 @@ impl Mapper for INesMapper078 {
       }
     };
 
-    banks.ciram.update_mirroring(mirroring);
+    banks.ciram.update(mirroring);
   }
 }
 
@@ -524,7 +536,7 @@ impl Mapper for VRC1 {
           false => Mirroring::Vertical,
           true  => Mirroring::Horizontal,
         };
-        banks.ciram.update_mirroring(mirroring);
+        banks.ciram.update(mirroring);
 
         let bank0 = banks.chr.bankings[0];
         let bank0_hi = (val as usize >> 1) & 1;

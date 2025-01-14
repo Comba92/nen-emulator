@@ -110,10 +110,10 @@ impl VRC6 {
         _ => {}
       }
       NametblSrc::CiRam => match self.nametbl_mode {
-        0x20 | 0x27 => self.vram_ciram_banks.update_mirroring(Mirroring::Vertical),
-        0x23 | 0x24 => self.vram_ciram_banks.update_mirroring(Mirroring::Horizontal),
-        0x28 | 0x2F => self.vram_ciram_banks.update_mirroring(Mirroring::SingleScreenA),
-        0x2B | 0x2C => self.vram_ciram_banks.update_mirroring(Mirroring::SingleScreenB),
+        0x20 | 0x27 => self.vram_ciram_banks.update(Mirroring::Vertical),
+        0x23 | 0x24 => self.vram_ciram_banks.update(Mirroring::Horizontal),
+        0x28 | 0x2F => self.vram_ciram_banks.update(Mirroring::SingleScreenA),
+        0x2B | 0x2C => self.vram_ciram_banks.update(Mirroring::SingleScreenB),
 
         0 | 6 | 7 => {
           self.vram_ciram_banks.set_page(0, self.chr_selects[6]);

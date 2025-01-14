@@ -1,11 +1,12 @@
 use crate::cart::{CartBanking, CartHeader, Mirroring, PrgTarget, PpuTarget};
 
-use super::{Banking, Mapper};
+use super::{Banking, CiramBanking, Mapper};
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Sunsoft4 {
   sram_enabled: bool,
   chrrom_banked: bool,
+  chrrom_banks: Banking<CiramBanking>,
   mirroring: Mirroring,
   nametbl0: usize,
   nametbl1: usize,
@@ -13,26 +14,25 @@ pub struct Sunsoft4 {
 }
 
 impl Sunsoft4 {
-  pub fn update_ciram_banks(&mut self, banks: &mut CartBanking) {
-    const PAGE: usize = 8;
+  pub fn update_ciram_banks(&mut self) {
     match self.mirroring {
       Mirroring::Horizontal => {
-        banks.chr.set_page(PAGE + 0, self.nametbl0);
-        banks.chr.set_page(PAGE + 1, self.nametbl0);
-        banks.chr.set_page(PAGE + 2, self.nametbl1);
-        banks.chr.set_page(PAGE + 3, self.nametbl1);
+        self.chrrom_banks.set_page(0, self.nametbl0);
+        self.chrrom_banks.set_page(1, self.nametbl0);
+        self.chrrom_banks.set_page(2, self.nametbl1);
+        self.chrrom_banks.set_page(3, self.nametbl1);
       }
       Mirroring::Vertical => {
-        banks.chr.set_page(PAGE + 0, self.nametbl0);
-        banks.chr.set_page(PAGE + 1, self.nametbl1);
-        banks.chr.set_page(PAGE + 2, self.nametbl0);
-        banks.chr.set_page(PAGE + 3, self.nametbl1);
+        self.chrrom_banks.set_page(0, self.nametbl0);
+        self.chrrom_banks.set_page(1, self.nametbl1);
+        self.chrrom_banks.set_page(2, self.nametbl0);
+        self.chrrom_banks.set_page(3, self.nametbl1);
       }
       Mirroring::SingleScreenA => for i in 0..4 {
-        banks.chr.set_page(PAGE + i, self.nametbl0);
+        self.chrrom_banks.set_page(i, self.nametbl0);
       }
       Mirroring::SingleScreenB => for i in 0..4 {
-        banks.chr.set_page(PAGE + i, self.nametbl1);
+        self.chrrom_banks.set_page(i, self.nametbl1);
       }
       _ => {}
     }
@@ -45,9 +45,11 @@ impl Mapper for Sunsoft4 {
     banks.prg = Banking::new_prg(header, 2);
     banks.prg.set_page_to_last_bank(1);
 
-    banks.chr = Banking::new_chr(header, 12);
+    banks.chr = Banking::new_chr(header, 4);
+    let chrrom_banks = Banking::new(header.chr_real_size(), 0, 1024, 4);
 
     Box::new(Self{ 
+      chrrom_banks,
       sram_enabled: false,
       chrrom_banked: false,
       mirroring: header.mirroring,
@@ -57,25 +59,21 @@ impl Mapper for Sunsoft4 {
     })
   }
 
-  fn prg_write(&mut self, banks: &mut CartBanking ,addr: usize, val: u8) {
+  fn prg_write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {
     match addr {
       0x8000..=0xBFFF => {
-        let page = 2*((addr - 0x8000) / 0x800);
-        let bank = val as usize & !1;
-        banks.chr.set_page(page, bank);
-        banks.chr.set_page(page+1, bank | 1);
+        let page = (addr - 0x8000) / 0x1000;
+        banks.chr.set_page(page, val as usize);
       }
       0xC000..=0xCFFF => {
-        if self.chrrom_banked {
-          self.nametbl0 = val as usize & 0b0111_1111;
-          self.update_ciram_banks(banks);
-        }
+        // Only D6-D0 are used; D7 is ignored and treated as 1, 
+        // so nametables must be in the last 128 KiB of CHR ROM.
+        self.nametbl0 = val as usize | 0b1000_0000;
+        self.update_ciram_banks();
       }
       0xD000..=0xDFFF => {
-        if self.chrrom_banked {
-          self.nametbl1 = val as usize & 0b0111_1111;
-          self.update_ciram_banks(banks);
-        }
+        self.nametbl1 = val as usize | 0b1000_0000;
+        self.update_ciram_banks();
       }
       0xE000..=0xEFFF => {
         self.mirroring = match val & 0b11 {
@@ -84,7 +82,7 @@ impl Mapper for Sunsoft4 {
           2 => Mirroring::SingleScreenA,
           _ => Mirroring::SingleScreenB,
         };
-        banks.ciram.update_mirroring(self.mirroring);
+        banks.ciram.update(self.mirroring);
 
         self.chrrom_banked = val >> 4 != 0;
       }
@@ -109,7 +107,7 @@ impl Mapper for Sunsoft4 {
       0x0000..=0x1FFF => PpuTarget::Chr(banks.chr.translate(addr)),
       0x2000..=0x2FFF => {
         if self.chrrom_banked {
-          PpuTarget::Chr(banks.chr.translate(addr))
+          PpuTarget::Chr(self.chrrom_banks.translate(addr))
         } else {
           PpuTarget::CiRam(banks.ciram.translate(addr))
         }
