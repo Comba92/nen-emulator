@@ -287,11 +287,13 @@ impl serde::Serialize for Cart {
   fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
   where
       S: serde::Serializer {
-    let mut se = serializer.serialize_struct("Cart", 4)?;
+    let mut se = serializer.serialize_struct("Cart", 6)?;
     // we do not care to serialize prg
     se.skip_field("prg")?;
     se.serialize_field("header", &self.header)?;
     se.serialize_field("sram", &self.sram)?;
+    se.serialize_field("ciram", &self.ciram)?;
+    se.serialize_field("banks", &self.banks)?;
     se.serialize_field("mapper", &self.mapper)?;
 
     // we only serialize chr if it is chr ram
@@ -358,6 +360,7 @@ impl Cart {
   }
 
   pub fn reset(&mut self) {
+    self.banks = Default::default();
     self.mapper = mapper::new_mapper(&self.header, &mut self.banks).unwrap();
   }
 

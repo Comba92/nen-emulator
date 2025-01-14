@@ -75,13 +75,13 @@ I haven't kept track of a game compatibility list, but most of the development w
 - [x] 26. [VRC6b](https://www.nesdev.org/wiki/VRC6)
 - [x] 31. [NSF](https://www.nesdev.org/wiki/INES_Mapper_031)
 - [ ] 68. [Sunsoft4 (TODO)](https://www.nesdev.org/wiki/INES_Mapper_068)
-- [x] 69. [Sunsoft5 FME-7](https://www.nesdev.org/wiki/Sunsoft_FME-7)
-- Note: Batman: Return of Joker works, but doesn't start unless you press Start.
+- [ ] 69. [Sunsoft5 FME-7 (TODO)](https://www.nesdev.org/wiki/Sunsoft_FME-7)
 - Note: no audio chip emulation.
 - [x] 71. [Codemasters](https://www.nesdev.org/wiki/INES_Mapper_071)
 - [x] 73. [VRC3 (used for Salamander)](https://www.nesdev.org/wiki/VRC3)
 - [x] 75. [VRC1](https://www.nesdev.org/wiki/VRC1)
 - [x] 78. [Irem 74HC161 (used for Holy Diver and Cosmo Carrier)](https://www.nesdev.org/wiki/INES_Mapper_078)
+- [x] 87. [J87](https://www.nesdev.org/wiki/INES_Mapper_087)
 - [ ] 91. [J.Y. Company (TODO)](https://www.nesdev.org/wiki/INES_Mapper_091)
 - [x] 180. [UNROM (used for Crazy Climber)](https://www.nesdev.org/wiki/INES_Mapper_180)
 - [x] 206. [Namco 118/Tengen MIMIC-1](https://www.nesdev.org/wiki/INES_Mapper_206)
@@ -133,6 +133,7 @@ Adding more user features is a pain, tho.
 - [ ] MMC1 consecutive writes behaviour
 - [ ] RAM initializing for games which uses it to seed RNG
 - [ ] MMC5
+- [ ] Reset not always correct
 
 - [ ] Custom keybindings
 - [ ] Custom palettes

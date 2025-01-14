@@ -45,6 +45,7 @@ pub fn new_mapper(header: &CartHeader, banks: &mut CartBanking) -> Result<Box<dy
     73 => VRC3::new(header, banks),
     75 => VRC1::new(header, banks),
     78 => INesMapper078::new(header, banks),
+    87 => INesMapper087::new(header, banks),
     206 => INesMapper206::new(header, banks),
     _ => return Err(format!("Mapper {} not implemented", header.mapper))
   };
@@ -58,7 +59,7 @@ pub fn mapper_name(id: u16) -> &'static str {
     .map(|m| m.1)
     .unwrap_or("Not implemented")
 }
-const MAPPERS_TABLE: [(u16, &'static str); 34] = [
+const MAPPERS_TABLE: [(u16, &'static str); 35] = [
   (0, "NROM"),
   (1, "MMC1"),
   (2, "UxROM"),
@@ -87,6 +88,7 @@ const MAPPERS_TABLE: [(u16, &'static str); 34] = [
   (73, "Konami VRC3 (Salamander)"),
   (75, "Konami VRC1"),
   (78, "Irem 74HC161 (Holy Diver and Cosmo Carrier)"),
+  (87, "Jaleco87"),
   (91, "J.Y. Company"),
   (94, "UNROM (Senjou no Ookami)"),
   (163, "FC-001"),
@@ -557,3 +559,37 @@ impl Mapper for INesMapper206 {
     self.mmc3.prg_write(banks, addr, val);
   }
 }
+
+
+// Mapper 87
+// https://www.nesdev.org/wiki/INES_Mapper_087
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct INesMapper087;
+
+#[typetag::serde]
+impl Mapper for INesMapper087 {
+  fn new(header: &CartHeader, banks: &mut CartBanking) -> Box<Self> {
+    banks.prg = Banking::new_prg(header, 2);
+
+    if header.prg_size <= 16*1024 {
+      banks.prg.set_page(1, 0);
+    } else {
+      banks.prg.set_page(1, 1);
+    }
+    Box::new(Self)
+  }
+
+  fn prg_write(&mut self, banks: &mut CartBanking, _: usize, val: u8) {
+    let bank = ((val & 0b01) << 1) | ((val & 0b10) >> 1);
+    banks.chr.set_page(0, bank as usize);
+  }
+
+  fn map_prg_addr(&self, banks: &mut CartBanking, addr: usize) -> PrgTarget {
+    match addr {
+      0x6000..=0x7FFF => PrgTarget::Prg(addr),
+      0x8000..=0xFFFF => PrgTarget::Prg(banks.prg.translate(addr)),
+      _ => unreachable!()
+    }
+  }
+}
+
