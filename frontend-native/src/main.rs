@@ -206,8 +206,8 @@ struct EmuCtx {
 }
 
 fn main() {
-  const SCALE: f32 = 3.5;
-  const WINDOW_WIDTH:  u32  = (SCALE * 32  as f32* 8.0) as u32;
+  const SCALE: f32 = 3.0;
+  const WINDOW_WIDTH:  u32  = (SCALE * 32 as f32* 8.0) as u32;
   const WINDOW_HEIGHT: u32  = (SCALE * 30 as f32* 8.0) as u32;
 
   let sdl = sdl2::init().unwrap();
