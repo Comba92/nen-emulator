@@ -1,9 +1,9 @@
 # Nen Emulator
 ## A simple and clean™️ cycle accurate NES emulator, written in Rust. Fast, lightweight, and with high compatibility.
 
-[](previews/akumajou_densetsu.mp4)
-[](previews/smb3.mp4)
-[](previews/megaman2.mp4)
+https://github.com/Comba92/nen-emulator/raw/refs/heads/master/previews/akumajou_densetsu.mp4
+https://github.com/Comba92/nen-emulator/raw/refs/heads/master/previews/smb3.mp4
+https://github.com/Comba92/nen-emulator/raw/refs/heads/master/previews/megaman2.mp4
 
 ## Download
 Download is avaible in the [release](https://github.com/Comba92/nen-emulator/releases/tag/alpha) section.
@@ -18,20 +18,22 @@ ROMS with iNes or NES2.0 headers are supported.
 The terminal window shows basic informations and warnings, such as the ROM information.
 
 ### Controls
-Both keyboards and controllers are supported.
-A save/load state feature is avaible.
+> [!TIP]
+> Both keyboards and controllers are supported.
+> A save/load state feature is avaible.
 
-<kbd>A</kbd> A button<br>
-<kbd>S</kbd> B button<br>
-<kbd>W</kbd> Start<br>
-<kbd>E</kbd> Select<br>
-<kbd>ArrowKeys</kbd> You know what they do!<br>
-
-<kbd>Space</kbd>Pause/unpause the emulator<br>
-<kbd>R</kbd>Reset current game<br>
-<kbd>M</kbd>Mute/unmute sound<br>
-<kbd>9</kbd>Save state<br>
-<kbd>0</kbd>Load state<br>
+| Keyboard | Button |
+| :-- | -----: |
+| <kbd>A</kbd> | A button |
+| <kbd>S</kbd> | B button |
+| <kbd>W</kbd> | Start |
+| <kbd>E</kbd> | Select |
+| <kbd>ArrowKeys</kbd> | You know what they do! |
+| <kbd>Space</kbd> | Pause/unpause the emulator |
+| <kbd>R</kbd> | Reset current game |
+| <kbd>M</kbd> | Mute/unmute sound |
+| <kbd>9</kbd> | Save state |
+| <kbd>0</kbd> | Load state |
 
 ## Compatibility
 The emulator supports mostly all the basic NES features you'd expect from a NES emulator.
