@@ -82,39 +82,27 @@ fn load_sram(ctx: &mut EmuCtx) {
 
 fn save_state(ctx: &EmuCtx) {
   let path = PathBuf::from(&ctx.rom_path).with_extension("cmbsv");
-  let file = fs::File::create(path).unwrap();
-  pot::to_writer(&ctx.emu, file).unwrap();
-
-  // let data = bincode::serialize(&ctx.emu);
-  // match data {
-  //   Ok(ser) => {
-  //     let path = PathBuf::from(&ctx.rom_path).with_extension("cmbsv");
-  //     let _ = fs::write(path, ser)
-  //       .inspect_err(|e| eprintln!("Couldn't save state: {e:?}"));
-  //   }
-  //   Err(e) => eprintln!("Couldn't serialize emu: {e:?}"),
-  // }
+  let file = fs::File::create(path).expect("Couldn't create savestate file");
+  let _ = pot::to_writer(&ctx.emu, file)
+    .inspect_err(|e| eprintln!("Couldn't write the savestate to file: {e}"));
 }
 
 fn load_state(ctx: &mut EmuCtx) {
   let path = PathBuf::from(&ctx.rom_path).with_extension("cmbsv");
-  let file = fs::File::open(path).unwrap();
-  let new_emu = pot::from_reader(file).unwrap();
-  ctx.emu.load_from_emu(new_emu);
+  let savestate = fs::File::open(path);
 
-  // let savestate = fs::read(path);
-  // match savestate {
-  //   Ok(de) => {
-  //     let new_emu: Result<Nes, _> = bincode::deserialize(&de);
-  //     match new_emu {
-  //       Ok(new_emu) => {
-  //         ctx.emu.load_from_emu(new_emu);
-  //       }
-  //       Err(e) => eprintln!("Couldn't deserialize emu: {e:?}")
-  //     }
-  //   }
-  //   Err(e) => eprintln!("Couldn't load state: {e:?}")
-  // }
+  match savestate {
+    Ok(de) => {
+      let new_emu = pot::from_reader(&de);
+      match new_emu {
+        Ok(new_emu) => {
+          ctx.emu.load_from_emu(new_emu);
+        }
+        Err(e) => eprintln!("Couldn't deserialize emu: {e:?}")
+      }
+    }
+    Err(e) => eprintln!("Couldn't load state: {e:?}")
+  }
 }
 
 fn handle_input(keys: &Keymaps, event: &Event, ctx: &mut EmuCtx) {
@@ -206,8 +194,8 @@ struct EmuCtx {
 }
 
 fn main() {
-  const SCALE: f32 = 3.0;
-  const WINDOW_WIDTH:  u32  = (SCALE * 32 as f32* 8.0) as u32;
+  const SCALE: f32 = 3.5;
+  const WINDOW_WIDTH:  u32  = (SCALE * 32  as f32* 8.0) as u32;
   const WINDOW_HEIGHT: u32  = (SCALE * 30 as f32* 8.0) as u32;
 
   let sdl = sdl2::init().unwrap();
