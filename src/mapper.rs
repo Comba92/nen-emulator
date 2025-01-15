@@ -15,7 +15,7 @@ mod sunsoft_fme_7;
 mod namco129_163;
 mod bandai_fcg;
 
-use bandai_fcg::Bandai_FCG;
+use bandai_fcg::BandaiFCG;
 use mmc1::MMC1;
 use mmc2::MMC2;
 use mmc3::MMC3;
@@ -37,7 +37,7 @@ pub fn new_mapper(header: &CartHeader, banks: &mut CartBanking) -> Result<Box<dy
     7 => AxROM::new(header, banks),
     9 | 10 => MMC2::new(header, banks),
     11 => ColorDreams::new(header, banks),
-    16 => Bandai_FCG::new(header, banks),
+    16 => BandaiFCG::new(header, banks),
     19 => Namco129_163::new(header, banks),
     21 | 22 | 23 | 25 => VRC2_4::new(header, banks),
     24 | 26 => VRC6::new(header, banks),

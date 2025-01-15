@@ -21,6 +21,7 @@ pub struct MMC1 {
 
   shift_reg: u8,
   shift_writes: usize,
+  write_lock_delay: u8,
   prg_mode: PrgMode,
   chr_mode: ChrMode,
 }
@@ -137,6 +138,7 @@ impl Mapper for MMC1 {
       last_wrote_chr_select1: false,
       shift_reg: 0,
       shift_writes: 0,
+      write_lock_delay: 0,
       prg_mode: Default::default(),
       chr_mode: Default::default(),
     };
@@ -144,7 +146,12 @@ impl Mapper for MMC1 {
     Box::new(mapper)
   }
   
-  fn prg_write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {
+  fn prg_write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {    
+    if self.write_lock_delay > 0 {
+      self.write_lock_delay = 2;
+      return;
+    }
+    
     if val & 0b1000_0000 != 0 {
       self.shift_reg = 0;
       self.shift_writes = 0;
@@ -155,6 +162,8 @@ impl Mapper for MMC1 {
       self.shift_writes += 1;
     }
     
+    self.write_lock_delay = 2;
+
     if self.shift_writes >= 5 {
       match addr {
         0x8000..=0x9FFF => self.write_ctrl(banks, self.shift_reg),
@@ -177,6 +186,12 @@ impl Mapper for MMC1 {
       
       self.shift_writes = 0;
       self.shift_reg = 0;
+    }
+  }
+
+  fn notify_cpu_cycle(&mut self) {
+    if self.write_lock_delay > 0 {
+      self.write_lock_delay -= 1;
     }
   }
 }

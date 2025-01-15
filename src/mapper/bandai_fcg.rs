@@ -3,7 +3,7 @@ use crate::cart::{CartBanking, CartHeader, Mirroring, PrgTarget};
 use super::{set_byte_hi, set_byte_lo, Banking, Mapper};
 
 #[derive(serde::Serialize, serde::Deserialize)]
-pub struct Bandai_FCG {
+pub struct BandaiFCG {
   submapper: u8,
   eeprom: Box<[u8]>,
 
@@ -14,7 +14,7 @@ pub struct Bandai_FCG {
 }
 
 #[typetag::serde]
-impl Mapper for Bandai_FCG {
+impl Mapper for BandaiFCG {
   fn new(header: &CartHeader, banks: &mut CartBanking) -> Box<Self> {
     banks.prg = Banking::new_prg(header, 2);
     banks.prg.set_page_to_last_bank(1);
