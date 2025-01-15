@@ -18,7 +18,8 @@ The terminal window shows basic informations and warnings, such as the ROM infor
 ### Controls
 > [!TIP]
 > Both keyboards and controllers are supported.
->[!TIP]
+
+> [!TIP]
 > A save/load state feature is avaible.
 
 | Keyboard | Button |
