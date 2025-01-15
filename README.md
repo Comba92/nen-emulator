@@ -1,9 +1,9 @@
 # Nen Emulator
 ## A simple and clean™️ cycle accurate NES emulator, written in Rust. Fast, lightweight, and with high compatibility.
 
-https://github.com/Comba92/nen-emulator/raw/refs/heads/master/previews/akumajou_densetsu.mp4
-https://github.com/Comba92/nen-emulator/raw/refs/heads/master/previews/smb3.mp4
-https://github.com/Comba92/nen-emulator/raw/refs/heads/master/previews/megaman2.mp4
+[](https://github.com/Comba92/nen-emulator/raw/refs/heads/master/previews/akumajou_densetsu.mp4)
+[](https://github.com/Comba92/nen-emulator/raw/refs/heads/master/previews/smb3.mp4)
+[](https://github.com/Comba92/nen-emulator/raw/refs/heads/master/previews/megaman2.mp4)
 
 ## Download
 Download is avaible in the [release](https://github.com/Comba92/nen-emulator/releases/tag/alpha) section.
@@ -20,10 +20,11 @@ The terminal window shows basic informations and warnings, such as the ROM infor
 ### Controls
 > [!TIP]
 > Both keyboards and controllers are supported.
+>[!TIP]
 > A save/load state feature is avaible.
 
 | Keyboard | Button |
-| :-- | -----: |
+| -- | ----- |
 | <kbd>A</kbd> | A button |
 | <kbd>S</kbd> | B button |
 | <kbd>W</kbd> | Start |
