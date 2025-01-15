@@ -1,9 +1,7 @@
 # Nen Emulator
 ## A simple and clean™️ cycle accurate NES emulator, written in Rust. Fast, lightweight, and with high compatibility.
 
-<video src="https://github.com/Comba92/nen-emulator/raw/refs/heads/master/previews/akumajou_densetsu.mp4">
-<video src="https://github.com/Comba92/nen-emulator/raw/refs/heads/master/previews/smb3.mp4">
-<video src="https://github.com/Comba92/nen-emulator/raw/refs/heads/master/previews/megaman2.mp4">
+https://private-user-images.githubusercontent.com/36135770/403426365-92b12885-b233-4d3a-8322-cd3257fd8b2b.mp4?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3MzY5NDY5NjMsIm5iZiI6MTczNjk0NjY2MywicGF0aCI6Ii8zNjEzNTc3MC80MDM0MjYzNjUtOTJiMTI4ODUtYjIzMy00ZDNhLTgzMjItY2QzMjU3ZmQ4YjJiLm1wND9YLUFtei1BbGdvcml0aG09QVdTNC1ITUFDLVNIQTI1NiZYLUFtei1DcmVkZW50aWFsPUFLSUFWQ09EWUxTQTUzUFFLNFpBJTJGMjAyNTAxMTUlMkZ1cy1lYXN0LTElMkZzMyUyRmF3czRfcmVxdWVzdCZYLUFtei1EYXRlPTIwMjUwMTE1VDEzMTEwM1omWC1BbXotRXhwaXJlcz0zMDAmWC1BbXotU2lnbmF0dXJlPTBiNTlmNDM3NmQ0YjY3ZDgxZWM4NGVkZDZmYWE4ODRiYjA4YjBlZjEyMzUxZmUxZTM1YTAwNGNiZjg1OGJiYzgmWC1BbXotU2lnbmVkSGVhZGVycz1ob3N0In0.zfa3QcpUmpEXg0GFVhWihkr3W-Z8oRulE8Plm_Hu2LY
 
 ## Download
 Download is avaible in the [release](https://github.com/Comba92/nen-emulator/releases/tag/alpha) section.
