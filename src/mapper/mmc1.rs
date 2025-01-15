@@ -145,7 +145,7 @@ impl Mapper for MMC1 {
 
     Box::new(mapper)
   }
-  
+
   fn prg_write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {    
     if self.write_lock_delay > 0 {
       self.write_lock_delay = 2;

@@ -343,12 +343,12 @@ impl Cart {
     let sram_size = header.sram_real_size();
     let sram = vec![0; sram_size].into_boxed_slice();
 
-    let vram = vec![0; 4 * 1024].into_boxed_slice();
+    let ciram = vec![0; 4 * 1024].into_boxed_slice();
     
     let mut banks = CartBanking::new(&header);
     let mapper = mapper::new_mapper(&header, &mut banks)?;
     
-    Ok(Cart { header, prg, chr, sram, ciram: vram, banks, mapper })
+    Ok(Cart { header, prg, chr, sram, ciram, banks, mapper })
   }
 
   pub fn shared(self) -> SharedCart {
@@ -357,11 +357,6 @@ impl Cart {
 
   pub fn empty() -> SharedCart {
     Cart::default().shared()
-  }
-
-  pub fn reset(&mut self) {
-    self.banks = Default::default();
-    self.mapper = mapper::new_mapper(&self.header, &mut self.banks).unwrap();
   }
 
   pub fn get_sram(&self) -> Option<Vec<u8>> {

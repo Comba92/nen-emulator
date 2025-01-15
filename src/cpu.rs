@@ -30,9 +30,9 @@ const PC_RESET: u16 = RESET_ISR;
 const _P_RESET_U8: u8 = 0x24;
 const P_RESET: CpuFlags = CpuFlags::irq_off.union(CpuFlags::brkpush);
 
-const NMI_ISR: u16 = 0xFFFA;
+const NMI_ISR: u16   = 0xFFFA;
 const RESET_ISR: u16 = 0xFFFC;
-const IRQ_ISR: u16 = 0xFFFE;
+const IRQ_ISR: u16   = 0xFFFE;
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Cpu<M: Memory> {
@@ -113,7 +113,7 @@ impl<M: Memory> Cpu<M> {
   pub fn reset(&mut self) {
     self.pc = self.read16(PC_RESET);
     self.sp = self.sp.wrapping_sub(3);
-    self.p = self.p.clone().union(CpuFlags::irq_off);
+    self.p = self.p | CpuFlags::irq_off;
   }
 
   fn set_carry(&mut self, res: u16) {

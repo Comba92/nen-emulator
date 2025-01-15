@@ -216,15 +216,15 @@ impl Ppu {
 		self.ctrl = Ctrl::from_bits_truncate(0);
 		self.mask = Mask::from_bits_truncate(0);
 		self.w = WriteLatch::FirstWrite;
+		self.t.set_coarse_x(0);
+		self.t.set_coarse_y(0);
+		self.t.set_fine_y(0);
 		self.x = 0;
 		self.data_buf = 0;
 		self.in_odd_frame = false;
 
 		self.cycle = 0;
 		self.scanline = self.last_scanline;
-		
-		self.mask.remove(Mask::bg_enabled);
-		self.mask.remove(Mask::spr_enabled);
 	}
 
 	pub fn step(&mut self) {
@@ -352,6 +352,10 @@ impl Ppu {
 				if self.scanline == 241 && (0..3).contains(&self.cycle) {
 					self.nmi_skip = true;
 					self.nmi_requested = None;
+					
+					if self.cycle == 1 || self.cycle == 2 {
+						self.stat.insert(Stat::vblank);
+					}
 				}
 
 				let old_stat = self.stat.bits();

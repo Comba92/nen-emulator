@@ -4,7 +4,7 @@ Tests avaible here: https://github.com/christopherpow/nes-test-roms
 
 - [x] window5
 - [ ] vbl_nmi_timing
-- - [x] 1, 4,
+- - [x] 1, 2, 3, 5
 - [x] tutor
 - [x] stomper
 - [x] stars_se
@@ -18,7 +18,7 @@ Tests avaible here: https://github.com/christopherpow/nes-test-roms
 - [ ] scanline
 - [x] read_joy3
 - [ ] ppu_vbl_nmi
-- - [x] 1, 3, 9
+- - [x] 1, 2, 3, 6, 9
 - [ ] ppu_read_buffer
 - [ ] ppu_open_bus
 - [ ] pal_apu_tests

@@ -112,6 +112,7 @@ pub fn set_byte_lo(dst: u16, val: u8) -> u16 {
 #[typetag::serde(tag = "mmu")]
 pub trait Mapper {
   fn new(header: &CartHeader, banks: &mut CartBanking) -> Box<Self> where Self: Sized;
+
   fn prg_write(&mut self, banks: &mut CartBanking, addr: usize, val: u8);
 
   fn map_prg_addr(&self, banks: &mut CartBanking, addr: usize) -> PrgTarget {

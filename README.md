@@ -45,6 +45,7 @@ The emulator supports mostly all the basic NES features you'd expect from a NES 
 - [x] [iNes](https://www.nesdev.org/wiki/INES) and [NES2.0](https://www.nesdev.org/wiki/NES_2.0) headers are supported.
 - [x] Saving/loading of battery RAM when the game is changed or the emulator is closed.
 - [x] Savestates
+- [x] Resetting works, but some games require you to hold the down the reset button a few seconds
 - [ ] Headerless games are not supported.
 
 ### Games compatibility list
@@ -134,9 +135,8 @@ Adding more user features is a pain, tho.
 ### TODO: detailed explanation of the architecture. ;)
 
 ## What's missing
-- [ ] MMC1 consecutive writes behaviour
-- [ ] RAM initializing for games which uses it to seed RNG
-- [ ] MMC5
+- [ ] RAM random initializing for games which uses it to seed RNG
+- [ ] MMC5 (I surrender)
 - [ ] Reset not always correct
 
 - [ ] Custom keybindings
