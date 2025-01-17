@@ -20,12 +20,12 @@ pub struct MMC3 {
   sram_read_enabled: bool,
   sram_write_enabled: bool,
 
-  irq_counter: u8,
-  irq_latch: u8,
-  irq_reload: bool,
-  irq_enabled: bool,
+  pub irq_counter: u8,
+  pub irq_latch: u8,
+  pub irq_reload: bool,
+  pub irq_enabled: bool,
 
-  irq_requested: Option<()>,
+  pub irq_requested: Option<()>,
 }
 
 impl MMC3 {
