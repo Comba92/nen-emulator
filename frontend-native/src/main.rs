@@ -3,7 +3,7 @@ use nen_emulator::{joypad::JoypadButton as NesJoypadButton, nes::Nes};
 use sdl2::{audio::{AudioQueue, AudioSpecDesired, AudioStatus}, controller::{Axis, Button}, event::Event, keyboard::Keycode};
 
 enum InputAction {
-  Game(NesJoypadButton), Pause, Reset, Mute, Save, Load
+  Game(NesJoypadButton), Pause, Reset, Mute, Save, Load, SpriteLimit
 }
 
 const AXIS_DEAD_ZONE: i16 = 10_000;
@@ -27,6 +27,7 @@ impl Keymaps {
       (Keycode::M, InputAction::Mute),
       (Keycode::NUM_9, InputAction::Save),
       (Keycode::NUM_0, InputAction::Load),
+      (Keycode::NUM_1, InputAction::SpriteLimit)
     ]);
 
     let default_padmap = HashMap::from([
@@ -40,6 +41,7 @@ impl Keymaps {
       (Button::DPadRight, InputAction::Game(NesJoypadButton::right)),
       (Button::DPadUp, InputAction::Game(NesJoypadButton::up)),
       (Button::DPadDown, InputAction::Game(NesJoypadButton::down)),
+      (Button::Guide, InputAction::Pause),
     ]);
 
     Keymaps { keymap: default_keymap, padmap: default_padmap }
@@ -133,6 +135,7 @@ fn handle_input(keys: &Keymaps, event: &Event, ctx: &mut EmuCtx) {
             }
             (InputAction::Save, Event::KeyDown {..}) => save_state(ctx),
             (InputAction::Load, Event::KeyDown {..}) => load_state(ctx),
+            (InputAction::SpriteLimit, Event::KeyDown {..}) => ctx.emu.toggle_sprite_limit(),
             _ => {}
           }
         }

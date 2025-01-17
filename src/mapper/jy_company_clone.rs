@@ -57,4 +57,8 @@ impl Mapper for INesMapper091 {
       _ => unreachable!()
     }
   }
+
+  poll_irq(&mut self) -> bool {
+    self.irq_requested.is_some()
+  }
 }

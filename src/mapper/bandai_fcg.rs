@@ -93,4 +93,8 @@ impl Mapper for BandaiFCG {
     }
     self.irq_count = self.irq_count.wrapping_sub(1);
   }
+
+  fn poll_irq(&mut self) -> bool {
+    self.irq_requested.is_some()
+  }
 }

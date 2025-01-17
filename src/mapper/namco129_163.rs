@@ -155,4 +155,8 @@ impl Mapper for Namco129_163 {
       self.irq_requested = Some(());
     }
   }
+
+  fn poll_irq(&mut self) -> bool {
+    self.irq_requested.is_some()
+  }
 }

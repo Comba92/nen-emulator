@@ -74,6 +74,15 @@ impl Nes {
     self.get_bus().cart.borrow_mut().set_sram(data);
   }
 
+  pub fn toggle_sprite_limit(&mut self) {
+    let limit = &mut self.get_ppu().oam_sprite_limit;
+    if *limit == 8 {
+      *limit = u8::MAX;
+    } else {
+      *limit = 8;
+    }
+  }
+
   pub fn load_from_emu(&mut self, other: Nes) {
     // save prg and chr in temp values
     let mut self_cart = self.get_bus().cart.borrow_mut();

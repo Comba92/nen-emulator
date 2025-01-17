@@ -161,6 +161,7 @@ pub struct Ppu {
 
 	palettes: [u8; 32],
 	oam: Box<[u8]>,
+	pub oam_sprite_limit: u8,
 	
 	pub scanline: usize,
 	pub last_scanline: usize,
@@ -188,6 +189,7 @@ impl Ppu {
 			cart,
 			palettes: [0; 32],
 			oam: vec![0; 256].into_boxed_slice(),
+			oam_sprite_limit: u8::MAX,
 
 			oam_addr: 0,
 			data_buf: 0,

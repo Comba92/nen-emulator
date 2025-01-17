@@ -22,6 +22,9 @@ The terminal window shows basic informations and warnings, such as the ROM infor
 > [!TIP]
 > A save/load state feature is avaible.
 
+> [!NOTE]
+> By default, the 8 sprite limit per scanline is disabled, but can be enabled.
+
 | Keyboard | Button |
 | :--: | ----- |
 | <kbd>A</kbd> | A button |
@@ -34,6 +37,7 @@ The terminal window shows basic informations and warnings, such as the ROM infor
 | <kbd>M</kbd> | Mute/unmute sound |
 | <kbd>9</kbd> | Save state |
 | <kbd>0</kbd> | Load state |
+| <kbd>1</kbd> | Toggle 8 sprites limit per scanline |
 
 ## Compatibility
 The emulator supports mostly all the basic NES features you'd expect from a NES emulator.
@@ -77,7 +81,7 @@ I haven't kept track of a game compatibility list, but most of the development w
 - [x] 11. [ColorDreams](https://www.nesdev.org/wiki/Color_Dreams)
 - [ ] 16, [Bandai FCG](https://www.nesdev.org/wiki/INES_Mapper_016)
 - Note: graphical glitches
-- [ ] 19. [Namco 129/163](https://www.nesdev.org/wiki/INES_Mapper_019)
+- [x] 19. [Namco 129/163](https://www.nesdev.org/wiki/INES_Mapper_019)
 - Note: works, but not tested properly.
 - Note: no audio chip emulation.
 - [x] 21, 22, 23, 25. [VRC2 and VRC4](https://www.nesdev.org/wiki/VRC2_and_VRC4)
@@ -87,8 +91,7 @@ I haven't kept track of a game compatibility list, but most of the development w
 - [x] 31. [NSF](https://www.nesdev.org/wiki/INES_Mapper_031)
 - [x] 68. [Sunsoft4](https://www.nesdev.org/wiki/INES_Mapper_068)
 - Note: Nantettatte!! Baseball (J) is not supported.
-- [ ] 69. [Sunsoft5 FME-7](https://www.nesdev.org/wiki/Sunsoft_FME-7)
-- Note: graphical glitches
+- [x] 69. [Sunsoft5 FME-7](https://www.nesdev.org/wiki/Sunsoft_FME-7)
 - Note: no audio chip emulation.
 - [x] 71. [Codemasters](https://www.nesdev.org/wiki/INES_Mapper_071)
 - [x] 73. [VRC3 (used for Salamander)](https://www.nesdev.org/wiki/VRC3)
@@ -147,7 +150,6 @@ Adding more user features is a pain, tho.
 
 - [ ] Custom keybindings
 - [ ] Custom palettes
-- [ ] Sprite limit per scanline
 - [ ] Headerless ROMs support
 
 ## Various resources
