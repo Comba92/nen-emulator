@@ -142,7 +142,7 @@ pub struct Apu {
   pub frame_irq_flag: Option<()>,
 
   pub samples: Vec<f32>,
-  samples_per_second: f32,
+  cycles_per_sample: f32,
   sample_cycles: f32,
 
   low_pass_filter: LowPassIIR,
@@ -161,7 +161,7 @@ impl Apu {
   pub fn new(cart: SharedCart) -> Self {
     let timing = cart.borrow().header.timing;
 
-    let samples_per_second = 
+    let cycles_per_sample = 
       timing.frame_cpu_cycles() / ((44100.0 / timing.fps()) as f32);
     let cpu_hz = timing.cpu_hz() as f32;
 
@@ -182,7 +182,7 @@ impl Apu {
       frame_irq_flag: None,
 
       samples: Vec::new(),
-      samples_per_second,
+      cycles_per_sample,
       sample_cycles: 0.0,
 
       high_pass_filter0: HighPassIIR
@@ -240,12 +240,13 @@ impl Apu {
     self.low_pass_filter.consume(self.high_pass_filter1.output());
     self.quality_filter.consume(self.low_pass_filter.output());
 
-    if self.sample_cycles >= self.samples_per_second {
+    if self.sample_cycles >= self.cycles_per_sample {
       let output = self.quality_filter.output();
       self.samples.push(output);
-      self.sample_cycles -= self.samples_per_second;
+      self.sample_cycles -= self.cycles_per_sample;
+    } else {
+      self.sample_cycles += 1.0;
     }
-    self.sample_cycles += 1.0;
     
     self.dmc.step_timer();
     self.triangle.step_timer();
