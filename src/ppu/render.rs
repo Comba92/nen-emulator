@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 
 use super::{Mask, Ppu, Stat, ATTRIBUTES, NAMETABLES, PALETTES};
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 pub(super) struct Fetcher {
   state: FetcherState,
 	data: FetcherData,
@@ -134,7 +134,7 @@ impl Ppu {
       || !self.mask.contains(Mask::bg_strip_show) && x < 8
     {
       let color = self.color_from_palette(0, 0);
-      self.screen.0.set_pixel(x, y, color);
+      self.screen.set_pixel(x, y, color);
       return;
     }
 
@@ -171,7 +171,7 @@ impl Ppu {
       self.stat.insert(Stat::spr0_hit);
     }
 
-    self.screen.0.set_pixel(x, y, pixel_color);
+    self.screen.set_pixel(x, y, pixel_color);
   }
 
 

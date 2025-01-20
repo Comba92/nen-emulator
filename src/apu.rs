@@ -87,9 +87,9 @@ pub trait Channel: Default {
   fn get_sample(&self) -> u8;
 }
 
-#[derive(PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Default, PartialEq, serde::Serialize, serde::Deserialize)]
 enum FrameCounterMode {
-  Step4, Step5
+  #[default] Step4, Step5
 }
 impl From<u8> for FrameCounterMode {
   fn from(value: u8) -> Self {
@@ -122,7 +122,7 @@ bitflags! {
   }
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct Apu {
   timing: ConsoleTiming,
   pulse1: Pulse,
@@ -168,22 +168,10 @@ impl Apu {
     Self {
       timing,
       cart,
-      pulse1: Pulse::default(),
-      pulse2: Pulse::default(),
-      triangle: Triangle::default(),
       noise: Noise::new(timing),
       dmc: Dmc::new(timing),
 
-      frame_mode: FrameCounterMode::Step4,
-      frame_write_delay: 0,
-      frame_tmp: 0,
-
-      irq_disabled: false,
-      frame_irq_flag: None,
-
-      samples: Vec::new(),
       cycles_per_sample,
-      sample_cycles: 0.0,
 
       high_pass_filter0: HighPassIIR
         ::new(cpu_hz, 90.0),
@@ -194,7 +182,7 @@ impl Apu {
       quality_filter: LowPassIIR
         ::new(cpu_hz, 0.40 * 44_100.0),
 
-      cycles: 0,
+      ..Default::default()
     }
   }
 
@@ -431,7 +419,7 @@ impl Apu {
   }
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct LowPassIIR {
   alpha: f32,
   previous_output: f32,
@@ -460,7 +448,7 @@ impl LowPassIIR {
   }
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct HighPassIIR {
   alpha: f32,
   previous_output: f32,

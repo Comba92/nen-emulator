@@ -5,7 +5,7 @@ use super::{set_byte_hi, set_byte_lo, Banking, Mapper};
 #[derive(Default, Clone, Copy, serde::Serialize, serde::Deserialize)]
 enum ChrTarget { #[default] Chr, Ciram0, Ciram1 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct Namco129_163 {
   irq_value: u16,
   irq_enabled: bool,
@@ -30,13 +30,7 @@ impl Mapper for Namco129_163 {
 
     Box::new(Self{
       chr_selects,
-      irq_enabled: false,
-      irq_value: 0,
-      irq_requested: None,
-      chrram0_enabled: false,
-      chrram1_enabled: false,
-      exram_write_enabled: [false; 4],
-      apu_enabled: false,
+      ..Default::default()
     })
   }
 

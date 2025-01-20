@@ -2,7 +2,7 @@ use crate::cart::{CartBanking, CartHeader, Mirroring, PrgTarget, PpuTarget};
 
 use super::{Banking, CiramBanking, Mapper};
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct Sunsoft4 {
   sram_enabled: bool,
   chrrom_banked: bool,
@@ -50,12 +50,8 @@ impl Mapper for Sunsoft4 {
 
     Box::new(Self{ 
       chrrom_banks,
-      sram_enabled: false,
-      chrrom_banked: false,
       mirroring: header.mirroring,
-      nametbl0: 0,
-      nametbl1: 0,
-      timer: 0,
+      ..Default::default()
     })
   }
 

@@ -9,7 +9,7 @@ enum ChrMode { #[default] BiggerFirst, BiggerLast }
 
 // Mapper 04
 // https://www.nesdev.org/wiki/MMC3
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct MMC3 {
   pub reg_select: u8,
 
@@ -130,15 +130,8 @@ impl Mapper for MMC3 {
     banks.prg.set_page_to_last_bank(3);
 
     let mapper = Self {
-      reg_select: 0,
-      prg_mode: Default::default(),
-      chr_mode: Default::default(),
       mirroring: header.mirroring,
-      sram_read_enabled: false,
-      sram_write_enabled: false,
-      irq_counter: 0, irq_latch: 0,
-      irq_reload: false, irq_enabled: false,
-      irq_requested: None,
+     ..Default::default()
     };
 
     Box::new(mapper)

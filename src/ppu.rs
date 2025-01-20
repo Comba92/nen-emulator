@@ -1,4 +1,4 @@
-use crate::{cart::{ConsoleTiming, SharedCart}, frame::NesScreen};
+use crate::{cart::{ConsoleTiming, SharedCart}, frame::FrameBuffer};
 use bitfield_struct::bitfield;
 use bitflags::bitflags;
 use render::Fetcher;
@@ -7,7 +7,7 @@ use serde::de::Visitor;
 mod render;
 
 bitflags! {
-	#[derive(Debug, serde::Serialize, serde::Deserialize)]
+	#[derive(Default, serde::Serialize, serde::Deserialize)]
 	struct Ctrl: u8 {
 		const base_nametbl = 0b0000_0011;
 		const vram_incr    = 0b0000_0100;
@@ -19,7 +19,7 @@ bitflags! {
 		const nmi_enabled  = 0b1000_0000;
 	}
 
-	#[derive(Debug, serde::Serialize, serde::Deserialize)]
+	#[derive(Default, serde::Serialize, serde::Deserialize)]
 	struct Mask: u8 {
 		const greyscale      = 0b0000_0001;
 		const bg_strip_show  = 0b0000_0010;
@@ -32,7 +32,7 @@ bitflags! {
 		const green_boost = 0b1000_0000;
 	}
 
-	#[derive(Debug, serde::Serialize, serde::Deserialize)]
+	#[derive(Default, serde::Serialize, serde::Deserialize)]
 	struct Stat: u8 {
 		const open_bus     = 0b0001_1111;
 		const spr_overflow = 0b0010_0000;
@@ -120,9 +120,9 @@ impl<'de> serde::Deserialize<'de> for LoopyReg {
 }
 
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 enum WriteLatch {
-	FirstWrite,
+	#[default] FirstWrite,
 	SecondWrite,
 }
 
@@ -137,10 +137,10 @@ pub const NAMETABLES: u16 = 0x2000;
 pub const ATTRIBUTES: u16 = 0x23C0;
 pub const PALETTES: u16 = 0x3F00;
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct Ppu {
-	#[serde(skip)]
-	pub screen: NesScreen,
+	#[serde(default)]
+	pub screen: FrameBuffer,
 	renderer: Fetcher,
 
 	v: LoopyReg,   // current vram address
@@ -178,12 +178,11 @@ impl Ppu {
 		let last_scanline = 241 + cart.borrow().header.timing.vblank_len();
 		
 		Self {
-			screen: NesScreen::default(),
+			screen: FrameBuffer::nes_screen(),
 			renderer: Fetcher::new(),
 
 			v: LoopyReg::new(),
 			t: LoopyReg::new(),
-			x: 0,
 			w: WriteLatch::FirstWrite,
 
 			cart,
@@ -191,22 +190,11 @@ impl Ppu {
 			oam: vec![0; 256].into_boxed_slice(),
 			oam_sprite_limit: u8::MAX,
 
-			oam_addr: 0,
-			data_buf: 0,
 
-			in_odd_frame: false,
 			scanline: last_scanline,
 			last_scanline,
-			cycle: 0,
-			ctrl: Ctrl::empty(),
-			mask: Mask::empty(),
-			mask_tmp: 0,
-			mask_write_delay: 0,
-			stat: Stat::empty(),
-
-			nmi_requested: None,
-			nmi_skip: false,
-			frame_ready: None,
+			
+			..Default::default()
 		}
 	}
 

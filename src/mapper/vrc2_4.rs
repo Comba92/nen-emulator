@@ -45,7 +45,7 @@ impl<'de> serde::Deserialize<'de> for ChrSelectByte {
 
 // Mappers 21, 22, 23, 25
 // https://www.nesdev.org/wiki/VRC2_and_VRC4
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct VRC2_4 {
   prg_select0: u8,
   prg_select1: u8,
@@ -172,15 +172,8 @@ impl Mapper for VRC2_4 {
     banks.prg.set_page(3, banks.prg.banks_count-1);
 
     let mapper = Self {
-      prg_select0: 0,
-      prg_select1: 0,
-      chr_selects: [Default::default(); 8],
       mapper: header.mapper,
-
-      swap_mode: false,
-      sram_ctrl: false,
-      latch: false,
-      irq: Default::default(),
+      ..Default::default()
     };
 
     Box::new(mapper)

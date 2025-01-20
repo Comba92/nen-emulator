@@ -9,7 +9,7 @@ enum ChrMode { #[default] Bank8kb, Bank4kb }
 
 // Mapper 01
 // https://www.nesdev.org/wiki/MMC1
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct MMC1 {
   prg_select: usize,
   has_512kb_prg: bool,
@@ -128,19 +128,9 @@ impl Mapper for MMC1 {
     banks.chr.set_page(1, 1);
 
     let mapper = Self {
-      prg_select: 0,
       prg_last_bank,
       has_512kb_prg,
-      prg_256kb_bank: 0,
-      chr_select0: 0,
-      chr_select1: 0,
-
-      last_wrote_chr_select1: false,
-      shift_reg: 0,
-      shift_writes: 0,
-      write_lock_delay: 0,
-      prg_mode: Default::default(),
-      chr_mode: Default::default(),
+      ..Default::default()
     };
 
     Box::new(mapper)

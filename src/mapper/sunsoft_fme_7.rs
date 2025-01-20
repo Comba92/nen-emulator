@@ -4,10 +4,13 @@ use super::{set_byte_hi, set_byte_lo, Banking, Mapper};
 
 #[derive(serde::Serialize, serde::Deserialize)]
 enum Command { Chr(u8), Prg0, Prg1(u8), Nametbl, IrqCtrl, IrqLo, IrqHi }
+impl Default for Command {
+  fn default() -> Self { Self::Chr(0) }
+}
 
 // Mapper 69
 // https://www.nesdev.org/wiki/Sunsoft_FME-7
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct SunsoftFME7 {
   command: Command,
 
@@ -32,13 +35,7 @@ impl Mapper for SunsoftFME7 {
 
     let mapper = Self {
       command: Command::Chr(0),
-      prg0_select: 0,
-      sram_banked: false,
-      sram_enabled: false,
-      irq_enabled: false,
-      irq_counter_enabled: false,
-      irq_requested: None,
-      irq_count: 0,
+      ..Default::default()
     };
     Box::new(mapper)
   }

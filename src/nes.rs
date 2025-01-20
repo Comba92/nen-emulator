@@ -38,7 +38,7 @@ impl Nes {
   }
 
   pub fn get_raw_screen(&self) -> *const u8 {
-    self.cpu.bus.ppu.screen.0.buffer.as_ptr()
+    self.cpu.bus.ppu.screen.buffer.as_ptr()
   }
 
   pub fn get_raw_samples(&self) -> *const f32 {
@@ -142,7 +142,7 @@ impl Nes {
   pub fn get_resolution(&mut self) -> (usize, usize) { (32*8, 30*8) }
 
   pub fn get_screen(&self) -> &FrameBuffer {
-    &self.cpu.bus.ppu.screen.0
+    &self.cpu.bus.ppu.screen
   }
 
   pub fn get_samples(&mut self) -> Vec<f32> {

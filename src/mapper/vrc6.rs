@@ -1,12 +1,12 @@
 use crate::{apu::{ApuDivider, Channel}, cart::{CartBanking, CartHeader, Mirroring, PpuTarget}};
 use super::{konami_irq::{IrqMode, KonamiIrq}, Banking, Mapper, CiramBanking};
 
-#[derive(serde::Serialize, serde::Deserialize)]
-enum ChrMode { Bank1kb, Bank2kb, BankMixed }
-#[derive(serde::Serialize, serde::Deserialize)]
-enum NametblSrc { CiRam, ChrRom }
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+enum ChrMode { #[default] Bank1kb, Bank2kb, BankMixed }
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+enum NametblSrc { #[default] CiRam, ChrRom }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct VRC6 {
   mapper: u16,
 
@@ -183,19 +183,8 @@ impl Mapper for VRC6 {
       mapper: header.mapper,
       vram_chrrom_banks,
       vram_ciram_banks,
-      chr_selects: [0; 8],
-      irq: Default::default(),
-      chr_latch: false,
-      chr_mode: ChrMode::Bank1kb,
-      nametbl_src: NametblSrc::CiRam,
-      nametbl_mode: 0,
-      sram_enabled: false,
       apu_halted: true,
-      apu_freq16: false,
-      apu_freq256: false,
-      pulse1: Default::default(),
-      pulse2: Default::default(),
-      sawtooth: Default::default(),
+      ..Default::default()
     };
 
     mapper.update_chr_banks(banks);

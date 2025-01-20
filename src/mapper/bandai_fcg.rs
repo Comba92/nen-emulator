@@ -2,7 +2,7 @@ use crate::cart::{CartBanking, CartHeader, Mirroring, PrgTarget};
 
 use super::{set_byte_hi, set_byte_lo, Banking, Mapper};
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct BandaiFCG {
   submapper: u8,
   eeprom: Box<[u8]>,
@@ -25,10 +25,7 @@ impl Mapper for BandaiFCG {
     Box::new(Self{
       submapper: header.submapper,
       eeprom,
-      irq_count: 0,
-      irq_latch: 0,
-      irq_enabled: false,
-      irq_requested: None,
+      ..Default::default()
     })
   }
 
