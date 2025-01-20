@@ -232,9 +232,9 @@ impl Apu {
       let output = self.quality_filter.output();
       self.samples.push(output);
       self.sample_cycles -= self.cycles_per_sample;
-    } else {
-      self.sample_cycles += 1.0;
     }
+    
+    self.sample_cycles += 1.0;
     
     self.dmc.step_timer();
     self.triangle.step_timer();
