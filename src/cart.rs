@@ -260,7 +260,7 @@ pub type SharedCart = Rc<RefCell<Cart>>;
 #[derive(serde::Deserialize)]
 pub struct Cart {
   pub header: CartHeader,
-  #[serde(default)]
+  #[serde(skip)]
   pub prg: Box<[u8]>,
   pub chr: Box<[u8]>,
   pub sram: Box<[u8]>,

@@ -139,7 +139,7 @@ pub const PALETTES: u16 = 0x3F00;
 
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct Ppu {
-	#[serde(default)]
+	#[serde(skip)]
 	pub screen: FrameBuffer,
 	renderer: Fetcher,
 
