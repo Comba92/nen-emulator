@@ -156,7 +156,7 @@ pub struct Ppu {
 	oam_addr: u8,
 	data_buf: u8,
 	
-  #[serde(skip, default = "crate::cart::Cart::empty")]
+  #[serde(skip)]
 	cart: SharedCart,
 
 	palettes: [u8; 32],
@@ -175,7 +175,7 @@ pub struct Ppu {
 
 impl Ppu {
 	pub fn new(cart: SharedCart) -> Self {
-		let last_scanline = 241 + cart.borrow().header.timing.vblank_len();
+		let last_scanline = 241 + cart.as_ref().header.timing.vblank_len();
 		
 		Self {
 			screen: FrameBuffer::nes_screen(),
@@ -221,7 +221,7 @@ impl Ppu {
 		if (0..=239).contains(&self.scanline) {
 			self.render_step();
 		} else if self.scanline == 240 && self.cycle == 2 {
-			// self.cart.borrow_mut().mapper.notify_in_frame(false);
+			// self.cart.as_mut().mapper.notify_in_frame(false);
 		} else if self.scanline == 241 {
 			if self.cycle == 1 {
 				self.frame_ready = Some(());
@@ -239,7 +239,7 @@ impl Ppu {
 				self.oam_addr = 0;
 			} else if self.cycle == 304 {
 				self.reset_render_y();
-			} else if self.cart.borrow().header.timing != ConsoleTiming::PAL 
+			} else if self.cart.as_mut().header.timing != ConsoleTiming::PAL 
 				&& self.cycle == 339 && self.in_odd_frame
 				&& self.rendering_enabled()
 			{
@@ -293,7 +293,7 @@ impl Ppu {
 
 		let (dst, addr) = self.map_address(addr);
 		match dst {
-			VramDst::Patterntbl | VramDst::Nametbl => self.cart.borrow_mut()
+			VramDst::Patterntbl | VramDst::Nametbl => self.cart.as_mut()
 				.vram_read(addr),
 			VramDst::Palettes => self.palettes[addr],
 			VramDst::Unused => 0,
@@ -327,7 +327,7 @@ impl Ppu {
 	pub fn write_vram(&mut self, val: u8) {
 		let (dst, addr) = self.map_address(self.v.0);
 		match dst {
-			VramDst::Patterntbl | VramDst::Nametbl => self.cart.borrow_mut()
+			VramDst::Patterntbl | VramDst::Nametbl => self.cart.as_mut()
 				.vram_write(addr, val),
 			VramDst::Palettes => self.palettes[addr] = val & 0b0011_1111,
 			VramDst::Unused => {}
@@ -376,12 +376,12 @@ impl Ppu {
 					self.nmi_requested = Some(());
 				}
 
-				self.cart.borrow_mut().mapper.notify_ppuctrl(self.ctrl.bits());
+				self.cart.as_mut().mapper.notify_ppuctrl(self.ctrl.bits());
 			}
 			0x2001 => {
 				self.mask_tmp = val;
 				self.mask_write_delay = 3;
-				self.cart.borrow_mut().mapper.notify_ppumask(self.mask.bits());
+				self.cart.as_mut().mapper.notify_ppumask(self.mask.bits());
 			}
 			0x2003 => self.oam_addr = val,
 			0x2004 => {

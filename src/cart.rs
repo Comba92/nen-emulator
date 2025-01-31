@@ -1,7 +1,4 @@
-use std::{cell::RefCell, rc::Rc};
-
 use serde::ser::SerializeStruct;
-
 use crate::mapper::{self, Banking, ChrBanking, Dummy, Mapper, PrgBanking, SramBanking, CiramBanking};
 
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
@@ -256,7 +253,50 @@ impl CartBanking {
   }
 }
 
-pub type SharedCart = Rc<RefCell<Cart>>;
+
+#[derive(Clone)]
+pub struct SharedCart(pub *mut Cart);
+
+impl SharedCart {
+  pub fn new(cart: Cart) -> Self {
+    // save cart into heap, the get its pointer
+    Self(Box::into_raw(Box::new(cart)))
+  }
+
+  pub fn as_mut(&self) -> &mut Cart {
+    unsafe { self.0.as_mut().expect("cart pointer should always be valid") }
+  }
+}
+
+impl AsRef<Cart> for SharedCart {
+  fn as_ref(&self) -> &Cart {
+    unsafe { self.0.as_ref().expect("cart pointer should always be valid") }
+  }
+}
+
+impl serde::Serialize for SharedCart {
+  fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+      S: serde::Serializer {
+    Cart::serialize(self.as_ref(), serializer)
+  }
+}
+
+impl<'de> serde::Deserialize<'de> for SharedCart {
+  fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+  where
+      D: serde::Deserializer<'de> {
+    let cart = Cart::deserialize(deserializer)?;
+    Ok(Self::new(cart))
+  }
+}
+
+impl Default for SharedCart {
+  fn default() -> Self {
+    Self(core::ptr::null_mut())
+  }
+}
+
 #[derive(serde::Deserialize)]
 pub struct Cart {
   pub header: CartHeader,
@@ -288,8 +328,10 @@ impl serde::Serialize for Cart {
   where
       S: serde::Serializer {
     let mut se = serializer.serialize_struct("Cart", 6)?;
+
     // we do not care to serialize prg
     se.skip_field("prg")?;
+
     se.serialize_field("header", &self.header)?;
     se.serialize_field("sram", &self.sram)?;
     se.serialize_field("ciram", &self.ciram)?;
@@ -320,13 +362,6 @@ impl Cart {
       .map_err(|e| format!("Not a valid iNES/Nes2.0 rom: {e}"))?;
 
     println!("Loaded NES ROM: {:#?}", header);
-    
-    // if header.format == HeaderFormat::INes 
-    //   && (header.mapper == 1 || header.mapper == 5)
-    // {
-    //   eprintln!("WARNING: this game is using the {} mapper, and the rom file has a iNes header. \
-    //     Compatibility is not garanteed. A rom file with a Nes2.0 header is preferred.", header.mapper_name);
-    // }
 
     let prg_start = HEADER_SIZE + if header.has_trainer { 512 } else { 0 };
     let chr_start = prg_start + header.prg_size;
@@ -349,14 +384,6 @@ impl Cart {
     let mapper = mapper::new_mapper(&header, &mut banks)?;
     
     Ok(Cart { header, prg, chr, sram, ciram, banks, mapper })
-  }
-
-  pub fn shared(self) -> SharedCart {
-    Rc::new(RefCell::new(self))
-  }
-
-  pub fn empty() -> SharedCart {
-    Cart::default().shared()
   }
 
   pub fn get_sram(&self) -> Option<Vec<u8>> {

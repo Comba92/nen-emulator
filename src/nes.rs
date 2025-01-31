@@ -63,15 +63,15 @@ impl Nes {
   }
   
   pub fn get_fps(&self) -> f32 {
-    self.get_cart().timing.fps()
+    self.get_cart_header().timing.fps()
   }
 
   pub fn save_sram(&self) -> Option<Vec<u8>> {
-    self.cpu.bus.cart.borrow().get_sram()
+    self.cpu.bus.cart.as_ref().get_sram()
   }
 
   pub fn load_sram(&mut self, data: Vec<u8>) {
-    self.get_bus().cart.borrow_mut().set_sram(data);
+    self.get_bus().cart.as_mut().set_sram(data);
   }
 
   pub fn toggle_sprite_limit(&mut self) {
@@ -85,24 +85,21 @@ impl Nes {
 
   pub fn load_from_emu(&mut self, other: Nes) {
     // save prg and chr in temp values
-    let mut self_cart = self.get_bus().cart.borrow_mut();
-    let prg = core::mem::take(&mut self_cart.prg);
-    let chr = core::mem::take(&mut self_cart.chr);
-    drop(self_cart);
-    
+    let old_cart = self.get_bus().cart.as_mut();
+    let prg = core::mem::take(&mut old_cart.prg);
+    let chr = core::mem::take(&mut old_cart.chr);
+
     // copy the new emulator
     *self = other;
 
     // the new emulator is missing prg and chr; we take the temp ones
-    let mut self_cart = self.get_bus().cart.borrow_mut();
-    self_cart.prg = prg;
+    let new_cart = self.get_bus().cart.as_mut();
+    new_cart.prg = prg;
     // we only copy the temp chr if it is not chr ram, as that has already been deserialized by serde
-    if !self_cart.header.uses_chr_ram {
-      self_cart.chr = chr;
+    if !new_cart.header.uses_chr_ram {
+      new_cart.chr = chr;
     }
-    drop(self_cart);
 
-    // As the cart is an rc, serde makes a new copy (so distinct rcs) for each referece.
     // When loading a savestate, we have to clone again the new cart, 
     // and re-wire it to the relative devices.
     let ppu_cart = self.cpu.bus.cart.clone();
@@ -135,8 +132,12 @@ impl Nes {
     &mut self.cpu.bus.apu
   }
 
-  pub fn get_cart(&self) -> CartHeader {
-    self.cpu.bus.cart.borrow().header.clone()
+  pub fn get_cart_header(&self) -> &CartHeader {
+    &self.cpu.bus.cart.as_ref().header
+  }
+
+  pub fn get_cart(&mut self) -> &mut Cart {
+    self.get_bus().cart.as_mut()
   }
 
   pub fn get_resolution(&mut self) -> (usize, usize) { (32*8, 30*8) }

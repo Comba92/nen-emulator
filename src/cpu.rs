@@ -66,9 +66,9 @@ impl<M: Memory> Memory for Cpu<M> {
 }
 
 impl<M: Memory> fmt::Debug for Cpu<M> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Cpu").field("pc", &self.pc).field("sp", &self.sp).field("sr", &self.p).field("a", &self.a).field("x", &self.x).field("y", &self.y).field("cycles", &self.cycles).finish()
-    }
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+      f.debug_struct("Cpu").field("pc", &self.pc).field("sp", &self.sp).field("sr", &self.p).field("a", &self.a).field("x", &self.x).field("y", &self.y).field("cycles", &self.cycles).finish()
+  }
 }
 
 
@@ -101,7 +101,7 @@ impl Cpu<Bus> {
     };
 
     // boot only if cart contains prg
-    if !cpu.bus.cart.borrow().prg.is_empty() {
+    if !cpu.bus.cart.as_mut().prg.is_empty() {
       // cpu should start by executing the reset subroutine
       cpu.pc = cpu.read16(PC_RESET);
     }

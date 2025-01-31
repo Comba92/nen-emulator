@@ -131,7 +131,7 @@ pub struct Apu {
   noise: Noise,
   pub dmc: Dmc,
   
-  #[serde(skip, default = "crate::cart::Cart::empty")]
+  #[serde(skip)]
   cart: SharedCart,
   
   frame_mode: FrameCounterMode,
@@ -159,7 +159,7 @@ pub struct Apu {
 
 impl Apu {
   pub fn new(cart: SharedCart) -> Self {
-    let timing = cart.borrow().header.timing;
+    let timing = cart.as_ref().header.timing;
 
     let cycles_per_sample = 
       timing.frame_cpu_cycles() / ((44100.0 / timing.fps()) as f32);
@@ -334,7 +334,7 @@ impl Apu {
     let noise    = self.noise.get_sample();
     let dmc = self.dmc.get_sample();
 
-    let ext_out = self.cart.borrow_mut().mapper.get_sample();
+    let ext_out = self.cart.as_mut().mapper.get_sample();
 
     let pulse_out = 0.00752 * (pulse1 + pulse2) as f32;
     let tnd_out = 

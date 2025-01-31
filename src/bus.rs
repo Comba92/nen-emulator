@@ -46,8 +46,8 @@ impl Memory for Bus {
       BusDst::Apu | BusDst::DmcDma => self.apu.read_reg(addr as u16),
       BusDst::Joypad1 => self.joypad.read1(),
       BusDst::Joypad2 => self.joypad.read2(),
-      BusDst::Cart => self.cart.borrow_mut().cart_read(addr),
-      BusDst::SRam | BusDst::Prg  => self.cart.borrow_mut().prg_read(addr),
+      BusDst::Cart => self.cart.as_mut().cart_read(addr),
+      BusDst::SRam | BusDst::Prg  => self.cart.as_mut().prg_read(addr),
       _ => { 0 }
     }
   }
@@ -71,8 +71,8 @@ impl Memory for Bus {
         self.apu.write_reg(addr as u16, val);
         self.tick();
       }
-      BusDst::Cart => self.cart.borrow_mut().cart_write(addr, val),
-      BusDst::SRam | BusDst::Prg => self.cart.borrow_mut().prg_write(addr, val),
+      BusDst::Cart => self.cart.as_mut().cart_write(addr, val),
+      BusDst::SRam | BusDst::Prg => self.cart.as_mut().prg_write(addr, val),
       BusDst::NoImpl => {}
     }
   }
@@ -83,7 +83,7 @@ impl Memory for Bus {
   }
 
   fn irq_poll(&mut self) -> bool {
-    self.cart.borrow_mut().mapper.poll_irq()
+    self.cart.as_mut().mapper.poll_irq()
     || self.apu.frame_irq_flag.is_some()
     || self.apu.dmc.irq_flag.is_some()
   }
@@ -95,7 +95,7 @@ impl Memory for Bus {
     };
 
     self.apu.step();
-    self.cart.borrow_mut().mapper.notify_cpu_cycle();
+    self.cart.as_mut().mapper.notify_cpu_cycle();
   }
 
   fn handle_dma(&mut self) -> bool {
@@ -124,12 +124,22 @@ impl Memory for Bus {
   }
 }
 
+impl Drop for Bus {
+  fn drop(&mut self) {
+    // This is needed, as we're manually managing a cart pointer to heap
+    unsafe {
+      drop(Box::from_raw(self.cart.0))
+    }
+  }
+}
+
 impl Bus {
   pub fn new(cart: Cart) -> Self {
     let timing = cart.header.timing;
-    let cart = cart.shared();
-    let ppu = Ppu::new(cart.clone());
-    let apu = Apu::new(cart.clone());
+    let shared_cart = SharedCart::new(cart); 
+
+    let ppu = Ppu::new(shared_cart.clone());
+    let apu = Apu::new(shared_cart.clone());
 
     Self {
       timing,
@@ -137,7 +147,7 @@ impl Bus {
       ppu,
       ppu_pal_cycles: 0,
       apu,
-      cart,
+      cart: shared_cart,
       joypad: Joypad::new(),
       oam_dma: OamDma::default(),
     }
@@ -150,7 +160,7 @@ impl Bus {
   fn ppu_step_pal(&mut self) {
     for _ in 0..3 { self.ppu.step(); }
     
-    if self.cart.borrow().header.timing == ConsoleTiming::PAL {
+    if self.cart.as_mut().header.timing == ConsoleTiming::PAL {
       // PPU is run for 3.2 cycles on PAL
       self.ppu_pal_cycles += 1;
       if self.ppu_pal_cycles >= 5 {

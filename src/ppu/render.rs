@@ -122,7 +122,7 @@ impl Ppu {
     if self.cycle == 260
       && self.rendering_enabled()
     {
-      self.cart.borrow_mut().mapper.notify_scanline();
+      self.cart.as_mut().mapper.notify_scanline();
     }
   }
 
