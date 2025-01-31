@@ -2,7 +2,6 @@ use crate::{cart::{ConsoleTiming, SharedCart}, frame::FrameBuffer};
 use bitfield_struct::bitfield;
 use bitflags::bitflags;
 use render::Fetcher;
-use serde::de::Visitor;
 
 mod render;
 
@@ -101,24 +100,10 @@ impl<'de> serde::Deserialize<'de> for LoopyReg {
 	fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
 	where
 		D: serde::Deserializer<'de> {
-		struct LoopyVisitor;
-		impl<'de> Visitor<'de> for LoopyVisitor {
-			type Value = LoopyReg;
-
-			fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-				formatter.write_str("u16")
-			}
-
-			fn visit_u16<E>(self, v: u16) -> Result<Self::Value, E>
-				where
-					E: serde::de::Error, {
-				Ok(LoopyReg::from_bits(v))
-			}
-		}
-		deserializer.deserialize_u16(LoopyVisitor)
+		let val = u16::deserialize(deserializer)?;
+		Ok(LoopyReg::from_bits(val))
 	}
 }
-
 
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 enum WriteLatch {
@@ -168,8 +153,10 @@ pub struct Ppu {
 	pub cycle: usize,
 	in_odd_frame: bool,
 	
+	pub nmi_tmp: Option<()>,
 	pub nmi_requested: Option<()>,
-	nmi_skip: bool,
+	vblank_suppress: bool,
+	nmi_suppress: bool,
 	pub frame_ready: Option<()>,
 }
 
@@ -225,10 +212,10 @@ impl Ppu {
 		} else if self.scanline == 241 {
 			if self.cycle == 1 {
 				self.frame_ready = Some(());
-				self.stat.set(Stat::vblank, !self.nmi_skip);
+				self.stat.set(Stat::vblank, !self.vblank_suppress);
 
-				if self.ctrl.contains(Ctrl::nmi_enabled) && !self.nmi_skip {
-					self.nmi_requested = Some(());
+				if self.ctrl.contains(Ctrl::nmi_enabled) && !self.nmi_suppress {
+					self.nmi_tmp = Some(());
 				}
 			}
 		} else if self.scanline == self.last_scanline {
@@ -263,7 +250,9 @@ impl Ppu {
 			if self.scanline > self.last_scanline {
 				self.scanline = 0;
 				self.in_odd_frame = !self.in_odd_frame;
-				self.nmi_skip = false;
+				
+				self.nmi_suppress = false;
+				self.vblank_suppress = false;
 			}
 		}
 	}
@@ -289,8 +278,6 @@ impl Ppu {
 	}
 
 	pub fn peek_vram(&self, addr: u16) -> u8 {
-		// OPT: this if is EXTREMELY costly (you know why, Refcells)
-
 		let (dst, addr) = self.map_address(addr);
 		match dst {
 			VramDst::Patterntbl | VramDst::Nametbl => self.cart.as_mut()
@@ -340,12 +327,16 @@ impl Ppu {
 		match addr {
 			0x2002 => {
 				if self.scanline == 241 && (0..3).contains(&self.cycle) {
-					self.nmi_skip = true;
-					self.nmi_requested = None;
-					
-					if self.cycle == 1 || self.cycle == 2 {
+					if self.cycle == 0 {
+						self.vblank_suppress = true;
+						self.stat.remove(Stat::vblank);
+					} else if self.cycle == 1 || self.cycle == 2 {
 						self.stat.insert(Stat::vblank);
 					}
+
+					self.nmi_suppress = true;
+					self.nmi_requested = None;
+					self.nmi_tmp = None;
 				}
 
 				let old_stat = self.stat.bits();
@@ -366,6 +357,7 @@ impl Ppu {
 
 				let was_nmi_off = !self.ctrl.contains(Ctrl::nmi_enabled);
 				self.ctrl = Ctrl::from_bits_retain(val);
+
 				self.t.set_nametbl_x(val & 0b01);
 				self.t.set_nametbl_y((val & 0b10) >> 1);
 
@@ -373,7 +365,7 @@ impl Ppu {
 					&& self.ctrl.contains(Ctrl::nmi_enabled)
 					&& self.stat.contains(Stat::vblank)
 				{
-					self.nmi_requested = Some(());
+					self.nmi_tmp = Some(());
 				}
 
 				self.cart.as_mut().mapper.notify_ppuctrl(self.ctrl.bits());

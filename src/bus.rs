@@ -79,7 +79,13 @@ impl Memory for Bus {
 
   fn nmi_poll(&mut self) -> bool {
     // https://www.nesdev.org/wiki/NMI
-    self.ppu.nmi_requested.take().is_some()
+    let res = self.ppu.nmi_requested.take().is_some();
+		
+    if self.ppu.nmi_tmp.is_some() {
+			self.ppu.nmi_requested = self.ppu.nmi_tmp.take();
+		}
+
+    res
   }
 
   fn irq_poll(&mut self) -> bool {

@@ -25,22 +25,9 @@ impl<'de> serde::Deserialize<'de> for ChrSelectByte {
 	fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
 	where
 		D: serde::Deserializer<'de> {
-		struct ByteVisitor;
-		impl<'de> serde::de::Visitor<'de> for ByteVisitor {
-			type Value = ChrSelectByte;
-
-			fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-				formatter.write_str("u16")
-			}
-
-			fn visit_u16<E>(self, v: u16) -> Result<Self::Value, E>
-				where
-					E: serde::de::Error, {
-				Ok(ChrSelectByte::from_bits(v))
-			}
-		}
-		deserializer.deserialize_u16(ByteVisitor)
-	}
+    let val = u16::deserialize(deserializer)?;
+    Ok(ChrSelectByte::from_bits(val))
+  }
 }
 
 // Mappers 21, 22, 23, 25
