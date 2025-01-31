@@ -20,11 +20,16 @@ pub static SYS_COLORS: LazyLock<[RGBColor; 64]> = LazyLock::new(|| {
 pub const GREYSCALE_PALETTE: [u8; 4] = [0x3F, 0x00, 0x10, 0x20];
 
 const PIXEL_BYTES: usize = 4;
-#[derive(Default)]
 pub struct FrameBuffer {
   pub buffer: Box<[u8]>,
   pub width: usize,
   pub height: usize,
+}
+
+impl Default for FrameBuffer {
+  fn default() -> Self {
+    FrameBuffer::nes_screen()
+  }
 }
 
 impl FrameBuffer {

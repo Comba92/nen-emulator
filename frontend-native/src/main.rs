@@ -1,4 +1,4 @@
-use std::{collections::HashMap, error::Error, fs, io::Read, path::PathBuf, time::{Duration, Instant}};
+use std::{collections::HashMap, error::Error, fs, io::{Read, BufReader, BufWriter}, path::PathBuf, time::{Duration, Instant}};
 use nen_emulator::{joypad::JoypadButton as NesJoypadButton, nes::Nes};
 use sdl2::{audio::{AudioQueue, AudioSpecDesired, AudioStatus}, controller::{Axis, Button}, event::Event, keyboard::Keycode};
 
@@ -84,8 +84,8 @@ fn load_sram(ctx: &mut EmuCtx) {
 
 fn save_state(ctx: &EmuCtx) {
   let path = PathBuf::from(&ctx.rom_path).with_extension("cmbsv");
-  let file = fs::File::create(path).expect("Couldn't create savestate file");
-  let _ = pot::to_writer(&ctx.emu, file)
+  let writer = BufWriter::new(fs::File::create(path).expect("Couldn't create savestate file"));
+  let _ = pot::to_writer(&ctx.emu, writer)
     .inspect_err(|e| eprintln!("Couldn't write the savestate to file: {e}"));
 }
 
@@ -94,8 +94,9 @@ fn load_state(ctx: &mut EmuCtx) {
   let savestate = fs::File::open(path);
 
   match savestate {
-    Ok(de) => {
-      let new_emu = pot::from_reader(&de);
+    Ok(file) => {
+      let reader = BufReader::new(file);
+      let new_emu = pot::from_reader(reader);
       match new_emu {
         Ok(new_emu) => {
           ctx.emu.load_from_emu(new_emu);
