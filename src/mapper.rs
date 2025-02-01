@@ -5,7 +5,7 @@ use crate::cart::{CartBanking, CartHeader, Mirroring, PrgTarget, PpuTarget};
 mod mmc1;
 mod mmc2;
 mod mmc3;
-// mod mmc5;
+mod mmc5;
 mod konami_irq;
 mod vrc2_4;
 mod vrc3;
@@ -19,6 +19,7 @@ use bandai_fcg::BandaiFCG;
 use mmc1::MMC1;
 use mmc2::MMC2;
 use mmc3::MMC3;
+use mmc5::MMC5;
 use vrc2_4::VRC2_4;
 use vrc3::VRC3;
 use vrc6::VRC6;
@@ -33,7 +34,7 @@ pub fn new_mapper(header: &CartHeader, banks: &mut CartBanking) -> Result<Box<dy
     2 | 180 => UxROM::new(header, banks),
     3 => CNROM::new(header, banks),
     4 => MMC3::new(header, banks),
-    // // 5 => MMC5::new(header, banks),
+    5 => MMC5::new(header, banks),
     7 => AxROM::new(header, banks),
     9 | 10 => MMC2::new(header, banks),
     11 => ColorDreams::new(header, banks),

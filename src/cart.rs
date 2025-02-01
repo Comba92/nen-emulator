@@ -378,7 +378,8 @@ impl Cart {
     let sram_size = header.sram_real_size();
     let sram = vec![0; sram_size].into_boxed_slice();
 
-    let ciram = vec![0; 4 * 1024].into_boxed_slice();
+    let ciram_size = if header.has_alt_mirroring { 4 * 1024 } else { 2 * 1024 };
+    let ciram = vec![0; ciram_size].into_boxed_slice();
     
     let mut banks = CartBanking::new(&header);
     let mapper = mapper::new_mapper(&header, &mut banks)?;

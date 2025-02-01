@@ -803,7 +803,7 @@ impl<M: Memory> Cpu<M> {
   // also called KIL, HLT
   fn jam(&mut self, _: &mut Operand) {
     self.jammed = true;
-    eprintln!("System jammed! (reached JAM instruction)")
+    panic!("System jammed! (reached JAM instruction)")
   }
 }
 

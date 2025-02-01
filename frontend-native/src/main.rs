@@ -27,7 +27,7 @@ impl Keymaps {
       (Keycode::M, InputAction::Mute),
       (Keycode::NUM_9, InputAction::Save),
       (Keycode::NUM_0, InputAction::Load),
-      (Keycode::NUM_1, InputAction::SpriteLimit)
+      (Keycode::NUM_1, InputAction::SpriteLimit),
     ]);
 
     let default_padmap = HashMap::from([
@@ -281,6 +281,17 @@ fn main() {
         Event::Quit { .. } => {
           save_sram(&ctx);
           break 'running;
+        }
+        Event::KeyDown { keycode, .. } => {
+          if let Some(keycode) = keycode {
+            if keycode == Keycode::Return {
+              let fullscreen = match canvas.window().fullscreen_state() {
+                sdl2::video::FullscreenType::Off => sdl2::video::FullscreenType::Desktop,
+                _ => sdl2::video::FullscreenType::Off
+              };
+              canvas.window_mut().set_fullscreen(fullscreen).unwrap();
+            }
+          }
         }
         Event::DropFile { filename, .. } => {
           ctx.audio.pause();
