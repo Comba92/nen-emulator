@@ -1,4 +1,4 @@
-use crate::{cart::{CartBanking, CartHeader, Mirroring, PpuTarget, PrgTarget}, ppu::{Ppu, PpuState}};
+use crate::{cart::{CartBanking, CartHeader, Mirroring, PpuTarget, PrgTarget}, ppu::PpuState};
 use super::{Banking, ChrBanking, Mapper};
 
 #[derive(Default, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -129,93 +129,92 @@ impl MMC5 {
   }
 
   fn update_chr_banks(&mut self, banks: &mut CartBanking) {
-    if !self.in_8x16_mode() {
-      match self.chr_mode {
-        ChrMode::Bank8kb => {
-          let bank = self.chr_selects[7] as usize;
-          for page in 0..8 {
-            banks.chr.set_page(page, bank + page);
-          }
-        }
-        ChrMode::Bank4kb => {
-          let bank = self.chr_selects[4] as usize;
-          for page in 0..4 {
-            banks.chr.set_page(page, bank + page);
-          }
-
-          let bank = self.chr_selects[7] as usize;
-          for page in 4..8 {
-            banks.chr.set_page(page, bank + (page-4));
-          }
-        }
-        ChrMode::Bank2kb => {
-          let bank = self.chr_selects[1] as usize;
-          banks.chr.set_page(0, bank);
-          banks.chr.set_page(1, bank + 1);
-
-
-          let bank = self.chr_selects[3] as usize;
-          banks.chr.set_page(2, bank);
-          banks.chr.set_page(3, bank + 1);
-
-          let bank = self.chr_selects[5] as usize;
-          banks.chr.set_page(4, bank);
-          banks.chr.set_page(5, bank + 1);
-
-          let bank = self.chr_selects[7] as usize;
-          banks.chr.set_page(6, bank);
-          banks.chr.set_page(7, bank + 1);
-        }
-        ChrMode::Bank1kb => {
-          for i in 0..8 {
-            banks.chr.set_page(i, self.chr_selects[i] as usize);
-          }
+    match self.chr_mode {
+      ChrMode::Bank8kb => {
+        let bank = self.chr_selects[7] as usize;
+        for page in 0..8 {
+          banks.chr.set_page(page, bank + page);
         }
       }
-    } else {
-      match self.chr_mode {
-        ChrMode::Bank8kb => {
-          let bank = self.chr_selects[11] as usize;
-          for page in 0..8 {
-            self.bg_banks.set_page(page, bank + page);
-          }
+      ChrMode::Bank4kb => {
+        let bank = self.chr_selects[4] as usize;
+        for page in 0..4 {
+          banks.chr.set_page(page, bank + page);
         }
-        ChrMode::Bank4kb => {
-          let bank = self.chr_selects[11] as usize;
-          for page in 0..4 {
-            self.bg_banks.set_page(page, bank + page);
-          }
 
-          let bank = self.chr_selects[11] as usize;
-          for page in 4..8 {
-            self.bg_banks.set_page(page, bank + (page-4));
-          }
+        let bank = self.chr_selects[7] as usize;
+        for page in 4..8 {
+          banks.chr.set_page(page, bank + (page-4));
         }
-        ChrMode::Bank2kb => {
-          let bank = self.chr_selects[9] as usize;
-          self.bg_banks.set_page(0, bank);
-          self.bg_banks.set_page(1, bank + 1);
+      }
+      ChrMode::Bank2kb => {
+        let bank = self.chr_selects[1] as usize;
+        banks.chr.set_page(0, bank);
+        banks.chr.set_page(1, bank + 1);
 
 
-          let bank = self.chr_selects[11] as usize;
-          self.bg_banks.set_page(2, bank);
-          self.bg_banks.set_page(3, bank + 1);
+        let bank = self.chr_selects[3] as usize;
+        banks.chr.set_page(2, bank);
+        banks.chr.set_page(3, bank + 1);
 
-          let bank = self.chr_selects[9] as usize;
-          self.bg_banks.set_page(4, bank);
-          self.bg_banks.set_page(5, bank + 1);
+        let bank = self.chr_selects[5] as usize;
+        banks.chr.set_page(4, bank);
+        banks.chr.set_page(5, bank + 1);
 
-          let bank = self.chr_selects[11] as usize;
-          self.bg_banks.set_page(6, bank);
-          self.bg_banks.set_page(7, bank + 1);
-        }
-        ChrMode::Bank1kb => {
-          for i in 0..8 {
-            self.bg_banks.set_page(i, self.chr_selects[8 + (i % 4)] as usize);
-          }
+        let bank = self.chr_selects[7] as usize;
+        banks.chr.set_page(6, bank);
+        banks.chr.set_page(7, bank + 1);
+      }
+      ChrMode::Bank1kb => {
+        for i in 0..8 {
+          banks.chr.set_page(i, self.chr_selects[i] as usize);
         }
       }
     }
+
+    match self.chr_mode {
+      ChrMode::Bank8kb => {
+        let bank = self.chr_selects[11] as usize;
+        for page in 0..8 {
+          self.bg_banks.set_page(page, bank + page);
+        }
+      }
+      ChrMode::Bank4kb => {
+        let bank = self.chr_selects[11] as usize;
+        for page in 0..4 {
+          self.bg_banks.set_page(page, bank + page);
+        }
+
+        let bank = self.chr_selects[11] as usize;
+        for page in 4..8 {
+          self.bg_banks.set_page(page, bank + (page-4));
+        }
+      }
+      ChrMode::Bank2kb => {
+        let bank = self.chr_selects[9] as usize;
+        self.bg_banks.set_page(0, bank);
+        self.bg_banks.set_page(1, bank + 1);
+
+
+        let bank = self.chr_selects[11] as usize;
+        self.bg_banks.set_page(2, bank);
+        self.bg_banks.set_page(3, bank + 1);
+
+        let bank = self.chr_selects[9] as usize;
+        self.bg_banks.set_page(4, bank);
+        self.bg_banks.set_page(5, bank + 1);
+
+        let bank = self.chr_selects[11] as usize;
+        self.bg_banks.set_page(6, bank);
+        self.bg_banks.set_page(7, bank + 1);
+      }
+      ChrMode::Bank1kb => {
+        for i in 0..8 {
+          self.bg_banks.set_page(i, self.chr_selects[8 + (i % 4)] as usize);
+        }
+      }
+    }
+    
   }
 
   fn update_ciram_banks(&mut self, banks: &mut CartBanking) {
@@ -427,7 +426,7 @@ impl Mapper for MMC5 {
         let mapped = match (&self.ppu_state, self.in_8x16_mode()) {
           (_, false) => banks.chr.translate(addr),
 
-          (PpuState::FetchBg, true) => self.bg_banks.translate(addr),
+          (PpuState::FetchBg, true)  => self.bg_banks.translate(addr),
           (PpuState::FetchSpr, true) => banks.chr.translate(addr),
           (PpuState::Vblank, true) => {
             if self.last_selected_bg_regs {
