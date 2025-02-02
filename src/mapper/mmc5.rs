@@ -1,4 +1,4 @@
-use crate::cart::{CartBanking, CartHeader, Mirroring, PrgTarget};
+use crate::cart::{CartBanking, CartHeader, Mirroring, PpuTarget, PrgTarget};
 use super::{Banking, Mapper};
 
 #[derive(Default, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -15,6 +15,8 @@ enum NametblMapping { #[default] CiRam0, CiRam1, ExRam, FillMode }
 
 #[derive(Default, Clone, Copy, serde::Serialize, serde::Deserialize)]
 enum AccessTarget { #[default] Prg, SRam }
+
+
 
 // Mapper 5
 // https://www.nesdev.org/wiki/MMC5
@@ -42,10 +44,11 @@ pub struct MMC5 {
   fill_mode_color: u8,
 
   irq_enabled: bool,
-  scanline_count: u8,
+  irq_pending: bool,
   irq_value: u8,
-  irq_scanline: Option<()>,
-  irq_in_frame: bool,
+  irq_count: u8,
+  irq_requested: Option<()>,
+  ppu_in_frame: bool,
 
   mirroring: Mirroring,
 
@@ -54,6 +57,13 @@ pub struct MMC5 {
 }
 
 impl MMC5 {
+  fn notify_nmi(&mut self) {
+    self.ppu_in_frame = false;
+    self.irq_pending = false;
+    self.irq_requested = None;
+    self.irq_count = 0;
+  }
+
   fn set_prg_page(&self, banks: &mut CartBanking, reg: usize, page: usize) {
     let (target, bank) = self.prg_selects[reg];
     match target {
@@ -112,7 +122,95 @@ impl MMC5 {
     }
   }
 
-  fn update_chr_banks(&mut self) {}
+  fn update_chr_banks(&mut self, banks: &mut CartBanking) {
+    if !self.ppu_spr_16 {
+      match self.chr_mode {
+        ChrMode::Bank8kb => {
+          let bank = self.chr_selects[7] as usize & !0b111;
+          for page in 0..8 {
+            banks.chr.set_page(page, bank | page);
+          }
+        }
+        ChrMode::Bank4kb => {
+          let bank = self.chr_selects[4] as usize & !0b11;
+          for page in 0..4 {
+            banks.chr.set_page(page, bank | page);
+          }
+
+          let bank = self.chr_selects[7] as usize & !0b11;
+          for page in 4..8 {
+            banks.chr.set_page(page, bank | (page-4));
+          }
+        }
+        ChrMode::Bank2kb => {
+          let bank = self.chr_selects[1] as usize & !1;
+          banks.chr.set_page(0, bank);
+          banks.chr.set_page(1, bank | 1);
+
+
+          let bank = self.chr_selects[3] as usize & !1;
+          banks.chr.set_page(2, bank);
+          banks.chr.set_page(3, bank | 1);
+
+          let bank = self.chr_selects[5] as usize & !1;
+          banks.chr.set_page(4, bank);
+          banks.chr.set_page(5, bank | 1);
+
+          let bank = self.chr_selects[7] as usize & !1;
+          banks.chr.set_page(6, bank);
+          banks.chr.set_page(7, bank | 1);
+        }
+        ChrMode::Bank1kb => {
+          for i in 0..8 {
+            banks.chr.set_page(i, self.chr_selects[i] as usize);
+          }
+        }
+      }
+    } else {
+      match self.chr_mode {
+        ChrMode::Bank8kb => {
+          let bank = self.chr_selects[11] as usize & !0b111;
+          for page in 0..8 {
+            banks.chr.set_page(page, bank | page);
+          }
+        }
+        ChrMode::Bank4kb => {
+          let bank = self.chr_selects[11] as usize & !0b11;
+          for page in 0..4 {
+            banks.chr.set_page(page, bank | page);
+          }
+
+          let bank = self.chr_selects[11] as usize & !0b11;
+          for page in 4..8 {
+            banks.chr.set_page(page, bank | (page-4));
+          }
+        }
+        ChrMode::Bank2kb => {
+          let bank = self.chr_selects[9] as usize & !1;
+          banks.chr.set_page(0, bank);
+          banks.chr.set_page(1, bank | 1);
+
+
+          let bank = self.chr_selects[11] as usize & !1;
+          banks.chr.set_page(2, bank);
+          banks.chr.set_page(3, bank | 1);
+
+          let bank = self.chr_selects[9] as usize & !1;
+          banks.chr.set_page(4, bank);
+          banks.chr.set_page(5, bank | 1);
+
+          let bank = self.chr_selects[11] as usize & !1;
+          banks.chr.set_page(6, bank);
+          banks.chr.set_page(7, bank | 1);
+        }
+        ChrMode::Bank1kb => {
+          for i in 0..8 {
+            banks.chr.set_page(i, self.chr_selects[8 + (i % 4)] as usize);
+          }
+        }
+      }
+    }
+  }
 }
 
 #[typetag::serde]
@@ -136,7 +234,7 @@ impl Mapper for MMC5 {
     };
 
     mapper.update_prg_and_sram_banks(banks);
-    mapper.update_chr_banks();
+    mapper.update_chr_banks(banks);
 
     Box::new(mapper)
   }
@@ -146,8 +244,10 @@ impl Mapper for MMC5 {
   fn cart_read(&mut self, addr: usize) -> u8 {
     match addr {
       0x5204 => {
-        let irq_ack = self.irq_scanline.take().is_some() as u8;
-        (irq_ack << 7) | ((self.irq_in_frame as u8) << 6)
+        let irq_pending = self.irq_pending;
+        self.irq_pending = false;
+        self.irq_requested = None;
+        ((irq_pending as u8) << 7) | ((self.ppu_in_frame as u8) << 6)
       },
 
       0x5025 => 
@@ -184,7 +284,7 @@ impl Mapper for MMC5 {
           2 => ChrMode::Bank2kb,
           _ => ChrMode::Bank1kb,
         };
-        self.update_chr_banks();
+        self.update_chr_banks(banks);
       }
       0x5102 => self.sram_write_lock1 = val & 0b11 == 0x02,
       0x5103 => self.sram_write_lock2 = val & 0b11 == 0x01,
@@ -229,14 +329,15 @@ impl Mapper for MMC5 {
 
       0x5120..=0x512B => {
         // https://www.nesdev.org/wiki/MMC5#CHR_Bankswitching_($5120-$5130)
+        
         if !self.ppu_spr_16 && addr > 0x5127 {
           self.last_chr_select = 0;
-          return; 
+          return;
         }
 
         self.last_chr_select = addr - 0x5120;
         self.chr_selects[self.last_chr_select] = val;
-        self.update_chr_banks();
+        self.update_chr_banks(banks);
       }
       0x5130 => self.chr_bank_hi = val & 0b11,
 
@@ -254,8 +355,11 @@ impl Mapper for MMC5 {
       0x5203 => self.irq_value = val,
       0x5204 => {
         self.irq_enabled = (val >> 7) & 1 != 0;
-        if !self.irq_enabled {
-          self.irq_scanline = None;
+
+        if self.irq_enabled && self.irq_pending {
+          self.irq_requested = Some(());
+        } else if !self.irq_enabled {
+          self.irq_requested = None;
         }
       }
 
@@ -263,7 +367,7 @@ impl Mapper for MMC5 {
       0x5206 => self.multiplier = val,
 
       0x5C00..=0x5FFF => {
-        match (&self.exram_mode, self.irq_in_frame) {
+        match (&self.exram_mode, self.ppu_in_frame) {
           (ExRamMode::Nametbl | ExRamMode::NametblEx, true) 
           | (ExRamMode::ReadWrite, _) => self.exram[addr - 0x5C00] = val,
           _ => {}
@@ -273,10 +377,14 @@ impl Mapper for MMC5 {
     }
   }
 
-  fn map_prg_addr(&self, banks: &mut CartBanking, addr: usize) -> PrgTarget {
+  fn map_prg_addr(&mut self, banks: &mut CartBanking, addr: usize) -> PrgTarget {
     match addr {
       0x4020..=0x5FFF => PrgTarget::Cart,
       0x6000..=0xFFFF => {
+        if addr == 0xFFFA || addr == 0xFFFB {
+          self.notify_nmi();
+        }
+
         let page = (addr - 0x6000) / 0x2000;
         let (target, _) = self.prg_selects[page];
         match target {
@@ -288,18 +396,55 @@ impl Mapper for MMC5 {
     }
   }
 
+  // fn map_ppu_addr(&mut self, banks: &mut CartBanking, addr: usize) -> PpuTarget {
+  //   // if ppu is not rendering and using 8x16 sprites, ppu data is redirected to last chr select
+  
+  // }
+
   fn notify_ppuctrl(&mut self, val: u8) {
     self.ppu_spr_16 = (val >> 5) != 0;
   }
 
   fn notify_ppumask(&mut self, val: u8) {
-    self.ppu_data_sub = (val >> 3) & 0b11 != 0;
-    if !self.ppu_data_sub {
-      self.irq_in_frame = false;
+    let data_sub = (val >> 3) & 0b11 != 0;
+    
+    if !self.ppu_data_sub && data_sub {
+      self.notify_nmi();
+    } else if !data_sub {
+      self.ppu_in_frame = false;
+    }
+
+    self.ppu_data_sub = data_sub;
+  }
+
+  fn notify_frame_end(&mut self) {
+    self.ppu_in_frame = false;
+  }
+
+  fn notify_mmc5_scanline(&mut self) {
+    // irq is ack when scanline 0 is detected
+    // nmi notify when scanline 241 is detected
+
+    if self.ppu_in_frame {
+      self.irq_count += 1;
+
+      if self.irq_count == self.irq_value {
+        self.irq_pending = true;
+        if self.irq_enabled {
+          self.irq_requested = Some(());
+        }
+      }
+
+      if self.irq_count == 241 {
+        self.notify_nmi();
+      }
+    } else {
+      self.ppu_in_frame = true;
+      self.irq_count = 0;
     }
   }
 
   fn poll_irq(&mut self) -> bool {
-    self.irq_enabled && self.irq_scanline.is_some()
+    self.irq_requested.is_some()
   }
 }

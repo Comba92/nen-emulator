@@ -74,7 +74,7 @@ impl Mapper for BandaiFCG {
     }
   }
 
-  fn map_prg_addr(&self, banks: &mut CartBanking, addr: usize) -> PrgTarget {
+  fn map_prg_addr(&mut self, banks: &mut CartBanking, addr: usize) -> PrgTarget {
     match addr {
       0x6000..=0x7FFF => PrgTarget::Prg(addr),
       0x8000..=0xFFFF => PrgTarget::Prg(banks.prg.translate(addr)),

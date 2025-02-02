@@ -94,7 +94,7 @@ impl Mapper for SunsoftFME7 {
     }
   }
 
-  fn map_prg_addr(&self, banks: &mut CartBanking, addr: usize) -> PrgTarget {
+  fn map_prg_addr(&mut self, banks: &mut CartBanking, addr: usize) -> PrgTarget {
     match addr {
       0x4020..=0x5FFF => PrgTarget::Cart,
       0x6000..=0x7FFF => {

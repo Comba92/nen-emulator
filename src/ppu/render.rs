@@ -107,8 +107,10 @@ impl Ppu {
     if (1..=256).contains(&self.cycle) || (321..=336).contains(&self.cycle) {
       self.fetch_bg_step();
 
-      if self.cycle == 3 {
-        // self.cart.borrow_mut().mapper.notify_in_frame(true);
+      if self.cycle == 3
+        && self.rendering_enabled()
+      {
+        self.cart.as_mut().mapper.notify_mmc5_scanline();
       }
     } else if self.cycle == 257 {
       self.increase_coarse_y();
@@ -122,7 +124,7 @@ impl Ppu {
     if self.cycle == 260
       && self.rendering_enabled()
     {
-      self.cart.as_mut().mapper.notify_scanline();
+      self.cart.as_mut().mapper.notify_mmc3_scanline();
     }
   }
 

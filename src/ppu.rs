@@ -207,8 +207,8 @@ impl Ppu {
 	pub fn step(&mut self) {
 		if (0..=239).contains(&self.scanline) {
 			self.render_step();
-		} else if self.scanline == 240 && self.cycle == 2 {
-			// self.cart.as_mut().mapper.notify_in_frame(false);
+		} else if self.scanline == 240 && self.cycle == 3 {
+			self.cart.as_mut().mapper.notify_frame_end();
 		} else if self.scanline == 241 {
 			if self.cycle == 1 {
 				self.frame_ready = Some(());
@@ -373,7 +373,7 @@ impl Ppu {
 			0x2001 => {
 				self.mask_tmp = val;
 				self.mask_write_delay = 3;
-				self.cart.as_mut().mapper.notify_ppumask(self.mask.bits());
+				self.cart.as_mut().mapper.notify_ppumask(val);
 			}
 			0x2003 => self.oam_addr = val,
 			0x2004 => {

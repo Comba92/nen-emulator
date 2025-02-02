@@ -116,7 +116,7 @@ pub trait Mapper {
 
   fn prg_write(&mut self, banks: &mut CartBanking, addr: usize, val: u8);
 
-  fn map_prg_addr(&self, banks: &mut CartBanking, addr: usize) -> PrgTarget {
+  fn map_prg_addr(&mut self, banks: &mut CartBanking, addr: usize) -> PrgTarget {
     match addr {
       0x4020..=0x5FFF => PrgTarget::Cart,
       0x6000..=0x7FFF => PrgTarget::SRam(true, banks.sram.translate(addr)),
@@ -141,11 +141,13 @@ pub trait Mapper {
   fn get_sample(&self) -> f32 { 0.0 }
 
   // Mmc3 scanline notify
-  fn notify_scanline(&mut self) {}
+  fn notify_mmc3_scanline(&mut self) {}
 
   // Mmc5 ppu notify
   fn notify_ppuctrl(&mut self, _val: u8) {}
   fn notify_ppumask(&mut self, _val: u8) {}
+  fn notify_frame_end(&mut self) {}
+  fn notify_mmc5_scanline(&mut self) {}
 
   fn poll_irq(&mut self) -> bool { false }
 }
@@ -598,7 +600,7 @@ impl Mapper for INesMapper087 {
     banks.chr.set_page(0, bank as usize);
   }
 
-  fn map_prg_addr(&self, banks: &mut CartBanking, addr: usize) -> PrgTarget {
+  fn map_prg_addr(&mut self, banks: &mut CartBanking, addr: usize) -> PrgTarget {
     match addr {
       0x6000..=0x7FFF => PrgTarget::Prg(addr),
       0x8000..=0xFFFF => PrgTarget::Prg(banks.prg.translate(addr)),

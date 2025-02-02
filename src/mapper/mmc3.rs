@@ -20,7 +20,7 @@ pub struct MMC3 {
   sram_read_enabled: bool,
   sram_write_enabled: bool,
 
-  pub irq_counter: u8,
+  pub irq_count: u8,
   pub irq_latch: u8,
   pub irq_reload: bool,
   pub irq_enabled: bool,
@@ -170,15 +170,15 @@ impl Mapper for MMC3 {
     }
   }
  
-  fn notify_scanline(&mut self) {
-    if self.irq_counter == 0 || self.irq_reload {
-      self.irq_counter = self.irq_latch;
+  fn notify_mmc3_scanline(&mut self) {
+    if self.irq_count == 0 || self.irq_reload {
+      self.irq_count = self.irq_latch;
       self.irq_reload = false;
     } else {
-      self.irq_counter -= 1;
+      self.irq_count -= 1;
     }
 
-    if self.irq_enabled && self.irq_counter == 0 {
+    if self.irq_enabled && self.irq_count == 0 {
       self.irq_requested = Some(());
     }
   }
