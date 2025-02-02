@@ -92,6 +92,7 @@ I haven't kept track of a game compatibility list, but most of the development w
 - Note: compatibility might not be the best. (TODO: use submappers to discriminate board)
 - [x] 24. [VRC6a (used for Akumajou Densetsu, japanese version of Castlevania III with enhanced audio)](https://www.nesdev.org/wiki/VRC6)
 - [x] 26. [VRC6b (used for Madara and Esper Dream 2)](https://www.nesdev.org/wiki/VRC6)
+- [] 30. [UNROM512](https://www.nesdev.org/wiki/UNROM_512)
 - [x] 31. [NSF](https://www.nesdev.org/wiki/INES_Mapper_031)
 - [x] 68. [Sunsoft4](https://www.nesdev.org/wiki/INES_Mapper_068)
 - Note: Nantettatte!! Baseball (J) is not supported.
@@ -103,6 +104,7 @@ I haven't kept track of a game compatibility list, but most of the development w
 - [x] 78. [Irem 74HC161 (used for Holy Diver and Cosmo Carrier)](https://www.nesdev.org/wiki/INES_Mapper_078)
 - [x] 87. [J87](https://www.nesdev.org/wiki/INES_Mapper_087)
 - [ ] 91. [J.Y. Company clone (TODO)](https://www.nesdev.org/wiki/INES_Mapper_091)
+- [ ] 111. [GTROM](https://www.nesdev.org/wiki/GTROM)
 - [x] 180. [UNROM (used for Crazy Climber)](https://www.nesdev.org/wiki/INES_Mapper_180)
 - [x] 206. [Namco 118/Tengen MIMIC-1](https://www.nesdev.org/wiki/INES_Mapper_206)
 

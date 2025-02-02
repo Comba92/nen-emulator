@@ -14,12 +14,16 @@ mod sunsoft4;
 mod sunsoft_fme_7;
 mod namco129_163;
 mod bandai_fcg;
+mod unrom512;
+mod gtrom;
 
 use bandai_fcg::BandaiFCG;
+use gtrom::GTROM;
 use mmc1::MMC1;
 use mmc2::MMC2;
 use mmc3::MMC3;
 use mmc5::MMC5;
+use unrom512::UNROM512;
 use vrc2_4::VRC2_4;
 use vrc3::VRC3;
 use vrc6::VRC6;
@@ -42,6 +46,7 @@ pub fn new_mapper(header: &CartHeader, banks: &mut CartBanking) -> Result<Box<dy
     19 => Namco129_163::new(header, banks),
     21 | 22 | 23 | 25 => VRC2_4::new(header, banks),
     24 | 26 => VRC6::new(header, banks),
+    30 => UNROM512::new(header, banks),
     31 => INesMapper031::new(header, banks),
     66 => GxROM::new(header, banks),
     68 => Sunsoft4::new(header, banks),
@@ -51,6 +56,7 @@ pub fn new_mapper(header: &CartHeader, banks: &mut CartBanking) -> Result<Box<dy
     75 => VRC1::new(header, banks),
     78 => INesMapper078::new(header, banks),
     87 => INesMapper087::new(header, banks),
+    111 => GTROM::new(header, banks),
     206 => INesMapper206::new(header, banks),
     _ => return Err(format!("Mapper {} not implemented", header.mapper))
   };
@@ -64,7 +70,7 @@ pub fn mapper_name(id: u16) -> &'static str {
     .map(|m| m.1)
     .unwrap_or("Not implemented")
 }
-const MAPPERS_TABLE: [(u16, &'static str); 35] = [
+const MAPPERS_TABLE: [(u16, &'static str); 37] = [
   (0, "NROM"),
   (1, "MMC1"),
   (2, "UxROM"),
@@ -83,6 +89,7 @@ const MAPPERS_TABLE: [(u16, &'static str); 35] = [
   (24, "Konami VRC6a (Akumajou Densetsu)"),
   (25, "Konami VRC2/VRC4"),
   (26, "Konami VRC6b (Madara and Esper Dream 2)"),
+  (30, "UNROM 512"),
   (31, "NSF"),
   (34, "BNROM/NINA-001"),
   (48, "Taito TC0690"),
@@ -96,6 +103,7 @@ const MAPPERS_TABLE: [(u16, &'static str); 35] = [
   (87, "Jaleco87"),
   (91, "J.Y. Company"),
   (94, "UNROM (Senjou no Ookami)"),
+  (111, "GTROM (Cheapocabra)"),
   (163, "FC-001"),
   (180, "UNROM (Crazy Climber)"),
   (206, "Namco 118/Tengen MIMIC-1"),

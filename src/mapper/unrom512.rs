@@ -1,6 +1,10 @@
+use crate::cart::{CartBanking, CartHeader, Mirroring};
+
+use super::{Banking, Mapper};
+
 
 // Mapper 30
-// https://www.nesdev.org/wiki/UNROM_512#InfiniteNESLives_4-screen_board
+// https://www.nesdev.org/wiki/UNROM_512
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct UNROM512;
 #[typetag::serde]

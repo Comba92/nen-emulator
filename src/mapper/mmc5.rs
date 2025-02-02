@@ -16,8 +16,6 @@ enum NametblMapping { #[default] CiRam0, CiRam1, ExRam, FillMode }
 #[derive(Default, Clone, Copy, serde::Serialize, serde::Deserialize)]
 enum AccessTarget { #[default] Prg, SRam }
 
-
-
 // Mapper 5
 // https://www.nesdev.org/wiki/MMC5
 #[derive(Default, serde::Serialize, serde::Deserialize)]
@@ -35,6 +33,7 @@ pub struct MMC5 {
   chr_mode: ChrMode,
   chr_selects: [u8; 12],
   bg_banks: Banking<ChrBanking>, 
+  spr_banks: Banking<ChrBanking>, 
   last_selected_bg_regs: bool,
   chr_bank_hi: u8,
   
@@ -58,6 +57,7 @@ pub struct MMC5 {
   multiplier: u8,
 }
 
+// https://github.com/SourMesen/Mesen2/blob/master/Core/NES/Mappers/Nintendo/MMC5.h
 impl MMC5 {
   fn notify_nmi(&mut self) {
     self.ppu_in_frame = false;
@@ -128,46 +128,46 @@ impl MMC5 {
     }
   }
 
-  fn update_chr_banks(&mut self, banks: &mut CartBanking) {
+  fn update_chr_banks(&mut self) {
     match self.chr_mode {
       ChrMode::Bank8kb => {
         let bank = self.chr_selects[7] as usize;
         for page in 0..8 {
-          banks.chr.set_page(page, bank + page);
+          self.spr_banks.set_page(page, bank + page);
         }
       }
       ChrMode::Bank4kb => {
         let bank = self.chr_selects[4] as usize;
         for page in 0..4 {
-          banks.chr.set_page(page, bank + page);
+          self.spr_banks.set_page(page, bank + page);
         }
 
         let bank = self.chr_selects[7] as usize;
         for page in 4..8 {
-          banks.chr.set_page(page, bank + (page-4));
+          self.spr_banks.set_page(page, bank + (page-4));
         }
       }
       ChrMode::Bank2kb => {
         let bank = self.chr_selects[1] as usize;
-        banks.chr.set_page(0, bank);
-        banks.chr.set_page(1, bank + 1);
+        self.spr_banks.set_page(0, bank);
+        self.spr_banks.set_page(1, bank + 1);
 
 
         let bank = self.chr_selects[3] as usize;
-        banks.chr.set_page(2, bank);
-        banks.chr.set_page(3, bank + 1);
+        self.spr_banks.set_page(2, bank);
+        self.spr_banks.set_page(3, bank + 1);
 
         let bank = self.chr_selects[5] as usize;
-        banks.chr.set_page(4, bank);
-        banks.chr.set_page(5, bank + 1);
+        self.spr_banks.set_page(4, bank);
+        self.spr_banks.set_page(5, bank + 1);
 
         let bank = self.chr_selects[7] as usize;
-        banks.chr.set_page(6, bank);
-        banks.chr.set_page(7, bank + 1);
+        self.spr_banks.set_page(6, bank);
+        self.spr_banks.set_page(7, bank + 1);
       }
       ChrMode::Bank1kb => {
         for i in 0..8 {
-          banks.chr.set_page(i, self.chr_selects[i] as usize);
+          self.spr_banks.set_page(i, self.chr_selects[i] as usize);
         }
       }
     }
@@ -232,8 +232,8 @@ impl MMC5 {
 impl Mapper for MMC5 {
   fn new(header: &CartHeader, banks: &mut CartBanking)-> Box<Self>  {
     banks.prg = Banking::new_prg(header, 4);
-    banks.chr = Banking::new_chr(header, 8);
     let bg_banks = Banking::new_chr(header, 8);
+    let spr_banks = Banking::new_chr(header, 8);
     banks.sram = Banking::new(header.sram_real_size(), 0x6000, 8*1024, 4);
 
 
@@ -247,12 +247,13 @@ impl Mapper for MMC5 {
 
       prg_selects,
       bg_banks,
+      spr_banks,
 
       ..Default::default()
     };
 
     mapper.update_prg_and_sram_banks(banks);
-    mapper.update_chr_banks(banks);
+    mapper.update_chr_banks();
 
     Box::new(mapper)
   }
@@ -302,7 +303,7 @@ impl Mapper for MMC5 {
           2 => ChrMode::Bank2kb,
           _ => ChrMode::Bank1kb,
         };
-        self.update_chr_banks(banks);
+        self.update_chr_banks();
       }
       0x5102 => self.sram_write_lock1 = val & 0b11 == 0x02,
       0x5103 => self.sram_write_lock2 = val & 0b11 == 0x01,
@@ -358,7 +359,7 @@ impl Mapper for MMC5 {
         let reg = addr - 0x5120;
         self.chr_selects[reg] = val;
         self.last_selected_bg_regs = addr >= 0x5128;
-        self.update_chr_banks(banks);
+        self.update_chr_banks();
       }
       0x5130 => self.chr_bank_hi = val & 0b11,
 
@@ -424,22 +425,31 @@ impl Mapper for MMC5 {
       0x0000..=0x1FFF => {
         // https://forums.nesdev.org/viewtopic.php?p=193069#p193069
         let mapped = match (&self.ppu_state, self.in_8x16_mode()) {
-          (_, false) => banks.chr.translate(addr),
+          (_, false) => self.spr_banks.translate(addr),
 
           (PpuState::FetchBg, true)  => self.bg_banks.translate(addr),
-          (PpuState::FetchSpr, true) => banks.chr.translate(addr),
+          (PpuState::FetchSpr, true) => self.spr_banks.translate(addr),
           (PpuState::Vblank, true) => {
             if self.last_selected_bg_regs {
               self.bg_banks.translate(addr)
             } else {
-              banks.chr.translate(addr)
+              self.spr_banks.translate(addr)
             }
           }
         };
 
         PpuTarget::Chr(mapped)
       },
-      0x2000..=0x2FFF => PpuTarget::CiRam(banks.ciram.translate(addr)),
+      0x2000..=0x2FFF => {
+        let page = (addr - 0x2000) / 1024;
+        let target = self.ciram_mapping[page];
+
+        match target {
+          NametblMapping::CiRam0 | NametblMapping::CiRam1 => PpuTarget::CiRam(banks.ciram.translate(addr)),
+          NametblMapping::ExRam => PpuTarget::ExRam(self.exram[addr % self.exram.len()]),
+          NametblMapping::FillMode => PpuTarget::ExRam(self.fill_mode_tile),
+        }
+      },
       _ => unreachable!()
     }
   }
