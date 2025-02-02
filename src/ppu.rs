@@ -118,6 +118,13 @@ enum VramDst {
 	Unused,
 }
 
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+pub enum PpuState {
+	FetchBg,
+	FetchSpr,
+	#[default] Vblank
+}
+
 pub const NAMETABLES: u16 = 0x2000;
 pub const ATTRIBUTES: u16 = 0x23C0;
 pub const PALETTES: u16 = 0x3F00;
@@ -208,7 +215,7 @@ impl Ppu {
 		if (0..=239).contains(&self.scanline) {
 			self.render_step();
 		} else if self.scanline == 240 && self.cycle == 3 {
-			self.cart.as_mut().mapper.notify_frame_end();
+			self.cart.as_mut().mapper.notify_ppu_state(PpuState::Vblank);
 		} else if self.scanline == 241 {
 			if self.cycle == 1 {
 				self.frame_ready = Some(());

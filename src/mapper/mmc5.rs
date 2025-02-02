@@ -1,5 +1,5 @@
-use crate::cart::{CartBanking, CartHeader, Mirroring, PpuTarget, PrgTarget};
-use super::{Banking, Mapper};
+use crate::{cart::{CartBanking, CartHeader, Mirroring, PpuTarget, PrgTarget}, ppu::{Ppu, PpuState}};
+use super::{Banking, ChrBanking, Mapper};
 
 #[derive(Default, PartialEq, serde::Serialize, serde::Deserialize)]
 enum PrgMode { Bank32kb, Bank16kb, BankMixed, #[default] Bank8kb }
@@ -24,6 +24,7 @@ enum AccessTarget { #[default] Prg, SRam }
 pub struct MMC5 {
   ppu_spr_16: bool,
   ppu_data_sub: bool,
+  ppu_state: PpuState,
   
   prg_mode: PrgMode,
   prg_selects: [(AccessTarget, usize); 5],
@@ -33,13 +34,14 @@ pub struct MMC5 {
 
   chr_mode: ChrMode,
   chr_selects: [u8; 12],
-  last_chr_select: usize,
+  bg_banks: Banking<ChrBanking>, 
+  last_selected_bg_regs: bool,
   chr_bank_hi: u8,
   
   exram_mode: ExRamMode,
   exram: Box<[u8]>,
 
-  vram_mapping: [NametblMapping; 4],
+  ciram_mapping: [NametblMapping; 4],
   fill_mode_tile: u8,
   fill_mode_color: u8,
 
@@ -62,6 +64,10 @@ impl MMC5 {
     self.irq_pending = false;
     self.irq_requested = None;
     self.irq_count = 0;
+  }
+
+  fn in_8x16_mode(&self) -> bool {
+    self.ppu_spr_16 && self.ppu_data_sub
   }
 
   fn set_prg_page(&self, banks: &mut CartBanking, reg: usize, page: usize) {
@@ -123,42 +129,42 @@ impl MMC5 {
   }
 
   fn update_chr_banks(&mut self, banks: &mut CartBanking) {
-    if !self.ppu_spr_16 {
+    if !self.in_8x16_mode() {
       match self.chr_mode {
         ChrMode::Bank8kb => {
-          let bank = self.chr_selects[7] as usize & !0b111;
+          let bank = self.chr_selects[7] as usize;
           for page in 0..8 {
-            banks.chr.set_page(page, bank | page);
+            banks.chr.set_page(page, bank + page);
           }
         }
         ChrMode::Bank4kb => {
-          let bank = self.chr_selects[4] as usize & !0b11;
+          let bank = self.chr_selects[4] as usize;
           for page in 0..4 {
-            banks.chr.set_page(page, bank | page);
+            banks.chr.set_page(page, bank + page);
           }
 
-          let bank = self.chr_selects[7] as usize & !0b11;
+          let bank = self.chr_selects[7] as usize;
           for page in 4..8 {
-            banks.chr.set_page(page, bank | (page-4));
+            banks.chr.set_page(page, bank + (page-4));
           }
         }
         ChrMode::Bank2kb => {
-          let bank = self.chr_selects[1] as usize & !1;
+          let bank = self.chr_selects[1] as usize;
           banks.chr.set_page(0, bank);
-          banks.chr.set_page(1, bank | 1);
+          banks.chr.set_page(1, bank + 1);
 
 
-          let bank = self.chr_selects[3] as usize & !1;
+          let bank = self.chr_selects[3] as usize;
           banks.chr.set_page(2, bank);
-          banks.chr.set_page(3, bank | 1);
+          banks.chr.set_page(3, bank + 1);
 
-          let bank = self.chr_selects[5] as usize & !1;
+          let bank = self.chr_selects[5] as usize;
           banks.chr.set_page(4, bank);
-          banks.chr.set_page(5, bank | 1);
+          banks.chr.set_page(5, bank + 1);
 
-          let bank = self.chr_selects[7] as usize & !1;
+          let bank = self.chr_selects[7] as usize;
           banks.chr.set_page(6, bank);
-          banks.chr.set_page(7, bank | 1);
+          banks.chr.set_page(7, bank + 1);
         }
         ChrMode::Bank1kb => {
           for i in 0..8 {
@@ -169,45 +175,55 @@ impl MMC5 {
     } else {
       match self.chr_mode {
         ChrMode::Bank8kb => {
-          let bank = self.chr_selects[11] as usize & !0b111;
+          let bank = self.chr_selects[11] as usize;
           for page in 0..8 {
-            banks.chr.set_page(page, bank | page);
+            self.bg_banks.set_page(page, bank + page);
           }
         }
         ChrMode::Bank4kb => {
-          let bank = self.chr_selects[11] as usize & !0b11;
+          let bank = self.chr_selects[11] as usize;
           for page in 0..4 {
-            banks.chr.set_page(page, bank | page);
+            self.bg_banks.set_page(page, bank + page);
           }
 
-          let bank = self.chr_selects[11] as usize & !0b11;
+          let bank = self.chr_selects[11] as usize;
           for page in 4..8 {
-            banks.chr.set_page(page, bank | (page-4));
+            self.bg_banks.set_page(page, bank + (page-4));
           }
         }
         ChrMode::Bank2kb => {
-          let bank = self.chr_selects[9] as usize & !1;
-          banks.chr.set_page(0, bank);
-          banks.chr.set_page(1, bank | 1);
+          let bank = self.chr_selects[9] as usize;
+          self.bg_banks.set_page(0, bank);
+          self.bg_banks.set_page(1, bank + 1);
 
 
-          let bank = self.chr_selects[11] as usize & !1;
-          banks.chr.set_page(2, bank);
-          banks.chr.set_page(3, bank | 1);
+          let bank = self.chr_selects[11] as usize;
+          self.bg_banks.set_page(2, bank);
+          self.bg_banks.set_page(3, bank + 1);
 
-          let bank = self.chr_selects[9] as usize & !1;
-          banks.chr.set_page(4, bank);
-          banks.chr.set_page(5, bank | 1);
+          let bank = self.chr_selects[9] as usize;
+          self.bg_banks.set_page(4, bank);
+          self.bg_banks.set_page(5, bank + 1);
 
-          let bank = self.chr_selects[11] as usize & !1;
-          banks.chr.set_page(6, bank);
-          banks.chr.set_page(7, bank | 1);
+          let bank = self.chr_selects[11] as usize;
+          self.bg_banks.set_page(6, bank);
+          self.bg_banks.set_page(7, bank + 1);
         }
         ChrMode::Bank1kb => {
           for i in 0..8 {
-            banks.chr.set_page(i, self.chr_selects[8 + (i % 4)] as usize);
+            self.bg_banks.set_page(i, self.chr_selects[8 + (i % 4)] as usize);
           }
         }
+      }
+    }
+  }
+
+  fn update_ciram_banks(&mut self, banks: &mut CartBanking) {
+    for (page, nametbl) in self.ciram_mapping.iter().enumerate() {
+      match nametbl {
+        NametblMapping::CiRam0 => banks.ciram.set_page(page, 0),
+        NametblMapping::CiRam1 => banks.ciram.set_page(page, 1),
+        _ => {}
       }
     }
   }
@@ -218,7 +234,9 @@ impl Mapper for MMC5 {
   fn new(header: &CartHeader, banks: &mut CartBanking)-> Box<Self>  {
     banks.prg = Banking::new_prg(header, 4);
     banks.chr = Banking::new_chr(header, 8);
+    let bg_banks = Banking::new_chr(header, 8);
     banks.sram = Banking::new(header.sram_real_size(), 0x6000, 8*1024, 4);
+
 
     let mut prg_selects = [const { (AccessTarget::Prg, 0) } ; 5];
     // 5117 is 0xFF at start
@@ -229,6 +247,7 @@ impl Mapper for MMC5 {
       ppu_data_sub: true,
 
       prg_selects,
+      bg_banks,
 
       ..Default::default()
     };
@@ -298,12 +317,14 @@ impl Mapper for MMC5 {
       0x5105 => {
         for i in 0..4 {
           let bits = (val >> (i*2)) & 0b11;
-          self.vram_mapping[i] = match bits {
+          self.ciram_mapping[i] = match bits {
             0 => NametblMapping::CiRam0,
             1 => NametblMapping::CiRam1,
             2 => NametblMapping::ExRam,
             _ => NametblMapping::FillMode,
           };
+
+          self.update_ciram_banks(banks);
         }
       }
 
@@ -331,12 +352,13 @@ impl Mapper for MMC5 {
         // https://www.nesdev.org/wiki/MMC5#CHR_Bankswitching_($5120-$5130)
         
         if !self.ppu_spr_16 && addr > 0x5127 {
-          self.last_chr_select = 0;
+          self.last_selected_bg_regs = false;
           return;
         }
 
-        self.last_chr_select = addr - 0x5120;
-        self.chr_selects[self.last_chr_select] = val;
+        let reg = addr - 0x5120;
+        self.chr_selects[reg] = val;
+        self.last_selected_bg_regs = addr >= 0x5128;
         self.update_chr_banks(banks);
       }
       0x5130 => self.chr_bank_hi = val & 0b11,
@@ -396,10 +418,32 @@ impl Mapper for MMC5 {
     }
   }
 
-  // fn map_ppu_addr(&mut self, banks: &mut CartBanking, addr: usize) -> PpuTarget {
-  //   // if ppu is not rendering and using 8x16 sprites, ppu data is redirected to last chr select
+  fn map_ppu_addr(&mut self, banks: &mut CartBanking, addr: usize) -> PpuTarget {
+    // if ppu is not rendering and using 8x16 sprites, ppu data is redirected to last chr select
   
-  // }
+    match addr {
+      0x0000..=0x1FFF => {
+        // https://forums.nesdev.org/viewtopic.php?p=193069#p193069
+        let mapped = match (&self.ppu_state, self.in_8x16_mode()) {
+          (_, false) => banks.chr.translate(addr),
+
+          (PpuState::FetchBg, true) => self.bg_banks.translate(addr),
+          (PpuState::FetchSpr, true) => banks.chr.translate(addr),
+          (PpuState::Vblank, true) => {
+            if self.last_selected_bg_regs {
+              self.bg_banks.translate(addr)
+            } else {
+              banks.chr.translate(addr)
+            }
+          }
+        };
+
+        PpuTarget::Chr(mapped)
+      },
+      0x2000..=0x2FFF => PpuTarget::CiRam(banks.ciram.translate(addr)),
+      _ => unreachable!()
+    }
+  }
 
   fn notify_ppuctrl(&mut self, val: u8) {
     self.ppu_spr_16 = (val >> 5) != 0;
@@ -417,8 +461,13 @@ impl Mapper for MMC5 {
     self.ppu_data_sub = data_sub;
   }
 
-  fn notify_frame_end(&mut self) {
-    self.ppu_in_frame = false;
+  fn notify_ppu_state(&mut self, state: PpuState) {
+    match state {
+      PpuState::Vblank => self.ppu_in_frame = false,
+      _ => {}
+    }
+
+    self.ppu_state = state;
   }
 
   fn notify_mmc5_scanline(&mut self) {

@@ -1,6 +1,6 @@
 use std::marker::{self, PhantomData};
 
-use crate::cart::{CartBanking, CartHeader, Mirroring, PrgTarget, PpuTarget};
+use crate::{cart::{CartBanking, CartHeader, Mirroring, PpuTarget, PrgTarget}, ppu::PpuState};
 
 mod mmc1;
 mod mmc2;
@@ -146,7 +146,7 @@ pub trait Mapper {
   // Mmc5 ppu notify
   fn notify_ppuctrl(&mut self, _val: u8) {}
   fn notify_ppumask(&mut self, _val: u8) {}
-  fn notify_frame_end(&mut self) {}
+  fn notify_ppu_state(&mut self, _state: PpuState) {}
   fn notify_mmc5_scanline(&mut self) {}
 
   fn poll_irq(&mut self) -> bool { false }
@@ -194,9 +194,9 @@ impl<T> Banking<T> {
     self.bankings[page % pages_count] = last_bank * self.bank_size;
   }
 
-  fn page_to_bank_addr(&self, page: usize, offset: usize) -> usize {
+  fn page_to_bank_addr(&self, page: usize, addr: usize) -> usize {
     let pages_count = self.bankings.len();
-    self.bankings[page % pages_count] + (offset % self.bank_size)
+    self.bankings[page % pages_count] + (addr % self.bank_size)
   }
 
   pub fn translate(&self, addr: usize) -> usize {

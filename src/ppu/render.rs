@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use super::{Mask, Ppu, Stat, ATTRIBUTES, NAMETABLES, PALETTES};
+use super::{Mask, Ppu, PpuState, Stat, ATTRIBUTES, NAMETABLES, PALETTES};
 
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 pub(super) struct Fetcher {
@@ -105,6 +105,9 @@ fn pixel_from_planes(bit: u8, plane0: u8, plane1: u8) -> u8 {
 impl Ppu {
   pub(super) fn render_step(&mut self) {
     if (1..=256).contains(&self.cycle) || (321..=336).contains(&self.cycle) {
+      if self.cycle == 1 || self.cycle == 321 {
+  			self.cart.as_mut().mapper.notify_ppu_state(PpuState::FetchBg);
+      }
       self.fetch_bg_step();
 
       if self.cycle == 3
@@ -117,6 +120,7 @@ impl Ppu {
       self.reset_render_x();
 
       // we just render all sprites in one go
+			self.cart.as_mut().mapper.notify_ppu_state(PpuState::FetchSpr);
       self.evaluate_sprites();
       self.fetch_sprites();
     }

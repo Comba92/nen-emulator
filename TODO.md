@@ -1,5 +1,4 @@
 ## TODO
-- Get rid of refcell?
 
 - [x] CPU COMPLETED
 - [ ] Better operand handling?
@@ -13,7 +12,7 @@
 
 - [x] Mappers
 - [ ] Convert usizes to u8
-- [ ] Nametable mirroring can be optimized with the bankings method
+- [x] Nametable mirroring can be optimized with the bankings method
 
 - https://www.nesdev.org/wiki/INES_Mapper_210 -- Mapper19 like
 
@@ -32,8 +31,7 @@
 - Cleaner implementation (it is better now but work can still be done)
 
 - [x] Support for zip files
-
-- [] Find a fast serializer which WORKS out of the box
+- [x] Find a fast serializer which WORKS out of the box (it was a problem of buffering!)
 
 - [] Game DB ??
 

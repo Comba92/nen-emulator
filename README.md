@@ -10,8 +10,11 @@ A (WIP) WASM frontend is also avaible here: https://comba92.github.io/nen-emulat
 
 ## Usage
 Game ROMs can be loaded by dragging and dropping the files into the window.
-Zip files are supported.
-ROMS with iNes or NES2.0 headers are supported.
+> [!TIP]
+> Zip files are supported.
+
+> [!Note]
+> ROMS with iNes or NES2.0 headers are supported.
 
 The terminal window shows basic informations and warnings, such as the ROM information.
 
@@ -53,6 +56,7 @@ The emulator supports mostly all the basic NES features you'd expect from a NES 
 - [x] All [nametable mirrorings](https://www.nesdev.org/wiki/Mirroring) are supported. 
 
 - [x] [iNes](https://www.nesdev.org/wiki/INES) and [NES2.0](https://www.nesdev.org/wiki/NES_2.0) headers are supported.
+- [x] Zip files are supported.
 - [x] Saving/loading of battery RAM when the game is changed or the emulator is closed.
 - [x] Savestates
 - [x] Resetting works, but some games require you to hold the down the reset button a few seconds
