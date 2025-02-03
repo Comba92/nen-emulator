@@ -10,7 +10,7 @@ use crate::cart::{ConsoleTiming, SharedCart};
 
 mod envelope;
 
-mod pulse;
+pub mod pulse;
 mod triangle;
 mod noise;
 mod dmc;

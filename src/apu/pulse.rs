@@ -28,7 +28,7 @@ impl From<u8> for PulseDutyMode {
 }
 
 #[derive(Default, serde::Serialize, serde::Deserialize)]
-pub(super) struct Pulse {
+pub struct Pulse {
   timer: ApuDivider,
   duty_mode: PulseDutyMode,
   duty_idx: usize,

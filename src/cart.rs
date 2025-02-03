@@ -349,7 +349,7 @@ impl serde::Serialize for Cart {
   }
 }
 
-pub enum PpuTarget { Chr(usize), CiRam(usize), ExRam(u8) }
+pub enum PpuTarget { Chr(usize), CiRam(usize), Value(u8) }
 pub enum PrgTarget { Prg(usize), SRam(bool, usize), Cart, ExRam(u8) }
 
 impl Cart {

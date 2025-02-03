@@ -143,7 +143,8 @@ pub trait Mapper {
 
   fn cart_read(&mut self, _addr: usize) -> u8 { 0xFF }
   fn cart_write(&mut self, _banks: &mut CartBanking, _addr: usize, _val: u8) {}
-
+  fn poll_irq(&mut self) -> bool { false }
+  
   // Generic cpu cycle notify / apu extension clocking
   fn notify_cpu_cycle(&mut self) {}
   fn get_sample(&self) -> f32 { 0.0 }
@@ -156,8 +157,6 @@ pub trait Mapper {
   fn notify_ppumask(&mut self, _val: u8) {}
   fn notify_ppu_state(&mut self, _state: PpuState) {}
   fn notify_mmc5_scanline(&mut self) {}
-
-  fn poll_irq(&mut self) -> bool { false }
 }
 
 #[derive(Debug, Default)]

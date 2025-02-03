@@ -118,7 +118,7 @@ enum VramDst {
 	Unused,
 }
 
-#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[derive(Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum PpuState {
 	FetchBg,
 	FetchSpr,
@@ -214,9 +214,9 @@ impl Ppu {
 	pub fn step(&mut self) {
 		if (0..=239).contains(&self.scanline) {
 			self.render_step();
-		} else if self.scanline == 240 && self.cycle == 3 {
+		} if self.scanline == 241 {
 			self.cart.as_mut().mapper.notify_ppu_state(PpuState::Vblank);
-		} else if self.scanline == 241 {
+
 			if self.cycle == 1 {
 				self.frame_ready = Some(());
 				self.stat.set(Stat::vblank, !self.vblank_suppress);
