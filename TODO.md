@@ -1,4 +1,5 @@
 ## TODO
+- [] Famicon Disk System support
 
 - [x] CPU COMPLETED
 - [ ] Better operand handling?

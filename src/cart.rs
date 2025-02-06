@@ -349,8 +349,8 @@ impl serde::Serialize for Cart {
   }
 }
 
-pub enum PpuTarget { Chr(usize), CiRam(usize), Value(u8) }
-pub enum PrgTarget { Prg(usize), SRam(bool, usize), Cart, ExRam(u8) }
+pub enum PpuTarget { Chr(usize), CiRam(usize), ExRam(usize), Value(u8) }
+pub enum PrgTarget { Prg(usize), SRam(bool, usize), Cart }
 
 impl Cart {
   pub fn new(rom: &[u8]) -> Result<Self, String> {
@@ -439,7 +439,8 @@ impl Cart {
     match target {
       PpuTarget::CiRam(mapped) => self.ciram[mapped],
       PpuTarget::Chr(mapped)   => self.chr[mapped],
-      _ => 0,
+      PpuTarget::ExRam(mapped) => self.mapper.exram_read(mapped),
+      PpuTarget::Value(val) => val,
     }
   }
 
@@ -448,7 +449,8 @@ impl Cart {
     match target {
       PpuTarget::CiRam(mapped) => self.ciram[mapped] = val,
       PpuTarget::Chr(mapped)   => if self.header.uses_chr_ram { self.chr[mapped] = val; }
-      _ => {}
+      PpuTarget::ExRam(mapped) => self.mapper.exram_write(mapped, val),
+      PpuTarget::Value(_) => {}
     }
   }
 }

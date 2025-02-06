@@ -247,6 +247,7 @@ impl Ppu {
 			self.mask_write_delay -= 1;
 			if self.mask_write_delay == 0 {
 				self.mask = Mask::from_bits_retain(self.mask_tmp);
+				self.cart.as_mut().mapper.notify_ppumask(self.mask.bits());
 			}
 		}
 
@@ -380,7 +381,6 @@ impl Ppu {
 			0x2001 => {
 				self.mask_tmp = val;
 				self.mask_write_delay = 3;
-				self.cart.as_mut().mapper.notify_ppumask(val);
 			}
 			0x2003 => self.oam_addr = val,
 			0x2004 => {

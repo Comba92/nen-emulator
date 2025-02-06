@@ -143,6 +143,10 @@ pub trait Mapper {
 
   fn cart_read(&mut self, _addr: usize) -> u8 { 0xFF }
   fn cart_write(&mut self, _banks: &mut CartBanking, _addr: usize, _val: u8) {}
+  
+  fn exram_read(&mut self, _addr: usize) -> u8 { 0xFF }
+  fn exram_write(&mut self, _addr: usize, _val: u8) {}
+
   fn poll_irq(&mut self) -> bool { false }
   
   // Generic cpu cycle notify / apu extension clocking

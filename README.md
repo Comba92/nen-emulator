@@ -79,12 +79,14 @@ I haven't kept track of a game compatibility list, but most of the development w
 - [x] 66. [GxROM](https://www.nesdev.org/wiki/GxROM)
 
 #### Other mappers
-- [ ] 05. [MMC5 (TODO)](https://www.nesdev.org/wiki/MMC5)
+- [] 05. [MMC5](https://www.nesdev.org/wiki/MMC5)
+- Only Castlevania III and Mario Zap and Dash works
+- Note: Vertical split functionality not implemented
 - [x] 09. [MMC2 (used for Punch-Out!!)](https://www.nesdev.org/wiki/MMC2)
 - [x] 10. [MMC4](https://www.nesdev.org/wiki/MMC4)
 - [x] 11. [ColorDreams](https://www.nesdev.org/wiki/Color_Dreams)
 - [ ] 16, [Bandai FCG](https://www.nesdev.org/wiki/INES_Mapper_016)
-- Note: graphical glitches
+- Note: Not usable, graphical glitches
 - [x] 19. [Namco 129/163](https://www.nesdev.org/wiki/INES_Mapper_019)
 - Note: works, but not tested properly.
 - Note: no audio chip emulation.
@@ -92,7 +94,8 @@ I haven't kept track of a game compatibility list, but most of the development w
 - Note: compatibility might not be the best. (TODO: use submappers to discriminate board)
 - [x] 24. [VRC6a (used for Akumajou Densetsu, japanese version of Castlevania III with enhanced audio)](https://www.nesdev.org/wiki/VRC6)
 - [x] 26. [VRC6b (used for Madara and Esper Dream 2)](https://www.nesdev.org/wiki/VRC6)
-- [] 30. [UNROM512](https://www.nesdev.org/wiki/UNROM_512)
+- [x] 30. [UNROM512](https://www.nesdev.org/wiki/UNROM_512)
+- Note: flashable board PRG not implemented
 - [x] 31. [NSF](https://www.nesdev.org/wiki/INES_Mapper_031)
 - [x] 68. [Sunsoft4](https://www.nesdev.org/wiki/INES_Mapper_068)
 - Note: Nantettatte!! Baseball (J) is not supported.
@@ -103,8 +106,8 @@ I haven't kept track of a game compatibility list, but most of the development w
 - [x] 75. [VRC1](https://www.nesdev.org/wiki/VRC1)
 - [x] 78. [Irem 74HC161 (used for Holy Diver and Cosmo Carrier)](https://www.nesdev.org/wiki/INES_Mapper_078)
 - [x] 87. [J87](https://www.nesdev.org/wiki/INES_Mapper_087)
-- [ ] 91. [J.Y. Company clone (TODO)](https://www.nesdev.org/wiki/INES_Mapper_091)
-- [ ] 111. [GTROM](https://www.nesdev.org/wiki/GTROM)
+- [x] 111. [GTROM](https://www.nesdev.org/wiki/GTROM)
+- Note: flashable board PRG not implemented
 - [x] 180. [UNROM (used for Crazy Climber)](https://www.nesdev.org/wiki/INES_Mapper_180)
 - [x] 206. [Namco 118/Tengen MIMIC-1](https://www.nesdev.org/wiki/INES_Mapper_206)
 
@@ -151,8 +154,8 @@ Adding more user features is a pain, tho.
 ### TODO: detailed explanation of the architecture. ;)
 
 ## What's missing
+- [ ] Famicon Disk System Support
 - [ ] RAM random initializing for games which uses it to seed RNG
-- [ ] MMC5 (I surrender)
 
 - [ ] Custom keybindings
 - [ ] Custom palettes

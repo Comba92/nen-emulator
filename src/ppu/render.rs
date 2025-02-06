@@ -113,9 +113,10 @@ impl Ppu {
     } else if self.cycle == 257 {
       self.increase_coarse_y();
       self.reset_render_x();
-
+    } else if self.cycle == 260 {
       // we just render all sprites in one go
 			self.cart.as_mut().mapper.notify_ppu_state(PpuState::FetchSpr);
+      
       self.evaluate_sprites();
       self.fetch_sprites();
     }
