@@ -1,4 +1,4 @@
-use crate::{apu::pulse::Pulse, cart::{CartBanking, CartHeader, Mirroring, PpuTarget, PrgTarget}, ppu::PpuState};
+use crate::{apu::{pulse::Pulse, Channel}, cart::{CartBanking, CartHeader, Mirroring, PpuTarget, PrgTarget}, ppu::PpuState};
 use super::{Banking, ChrBanking, Mapper};
 
 #[derive(Default, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -63,7 +63,8 @@ pub struct MMC5 {
   multiplier: u8,
 
   pulse1: Pulse,
-  pulse2: Pulse
+  pulse2: Pulse,
+  cycles: usize,
 }
 
 // https://github.com/SourMesen/Mesen2/blob/master/Core/NES/Mappers/Nintendo/MMC5.h
@@ -274,6 +275,9 @@ impl Mapper for MMC5 {
 
   fn cart_read(&mut self, addr: usize) -> u8 {
     match addr {
+      0x5015 =>
+        ((self.pulse2.is_enabled() as u8) << 1) | self.pulse1.is_enabled() as u8,
+
       0x5204 => {
         let irq_pending = self.irq_pending;
         self.irq_pending = false;
@@ -307,6 +311,11 @@ impl Mapper for MMC5 {
 
       0x5003 => self.pulse1.set_timer_high(val),
       0x5007 => self.pulse2.set_timer_high(val),
+
+      0x5015 => {
+        self.pulse1.set_enabled(val & 0b0001 != 0);
+        self.pulse2.set_enabled(val & 0b0010 != 0);
+      }
 
       0x5100 => {
         self.prg_mode = match val & 0b11 {
@@ -584,11 +593,30 @@ impl Mapper for MMC5 {
   }
 
   fn notify_cpu_cycle(&mut self) {
-    
+    if self.cycles % 2 == 1 {
+      self.pulse1.step_timer();
+      self.pulse2.step_timer();
+    }
+
+    // envelope and length counter are fixed to a 240hz update rate
+    if self.cycles >= 7457 {
+      self.cycles = 0;
+      self.pulse1.step_quarter();
+      self.pulse1.step_half();
+      self.pulse2.step_quarter();
+      self.pulse2.step_half();
+    } else {
+      self.cycles += 1;
+    }
   }
 
   fn get_sample(&self) -> f32 {
-    0.0
+    let sum = self.pulse1.get_sample() 
+    + self.pulse2.get_sample();
+
+    // magic value taken from here
+    // https://github.com/zeta0134/rustico/blob/e1ee2211cc6173fe2df0df036c9c2a30e9966136/core/src/mmc/vrc6.rs
+    0.00845 * sum as f32
   }
 
   fn poll_irq(&mut self) -> bool {

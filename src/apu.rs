@@ -238,6 +238,7 @@ impl Apu {
     
     self.dmc.step_timer();
     self.triangle.step_timer();
+    
     if self.cycles % 2 == 1 {
       self.pulse1.step_timer();
       self.pulse2.step_timer();
