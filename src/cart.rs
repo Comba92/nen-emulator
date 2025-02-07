@@ -405,7 +405,6 @@ impl Cart {
           self.sram_read(mapped)
         } else { 0xde }
       PrgTarget::Prg(mapped) => self.prg[mapped],
-      _ => 0,
     }
   }
   pub fn prg_write(&mut self, addr: usize, val: u8) {
@@ -416,7 +415,6 @@ impl Cart {
         self.sram_write(mapped, val);
       }
       PrgTarget::Prg(_) => self.mapper.prg_write(&mut self.banks, addr, val),
-      _ => {}
     }
   }
 

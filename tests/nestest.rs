@@ -92,7 +92,7 @@ use prettydiff::{diff_lines, diff_words};
 
     use AddressingMode::*;
     let desc = match instr.addressing {
-      Implicit | Accumulator => String::new(),
+      Implied | Accumulator => String::new(),
       Immediate => format!("#${operand8:02X}"),
       Relative => format!("${:04X}", (mock.pc.wrapping_add(instr.bytes as u16)).wrapping_add_signed((operand8 as i8) as i16)),
       ZeroPage | ZeroPageX | ZeroPageY => format!("${operand8:02X} = ${:04X}", cpu.read(operand8 as u16)),
