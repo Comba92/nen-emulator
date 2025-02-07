@@ -2,8 +2,6 @@
 - [] Famicon Disk System support
 
 - [x] CPU COMPLETED
-- [ ] Better operand handling?
-- [ ] Getting rid of the instructions json
 - Open bus behaviour?
 
 - [x] MMU COMPLETED

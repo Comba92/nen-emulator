@@ -121,7 +121,6 @@ pub fn set_byte_lo(dst: u16, val: u8) -> u16 {
 #[typetag::serde(tag = "mmu")]
 pub trait Mapper {
   fn new(header: &CartHeader, banks: &mut CartBanking) -> Box<Self> where Self: Sized;
-
   fn prg_write(&mut self, banks: &mut CartBanking, addr: usize, val: u8);
 
   fn map_prg_addr(&mut self, banks: &mut CartBanking, addr: usize) -> PrgTarget {
@@ -278,9 +277,7 @@ impl Banking<CiramBanking> {
 pub struct Dummy;
 #[typetag::serde]
 impl Mapper for Dummy {
-  fn new(_: &CartHeader, _: &mut CartBanking) -> Box<Self> {
-    Box::new(Self)
-  }
+  fn new(_: &CartHeader, _: &mut CartBanking) -> Box<Self> { Box::new(Self) }
   fn prg_write(&mut self, _: &mut CartBanking, _: usize, _: u8) {}
 }
 
@@ -291,7 +288,7 @@ pub struct NROM;
 
 #[typetag::serde]
 impl Mapper for NROM {
-  fn new(header: &CartHeader, banks: &mut CartBanking)-> Box<Self> {
+  fn new(header: &CartHeader, banks: &mut CartBanking) -> Box<Self> {
     banks.prg = Banking::new_prg(header, 2);
 
     if header.prg_size <= 16*1024 {

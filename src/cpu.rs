@@ -46,9 +46,13 @@ pub struct Cpu<M: Memory> {
   pub cycles: usize,
   pub jammed: bool,
 
+  #[serde(skip)]
   instr_addr: u16,
+  #[serde(skip)]
   instr_val:  u8,
+  #[serde(skip)]
   instr_dummy_addr: u16,
+  #[serde(skip)]
   instr_dummy_readed: bool,
   #[serde(skip)]
   instr_mode: AddressingMode,
@@ -618,7 +622,7 @@ impl<M: Memory> Cpu<M> {
     self.plp();
     self.pc = self.stack_pull16();
   }
-  
+
   fn nop(&mut self) {
     // if it is an undocumented nop it reads the operand and discards it
     self.fetch_operand_value();

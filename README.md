@@ -80,7 +80,8 @@ I haven't kept track of a game compatibility list, but most of the development w
 
 #### Other mappers
 - [] 05. [MMC5](https://www.nesdev.org/wiki/MMC5)
-- Only Castlevania III and Mario Zap and Dash works
+- Only Castlevania III and Mario Zap and Dash tested and work
+- Note: PCM channel not implemented
 - Note: Vertical split functionality not implemented
 - [x] 09. [MMC2 (used for Punch-Out!!)](https://www.nesdev.org/wiki/MMC2)
 - [x] 10. [MMC4](https://www.nesdev.org/wiki/MMC4)
@@ -88,8 +89,7 @@ I haven't kept track of a game compatibility list, but most of the development w
 - [ ] 16, [Bandai FCG](https://www.nesdev.org/wiki/INES_Mapper_016)
 - Note: Not usable, graphical glitches
 - [x] 19. [Namco 129/163](https://www.nesdev.org/wiki/INES_Mapper_019)
-- Note: works, but not tested properly.
-- Note: no audio chip emulation.
+- Note: no audio chip emulation
 - [x] 21, 22, 23, 25. [VRC2 and VRC4](https://www.nesdev.org/wiki/VRC2_and_VRC4)
 - Note: compatibility might not be the best. (TODO: use submappers to discriminate board)
 - [x] 24. [VRC6a (used for Akumajou Densetsu, japanese version of Castlevania III with enhanced audio)](https://www.nesdev.org/wiki/VRC6)
@@ -98,9 +98,9 @@ I haven't kept track of a game compatibility list, but most of the development w
 - Note: flashable board PRG not implemented
 - [x] 31. [NSF](https://www.nesdev.org/wiki/INES_Mapper_031)
 - [x] 68. [Sunsoft4](https://www.nesdev.org/wiki/INES_Mapper_068)
-- Note: Nantettatte!! Baseball (J) is not supported.
+- Note: Nantettatte!! Baseball (J) is not supported
 - [x] 69. [Sunsoft5 FME-7](https://www.nesdev.org/wiki/Sunsoft_FME-7)
-- Note: no audio chip emulation.
+- Note: no audio chip emulation
 - [x] 71. [Codemasters](https://www.nesdev.org/wiki/INES_Mapper_071)
 - [x] 73. [VRC3 (used for Salamander)](https://www.nesdev.org/wiki/VRC3)
 - [x] 75. [VRC1](https://www.nesdev.org/wiki/VRC1)

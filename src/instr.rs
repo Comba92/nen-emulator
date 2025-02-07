@@ -18,28 +18,28 @@
 //   pub illegal: bool,
 // }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug, Default, Clone, Copy, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub enum AddressingMode {
-  #[default]
-  #[serde(alias = "implied")]
-  Implied,
-  Accumulator,
-  Immediate,
-  #[serde(alias = "zeropage")]
-  ZeroPage,
-  #[serde(alias = "zeropageX")]
-  ZeroPageX,
-  #[serde(alias = "zeropageY")]
-  ZeroPageY,
-  Relative,
-  Absolute,
-  AbsoluteX,
-  AbsoluteY,
-  Indirect,
-  IndirectX,
-  IndirectY,
-}
+// #[derive(serde::Deserialize, Debug, Default, Clone, Copy, PartialEq)]
+// #[serde(rename_all = "camelCase")]
+// pub enum AddressingMode {
+//   #[default]
+//   #[serde(alias = "implied")]
+//   Implied,
+//   Accumulator,
+//   Immediate,
+//   #[serde(alias = "zeropage")]
+//   ZeroPage,
+//   #[serde(alias = "zeropageX")]
+//   ZeroPageX,
+//   #[serde(alias = "zeropageY")]
+//   ZeroPageY,
+//   Relative,
+//   Absolute,
+//   AbsoluteX,
+//   AbsoluteY,
+//   Indirect,
+//   IndirectX,
+//   IndirectY,
+// }
 
 // // https://www.reddit.com/r/learnrust/comments/15cq66f/can_you_partial_deserialize_a_vec/
 // fn get_instr_first_name<D>(deserializer: D) -> Result<&'static str, D::Error> where D: Deserializer<'static> {
@@ -112,6 +112,24 @@ pub enum AddressingMode {
 //     Ok(())
 //   }
 // }
+
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub enum AddressingMode {
+  #[default]
+  Implied,
+  Accumulator,
+  Immediate,
+  ZeroPage,
+  ZeroPageX,
+  ZeroPageY,
+  Relative,
+  Absolute,
+  AbsoluteX,
+  AbsoluteY,
+  Indirect,
+  IndirectX,
+  IndirectY,
+}
 
 use AddressingMode::*;
 pub const MODES_TABLE: [AddressingMode; 256] = [

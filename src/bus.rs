@@ -46,8 +46,7 @@ impl Memory for Bus {
       BusDst::Apu | BusDst::DmcDma => self.apu.read_reg(addr as u16),
       BusDst::Joypad1 => self.joypad.read1(),
       BusDst::Joypad2 => self.joypad.read2(),
-      BusDst::Cart => self.cart.as_mut().cart_read(addr),
-      BusDst::SRam | BusDst::Prg  => self.cart.as_mut().prg_read(addr),
+      BusDst::Cart | BusDst::SRam | BusDst::Prg  => self.cart.as_mut().prg_read(addr),
       _ => { 0 }
     }
   }
@@ -71,8 +70,7 @@ impl Memory for Bus {
         self.apu.write_reg(addr as u16, val);
         self.tick();
       }
-      BusDst::Cart => self.cart.as_mut().cart_write(addr, val),
-      BusDst::SRam | BusDst::Prg => self.cart.as_mut().prg_write(addr, val),
+      BusDst::Cart | BusDst::SRam | BusDst::Prg => self.cart.as_mut().prg_write(addr, val),
       BusDst::NoImpl => {}
     }
   }
@@ -166,13 +164,11 @@ impl Bus {
   fn ppu_step_pal(&mut self) {
     for _ in 0..3 { self.ppu.step(); }
     
-    if self.cart.as_mut().header.timing == ConsoleTiming::PAL {
-      // PPU is run for 3.2 cycles on PAL
-      self.ppu_pal_cycles += 1;
-      if self.ppu_pal_cycles >= 5 {
-        self.ppu_pal_cycles = 0;
-        self.ppu.step();
-      }
+    // PPU is run for 3.2 cycles on PAL
+    self.ppu_pal_cycles += 1;
+    if self.ppu_pal_cycles >= 5 {
+      self.ppu_pal_cycles = 0;
+      self.ppu.step();
     }
   }
 
