@@ -79,7 +79,7 @@ I haven't kept track of a game compatibility list, but most of the development w
 - [x] 66. [GxROM](https://www.nesdev.org/wiki/GxROM)
 
 #### Other mappers
-- [] 05. [MMC5](https://www.nesdev.org/wiki/MMC5)
+- [ ] 05. [MMC5](https://www.nesdev.org/wiki/MMC5)
 - Only Castlevania III and Mario Zap and Dash tested and work
 - Note: PCM channel not implemented
 - Note: Vertical split functionality not implemented
@@ -97,6 +97,7 @@ I haven't kept track of a game compatibility list, but most of the development w
 - [x] 30. [UNROM512](https://www.nesdev.org/wiki/UNROM_512)
 - Note: flashable board PRG not implemented
 - [x] 31. [NSF](https://www.nesdev.org/wiki/INES_Mapper_031)
+- [x] 34. [BNROM/NINA-001](https://www.nesdev.org/wiki/INES_Mapper_034)
 - [x] 68. [Sunsoft4](https://www.nesdev.org/wiki/INES_Mapper_068)
 - Note: Nantettatte!! Baseball (J) is not supported
 - [x] 69. [Sunsoft5 FME-7](https://www.nesdev.org/wiki/Sunsoft_FME-7)

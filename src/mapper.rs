@@ -48,6 +48,7 @@ pub fn new_mapper(header: &CartHeader, banks: &mut CartBanking) -> Result<Box<dy
     24 | 26 => VRC6::new(header, banks),
     30 => UNROM512::new(header, banks),
     31 => INesMapper031::new(header, banks),
+    34 => INesMapper034::new(header, banks),
     66 => GxROM::new(header, banks),
     68 => Sunsoft4::new(header, banks),
     69 => SunsoftFME7::new(header, banks),
@@ -77,7 +78,7 @@ const MAPPERS_TABLE: [(u16, &'static str); 37] = [
   (3, "CNROM"),
   (4, "MMC3"),
   (5, "MMC5"),
-  (7, "AxROM (Rare)"),
+  (7, "AxROM"),
   (9, "MMC2 (Punch-Out!!)"),
   (10, "MMC4"),
   (11, "ColorDreams"),
@@ -617,3 +618,39 @@ impl Mapper for INesMapper087 {
   }
 }
 
+// Mapper 34
+// https://www.nesdev.org/wiki/INES_Mapper_034
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct INesMapper034 {
+  submapper: u8,
+}
+
+#[typetag::serde]
+impl Mapper for INesMapper034 {
+  fn new(header: &CartHeader, banks: &mut CartBanking) -> Box<Self> {
+    let submapper = if header.submapper != 0 {
+      header.submapper
+    } else if header.chr_real_size() > 8 * 1024 { 
+      1 
+    } else { 2 };
+
+    banks.prg = Banking::new_prg(header, 1);
+
+    if submapper == 2 {
+      banks.chr = Banking::new_chr(header, 1);
+    } else {
+      banks.chr = Banking::new_chr(header, 2);
+    }
+
+    Box::new(Self { submapper })
+  }
+
+  fn prg_write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {
+    match (addr, self.submapper) {
+      (0x7FFD, 1) | (0x8000..=0xFFFF, 2) => banks.prg.set_page(0, val as usize & 0b11),
+      (0x7FFE, 1) => banks.chr.set_page(0, val as usize & 0b1111),
+      (0x7FFF, 1) => banks.chr.set_page(1, val as usize & 0b1111),
+      _ => {}
+    }
+  }
+}
