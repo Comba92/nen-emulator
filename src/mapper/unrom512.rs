@@ -7,6 +7,7 @@ use super::{Banking, Mapper};
 // https://www.nesdev.org/wiki/UNROM_512
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct UNROM512;
+
 #[typetag::serde]
 impl Mapper for UNROM512 {
   fn new(header: &CartHeader, banks: &mut CartBanking) -> Box<Self> {

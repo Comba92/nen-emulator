@@ -1,5 +1,5 @@
 use crate::{apu::{ApuDivider, Channel}, cart::{CartBanking, CartHeader, Mirroring, PpuTarget}};
-use super::{konami_irq::{IrqMode, KonamiIrq}, Banking, Mapper, CiramBanking};
+use super::{konami_irq::KonamiIrq, Banking, Mapper, CiramBanking};
 
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 enum ChrMode { #[default] Bank1kb, Bank2kb, BankMixed }
@@ -138,28 +138,6 @@ impl VRC6 {
     }
   }
 
-  fn handle_irq(&mut self) {
-    if !self.irq.enabled { return; }
-
-    match self.irq.mode {
-      IrqMode::Mode1 => {
-        self.irq.count += 1;
-      }
-      IrqMode::Mode0 => {
-        self.irq.prescaler -= 3;
-        if self.irq.prescaler <= 0 {
-          self.irq.prescaler += 341;
-          self.irq.count += 1;
-        }
-      }
-    }
-
-    if self.irq.count > 0xFF {
-      self.irq.requested = Some(());
-      self.irq.count = self.irq.latch;
-    }
-  }
-
   fn handle_apu(&mut self) {
     if self.apu_halted { return; }
 
@@ -292,7 +270,7 @@ impl Mapper for VRC6 {
   }
 
   fn notify_cpu_cycle(&mut self) {
-    self.handle_irq();
+    self.irq.handle_irq();
     self.handle_apu();
   }
 

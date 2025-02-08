@@ -36,4 +36,26 @@ impl KonamiIrq {
     self.requested = None;
     self.enabled = self.enabled_after_ack;    
   }
+
+  pub fn handle_irq(&mut self) {
+    if !self.enabled { return; }
+
+    match self.mode {
+      IrqMode::Mode1 => {
+        self.count += 1;
+      }
+      IrqMode::Mode0 => {
+        self.prescaler -= 3;
+        if self.prescaler <= 0 {
+          self.prescaler += 341;
+          self.count += 1;
+        }
+      }
+    }
+
+    if self.count > 0xFF {
+      self.requested = Some(());
+      self.count = self.latch;
+    }
+  }
 }

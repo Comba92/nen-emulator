@@ -10,6 +10,7 @@ mod konami_irq;
 mod vrc2_4;
 mod vrc3;
 mod vrc6;
+mod vrc7;
 mod sunsoft4;
 mod sunsoft_fme_7;
 mod namco129_163;
@@ -27,6 +28,7 @@ use unrom512::UNROM512;
 use vrc2_4::VRC2_4;
 use vrc3::VRC3;
 use vrc6::VRC6;
+use vrc7::VRC7;
 use sunsoft4::Sunsoft4;
 use sunsoft_fme_7::SunsoftFME7;
 use namco129_163::Namco129_163;
@@ -42,6 +44,7 @@ pub fn new_mapper(header: &CartHeader, banks: &mut CartBanking) -> Result<Box<dy
     7 => AxROM::new(header, banks),
     9 | 10 => MMC2::new(header, banks),
     11 => ColorDreams::new(header, banks),
+    13 => CPROM::new(header, banks),
     16 => BandaiFCG::new(header, banks),
     19 => Namco129_163::new(header, banks),
     21 | 22 | 23 | 25 => VRC2_4::new(header, banks),
@@ -56,6 +59,7 @@ pub fn new_mapper(header: &CartHeader, banks: &mut CartBanking) -> Result<Box<dy
     73 => VRC3::new(header, banks),
     75 => VRC1::new(header, banks),
     78 => INesMapper078::new(header, banks),
+    85 => VRC7::new(header, banks),
     87 => INesMapper087::new(header, banks),
     111 => GTROM::new(header, banks),
     206 => INesMapper206::new(header, banks),
@@ -71,7 +75,7 @@ pub fn mapper_name(id: u16) -> &'static str {
     .map(|m| m.1)
     .unwrap_or("Not implemented")
 }
-const MAPPERS_TABLE: [(u16, &'static str); 37] = [
+const MAPPERS_TABLE: [(u16, &'static str); 39] = [
   (0, "NROM"),
   (1, "MMC1"),
   (2, "UxROM"),
@@ -82,6 +86,7 @@ const MAPPERS_TABLE: [(u16, &'static str); 37] = [
   (9, "MMC2 (Punch-Out!!)"),
   (10, "MMC4"),
   (11, "ColorDreams"),
+  (13, "CPROM"),
   (16, "Bandai FCG"),
   (19, "Namco 129/163"),
   (21, "Konami VRC2/VRC4"),
@@ -101,6 +106,7 @@ const MAPPERS_TABLE: [(u16, &'static str); 37] = [
   (73, "Konami VRC3 (Salamander)"),
   (75, "Konami VRC1"),
   (78, "Irem 74HC161 (Holy Diver and Cosmo Carrier)"),
+  (85, "VRC7 (Lagrange Point and Tiny Toon Adventures 2)"),
   (87, "Jaleco87"),
   (91, "J.Y. Company"),
   (94, "UNROM (Senjou no Ookami)"),
@@ -375,7 +381,7 @@ impl Mapper for AxROM {
 
 // Mapper 11
 // https://www.nesdev.org/wiki/Color_Dreams
-// TODO: ColorDreams and GxRom are basically the same, use PhantomData generics
+// TODO: ColorDreams and GxRom are basically the same, merge into one
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct ColorDreams;
 
@@ -652,5 +658,22 @@ impl Mapper for INesMapper034 {
       (0x7FFF, 1) => banks.chr.set_page(1, val as usize & 0b1111),
       _ => {}
     }
+  }
+}
+
+// Mapper 13
+// https://www.nesdev.org/wiki/CPROM
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct CPROM;
+
+#[typetag::serde]
+impl Mapper for CPROM {
+  fn new(header: &CartHeader, banks: &mut CartBanking) -> Box<Self> {
+    banks.chr = Banking::new_chr(header, 2);
+    Box::new(Self)
+  }
+
+  fn prg_write(&mut self, banks: &mut CartBanking, _: usize, val: u8) {
+    banks.chr.set_page(1, val as usize & 0b11);
   }
 }

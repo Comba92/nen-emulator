@@ -1,7 +1,7 @@
 use bitfield_struct::bitfield;
 
 use crate::cart::{CartBanking, CartHeader, Mirroring, PrgTarget};
-use super::{konami_irq::{IrqMode, KonamiIrq}, Banking, Mapper};
+use super::{konami_irq::KonamiIrq, Banking, Mapper};
 
 #[bitfield(u16, order = Lsb)]
 struct ChrSelectByte {
@@ -217,24 +217,8 @@ impl Mapper for VRC2_4 {
   }
 
   fn notify_cpu_cycle(&mut self) {
-    if !self.irq.enabled || self.mapper == 22 { return; }
-
-    match self.irq.mode {
-      IrqMode::Mode1 => {
-        self.irq.count += 1;
-      }
-      IrqMode::Mode0 => {
-        self.irq.prescaler -= 3;
-        if self.irq.prescaler <= 0 {
-          self.irq.prescaler += 341;
-          self.irq.count += 1;
-        }
-      }
-    }
-
-    if self.irq.count > 0xFF {
-      self.irq.requested = Some(());
-      self.irq.count = self.irq.latch;
+    if self.mapper != 2 {
+      self.irq.handle_irq();
     }
   }
 

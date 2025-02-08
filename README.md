@@ -86,6 +86,7 @@ I haven't kept track of a game compatibility list, but most of the development w
 - [x] 09. [MMC2 (used for Punch-Out!!)](https://www.nesdev.org/wiki/MMC2)
 - [x] 10. [MMC4](https://www.nesdev.org/wiki/MMC4)
 - [x] 11. [ColorDreams](https://www.nesdev.org/wiki/Color_Dreams)
+- [x] 13. [CPROM (used for Videomation, a painting program for NES)](https://www.nesdev.org/wiki/CPROM)
 - [ ] 16, [Bandai FCG](https://www.nesdev.org/wiki/INES_Mapper_016)
 - Note: Not usable, graphical glitches
 - [x] 19. [Namco 129/163](https://www.nesdev.org/wiki/INES_Mapper_019)
@@ -106,6 +107,8 @@ I haven't kept track of a game compatibility list, but most of the development w
 - [x] 73. [VRC3 (used for Salamander)](https://www.nesdev.org/wiki/VRC3)
 - [x] 75. [VRC1](https://www.nesdev.org/wiki/VRC1)
 - [x] 78. [Irem 74HC161 (used for Holy Diver and Cosmo Carrier)](https://www.nesdev.org/wiki/INES_Mapper_078)
+- [x] 85. [VRC7 (used for Lagrange Point and Tiny Toon ADventures 2)](https://www.nesdev.org/wiki/VRC7)
+- Note: no audio chip emulation
 - [x] 87. [J87](https://www.nesdev.org/wiki/INES_Mapper_087)
 - [x] 111. [GTROM](https://www.nesdev.org/wiki/GTROM)
 - Note: flashable board PRG not implemented
