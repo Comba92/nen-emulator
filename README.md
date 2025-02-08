@@ -70,15 +70,15 @@ I haven't kept track of a game compatibility list, but most of the development w
 #### The most popular
 - [x] 00. [NROM](https://www.nesdev.org/wiki/NROM)
 - [x] 01. [MMC1](https://www.nesdev.org/wiki/MMC1)
-- [x] 01. [SxROM variants](https://www.nesdev.org/wiki/MMC1#SxROM_connection_variants)
 - [x] 02. [UxROM](https://www.nesdev.org/wiki/UxROM)
 - [x] 03. [CNROM](https://www.nesdev.org/wiki/INES_Mapper_003)
 - [x] 04. [MMC3](https://www.nesdev.org/wiki/MMC3)
-- [x] 04. [MMC6 variant](https://www.nesdev.org/wiki/MMC3#iNES_Mapper_004_and_MMC6)
 - [x] 07. [AxROM](https://www.nesdev.org/wiki/AxROM)
 - [x] 66. [GxROM](https://www.nesdev.org/wiki/GxROM)
 
 #### Other mappers
+- [x] 01. [MMC1 SxROM variants](https://www.nesdev.org/wiki/MMC1#SxROM_connection_variants)
+- [x] 04. [MMC6 (used for Startropics and Startropics II)](https://www.nesdev.org/wiki/MMC6)
 - [ ] 05. [MMC5](https://www.nesdev.org/wiki/MMC5)
 - Only Castlevania III and Mario Zap and Dash tested and work
 - Note: PCM channel not implemented
@@ -90,7 +90,7 @@ I haven't kept track of a game compatibility list, but most of the development w
 - [ ] 16, [Bandai FCG](https://www.nesdev.org/wiki/INES_Mapper_016)
 - Note: Not usable, graphical glitches
 - [x] 19. [Namco 129/163](https://www.nesdev.org/wiki/INES_Mapper_019)
-- Note: no audio chip emulation
+- Note: audio chip not implemented
 - [x] 21, 22, 23, 25. [VRC2 and VRC4](https://www.nesdev.org/wiki/VRC2_and_VRC4)
 - Note: compatibility might not be the best. (TODO: use submappers to discriminate board)
 - [x] 24. [VRC6a (used for Akumajou Densetsu, japanese version of Castlevania III with enhanced audio)](https://www.nesdev.org/wiki/VRC6)
@@ -100,15 +100,15 @@ I haven't kept track of a game compatibility list, but most of the development w
 - [x] 31. [NSF](https://www.nesdev.org/wiki/INES_Mapper_031)
 - [x] 34. [BNROM/NINA-001](https://www.nesdev.org/wiki/INES_Mapper_034)
 - [x] 68. [Sunsoft4](https://www.nesdev.org/wiki/INES_Mapper_068)
-- Note: Nantettatte!! Baseball (J) is not supported
+- Note: Nantettatte!! Baseball (J) licensing IC not implemented
 - [x] 69. [Sunsoft5 FME-7](https://www.nesdev.org/wiki/Sunsoft_FME-7)
-- Note: no audio chip emulation
+- Note: audio chip not implemented
 - [x] 71. [Codemasters](https://www.nesdev.org/wiki/INES_Mapper_071)
 - [x] 73. [VRC3 (used for Salamander)](https://www.nesdev.org/wiki/VRC3)
 - [x] 75. [VRC1](https://www.nesdev.org/wiki/VRC1)
 - [x] 78. [Irem 74HC161 (used for Holy Diver and Cosmo Carrier)](https://www.nesdev.org/wiki/INES_Mapper_078)
-- [x] 85. [VRC7 (used for Lagrange Point and Tiny Toon ADventures 2)](https://www.nesdev.org/wiki/VRC7)
-- Note: no audio chip emulation
+- [x] 85. [VRC7 (used for Lagrange Point and Tiny Toon Adventures 2)](https://www.nesdev.org/wiki/VRC7)
+- Note: audio chip not implemented
 - [x] 87. [J87](https://www.nesdev.org/wiki/INES_Mapper_087)
 - [x] 111. [GTROM](https://www.nesdev.org/wiki/GTROM)
 - Note: flashable board PRG not implemented
