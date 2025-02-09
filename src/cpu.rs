@@ -2,7 +2,7 @@ use core::{fmt, ops::{BitAnd, BitOr, BitXor, Not, Shl, Shr}};
 
 use bitflags::bitflags;
 
-use crate::{bus::Bus, cart::Cart, instr::{AddressingMode, MODES_TABLE}, mem::{Memory, Ram64Kb}};
+use crate::{bus::Bus, cart::Cart, addr::{AddressingMode, MODES_TABLE}, mem::{Memory, Ram64Kb}};
 
 bitflags! {
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
@@ -239,7 +239,6 @@ impl<M: Memory> Cpu<M> {
   }
 }
 
-enum RegTarget { A, X, Y }
 
 impl<M: Memory> Cpu<M> {
   pub fn step(&mut self) {
@@ -375,7 +374,12 @@ impl<M: Memory> Cpu<M> {
       _ => self.read(self.instr_addr)
     }
   }
+}
 
+
+enum RegTarget { A, X, Y }
+
+impl<M: Memory> Cpu<M> {
   fn load (&mut self, dst: RegTarget) {
     let val = self.fetch_operand_value();
     self.set_zn(val);
