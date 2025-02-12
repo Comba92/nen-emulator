@@ -181,24 +181,32 @@ pub struct CiramBanking;
 pub struct Banking<T> {
   data_size: usize,
   bank_size: usize,
+  bank_size_shift: usize,
   banks_count: usize,
+  banks_count_shift: usize,
   pages_start: usize,
-  // TODO: probably can be just a Vec of u8
   bankings: Box<[usize]>,
   kind: marker::PhantomData<T>
 }
 
+// https://stackoverflow.com/questions/25787613/division-and-multiplication-by-power-of-2
 impl<T> Banking<T> {
   pub fn new(rom_size: usize, pages_start: usize, page_size: usize, pages_count: usize) -> Self {
     let bankings = vec![0; pages_count].into_boxed_slice();
     let bank_size = page_size;
     let banks_count = rom_size / bank_size;
-    Self { bankings, data_size: rom_size, pages_start, bank_size, banks_count, kind: PhantomData::<T> }
+    let bank_size_shift = bank_size.ilog2() as usize;
+    let banks_count_shift = bank_size.ilog2() as usize;
+    Self { bankings, data_size: rom_size, pages_start, bank_size, bank_size_shift, banks_count, banks_count_shift, kind: PhantomData::<T> }
   }
 
   pub fn set_page(&mut self, page: usize, bank: usize) {
-    let pages_count = self.bankings.len();
-    self.bankings[page % pages_count] = (bank % self.banks_count) * self.bank_size;
+    // some games might write bigger bank numbers than really avaible
+    // let bank = bank % self.banks_count;
+    let bank = bank & (self.banks_count-1);
+    // i do not expect to write outside the slots array.
+    // self.bankings[page] = bank * self.bank_size;
+    self.bankings[page] = bank << self.bank_size_shift;
   }
 
   pub fn swap_pages(&mut self, left: usize, right: usize) {
@@ -206,18 +214,20 @@ impl<T> Banking<T> {
   }
 
   pub fn set_page_to_last_bank(&mut self, page: usize) {
-    let pages_count = self.bankings.len();
     let last_bank = self.banks_count-1;
-    self.bankings[page % pages_count] = last_bank * self.bank_size;
+    self.set_page(page, last_bank);
   }
 
   fn page_to_bank_addr(&self, page: usize, addr: usize) -> usize {
-    let pages_count = self.bankings.len();
-    self.bankings[page % pages_count] + (addr % self.bank_size)
+    // i do not expect to write outside the slots array here either. 
+    // the bus object should take responsibilty to always pass correct addresses in range.
+    // self.bankings[page] + (addr % self.bank_size)
+    self.bankings[page] + (addr & (self.bank_size-1))
   }
 
   pub fn translate(&self, addr: usize) -> usize {
-    let page = (addr - self.pages_start) / self.bank_size;
+    // let page = (addr - self.pages_start) / self.bank_size;
+    let page = (addr - self.pages_start) >> self.bank_size_shift;
     self.page_to_bank_addr(page, addr)
   }
 }
