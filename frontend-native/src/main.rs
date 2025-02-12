@@ -1,5 +1,5 @@
 use std::{collections::HashMap, error::Error, fs, io::{Read, BufReader, BufWriter}, path::PathBuf, time::{Duration, Instant}};
-use nen_emulator::{joypad::JoypadButton as NesJoypadButton, nes::Nes};
+use nen_emulator::{joypad::JoypadButton as NesJoypadButton, Nes};
 use sdl2::{audio::{AudioQueue, AudioSpecDesired, AudioStatus}, controller::{Axis, Button}, event::Event, keyboard::Keycode};
 
 enum InputAction {
