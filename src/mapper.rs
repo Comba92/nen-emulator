@@ -1,6 +1,6 @@
 use std::marker::{self, PhantomData};
 
-use crate::{cart::{CartBanking, CartHeader, Mirroring, PpuTarget, PrgTarget}, ppu::PpuState};
+use crate::{cart::{MemConfig, CartHeader, Mirroring, PpuTarget, PrgTarget}, ppu::PpuState};
 
 mod mmc1;
 mod mmc2;
@@ -33,7 +33,7 @@ use sunsoft4::Sunsoft4;
 use sunsoft_fme_7::SunsoftFME7;
 use namco129_163::Namco129_163;
 
-pub fn new_mapper(header: &CartHeader, banks: &mut CartBanking) -> Result<Box<dyn Mapper>, String> {
+pub fn new_mapper(header: &CartHeader, banks: &mut MemConfig) -> Result<Box<dyn Mapper>, String> {
   let mapper: Box<dyn Mapper> = match header.mapper {
     0 => NROM::new(header, banks),
     1 => MMC1::new(header, banks),
@@ -125,12 +125,24 @@ pub fn set_byte_lo(dst: u16, val: u8) -> u16 {
   (dst & 0xFF00) | val as u16
 }
 
+/*
+  THE PLAN:
+  1. map_prg_addr() and map_ppu_addr() should be changed to single functions for prg, sram, chr and ciram; cart is useless (use cart_read() and cart_write())
+  2. Cart banks should have a MappingConfig object. Cart becomes a MMU - bus uses it to dispatch ALL devices.
+ */
+
 #[typetag::serde(tag = "mmu")]
 pub trait Mapper {
-  fn new(header: &CartHeader, banks: &mut CartBanking) -> Box<Self> where Self: Sized;
-  fn prg_write(&mut self, banks: &mut CartBanking, addr: usize, val: u8);
+  fn new(header: &CartHeader, banks: &mut MemConfig) -> Box<Self> where Self: Sized;
+  fn prg_write(&mut self, banks: &mut MemConfig, addr: usize, val: u8);
 
-  fn map_prg_addr(&mut self, banks: &mut CartBanking, addr: usize) -> PrgTarget {
+  fn prg_translate (&mut self, banks: &mut MemConfig, addr: u16) -> usize { banks.prg.translate(addr as usize) }
+  fn sram_translate(&mut self, banks: &mut MemConfig, addr: u16) -> usize { banks.sram.translate(addr as usize) }
+
+  fn chr_translate  (&mut self, banks: &mut MemConfig, addr: u16) -> usize { banks.chr.translate(addr as usize) }
+  fn ciram_translate(&mut self, banks: &mut MemConfig, addr: u16) -> usize { banks.ciram.translate(addr as usize) }
+
+  fn map_prg_addr(&mut self, banks: &mut MemConfig, addr: usize) -> PrgTarget {
     match addr {
       0x4020..=0x5FFF => PrgTarget::Cart,
       0x6000..=0x7FFF => PrgTarget::SRam(true, banks.sram.translate(addr)),
@@ -138,8 +150,8 @@ pub trait Mapper {
       _ => unreachable!()
     }
   }
-
-  fn map_ppu_addr(&mut self, banks: &mut CartBanking, addr: usize) -> PpuTarget {
+  
+  fn map_ppu_addr(&mut self, banks: &mut MemConfig, addr: usize) -> PpuTarget {
     match addr {
       0x0000..=0x1FFF => PpuTarget::Chr(banks.chr.translate(addr)),
       0x2000..=0x2FFF => PpuTarget::CiRam(banks.ciram.translate(addr)),
@@ -148,7 +160,7 @@ pub trait Mapper {
   }
 
   fn cart_read(&mut self, _addr: usize) -> u8 { 0xFF }
-  fn cart_write(&mut self, _banks: &mut CartBanking, _addr: usize, _val: u8) {}
+  fn cart_write(&mut self, _banks: &mut MemConfig, _addr: usize, _val: u8) {}
   
   fn exram_read(&mut self, _addr: usize) -> u8 { 0xFF }
   fn exram_write(&mut self, _addr: usize, _val: u8) {}
@@ -294,8 +306,8 @@ impl Banking<CiramBanking> {
 pub struct Dummy;
 #[typetag::serde]
 impl Mapper for Dummy {
-  fn new(_: &CartHeader, _: &mut CartBanking) -> Box<Self> { Box::new(Self) }
-  fn prg_write(&mut self, _: &mut CartBanking, _: usize, _: u8) {}
+  fn new(_: &CartHeader, _: &mut MemConfig) -> Box<Self> { Box::new(Self) }
+  fn prg_write(&mut self, _: &mut MemConfig, _: usize, _: u8) {}
 }
 
 // Mapper 00
@@ -305,7 +317,7 @@ pub struct NROM;
 
 #[typetag::serde]
 impl Mapper for NROM {
-  fn new(header: &CartHeader, banks: &mut CartBanking) -> Box<Self> {
+  fn new(header: &CartHeader, banks: &mut MemConfig) -> Box<Self> {
     banks.prg = Banking::new_prg(header, 2);
 
     if header.prg_size <= 16*1024 {
@@ -317,7 +329,7 @@ impl Mapper for NROM {
     Box::new(Self)
   }
 
-  fn prg_write(&mut self, _: &mut CartBanking, _: usize, _: u8) {}
+  fn prg_write(&mut self, _: &mut MemConfig, _: usize, _: u8) {}
 }
 
 // Mapper 02
@@ -329,7 +341,7 @@ pub struct UxROM {
 
 #[typetag::serde]
 impl Mapper for UxROM {
-  fn new(header: &CartHeader, banks: &mut CartBanking)-> Box<Self> {
+  fn new(header: &CartHeader, banks: &mut MemConfig)-> Box<Self> {
     banks.prg = Banking::new_prg(header, 2);
 
     // https://www.nesdev.org/wiki/INES_Mapper_180
@@ -343,7 +355,7 @@ impl Mapper for UxROM {
     Box::new(Self { banked_page })
   }
 
-  fn prg_write(&mut self, banks: &mut CartBanking, _: usize, val: u8) {
+  fn prg_write(&mut self, banks: &mut MemConfig, _: usize, val: u8) {
     let select = val & 0b1111;
     banks.prg.set_page(self.banked_page as usize, select as usize);
   }
@@ -356,12 +368,12 @@ pub struct CNROM;
 
 #[typetag::serde]
 impl Mapper for CNROM {
-  fn new(header: &CartHeader, banks: &mut CartBanking)-> Box<Self> {
+  fn new(header: &CartHeader, banks: &mut MemConfig)-> Box<Self> {
     banks.chr = Banking::new_chr(header, 1);
     Box::new(Self)
   }
 
-  fn prg_write(&mut self, banks: &mut CartBanking, _: usize, val: u8) {
+  fn prg_write(&mut self, banks: &mut MemConfig, _: usize, val: u8) {
     banks.chr.set_page(0, val as usize);
   }
 }
@@ -373,12 +385,12 @@ pub struct AxROM;
 
 #[typetag::serde]
 impl Mapper for AxROM {
-  fn new(header: &CartHeader, banks: &mut CartBanking)-> Box<Self> {
+  fn new(header: &CartHeader, banks: &mut MemConfig)-> Box<Self> {
     banks.prg = Banking::new_prg(header, 1);
     Box::new(Self)
   }
 
-  fn prg_write(&mut self, banks: &mut CartBanking, _: usize, val: u8) {
+  fn prg_write(&mut self, banks: &mut MemConfig, _: usize, val: u8) {
     let bank = val as usize & 0b111;
     banks.prg.set_page(0, bank);
     let mirroring = match val & 0b1_0000 != 0 {
@@ -397,13 +409,13 @@ pub struct ColorDreams;
 
 #[typetag::serde]
 impl Mapper for ColorDreams {
-  fn new(header: &CartHeader, banks: &mut CartBanking)-> Box<Self> {
+  fn new(header: &CartHeader, banks: &mut MemConfig)-> Box<Self> {
     banks.prg = Banking::new_prg(header, 1);
     banks.chr = Banking::new_chr(header, 1);
     Box::new(Self)
   }
 
-  fn prg_write(&mut self, banks: &mut CartBanking, _: usize, val: u8) {
+  fn prg_write(&mut self, banks: &mut MemConfig, _: usize, val: u8) {
     let prg_bank = val as usize & 0b11;
     let chr_bank = val as usize >> 4;
 
@@ -419,14 +431,14 @@ pub struct GxROM;
 
 #[typetag::serde]
 impl Mapper for GxROM {
-  fn new(header: &CartHeader, banks: &mut CartBanking)-> Box<Self> {
+  fn new(header: &CartHeader, banks: &mut MemConfig)-> Box<Self> {
     banks.prg = Banking::new_prg(header, 1);
     banks.chr = Banking::new_chr(header, 1);
     
     Box::new(Self)
   }
 
-  fn prg_write(&mut self, banks: &mut CartBanking, _: usize, val: u8) {
+  fn prg_write(&mut self, banks: &mut MemConfig, _: usize, val: u8) {
     let chr_bank = val as usize & 0b11;
     let prg_bank = (val as usize >> 4) & 0b11;
 
@@ -442,13 +454,13 @@ pub struct Codemasters;
 
 #[typetag::serde]
 impl Mapper for Codemasters {
-  fn new(header: &CartHeader, banks: &mut CartBanking)-> Box<Self> {
+  fn new(header: &CartHeader, banks: &mut MemConfig)-> Box<Self> {
     banks.prg = Banking::new_prg(header, 2);
     banks.prg.set_page_to_last_bank(1);
     Box::new(Self)
   }
 
-  fn prg_write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {
+  fn prg_write(&mut self, banks: &mut MemConfig, addr: usize, val: u8) {
     match addr {
       0x9000..=0x9FFF => {
         let mirroring = match (val >> 4) & 1 != 0 {
@@ -475,7 +487,7 @@ pub struct INesMapper078 {
 
 #[typetag::serde]
 impl Mapper for INesMapper078 {
-  fn new(header: &CartHeader, banks: &mut CartBanking)-> Box<Self> {
+  fn new(header: &CartHeader, banks: &mut MemConfig)-> Box<Self> {
     let uses_hv_mirroring = 
       header.has_alt_mirroring || header.submapper == 3;
     
@@ -494,7 +506,7 @@ impl Mapper for INesMapper078 {
     Box::new(Self{uses_hv_mirroring})
   }
 
-  fn prg_write(&mut self, banks: &mut CartBanking, _: usize, val: u8) {
+  fn prg_write(&mut self, banks: &mut MemConfig, _: usize, val: u8) {
     let prg_bank = val & 0b111;
     let chr_bank = val >> 4;
 
@@ -524,16 +536,16 @@ pub struct INesMapper031;
 
 #[typetag::serde]
 impl Mapper for INesMapper031 {
-  fn new(header: &CartHeader, banks: &mut CartBanking)-> Box<Self> {
+  fn new(header: &CartHeader, banks: &mut MemConfig)-> Box<Self> {
     banks.prg = Banking::new_prg(header, 8);
     banks.prg.set_page_to_last_bank(7);
     
     Box::new(Self)
   }
 
-  fn prg_write(&mut self, _: &mut CartBanking, _: usize, _: u8) {}
+  fn prg_write(&mut self, _: &mut MemConfig, _: usize, _: u8) {}
 
-  fn cart_write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {
+  fn cart_write(&mut self, banks: &mut MemConfig, addr: usize, val: u8) {
     match addr { 
       0x5000..=0x5FFFF => banks.prg.set_page(addr, val as usize),
       _ => {}
@@ -548,14 +560,14 @@ pub struct VRC1;
 
 #[typetag::serde]
 impl Mapper for VRC1 {
-  fn new(header: &CartHeader, banks: &mut CartBanking)-> Box<Self> {
+  fn new(header: &CartHeader, banks: &mut MemConfig)-> Box<Self> {
     banks.prg = Banking::new_prg(header, 4);
     banks.prg.set_page_to_last_bank(3);
     banks.chr = Banking::new_chr(header, 2);
     Box::new(Self)
   }
 
-  fn prg_write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {
+  fn prg_write(&mut self, banks: &mut MemConfig, addr: usize, val: u8) {
     match addr {
       0x8000..=0x8FFF => banks.prg.set_page(0, val as usize & 0b1111),
       0xA000..=0xAFFF => banks.prg.set_page(1, val as usize & 0b1111),
@@ -591,12 +603,12 @@ pub struct INesMapper206 {
 
 #[typetag::serde]
 impl Mapper for INesMapper206 {
-  fn new(header: &CartHeader, banks: &mut CartBanking) -> Box<Self> {
+  fn new(header: &CartHeader, banks: &mut MemConfig) -> Box<Self> {
     let mmc3 = *MMC3::new(header, banks);
     Box::new(Self{mmc3})
   }
 
-  fn prg_write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {
+  fn prg_write(&mut self, banks: &mut MemConfig, addr: usize, val: u8) {
     self.mmc3.prg_write(banks, addr, val);
   }
 }
@@ -609,7 +621,7 @@ pub struct INesMapper087;
 
 #[typetag::serde]
 impl Mapper for INesMapper087 {
-  fn new(header: &CartHeader, banks: &mut CartBanking) -> Box<Self> {
+  fn new(header: &CartHeader, banks: &mut MemConfig) -> Box<Self> {
     banks.prg = Banking::new_prg(header, 2);
 
     if header.prg_size <= 16*1024 {
@@ -620,7 +632,7 @@ impl Mapper for INesMapper087 {
     Box::new(Self)
   }
 
-  fn prg_write(&mut self, banks: &mut CartBanking, _: usize, val: u8) {
+  fn prg_write(&mut self, banks: &mut MemConfig, _: usize, val: u8) {
     let bank = ((val & 0b01) << 1) | ((val & 0b10) >> 1);
     banks.chr.set_page(0, bank as usize);
   }
@@ -635,7 +647,7 @@ pub struct INesMapper034 {
 
 #[typetag::serde]
 impl Mapper for INesMapper034 {
-  fn new(header: &CartHeader, banks: &mut CartBanking) -> Box<Self> {
+  fn new(header: &CartHeader, banks: &mut MemConfig) -> Box<Self> {
     let submapper = if header.submapper != 0 {
       header.submapper
     } else if header.chr_real_size() > 8 * 1024 { 
@@ -653,7 +665,7 @@ impl Mapper for INesMapper034 {
     Box::new(Self { submapper })
   }
 
-  fn prg_write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {
+  fn prg_write(&mut self, banks: &mut MemConfig, addr: usize, val: u8) {
     match (addr, self.submapper) {
       (0x7FFD, 1) | (0x8000..=0xFFFF, 2) => banks.prg.set_page(0, val as usize & 0b11),
       (0x7FFE, 1) => banks.chr.set_page(0, val as usize & 0b1111),
@@ -670,12 +682,12 @@ pub struct CPROM;
 
 #[typetag::serde]
 impl Mapper for CPROM {
-  fn new(header: &CartHeader, banks: &mut CartBanking) -> Box<Self> {
+  fn new(header: &CartHeader, banks: &mut MemConfig) -> Box<Self> {
     banks.chr = Banking::new_chr(header, 2);
     Box::new(Self)
   }
 
-  fn prg_write(&mut self, banks: &mut CartBanking, _: usize, val: u8) {
+  fn prg_write(&mut self, banks: &mut MemConfig, _: usize, val: u8) {
     banks.chr.set_page(1, val as usize & 0b11);
   }
 }

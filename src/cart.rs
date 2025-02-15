@@ -1,5 +1,5 @@
 use serde::ser::SerializeStruct;
-use crate::mapper::{self, Banking, ChrBanking, Dummy, Mapper, PrgBanking, SramBanking, CiramBanking};
+use crate::{bus::Bus, mapper::{self, Banking, ChrBanking, CiramBanking, Dummy, Mapper, PrgBanking, SramBanking}, mem::Memory, ppu::Ppu};
 
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CartHeader {
@@ -226,33 +226,108 @@ impl CartHeader {
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
-pub struct CartBanking {
+pub struct MemConfig {
   pub prg:  Banking<PrgBanking>,
   pub chr:  Banking<ChrBanking>,
   pub sram: Banking<SramBanking>,
   pub ciram: Banking<CiramBanking>,
+
+  #[serde(skip)]
+  pub mapping: MemMapping,
 }
-impl Default for CartBanking {
+impl Default for MemConfig {
   fn default() -> Self {
-    let header = &Default::default();
-    let prg = Banking::new_prg(header, 1);
-    let chr = Banking::new_chr(header, 1);
-    let sram = Banking::new_sram(header);
-    let ciram = Banking::new_ciram(header);
-    Self {prg, chr, sram, ciram}
+    let header = Default::default();
+    Self::new(&header)
   }
 }
 
-impl CartBanking {
+impl MemConfig {
   pub fn new(header: &CartHeader) -> Self {
     let prg = Banking::new_prg(header, 1);
     let chr = Banking::new_chr(header, 1);
     let sram = Banking::new_sram(header);
     let ciram = Banking::new_ciram(header);
-    Self {prg, chr, sram, ciram}
+    let mapping = MemMapping::default();
+    Self {prg, chr, sram, ciram, mapping}
   }
 }
 
+pub struct MemMapping {
+  pub cpu_reads: [fn(&mut Bus, u16) -> u8; 8],
+  pub cpu_writes: [fn(&mut Bus, u16, u8); 8],
+  pub ppu_reads: [fn(&Ppu, u16) -> u8; 4],
+  pub ppu_writes: [fn(&mut Ppu, u16, u8); 4],
+}
+
+impl Default for MemMapping {
+  fn default() -> Self {
+    let cpu_reads = [
+      |bus: &mut Bus, addr: u16| bus.ram[addr as usize & 0x7FF],
+      |bus: &mut Bus, addr: u16| bus.ppu.read_reg(addr & 0x2007),
+      |bus: &mut Bus, addr: u16| {
+        match addr {
+          0x4000..=0x4013 => bus.apu.read_reg(addr),
+          0x4016 => bus.joypad.read1(),
+          0x4017 => bus.joypad.read2(),
+          0x4020..=0x5FFF => bus.cart.as_mut().prg_read(addr as usize),
+          _ => 0,
+        }
+      },
+      |bus: &mut Bus, addr: u16| bus.cart.as_mut().prg_read(addr as usize),
+      |bus: &mut Bus, addr: u16| bus.cart.as_mut().prg_read(addr as usize),
+      |bus: &mut Bus, addr: u16| bus.cart.as_mut().prg_read(addr as usize),
+      |bus: &mut Bus, addr: u16| bus.cart.as_mut().prg_read(addr as usize),
+      |bus: &mut Bus, addr: u16| bus.cart.as_mut().prg_read(addr as usize),
+    ];
+
+    let cpu_writes = [
+      |bus: &mut Bus, addr: u16, val: u8| bus.ram[addr as usize & 0x7FF] = val,
+      |bus: &mut Bus, addr: u16, val: u8| bus.ppu.write_reg(addr & 0x2007, val),
+      |bus: &mut Bus, addr: u16, val: u8| {
+        match addr {
+          0x4000..=0x4013 => bus.apu.write_reg(addr as u16, val),
+          0x4017 => {
+            bus.apu.write_reg(addr as u16, val);
+            bus.joypad.write(val);
+          }
+          0x4016 => bus.joypad.write(val),
+          0x4014 => {
+            bus.oam_dma.init(val);
+            bus.tick();
+          }
+          0x4015 => {
+            bus.apu.write_reg(addr as u16, val);
+            bus.tick();
+          }
+          0x4020..=0x5FFF => bus.cart.as_mut().prg_write(addr as usize, val),
+          _ => {}
+        }
+      },
+      |bus: &mut Bus, addr: u16, val: u8| bus.cart.as_mut().prg_write(addr as usize, val),
+      |bus: &mut Bus, addr: u16, val: u8| bus.cart.as_mut().prg_write(addr as usize, val),
+      |bus: &mut Bus, addr: u16, val: u8| bus.cart.as_mut().prg_write(addr as usize, val),
+      |bus: &mut Bus, addr: u16, val: u8| bus.cart.as_mut().prg_write(addr as usize, val),
+      |bus: &mut Bus, addr: u16, val: u8| bus.cart.as_mut().prg_write(addr as usize, val),
+    ];
+
+    let ppu_reads = [
+      |ppu: &Ppu, addr: u16| ppu.cart.as_mut().vram_read(addr as usize),
+      |ppu: &Ppu, addr: u16| ppu.cart.as_mut().vram_read(addr as usize),
+      |ppu: &Ppu, addr: u16| ppu.cart.as_mut().vram_read(addr as usize),
+      |ppu: &Ppu, addr: u16| if addr >= 0x3F00 { ppu.palettes[ppu.mirror_palette(addr) as usize] } else { 0 }
+    ];
+
+    let ppu_writes = [
+      |ppu: &mut Ppu, addr: u16, val: u8| ppu.cart.as_mut().vram_write(addr as usize, val),
+      |ppu: &mut Ppu, addr: u16, val: u8| ppu.cart.as_mut().vram_write(addr as usize, val),
+      |ppu: &mut Ppu, addr: u16, val: u8| ppu.cart.as_mut().vram_write(addr as usize, val),
+      |ppu: &mut Ppu, addr: u16, val: u8| if addr >= 0x3F00 { ppu.palettes[ppu.mirror_palette(addr) as usize] = val & 0b0011_1111 },
+    ];
+
+    Self { cpu_reads, cpu_writes, ppu_reads, ppu_writes }
+  }
+}
 
 #[derive(Clone)]
 pub struct SharedCart(pub *mut Cart);
@@ -261,6 +336,10 @@ impl SharedCart {
   pub fn new(cart: Cart) -> Self {
     // save cart into heap, the get its pointer
     Self(Box::into_raw(Box::new(cart)))
+  }
+
+  pub fn mapping(&self) -> &mut MemMapping {
+    &mut self.as_mut().config.mapping
   }
 
   pub fn as_mut(&self) -> &mut Cart {
@@ -305,7 +384,8 @@ pub struct Cart {
   pub chr: Box<[u8]>,
   pub sram: Box<[u8]>,
   pub ciram: Box<[u8]>,
-  pub banks: CartBanking,
+  #[serde(alias = "banks")]
+  pub config: MemConfig,
   pub mapper: Box<dyn Mapper>,
 }
 
@@ -317,7 +397,7 @@ impl Default for Cart {
       chr: Default::default(),
       ciram: Default::default(),
       sram: Default::default(),
-      banks: Default::default(),
+      config: Default::default(),
       mapper: Box::new(Dummy)
     }
   }
@@ -335,7 +415,7 @@ impl serde::Serialize for Cart {
     se.serialize_field("header", &self.header)?;
     se.serialize_field("sram", &self.sram)?;
     se.serialize_field("ciram", &self.ciram)?;
-    se.serialize_field("banks", &self.banks)?;
+    se.serialize_field("config", &self.config)?;
     se.serialize_field("mapper", &self.mapper)?;
 
     // we only serialize chr if it is chr ram
@@ -381,10 +461,10 @@ impl Cart {
     let ciram_size = if header.has_alt_mirroring { 4 * 1024 } else { 2 * 1024 };
     let ciram = vec![0; ciram_size].into_boxed_slice();
     
-    let mut banks = CartBanking::new(&header);
+    let mut banks = MemConfig::new(&header);
     let mapper = mapper::new_mapper(&header, &mut banks)?;
     
-    Ok(Cart { header, prg, chr, sram, ciram, banks, mapper })
+    Ok(Cart { header, prg, chr, sram, ciram, config: banks, mapper })
   }
 
   pub fn get_sram(&self) -> Option<Vec<u8>> {
@@ -398,7 +478,7 @@ impl Cart {
   }
 
   pub fn prg_read(&mut self, addr: usize) -> u8 {
-    let target = self.mapper.map_prg_addr(&mut self.banks, addr);
+    let target = self.mapper.map_prg_addr(&mut self.config, addr);
     match target {
       PrgTarget::Cart => self.mapper.cart_read(addr),
       PrgTarget::SRam(enabled, mapped) => if enabled {
@@ -408,18 +488,18 @@ impl Cart {
     }
   }
   pub fn prg_write(&mut self, addr: usize, val: u8) {
-    let target = self.mapper.map_prg_addr(&mut self.banks, addr);
+    let target = self.mapper.map_prg_addr(&mut self.config, addr);
     match target {
-      PrgTarget::Cart => self.mapper.cart_write(&mut self.banks, addr, val),
+      PrgTarget::Cart => self.mapper.cart_write(&mut self.config, addr, val),
       PrgTarget::SRam(enabled, mapped) => if enabled {
         self.sram[mapped % self.sram.len()] = val;
       }
-      PrgTarget::Prg(_) => self.mapper.prg_write(&mut self.banks, addr, val),
+      PrgTarget::Prg(_) => self.mapper.prg_write(&mut self.config, addr, val),
     }
   }
 
   pub fn vram_read(&mut self, addr: usize) -> u8 {
-    let target = self.mapper.map_ppu_addr(&mut self.banks, addr);
+    let target = self.mapper.map_ppu_addr(&mut self.config, addr);
     match target {
       PpuTarget::CiRam(mapped) => self.ciram[mapped],
       PpuTarget::Chr(mapped)   => self.chr[mapped],
@@ -429,7 +509,7 @@ impl Cart {
   }
 
   pub fn vram_write(&mut self, addr: usize, val: u8) {
-    let target = self.mapper.map_ppu_addr(&mut self.banks, addr);
+    let target = self.mapper.map_ppu_addr(&mut self.config, addr);
     match target {
       PpuTarget::CiRam(mapped) => self.ciram[mapped] = val,
       PpuTarget::Chr(mapped)   => if self.header.uses_chr_ram { self.chr[mapped] = val; }

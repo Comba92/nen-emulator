@@ -1,4 +1,4 @@
-use crate::{apu::{ApuDivider, Channel}, cart::{CartBanking, CartHeader, Mirroring, PpuTarget}};
+use crate::{apu::{ApuDivider, Channel}, cart::{MemConfig, CartHeader, Mirroring, PpuTarget}};
 use super::{konami_irq::KonamiIrq, Banking, Mapper, CiramBanking};
 
 #[derive(Default, serde::Serialize, serde::Deserialize)]
@@ -32,7 +32,7 @@ pub struct VRC6 {
 }
 
 impl VRC6 {
-  fn update_chr_banks(&self, banks: &mut CartBanking) {
+  fn update_chr_banks(&self, banks: &mut MemConfig) {
     let bank_half = self.chr_latch as usize;
 
     match &self.chr_mode {
@@ -149,7 +149,7 @@ impl VRC6 {
 
 #[typetag::serde]
 impl Mapper for VRC6 {
-  fn new(header: &CartHeader, banks: &mut CartBanking) -> Box<Self> {
+  fn new(header: &CartHeader, banks: &mut MemConfig) -> Box<Self> {
     banks.prg = Banking::new_prg(header, 4);
     banks.chr = Banking::new_chr(header, 8);
     let vram_chrrom_banks = Banking::new(header.chr_real_size(), 0x2000, 1024, 4);
@@ -171,7 +171,7 @@ impl Mapper for VRC6 {
     Box::new(mapper)
   }
 
-  fn prg_write(&mut self, banks: &mut CartBanking, mut addr: usize, val: u8) {
+  fn prg_write(&mut self, banks: &mut MemConfig, mut addr: usize, val: u8) {
 		if self.mapper == 26 {
 			addr = (addr & 0xFFFC) | ((addr & 0x01) << 1) | ((addr & 0x02) >> 1);
 		}
@@ -252,7 +252,7 @@ impl Mapper for VRC6 {
     }
   }
 
-  fn map_ppu_addr(&mut self, banks: &mut CartBanking, addr: usize) -> PpuTarget {
+  fn map_ppu_addr(&mut self, banks: &mut MemConfig, addr: usize) -> PpuTarget {
     match addr {
       0x0000..=0x1FFF => PpuTarget::Chr(banks.chr.translate(addr)),
       0x2000..=0x2FFF => match self.nametbl_src {

@@ -1,4 +1,4 @@
-use crate::{apu::{pulse::Pulse, Channel}, cart::{CartBanking, CartHeader, Mirroring, PpuTarget, PrgTarget}, ppu::PpuState};
+use crate::{apu::{pulse::Pulse, Channel}, cart::{MemConfig, CartHeader, Mirroring, PpuTarget, PrgTarget}, ppu::PpuState};
 use super::{Banking, ChrBanking, Mapper};
 
 #[derive(Default, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -76,7 +76,7 @@ impl MMC5 {
     self.irq_count = 0;
   }
 
-  fn set_prg_page(&self, banks: &mut CartBanking, reg: usize, page: usize) {
+  fn set_prg_page(&self, banks: &mut MemConfig, reg: usize, page: usize) {
     let (target, bank) = self.prg_selects[reg];
     match target {
       AccessTarget::Prg => banks.prg.set_page(page, bank),
@@ -84,7 +84,7 @@ impl MMC5 {
     }
   }
 
-  fn set_prg_page2(&self, banks: &mut CartBanking, reg: usize, page: usize) {
+  fn set_prg_page2(&self, banks: &mut MemConfig, reg: usize, page: usize) {
     let (target, bank) = self.prg_selects[reg];
     let bank = bank & !1;
     match target {
@@ -99,7 +99,7 @@ impl MMC5 {
     }
   }
 
-  fn update_prg_and_sram_banks(&mut self, banks: &mut CartBanking) {
+  fn update_prg_and_sram_banks(&mut self, banks: &mut MemConfig) {
     // this is always the same
     banks.sram.set_page(0, self.prg_selects[0].1);
 
@@ -244,7 +244,7 @@ impl MMC5 {
 
 #[typetag::serde]
 impl Mapper for MMC5 {
-  fn new(header: &CartHeader, banks: &mut CartBanking)-> Box<Self>  {
+  fn new(header: &CartHeader, banks: &mut MemConfig)-> Box<Self>  {
     banks.prg = Banking::new_prg(header, 4);
     let spr_banks = Banking::new_chr(header, 8);
     let bg_banks = Banking::new_chr(header, 8);
@@ -271,7 +271,7 @@ impl Mapper for MMC5 {
     Box::new(mapper)
   }
 
-  fn prg_write(&mut self, _: &mut CartBanking, _: usize, _: u8) {}
+  fn prg_write(&mut self, _: &mut MemConfig, _: usize, _: u8) {}
 
   fn cart_read(&mut self, addr: usize) -> u8 {
     match addr {
@@ -301,7 +301,7 @@ impl Mapper for MMC5 {
     }
   }
 
-  fn cart_write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {    
+  fn cart_write(&mut self, banks: &mut MemConfig, addr: usize, val: u8) {    
     match addr {
       0x5000 => self.pulse1.set_ctrl(val),
       0x5004 => self.pulse2.set_ctrl(val),
@@ -446,7 +446,7 @@ impl Mapper for MMC5 {
     }
   }
 
-  fn map_prg_addr(&mut self, banks: &mut CartBanking, addr: usize) -> PrgTarget {
+  fn map_prg_addr(&mut self, banks: &mut MemConfig, addr: usize) -> PrgTarget {
     match addr {
       0x4020..=0x5FFF => PrgTarget::Cart,
       0x6000..=0xFFFF => {
@@ -465,7 +465,7 @@ impl Mapper for MMC5 {
     }
   }
 
-  fn map_ppu_addr(&mut self, banks: &mut CartBanking, addr: usize) -> PpuTarget {  
+  fn map_ppu_addr(&mut self, banks: &mut MemConfig, addr: usize) -> PpuTarget {  
     match addr {
       0x0000..=0x1FFF => {
         if self.exram_mode == ExRamMode::NametblEx && self.ppu_data_sub && self.ppu_state == PpuState::FetchBg {

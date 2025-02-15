@@ -1,4 +1,4 @@
-use crate::cart::{CartBanking, CartHeader, Mirroring};
+use crate::cart::{MemConfig, CartHeader, Mirroring};
 
 use super::{konami_irq::KonamiIrq, Banking, Mapper};
 
@@ -9,7 +9,7 @@ pub struct VRC7 {
 }
 
 impl VRC7 {
-  fn update_chr_banks(&self, banks: &mut CartBanking, addr: usize, val: u8) {
+  fn update_chr_banks(&self, banks: &mut MemConfig, addr: usize, val: u8) {
     let val = val as usize;
     match addr {
       0xA000 => banks.chr.set_page(0, val),
@@ -27,7 +27,7 @@ impl VRC7 {
 
 #[typetag::serde]
 impl Mapper for VRC7 {
-  fn new(header: &CartHeader, banks: &mut CartBanking) -> Box<Self> {
+  fn new(header: &CartHeader, banks: &mut MemConfig) -> Box<Self> {
     banks.prg = Banking::new_prg(header, 4);
     banks.prg.set_page_to_last_bank(3);
     banks.chr = Banking::new_chr(header, 8);
@@ -35,7 +35,7 @@ impl Mapper for VRC7 {
     Box::new(Self::default())
   }
 
-  fn prg_write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {
+  fn prg_write(&mut self, banks: &mut MemConfig, addr: usize, val: u8) {
     match addr {
       0x8000 => banks.prg.set_page(0, val as usize & 0b0011_1111),
       0x8010 | 0x8008 => banks.prg.set_page(1, val as usize & 0b0011_1111),

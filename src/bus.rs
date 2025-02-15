@@ -71,11 +71,11 @@ enum BusDst {
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Bus {
-  timing: EmulatorTiming,
-  ram: Box<[u8]>,
+  pub ram: Box<[u8]>,
   pub cart: SharedCart,
   pub ppu: Ppu,
   ppu_pal_cycles: u8,
+  timing: EmulatorTiming,
 
   pub apu: Apu,
   pub joypad: Joypad,
@@ -206,7 +206,7 @@ impl Bus {
   
   fn read_branchless(&mut self, addr: u16) -> u8 {
     let dev = addr >> 13;
-    let handler = CPU_MAPPING_READS[dev as usize];
+    let handler = self.cart.mapping().cpu_reads[dev as usize];
     handler(self, addr)
   }
 
@@ -237,7 +237,7 @@ impl Bus {
 
   fn write_branchless(&mut self, addr: u16, val: u8) {
     let dev = addr >> 13;
-    let handler = CPU_MAPPING_WRITES[dev as usize];
+    let handler = self.cart.mapping().cpu_writes[dev as usize];
     handler(self, addr, val);
   }
 

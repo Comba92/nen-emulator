@@ -1,4 +1,4 @@
-use crate::cart::{CartBanking, CartHeader, Mirroring, PrgTarget};
+use crate::cart::{MemConfig, CartHeader, Mirroring, PrgTarget};
 
 use super::{set_byte_hi, set_byte_lo, Banking, Mapper};
 
@@ -15,7 +15,7 @@ pub struct BandaiFCG {
 
 #[typetag::serde]
 impl Mapper for BandaiFCG {
-  fn new(header: &CartHeader, banks: &mut CartBanking) -> Box<Self> {
+  fn new(header: &CartHeader, banks: &mut MemConfig) -> Box<Self> {
     banks.prg = Banking::new_prg(header, 2);
     banks.prg.set_page_to_last_bank(1);
 
@@ -29,7 +29,7 @@ impl Mapper for BandaiFCG {
     })
   }
 
-  fn prg_write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {
+  fn prg_write(&mut self, banks: &mut MemConfig, addr: usize, val: u8) {
     match (addr, self.submapper) {
       (0x6000..=0x7FFF, 5) => {
         // submapper 5 eeprom read
@@ -74,7 +74,7 @@ impl Mapper for BandaiFCG {
     }
   }
 
-  fn map_prg_addr(&mut self, banks: &mut CartBanking, addr: usize) -> PrgTarget {
+  fn map_prg_addr(&mut self, banks: &mut MemConfig, addr: usize) -> PrgTarget {
     match addr {
       0x6000..=0x7FFF => PrgTarget::Prg(addr),
       0x8000..=0xFFFF => PrgTarget::Prg(banks.prg.translate(addr)),

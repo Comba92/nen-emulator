@@ -1,4 +1,4 @@
-use crate::cart::{CartBanking, CartHeader, PpuTarget};
+use crate::cart::{MemConfig, CartHeader, PpuTarget};
 
 use super::{set_byte_hi, set_byte_lo, Banking, Mapper};
 
@@ -21,7 +21,7 @@ pub struct Namco129_163 {
 
 #[typetag::serde]
 impl Mapper for Namco129_163 {
-  fn new(header: &CartHeader, banks: &mut CartBanking) -> Box<Self> {
+  fn new(header: &CartHeader, banks: &mut MemConfig) -> Box<Self> {
     banks.prg = Banking::new_prg(header, 4);
     banks.prg.set_page_to_last_bank(3);
     
@@ -47,7 +47,7 @@ impl Mapper for Namco129_163 {
     }
   }
 
-  fn cart_write(&mut self, _: &mut CartBanking, addr: usize, val: u8) {
+  fn cart_write(&mut self, _: &mut MemConfig, addr: usize, val: u8) {
     match addr {
       0x5000..=0x57FFF => {
         self.irq_value = set_byte_lo(self.irq_value, val);
@@ -63,7 +63,7 @@ impl Mapper for Namco129_163 {
     }
   }
 
-  fn prg_write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {    
+  fn prg_write(&mut self, banks: &mut MemConfig, addr: usize, val: u8) {    
     match addr {
       0x8000..=0x9FFF => {
         let page = (addr as usize - 0x8000) / 0x800;
@@ -131,7 +131,7 @@ impl Mapper for Namco129_163 {
     }
   }
 
-  fn map_ppu_addr(&mut self, banks: &mut CartBanking, addr: usize) -> PpuTarget {
+  fn map_ppu_addr(&mut self, banks: &mut MemConfig, addr: usize) -> PpuTarget {
     let page = addr / 0x400;
 
     match self.chr_selects[page] {

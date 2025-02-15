@@ -1,4 +1,4 @@
-use crate::cart::{CartBanking, CartHeader, Mirroring, PrgTarget, PpuTarget};
+use crate::cart::{MemConfig, CartHeader, Mirroring, PrgTarget, PpuTarget};
 
 use super::{Banking, CiramBanking, Mapper};
 
@@ -41,7 +41,7 @@ impl Sunsoft4 {
 
 #[typetag::serde]
 impl Mapper for Sunsoft4 {
-  fn new(header: &CartHeader, banks: &mut CartBanking) -> Box<Self> {
+  fn new(header: &CartHeader, banks: &mut MemConfig) -> Box<Self> {
     banks.prg = Banking::new_prg(header, 2);
     banks.prg.set_page_to_last_bank(1);
 
@@ -55,7 +55,7 @@ impl Mapper for Sunsoft4 {
     })
   }
 
-  fn prg_write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {
+  fn prg_write(&mut self, banks: &mut MemConfig, addr: usize, val: u8) {
     match addr {
       0x8000..=0xBFFF => {
         let page = (addr - 0x8000) / 0x1000;
@@ -90,7 +90,7 @@ impl Mapper for Sunsoft4 {
     }
   }
 
-  fn map_prg_addr(&mut self, banks: &mut CartBanking, addr: usize) -> PrgTarget {
+  fn map_prg_addr(&mut self, banks: &mut MemConfig, addr: usize) -> PrgTarget {
     match addr {
       0x6000..=0x7FFF => PrgTarget::SRam(self.sram_enabled, banks.sram.translate(addr)),
       0x8000..=0xFFFF => PrgTarget::Prg(banks.prg.translate(addr)),
@@ -98,7 +98,7 @@ impl Mapper for Sunsoft4 {
     }
   }
 
-  fn map_ppu_addr(&mut self, banks: &mut CartBanking, addr: usize) -> PpuTarget {
+  fn map_ppu_addr(&mut self, banks: &mut MemConfig, addr: usize) -> PpuTarget {
     match addr {
       0x0000..=0x1FFF => PpuTarget::Chr(banks.chr.translate(addr)),
       0x2000..=0x2FFF => {

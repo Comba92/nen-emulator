@@ -1,6 +1,6 @@
 use bitfield_struct::bitfield;
 
-use crate::cart::{CartBanking, CartHeader, Mirroring, PrgTarget};
+use crate::cart::{MemConfig, CartHeader, Mirroring, PrgTarget};
 use super::{konami_irq::KonamiIrq, Banking, Mapper};
 
 #[bitfield(u16, order = Lsb)]
@@ -96,7 +96,7 @@ impl VRC2_4 {
     (addr & 0xFF00 | (a1 << 1) | a0) & 0xF00F
   }
 
-  fn update_prg_banks(&self, banks: &mut CartBanking) {
+  fn update_prg_banks(&self, banks: &mut MemConfig) {
     match self.swap_mode {
       false => {
         banks.prg.set_page(0, self.prg_select0 as usize);
@@ -109,7 +109,7 @@ impl VRC2_4 {
     }
   }
 
-  fn update_chr_banks(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {
+  fn update_chr_banks(&mut self, banks: &mut MemConfig, addr: usize, val: u8) {
     let res = match addr {
       0xB000 => Some((0, false)),
       0xB001 => Some((0, true)),
@@ -151,7 +151,7 @@ impl VRC2_4 {
 
 #[typetag::serde]
 impl Mapper for VRC2_4 {
-  fn new(header: &CartHeader, banks: &mut CartBanking) -> Box<Self> {
+  fn new(header: &CartHeader, banks: &mut MemConfig) -> Box<Self> {
     banks.prg = Banking::new_prg(header, 4);
     banks.chr = Banking::new_chr(header, 8);
 
@@ -166,7 +166,7 @@ impl Mapper for VRC2_4 {
     Box::new(mapper)
   }
 
-  fn prg_write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {
+  fn prg_write(&mut self, banks: &mut MemConfig, addr: usize, val: u8) {
     let addr = self.translate_addr(addr);
     match addr {
       0x9002 => {
@@ -202,7 +202,7 @@ impl Mapper for VRC2_4 {
     }
   }
 
-  fn map_prg_addr(&mut self, banks: &mut CartBanking, addr: usize) -> PrgTarget {
+  fn map_prg_addr(&mut self, banks: &mut MemConfig, addr: usize) -> PrgTarget {
     match addr {
       0x4020..=0x5FFF => PrgTarget::Cart,
       0x6000..=0x7FFF => {

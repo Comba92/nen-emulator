@@ -1,4 +1,4 @@
-use crate::cart::{CartBanking, CartHeader, Mirroring, PrgTarget};
+use crate::cart::{MemConfig, CartHeader, Mirroring, PrgTarget};
 
 use super::{set_byte_hi, set_byte_lo, Banking, Mapper};
 
@@ -27,7 +27,7 @@ pub struct SunsoftFME7 {
 
 #[typetag::serde]
 impl Mapper for SunsoftFME7 {
-  fn new(header: &CartHeader, banks: &mut CartBanking) -> Box<Self> {
+  fn new(header: &CartHeader, banks: &mut MemConfig) -> Box<Self> {
     banks.prg = Banking::new_prg(header, 4);
     banks.chr = Banking::new_chr(header, 8);
     
@@ -40,7 +40,7 @@ impl Mapper for SunsoftFME7 {
     Box::new(mapper)
   }
 
-  fn prg_write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {
+  fn prg_write(&mut self, banks: &mut MemConfig, addr: usize, val: u8) {
     match addr {
       0x8000..=0x9FFF => {
         let val = val & 0b1111;
@@ -94,7 +94,7 @@ impl Mapper for SunsoftFME7 {
     }
   }
 
-  fn map_prg_addr(&mut self, banks: &mut CartBanking, addr: usize) -> PrgTarget {
+  fn map_prg_addr(&mut self, banks: &mut MemConfig, addr: usize) -> PrgTarget {
     match addr {
       0x4020..=0x5FFF => PrgTarget::Cart,
       0x6000..=0x7FFF => {

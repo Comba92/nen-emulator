@@ -1,4 +1,4 @@
-use crate::cart::{CartBanking, CartHeader, Mirroring};
+use crate::cart::{MemConfig, CartHeader, Mirroring};
 
 use super::{Banking, Mapper};
 
@@ -27,7 +27,7 @@ pub struct MMC1 {
 }
 
 impl MMC1 {
-  fn write_ctrl(&mut self, banks: &mut CartBanking, val: u8) {
+  fn write_ctrl(&mut self, banks: &mut MemConfig, val: u8) {
     let mirroring = match val & 0b11 {
       0 => Mirroring::SingleScreenA,
       1 => Mirroring::SingleScreenB,
@@ -50,7 +50,7 @@ impl MMC1 {
     self.update_all_banks(banks);
   }
 
-  fn update_prg_banks(&self, banks: &mut CartBanking) {
+  fn update_prg_banks(&self, banks: &mut MemConfig) {
     let (bank0, bank1) = match self.prg_mode {
       PrgMode::Bank32kb => {
         let bank = self.prg_select & !1;
@@ -65,7 +65,7 @@ impl MMC1 {
     banks.prg.set_page(1, bank1 | self.prg_256kb_bank);
   }
 
-  fn update_all_banks(&mut self, banks: &mut CartBanking) {
+  fn update_all_banks(&mut self, banks: &mut MemConfig) {
     match self.chr_mode {
       ChrMode::Bank8kb => {
         let bank = self.chr_select0 & !1;
@@ -106,7 +106,7 @@ impl MMC1 {
 
 #[typetag::serde]
 impl Mapper for MMC1 {
-  fn new(header: &CartHeader, banks: &mut CartBanking) -> Box<Self> {
+  fn new(header: &CartHeader, banks: &mut MemConfig) -> Box<Self> {
     banks.prg = Banking::new_prg(header, 2);
     banks.chr = Banking::new_chr(header, 2);
     banks.sram = Banking::new_sram(header);
@@ -136,7 +136,7 @@ impl Mapper for MMC1 {
     Box::new(mapper)
   }
 
-  fn prg_write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {    
+  fn prg_write(&mut self, banks: &mut MemConfig, addr: usize, val: u8) {    
     if self.write_lock_delay > 0 {
       self.write_lock_delay = 2;
       return;

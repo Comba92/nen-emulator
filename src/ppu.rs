@@ -152,9 +152,9 @@ pub struct Ppu {
 	data_buf: u8,
 	
   #[serde(skip)]
-	cart: SharedCart,
+	pub cart: SharedCart,
 
-	palettes: [u8; 32],
+	pub palettes: [u8; 32],
 	oam: Box<[u8]>,
 	pub oam_sprite_limit: u8,
 	
@@ -274,28 +274,19 @@ impl Ppu {
 	}
 }
 
-static PPU_MAPPING_READS: LazyLock<[fn(&Ppu, u16) -> u8; 4]> = LazyLock::new(|| {
-	[
-		|ppu: &Ppu, addr: u16| ppu.cart.as_mut().vram_read(addr as usize),
-		|ppu: &Ppu, addr: u16| ppu.cart.as_mut().vram_read(addr as usize),
-		|ppu: &Ppu, addr: u16| ppu.cart.as_mut().vram_read(addr as usize),
-		|ppu: &Ppu, addr: u16| if addr >= 0x3F00 { ppu.palettes[ppu.mirror_palette(addr) as usize] } else {
-			println!("Read to unused vram");
-			0
-		}
-	]
-});
+const PPU_MAPPING_READS: [fn(&Ppu, u16) -> u8; 4] = [
+	|ppu: &Ppu, addr: u16| ppu.cart.as_mut().vram_read(addr as usize),
+	|ppu: &Ppu, addr: u16| ppu.cart.as_mut().vram_read(addr as usize),
+	|ppu: &Ppu, addr: u16| ppu.cart.as_mut().vram_read(addr as usize),
+	|ppu: &Ppu, addr: u16| if addr >= 0x3F00 { ppu.palettes[ppu.mirror_palette(addr) as usize] } else { 0 },
+];
 
-static PPU_MAPPING_WRITES: LazyLock<[fn(&mut Ppu, u16, u8); 4]> = LazyLock::new(|| {
-	[
-		|ppu: &mut Ppu, addr: u16, val: u8| ppu.cart.as_mut().vram_write(addr as usize, val),
-		|ppu: &mut Ppu, addr: u16, val: u8| ppu.cart.as_mut().vram_write(addr as usize, val),
-		|ppu: &mut Ppu, addr: u16, val: u8| ppu.cart.as_mut().vram_write(addr as usize, val),
-		|ppu: &mut Ppu, addr: u16, val: u8| if addr >= 0x3F00 { ppu.palettes[ppu.mirror_palette(addr) as usize] = val & 0b0011_1111 } else {
-			println!("Write to unused vram");
-		}
-	]
-});
+const PPU_MAPPING_WRITES: [fn(&mut Ppu, u16, u8); 4] = [
+	|ppu: &mut Ppu, addr: u16, val: u8| ppu.cart.as_mut().vram_write(addr as usize, val),
+	|ppu: &mut Ppu, addr: u16, val: u8| ppu.cart.as_mut().vram_write(addr as usize, val),
+	|ppu: &mut Ppu, addr: u16, val: u8| ppu.cart.as_mut().vram_write(addr as usize, val),
+	|ppu: &mut Ppu, addr: u16, val: u8| if addr >= 0x3F00 { ppu.palettes[ppu.mirror_palette(addr) as usize] = val & 0b0011_1111 },
+];
 
 impl Ppu {
 	#[allow(unused)]
@@ -331,7 +322,7 @@ impl Ppu {
 
 	fn peek_vram_branchless(&self, addr: u16) -> u8 {
 		let dev = (addr >> 12) & 0b11;
-		let handler = PPU_MAPPING_READS[dev as usize];
+		let handler = self.cart.mapping().ppu_reads[dev as usize];
 		handler(self, addr & 0x3FFF)
 	}
 
@@ -378,7 +369,7 @@ impl Ppu {
 
 	fn write_vram_branchless(&mut self, val: u8) {
 		let dev = (self.v.0 >> 12) & 0b11;
-		let handler = PPU_MAPPING_WRITES[dev as usize];
+		let handler = self.cart.mapping().ppu_writes[dev as usize];
 		handler(self, self.v.0 & 0x3FFF, val);
 		self.increase_vram_address();
 	}
@@ -478,7 +469,7 @@ impl Ppu {
 		}
 	}
 
-	fn mirror_palette(&self, addr: u16) -> u16 {
+	pub fn mirror_palette(&self, addr: u16) -> u16 {
 		let addr = (addr - PALETTES) % 32;
 		if addr >= 16 && addr % 4 == 0 { addr - 16 }
 		else { addr }

@@ -1,4 +1,4 @@
-use crate::cart::{CartBanking, CartHeader, Mirroring, PpuTarget};
+use crate::cart::{MemConfig, CartHeader, Mirroring, PpuTarget};
 
 use super::{Banking, ChrBanking, Mapper};
 
@@ -18,7 +18,7 @@ pub struct MMC2 {
 
 #[typetag::serde]
 impl Mapper for MMC2 {
-  fn new(header: &CartHeader, banks: &mut CartBanking)-> Box<Self> {
+  fn new(header: &CartHeader, banks: &mut MemConfig)-> Box<Self> {
     let chr_banks0 = Banking::new_chr(header, 2);
     let chr_banks1 = Banking::new_chr(header, 2);
     
@@ -46,7 +46,7 @@ impl Mapper for MMC2 {
     })
   }
 
-  fn prg_write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {
+  fn prg_write(&mut self, banks: &mut MemConfig, addr: usize, val: u8) {
     let val = val as usize & 0b1_1111;
     
     match addr {
@@ -66,7 +66,7 @@ impl Mapper for MMC2 {
     }
   }
 
-  fn map_ppu_addr(&mut self, banks: &mut CartBanking, addr: usize) -> PpuTarget {
+  fn map_ppu_addr(&mut self, banks: &mut MemConfig, addr: usize) -> PpuTarget {
     let res = match addr {
       0x0000..=0x0FFF => PpuTarget::Chr(self.chr_banks0.page_to_bank_addr(self.latch0 as usize, addr)),
       0x1000..=0x1FFF => PpuTarget::Chr(self.chr_banks1.page_to_bank_addr(self.latch1 as usize, addr)),
