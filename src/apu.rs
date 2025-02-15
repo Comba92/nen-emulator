@@ -6,7 +6,7 @@ use noise::Noise;
 use pulse::Pulse;
 use triangle::Triangle;
 
-use crate::cart::{ConsoleTiming, SharedCart};
+use crate::{bus::EmulatorTiming, cart::SharedCart};
 
 mod envelope;
 
@@ -108,6 +108,8 @@ impl Into<u8> for FrameCounterMode {
   }
 }
 
+const FRAME_STEPPINGS: [fn(&mut Apu); 2] = [Apu::step_frame_ntsc, Apu::step_frame_pal];
+
 bitflags! {
   #[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
   struct Flags: u8 {
@@ -124,7 +126,7 @@ bitflags! {
 
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct Apu {
-  timing: ConsoleTiming,
+  timing: EmulatorTiming,
   pulse1: Pulse,
   pulse2: Pulse,
   triangle: Triangle,
@@ -166,7 +168,7 @@ impl Apu {
     let cpu_hz = timing.cpu_hz() as f32;
 
     Self {
-      timing,
+      timing: EmulatorTiming::from(timing),
       cart,
       noise: Noise::new(timing),
       dmc: Dmc::new(timing),
@@ -239,16 +241,14 @@ impl Apu {
     self.dmc.step_timer();
     self.triangle.step_timer();
     
+    // convert this to table lookup
     if self.cycles % 2 == 1 {
       self.pulse1.step_timer();
       self.pulse2.step_timer();
       self.noise.step_timer();
     }
 
-    match self.timing {
-      ConsoleTiming::PAL => self.step_frame_pal(),
-      _ => self.step_frame_ntsc(),
-    }
+    FRAME_STEPPINGS[self.timing as usize](self);
     
     if self.frame_write_delay > 0 {
       self.frame_write_delay -= 1;

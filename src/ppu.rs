@@ -1,3 +1,5 @@
+use std::sync::LazyLock;
+
 use crate::{cart::{ConsoleTiming, SharedCart}, frame::FrameBuffer};
 use bitfield_struct::bitfield;
 use bitflags::bitflags;
@@ -111,6 +113,7 @@ enum WriteLatch {
 	SecondWrite,
 }
 
+#[allow(unused)]
 enum VramDst {
 	Patterntbl,
 	Nametbl,
@@ -269,7 +272,33 @@ impl Ppu {
 		self.mask.contains(Mask::bg_enabled)
 		|| self.mask.contains(Mask::spr_enabled)
 	}
+}
 
+static PPU_MAPPING_READS: LazyLock<[fn(&Ppu, u16) -> u8; 4]> = LazyLock::new(|| {
+	[
+		|ppu: &Ppu, addr: u16| ppu.cart.as_mut().vram_read(addr as usize),
+		|ppu: &Ppu, addr: u16| ppu.cart.as_mut().vram_read(addr as usize),
+		|ppu: &Ppu, addr: u16| ppu.cart.as_mut().vram_read(addr as usize),
+		|ppu: &Ppu, addr: u16| if addr >= 0x3F00 { ppu.palettes[ppu.mirror_palette(addr) as usize] } else {
+			println!("Read to unused vram");
+			0
+		}
+	]
+});
+
+static PPU_MAPPING_WRITES: LazyLock<[fn(&mut Ppu, u16, u8); 4]> = LazyLock::new(|| {
+	[
+		|ppu: &mut Ppu, addr: u16, val: u8| ppu.cart.as_mut().vram_write(addr as usize, val),
+		|ppu: &mut Ppu, addr: u16, val: u8| ppu.cart.as_mut().vram_write(addr as usize, val),
+		|ppu: &mut Ppu, addr: u16, val: u8| ppu.cart.as_mut().vram_write(addr as usize, val),
+		|ppu: &mut Ppu, addr: u16, val: u8| if addr >= 0x3F00 { ppu.palettes[ppu.mirror_palette(addr) as usize] = val & 0b0011_1111 } else {
+			println!("Write to unused vram");
+		}
+	]
+});
+
+impl Ppu {
+	#[allow(unused)]
 	fn map_address(&self, addr: u16) -> (VramDst, usize) {
 		match addr {
 			0x0000..=0x1FFF => (VramDst::Patterntbl, addr as usize),
@@ -286,6 +315,11 @@ impl Ppu {
 	}
 
 	pub fn peek_vram(&self, addr: u16) -> u8 {
+		self.peek_vram_branchless(addr)
+	}
+
+	#[allow(unused)]
+	fn peek_vram_branching(&self, addr: u16) -> u8 {
 		let (dst, addr) = self.map_address(addr);
 		match dst {
 			VramDst::Patterntbl | VramDst::Nametbl => self.cart.as_mut()
@@ -293,6 +327,12 @@ impl Ppu {
 			VramDst::Palettes => self.palettes[addr],
 			VramDst::Unused => 0,
 		}
+	}
+
+	fn peek_vram_branchless(&self, addr: u16) -> u8 {
+		let dev = (addr >> 12) & 0b11;
+		let handler = PPU_MAPPING_READS[dev as usize];
+		handler(self, addr & 0x3FFF)
 	}
 
 	fn increase_vram_address(&mut self) {
@@ -320,6 +360,11 @@ impl Ppu {
 	}
 
 	pub fn write_vram(&mut self, val: u8) {
+		self.write_vram_branchless(val);
+	}
+
+	#[allow(unused)]
+	fn write_vram_branching(&mut self, val: u8) {
 		let (dst, addr) = self.map_address(self.v.0);
 		match dst {
 			VramDst::Patterntbl | VramDst::Nametbl => self.cart.as_mut()
@@ -328,6 +373,13 @@ impl Ppu {
 			VramDst::Unused => {}
 		}
 
+		self.increase_vram_address();
+	}
+
+	fn write_vram_branchless(&mut self, val: u8) {
+		let dev = (self.v.0 >> 12) & 0b11;
+		let handler = PPU_MAPPING_WRITES[dev as usize];
+		handler(self, self.v.0 & 0x3FFF, val);
 		self.increase_vram_address();
 	}
 

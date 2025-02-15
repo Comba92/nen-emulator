@@ -1,6 +1,69 @@
-
 use crate::{apu::Apu, cart::{Cart, ConsoleTiming, SharedCart}, dma::{Dma, OamDma}, joypad::Joypad, mem::Memory, ppu::Ppu};
 
+// https://www.nesdev.org/wiki/CPU_memory_map
+const CPU_MAPPING_READS: [fn(&mut Bus, u16) -> u8; 8] = [
+  |bus: &mut Bus, addr: u16| bus.ram[addr as usize & 0x7FF],
+  |bus: &mut Bus, addr: u16| bus.ppu.read_reg(addr & 0x2007),
+  |bus: &mut Bus, addr: u16| {
+    match addr {
+      0x4000..=0x4013 => bus.apu.read_reg(addr),
+      0x4016 => bus.joypad.read1(),
+      0x4017 => bus.joypad.read2(),
+      0x4020..=0x5FFF => bus.cart.as_mut().prg_read(addr as usize),
+      _ => 0,
+    }
+  },
+  |bus: &mut Bus, addr: u16| bus.cart.as_mut().prg_read(addr as usize),
+  |bus: &mut Bus, addr: u16| bus.cart.as_mut().prg_read(addr as usize),
+  |bus: &mut Bus, addr: u16| bus.cart.as_mut().prg_read(addr as usize),
+  |bus: &mut Bus, addr: u16| bus.cart.as_mut().prg_read(addr as usize),
+  |bus: &mut Bus, addr: u16| bus.cart.as_mut().prg_read(addr as usize),
+];
+
+
+const CPU_MAPPING_WRITES: [fn(&mut Bus, u16, u8); 8] = [
+  |bus: &mut Bus, addr: u16, val: u8| bus.ram[addr as usize & 0x7FF] = val,
+  |bus: &mut Bus, addr: u16, val: u8| bus.ppu.write_reg(addr & 0x2007, val),
+  |bus: &mut Bus, addr: u16, val: u8| {
+    match addr {
+      0x4000..=0x4013 => bus.apu.write_reg(addr as u16, val),
+      0x4017 => {
+        bus.apu.write_reg(addr as u16, val);
+        bus.joypad.write(val);
+      }
+      0x4016 => bus.joypad.write(val),
+      0x4014 => {
+        bus.oam_dma.init(val);
+        bus.tick();
+      }
+      0x4015 => {
+        bus.apu.write_reg(addr as u16, val);
+        bus.tick();
+      }
+      0x4020..=0x5FFF => bus.cart.as_mut().prg_write(addr as usize, val),
+      _ => {}
+    }
+  },
+  |bus: &mut Bus, addr: u16, val: u8| bus.cart.as_mut().prg_write(addr as usize, val),
+  |bus: &mut Bus, addr: u16, val: u8| bus.cart.as_mut().prg_write(addr as usize, val),
+  |bus: &mut Bus, addr: u16, val: u8| bus.cart.as_mut().prg_write(addr as usize, val),
+  |bus: &mut Bus, addr: u16, val: u8| bus.cart.as_mut().prg_write(addr as usize, val),
+  |bus: &mut Bus, addr: u16, val: u8| bus.cart.as_mut().prg_write(addr as usize, val),
+];
+
+#[derive(Default, Clone, Copy, serde::Serialize, serde::Deserialize)]
+pub enum EmulatorTiming { #[default] NSTC, PAL }
+impl From<ConsoleTiming> for EmulatorTiming {
+  fn from(value: ConsoleTiming) -> Self {
+    match value {
+      ConsoleTiming::PAL => EmulatorTiming::PAL,
+      _ => EmulatorTiming::NSTC,
+    }
+  }
+}
+const PPU_STEPPINGS: [fn(&mut Bus); 2] = [Bus::ppu_step_nstc, Bus::ppu_step_pal];
+
+#[allow(unused)]
 #[derive(Debug)]
 enum BusDst {
   Ram, Ppu, Apu, SRam, Cart, Prg, Joypad1, Joypad2, OamDma, DmcDma, NoImpl
@@ -8,7 +71,7 @@ enum BusDst {
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Bus {
-  timing: ConsoleTiming,
+  timing: EmulatorTiming,
   ram: Box<[u8]>,
   pub cart: SharedCart,
   pub ppu: Ppu,
@@ -19,6 +82,7 @@ pub struct Bus {
   pub oam_dma: OamDma,
 }
 
+#[allow(unused)]
 fn map_address(addr: u16) -> (BusDst, usize) {
   let addr = addr as usize;
   match addr {
@@ -39,40 +103,11 @@ fn map_address(addr: u16) -> (BusDst, usize) {
 
 impl Memory for Bus {
   fn read(&mut self, addr: u16) -> u8 {
-    let (dst, addr) = map_address(addr);
-    match dst {
-      BusDst::Ram => self.ram[addr],
-      BusDst::Ppu => self.ppu.read_reg(addr as u16),
-      BusDst::Apu | BusDst::DmcDma => self.apu.read_reg(addr as u16),
-      BusDst::Joypad1 => self.joypad.read1(),
-      BusDst::Joypad2 => self.joypad.read2(),
-      BusDst::Cart | BusDst::SRam | BusDst::Prg  => self.cart.as_mut().prg_read(addr),
-      _ => { 0 }
-    }
+    self.read_branchless(addr)
   }
 
   fn write(&mut self, addr: u16, val: u8) {
-    let (dst, addr) = map_address(addr);
-    match dst {
-      BusDst::Ram => self.ram[addr] = val,
-      BusDst::Ppu => self.ppu.write_reg(addr as u16, val),
-      BusDst::Apu => self.apu.write_reg(addr as u16, val),
-      BusDst::Joypad2 => {
-        self.apu.write_reg(addr as u16, val);
-        self.joypad.write(val);
-      }
-      BusDst::Joypad1 => self.joypad.write(val),
-      BusDst::OamDma => {
-        self.oam_dma.init(val);
-        self.tick();
-      }
-      BusDst::DmcDma => {
-        self.apu.write_reg(addr as u16, val);
-        self.tick();
-      }
-      BusDst::Cart | BusDst::SRam | BusDst::Prg => self.cart.as_mut().prg_write(addr, val),
-      BusDst::NoImpl => {}
-    }
+    self.write_branchless(addr, val);
   }
 
   fn nmi_poll(&mut self) -> bool {
@@ -93,11 +128,7 @@ impl Memory for Bus {
   }
   
   fn tick(&mut self) {
-    match self.timing {
-      ConsoleTiming::PAL => self.ppu_step_pal(),
-      _ => self.ppu_step_nstc(),
-    };
-
+    PPU_STEPPINGS[self.timing as usize](self);
     self.apu.step();
     self.cart.as_mut().mapper.notify_cpu_cycle();
   }
@@ -139,7 +170,8 @@ impl Drop for Bus {
 
 impl Bus {
   pub fn new(cart: Cart) -> Self {
-    let timing = cart.header.timing;
+    let timing = EmulatorTiming::from(cart.header.timing);
+
     let shared_cart = SharedCart::new(cart); 
 
     let ppu = Ppu::new(shared_cart.clone());
@@ -155,6 +187,58 @@ impl Bus {
       joypad: Joypad::new(),
       oam_dma: OamDma::default(),
     }
+  }
+
+  #[allow(unused)]
+  fn read_branching(&mut self, addr: u16) -> u8 {
+    let (dst, addr) = map_address(addr);
+    match dst {
+      BusDst::Ram => self.ram[addr],
+      BusDst::Ppu => self.ppu.read_reg(addr as u16),
+      BusDst::Apu | BusDst::DmcDma => self.apu.read_reg(addr as u16),
+      BusDst::Joypad1 => self.joypad.read1(),
+      BusDst::Joypad2 => self.joypad.read2(),
+      BusDst::Cart | BusDst::SRam | BusDst::Prg  => self.cart.as_mut().prg_read(addr),
+      _ => { 0 }
+    }
+  }
+
+  
+  fn read_branchless(&mut self, addr: u16) -> u8 {
+    let dev = addr >> 13;
+    let handler = CPU_MAPPING_READS[dev as usize];
+    handler(self, addr)
+  }
+
+  #[allow(unused)]
+  fn write_branching(&mut self, addr: u16, val: u8) {
+    let (dst, addr) = map_address(addr);
+    match dst {
+      BusDst::Ram => self.ram[addr] = val,
+      BusDst::Ppu => self.ppu.write_reg(addr as u16, val),
+      BusDst::Apu => self.apu.write_reg(addr as u16, val),
+      BusDst::Joypad2 => {
+        self.apu.write_reg(addr as u16, val);
+        self.joypad.write(val);
+      }
+      BusDst::Joypad1 => self.joypad.write(val),
+      BusDst::OamDma => {
+        self.oam_dma.init(val);
+        self.tick();
+      }
+      BusDst::DmcDma => {
+        self.apu.write_reg(addr as u16, val);
+        self.tick();
+      }
+      BusDst::Cart | BusDst::SRam | BusDst::Prg => self.cart.as_mut().prg_write(addr, val),
+      BusDst::NoImpl => {}
+    }
+  }
+
+  fn write_branchless(&mut self, addr: u16, val: u8) {
+    let dev = addr >> 13;
+    let handler = CPU_MAPPING_WRITES[dev as usize];
+    handler(self, addr, val);
   }
 
   fn ppu_step_nstc(&mut self) {

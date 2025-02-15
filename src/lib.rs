@@ -88,7 +88,7 @@ impl Nes {
   }
 
   pub fn load_sram(&mut self, data: Vec<u8>) {
-    self.get_bus().cart.as_mut().set_sram(data);
+    self.get_cart().set_sram(data);
   }
 
   pub fn toggle_sprite_limit(&mut self) {
@@ -102,7 +102,7 @@ impl Nes {
 
   pub fn load_from_emu(&mut self, other: Nes) {
     // save prg and chr in temp values
-    let old_cart = self.get_bus().cart.as_mut();
+    let old_cart = self.get_cart();
     let prg = core::mem::take(&mut old_cart.prg);
     let chr = core::mem::take(&mut old_cart.chr);
 
@@ -110,7 +110,7 @@ impl Nes {
     *self = other;
 
     // the new emulator is missing prg and chr; we take the temp ones
-    let new_cart = self.get_bus().cart.as_mut();
+    let new_cart = self.get_cart();
     new_cart.prg = prg;
     // we only copy the temp chr if it is not chr ram, as that has already been deserialized by serde
     if !new_cart.header.uses_chr_ram {
@@ -119,9 +119,9 @@ impl Nes {
 
     // When loading a savestate, we have to clone again the new cart, 
     // and re-wire it to the relative devices.
-    let ppu_cart = self.cpu.bus.cart.clone();
+    let ppu_cart = self.get_bus().cart.clone();
     self.get_ppu().wire_cart(ppu_cart);
-    let apu_cart = self.cpu.bus.cart.clone();
+    let apu_cart = self.get_bus().cart.clone();
     self.get_apu().wire_cart(apu_cart);
   }
 }

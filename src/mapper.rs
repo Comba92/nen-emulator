@@ -143,7 +143,7 @@ pub trait Mapper {
     match addr {
       0x0000..=0x1FFF => PpuTarget::Chr(banks.chr.translate(addr)),
       0x2000..=0x2FFF => PpuTarget::CiRam(banks.ciram.translate(addr)),
-      _ => unreachable!()
+      _ => unreachable!("Accessing vram at address 0x{addr:04x}")
     }
   }
 
@@ -195,8 +195,8 @@ impl<T> Banking<T> {
     let bankings = vec![0; pages_count].into_boxed_slice();
     let bank_size = page_size;
     let banks_count = rom_size / bank_size;
-    let bank_size_shift = bank_size.ilog2() as usize;
-    let banks_count_shift = banks_count.ilog2() as usize;
+    let bank_size_shift = if bank_size != 0 { bank_size.ilog2() as usize } else { 0 };
+    let banks_count_shift = if banks_count != 0 { banks_count.ilog2() as usize } else { 0 };
     Self { bankings, data_size: rom_size, pages_start, bank_size, bank_size_shift, banks_count, banks_count_shift, kind: PhantomData::<T> }
   }
 
@@ -623,14 +623,6 @@ impl Mapper for INesMapper087 {
   fn prg_write(&mut self, banks: &mut CartBanking, _: usize, val: u8) {
     let bank = ((val & 0b01) << 1) | ((val & 0b10) >> 1);
     banks.chr.set_page(0, bank as usize);
-  }
-
-  fn map_prg_addr(&mut self, banks: &mut CartBanking, addr: usize) -> PrgTarget {
-    match addr {
-      0x6000..=0x7FFF => PrgTarget::Prg(addr),
-      0x8000..=0xFFFF => PrgTarget::Prg(banks.prg.translate(addr)),
-      _ => unreachable!()
-    }
   }
 }
 
