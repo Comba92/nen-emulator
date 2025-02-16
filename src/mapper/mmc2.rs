@@ -1,4 +1,4 @@
-use crate::{cart::{CartHeader, Mirroring, PpuTarget}, mmu::MemConfig};
+use crate::{cart::{CartHeader, Mirroring}, mmu::MemConfig};
 
 use super::{Banking, Mapper};
 
@@ -80,26 +80,26 @@ impl Mapper for MMC2 {
     }
   }
 
-  fn map_ppu_addr_branching(&mut self, banks: &mut MemConfig, addr: usize) -> PpuTarget {
-    let res = match addr {
-      0x0000..=0x0FFF => PpuTarget::Chr(self.chr_banks0.page_to_bank_addr(self.latch0 as usize, addr)),
-      0x1000..=0x1FFF => PpuTarget::Chr(self.chr_banks1.page_to_bank_addr(self.latch1 as usize, addr)),
-      0x2000..=0x2FFF =>  PpuTarget::CiRam(banks.ciram.translate(addr)),
-      _ => unreachable!()
-    };
+  // fn map_ppu_addr_branching(&mut self, banks: &mut MemConfig, addr: usize) -> PpuTarget {
+  //   let res = match addr {
+  //     0x0000..=0x0FFF => PpuTarget::Chr(self.chr_banks0.page_to_bank_addr(self.latch0 as usize, addr)),
+  //     0x1000..=0x1FFF => PpuTarget::Chr(self.chr_banks1.page_to_bank_addr(self.latch1 as usize, addr)),
+  //     0x2000..=0x2FFF =>  PpuTarget::CiRam(banks.ciram.translate(addr)),
+  //     _ => unreachable!()
+  //   };
 
-    // https://www.nesdev.org/wiki/MMC2#CHR_banking
-    // https://www.nesdev.org/wiki/MMC4#Banks
-    match (addr, self.mapper) {
-      (0x0FD8, 9) | (0x0FD8..=0x0FDF, 10) => self.latch0 = Mmc2Latch::FD,
-      (0x0FE8, 9) | (0x0FE8..=0x0FEF, 10) => self.latch0 = Mmc2Latch::FE,
-      (0x1FD8..=0x1FDF, _) => self.latch1 = Mmc2Latch::FD,
-      (0x1FE8..=0x1FEF, _) => self.latch1 = Mmc2Latch::FE,
-      _ => {}
-    };
+  //   // https://www.nesdev.org/wiki/MMC2#CHR_banking
+  //   // https://www.nesdev.org/wiki/MMC4#Banks
+  //   match (addr, self.mapper) {
+  //     (0x0FD8, 9) | (0x0FD8..=0x0FDF, 10) => self.latch0 = Mmc2Latch::FD,
+  //     (0x0FE8, 9) | (0x0FE8..=0x0FEF, 10) => self.latch0 = Mmc2Latch::FE,
+  //     (0x1FD8..=0x1FDF, _) => self.latch1 = Mmc2Latch::FD,
+  //     (0x1FE8..=0x1FEF, _) => self.latch1 = Mmc2Latch::FE,
+  //     _ => {}
+  //   };
 
-    res
-  }
+  //   res
+  // }
 
   fn chr_translate(&mut self, _: &mut MemConfig, addr: u16) -> usize {
     let res = match addr {

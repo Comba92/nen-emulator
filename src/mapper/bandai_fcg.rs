@@ -1,4 +1,4 @@
-use crate::{cart::{CartHeader, Mirroring, PrgTarget}, mmu::{set_byte_hi, set_byte_lo, MemConfig}};
+use crate::{cart::{CartHeader, Mirroring}, mmu::{set_byte_hi, set_byte_lo, MemConfig}};
 
 use super::{Banking, Mapper};
 
@@ -79,13 +79,13 @@ impl Mapper for BandaiFCG {
     }
   }
 
-  fn map_prg_addr_branching(&mut self, banks: &mut MemConfig, addr: usize) -> PrgTarget {
-    match addr {
-      0x6000..=0x7FFF => PrgTarget::Prg(addr),
-      0x8000..=0xFFFF => PrgTarget::Prg(banks.prg.translate(addr)),
-      _ => unreachable!(),
-    }
-  }
+  // fn map_prg_addr_branching(&mut self, banks: &mut MemConfig, addr: usize) -> PrgTarget {
+  //   match addr {
+  //     0x6000..=0x7FFF => PrgTarget::Prg(addr),
+  //     0x8000..=0xFFFF => PrgTarget::Prg(banks.prg.translate(addr)),
+  //     _ => unreachable!(),
+  //   }
+  // }
 
   fn notify_cpu_cycle(&mut self) {
     if !self.irq_enabled { return; }

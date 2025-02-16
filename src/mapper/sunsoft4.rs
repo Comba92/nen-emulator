@@ -1,4 +1,4 @@
-use crate::{cart::{CartHeader, Mirroring, PpuTarget, PrgTarget}, mmu::MemConfig, ppu::Ppu};
+use crate::{cart::{CartHeader, Mirroring}, mmu::MemConfig, ppu::Ppu};
 
 use super::{Banking, Mapper};
 
@@ -113,25 +113,17 @@ impl Mapper for Sunsoft4 {
     }
   }
 
-  fn map_prg_addr_branching(&mut self, banks: &mut MemConfig, addr: usize) -> PrgTarget {
-    match addr {
-      0x6000..=0x7FFF => PrgTarget::SRam(self.sram_enabled, banks.sram.translate(addr)),
-      0x8000..=0xFFFF => PrgTarget::Prg(banks.prg.translate(addr)),
-      _ => unreachable!()
-    }
-  }
-
-  fn map_ppu_addr_branching(&mut self, banks: &mut MemConfig, addr: usize) -> PpuTarget {
-    match addr {
-      0x0000..=0x1FFF => PpuTarget::Chr(banks.chr.translate(addr)),
-      0x2000..=0x2FFF => {
-        if self.chrrom_nametbls {
-          PpuTarget::Chr(self.vram_chrrom_banks.translate(addr))
-        } else {
-          PpuTarget::CiRam(banks.ciram.translate(addr))
-        }
-      }
-      _ => unreachable!()
-    }
-  }
+  // fn map_ppu_addr_branching(&mut self, banks: &mut MemConfig, addr: usize) -> PpuTarget {
+  //   match addr {
+  //     0x0000..=0x1FFF => PpuTarget::Chr(banks.chr.translate(addr)),
+  //     0x2000..=0x2FFF => {
+  //       if self.chrrom_nametbls {
+  //         PpuTarget::Chr(self.vram_chrrom_banks.translate(addr))
+  //       } else {
+  //         PpuTarget::CiRam(banks.ciram.translate(addr))
+  //       }
+  //     }
+  //     _ => unreachable!()
+  //   }
+  // }
 }

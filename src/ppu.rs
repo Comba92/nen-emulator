@@ -111,14 +111,6 @@ enum WriteLatch {
 	SecondWrite,
 }
 
-#[allow(unused)]
-enum VramDst {
-	Patterntbl,
-	Nametbl,
-	Palettes,
-	Unused,
-}
-
 #[derive(Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum PpuState {
 	FetchBg,
@@ -273,38 +265,7 @@ impl Ppu {
 }
 
 impl Ppu {
-	#[allow(unused)]
-	fn map_address(&self, addr: u16) -> (VramDst, usize) {
-		match addr {
-			0x0000..=0x1FFF => (VramDst::Patterntbl, addr as usize),
-			0x2000..=0x2FFF => {
-				// let mirrored = self.mirror_nametbl(addr);
-				(VramDst::Nametbl, addr as usize)
-			}
-			0x3F00..=0x3FFF => {
-				let palette = self.mirror_palette(addr);
-				(VramDst::Palettes, palette as usize)
-			}
-			_ => (VramDst::Unused, 0),
-		}
-	}
-
 	pub fn peek_vram(&self, addr: u16) -> u8 {
-		self.peek_vram_branchless(addr)
-	}
-
-	#[allow(unused)]
-	fn peek_vram_branching(&self, addr: u16) -> u8 {
-		let (dst, addr) = self.map_address(addr);
-		match dst {
-			VramDst::Patterntbl | VramDst::Nametbl => self.cart.as_mut()
-				.vram_read_branching(addr),
-			VramDst::Palettes => self.palettes[addr],
-			VramDst::Unused => 0,
-		}
-	}
-
-	fn peek_vram_branchless(&self, addr: u16) -> u8 {
 		// 16 handlers, one for each 1kb
 		let dev = (addr >> 10) & 0xF;
 		let handler = self.cart.mapping().ppu_reads[dev as usize];
@@ -336,23 +297,6 @@ impl Ppu {
 	}
 
 	pub fn write_vram(&mut self, val: u8) {
-		self.write_vram_branchless(val);
-	}
-
-	#[allow(unused)]
-	fn write_vram_branching(&mut self, val: u8) {
-		let (dst, addr) = self.map_address(self.v.0);
-		match dst {
-			VramDst::Patterntbl | VramDst::Nametbl => self.cart.as_mut()
-				.vram_write_branching(addr, val),
-			VramDst::Palettes => self.palettes[addr] = val & 0b0011_1111,
-			VramDst::Unused => {}
-		}
-
-		self.increase_vram_address();
-	}
-
-	fn write_vram_branchless(&mut self, val: u8) {
 		// 16 handlers, one for each 1kb
 		let dev = (self.v.0 >> 10) & 0xF;
 		let handler = self.cart.mapping().ppu_writes[dev as usize];

@@ -1,4 +1,4 @@
-use crate::{cart::{CartHeader, PpuTarget}, mmu::{set_byte_hi, set_byte_lo, MemConfig}, ppu::Ppu};
+use crate::{cart::CartHeader, mmu::{set_byte_hi, set_byte_lo, MemConfig}, ppu::Ppu};
 
 use super::{Banking, Mapper};
 
@@ -157,15 +157,15 @@ impl Mapper for Namco129_163 {
     }
   }
 
-  fn map_ppu_addr_branching(&mut self, banks: &mut MemConfig, addr: usize) -> PpuTarget {
-    let page = addr / 0x400;
+  // fn map_ppu_addr_branching(&mut self, banks: &mut MemConfig, addr: usize) -> PpuTarget {
+  //   let page = addr / 0x400;
 
-    match self.chr_selects[page] {
-      ChrTarget::Chr => PpuTarget::Chr(banks.chr.translate(addr)),
-      ChrTarget::Ciram0 => PpuTarget::CiRam(addr % 0x400),
-      ChrTarget::Ciram1 => PpuTarget::CiRam((addr % 0x400) + 0x400),
-    }
-  }
+  //   match self.chr_selects[page] {
+  //     ChrTarget::Chr => PpuTarget::Chr(banks.chr.translate(addr)),
+  //     ChrTarget::Ciram0 => PpuTarget::CiRam(addr % 0x400),
+  //     ChrTarget::Ciram1 => PpuTarget::CiRam((addr % 0x400) + 0x400),
+  //   }
+  // }
 
   fn notify_cpu_cycle(&mut self) {
     if self.irq_requested.is_some() { return; }

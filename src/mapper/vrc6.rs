@@ -1,4 +1,4 @@
-use crate::{apu::{ApuDivider, Channel}, cart::{CartHeader, Mirroring, PpuTarget}, mmu::MemConfig, ppu::Ppu};
+use crate::{apu::{ApuDivider, Channel}, cart::{CartHeader, Mirroring}, mmu::MemConfig, ppu::Ppu};
 use super::{konami_irq::KonamiIrq, Banking, Mapper};
 
 #[derive(Default, serde::Serialize, serde::Deserialize)]
@@ -264,22 +264,22 @@ impl Mapper for VRC6 {
     }
   }
 
-  fn map_ppu_addr_branching(&mut self, banks: &mut MemConfig, addr: usize) -> PpuTarget {
-    match addr {
-      0x0000..=0x1FFF => PpuTarget::Chr(banks.chr.translate(addr)),
-      0x2000..=0x2FFF => match self.nametbl_src {
-        NametblSrc::CiRam => {
-          let ciram_addr = self.vram_ciram_banks.translate(addr);
-          PpuTarget::CiRam(ciram_addr)
-        }
-        NametblSrc::ChrRom => {
-          let chrrom_addr = self.vram_chrrom_banks.translate(addr);
-          PpuTarget::Chr(chrrom_addr)
-        }
-      }
-      _ => unreachable!()
-    }
-  }
+  // fn map_ppu_addr_branching(&mut self, banks: &mut MemConfig, addr: usize) -> PpuTarget {
+  //   match addr {
+  //     0x0000..=0x1FFF => PpuTarget::Chr(banks.chr.translate(addr)),
+  //     0x2000..=0x2FFF => match self.nametbl_src {
+  //       NametblSrc::CiRam => {
+  //         let ciram_addr = self.vram_ciram_banks.translate(addr);
+  //         PpuTarget::CiRam(ciram_addr)
+  //       }
+  //       NametblSrc::ChrRom => {
+  //         let chrrom_addr = self.vram_chrrom_banks.translate(addr);
+  //         PpuTarget::Chr(chrrom_addr)
+  //       }
+  //     }
+  //     _ => unreachable!()
+  //   }
+  // }
 
   fn notify_cpu_cycle(&mut self) {
     self.irq.handle_irq();

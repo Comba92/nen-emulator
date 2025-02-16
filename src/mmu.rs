@@ -164,6 +164,7 @@ impl MemConfig {
 }
 
 pub struct MemMapping {
+  
   pub cpu_reads: [fn(&mut Bus, u16) -> u8; 8],
   pub cpu_writes: [fn(&mut Bus, u16, u8); 8],
   pub ppu_reads: [fn(&Ppu, u16) -> u8; 16],
@@ -171,6 +172,8 @@ pub struct MemMapping {
 }
 
 impl MemMapping {
+  pub const SRAM_HANDLER: usize = 3;
+
   pub fn set_vram_handlers(&mut self, read: fn(&Ppu, u16) -> u8, write: fn(&mut Ppu, u16, u8)) {
     for i in 8..12 {
       self.ppu_reads[i]  = read;

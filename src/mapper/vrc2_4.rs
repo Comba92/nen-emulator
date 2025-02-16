@@ -1,6 +1,6 @@
 use bitfield_struct::bitfield;
 
-use crate::{cart::{CartHeader, Mirroring, PrgTarget}, mmu::MemConfig};
+use crate::{cart::{CartHeader, Mirroring}, mmu::MemConfig};
 use super::{konami_irq::KonamiIrq, Banking, Mapper};
 
 #[bitfield(u16, order = Lsb)]
@@ -202,21 +202,9 @@ impl Mapper for VRC2_4 {
     }
   }
 
-  fn map_prg_addr_branching(&mut self, banks: &mut MemConfig, addr: usize) -> PrgTarget {
-    match addr {
-      0x4020..=0x5FFF => PrgTarget::Cart,
-      0x6000..=0x7FFF => {
-        // we simulate the 1bit latch by always reading the first sram address
-        // hoping this will work! 
-        let res = if self.mapper == 2 { 0 } else { banks.sram.translate(addr) };
-        PrgTarget::SRam(true, res)
-      }
-      0x8000..=0xFFFF => PrgTarget::Prg(banks.prg.translate(addr)),
-      _ => unreachable!()
-    }
-  }
-
   fn sram_translate(&mut self, banks: &mut MemConfig, addr: u16) -> usize {
+    // we simulate the 1bit latch by always reading the first sram address
+    // hoping this will work! 
     if self.mapper == 2 { 0 } else { banks.sram.translate(addr as usize) }
   }
 

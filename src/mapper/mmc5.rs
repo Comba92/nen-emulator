@@ -1,4 +1,4 @@
-use crate::{apu::{pulse::Pulse, Channel}, cart::{CartHeader, Mirroring, PpuTarget, PrgTarget}, mmu::MemConfig, ppu::PpuState};
+use crate::{apu::{pulse::Pulse, Channel}, bus::Bus, cart::{CartHeader, Mirroring}, mmu::{MemConfig, MemMapping}, ppu::PpuState};
 use super::{Banking, Mapper};
 
 #[derive(Default, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -134,6 +134,20 @@ impl MMC5 {
       banks.prg.set_page(1, bank | 1);
       banks.prg.set_page(2, bank | 2);
       banks.prg.set_page(3, bank | 3); 
+    }
+
+    for (i, (target, _)) in self.prg_selects.iter().enumerate() {
+      let handler = MemMapping::SRAM_HANDLER + i;
+      match target {
+        AccessTarget::Prg => {
+          banks.mapping.cpu_reads[handler]  = Bus::prg_read;
+          banks.mapping.cpu_writes[handler] = Bus::prg_write;
+        }
+        AccessTarget::SRam => {
+          banks.mapping.cpu_reads[handler]  = Bus::sram_read;
+          banks.mapping.cpu_writes[handler] = Bus::sram_write;
+        }
+      }
     }
   }
 
@@ -449,96 +463,132 @@ impl Mapper for MMC5 {
     }
   }
 
-  fn map_prg_addr_branching(&mut self, banks: &mut MemConfig, addr: usize) -> PrgTarget {
-    match addr {
-      0x4020..=0x5FFF => PrgTarget::Cart,
-      0x6000..=0xFFFF => {
-        if addr == 0xFFFA || addr == 0xFFFB {
-          self.notify_nmi();
-        }
+  // fn map_prg_addr_branching(&mut self, banks: &mut MemConfig, addr: usize) -> PrgTarget {
+  //   match addr {
+  //     0x4020..=0x5FFF => PrgTarget::Cart,
+  //     0x6000..=0xFFFF => {
+  //       if addr == 0xFFFA || addr == 0xFFFB {
+  //         self.notify_nmi();
+  //       }
 
-        let page = (addr - 0x6000) / 0x2000;
-        let (target, _) = self.prg_selects[page];
-        match target {
-          AccessTarget::Prg => PrgTarget::Prg(banks.prg.translate(addr)),
-          AccessTarget::SRam => PrgTarget::SRam(true, banks.sram.translate(addr)),
-        }
-      }
-      _ => unreachable!()
+  //       let page = (addr - 0x6000) / 0x2000;
+  //       let (target, _) = self.prg_selects[page];
+  //       match target {
+  //         AccessTarget::Prg => PrgTarget::Prg(banks.prg.translate(addr)),
+  //         AccessTarget::SRam => PrgTarget::SRam(true, banks.sram.translate(addr)),
+  //       }
+  //     }
+  //     _ => unreachable!()
+  //   }
+  // }
+
+  fn prg_translate(&mut self, banks: &mut MemConfig, addr: u16) -> usize {
+    if addr == 0xFFFA || addr == 0xFFFB {
+      self.notify_nmi();
     }
+
+    banks.prg.translate(addr as usize)
   }
 
-  fn map_ppu_addr_branching(&mut self, banks: &mut MemConfig, addr: usize) -> PpuTarget {  
-    match addr {
-      0x0000..=0x1FFF => {
-        if self.exram_mode == ExRamMode::NametblEx && self.ppu_data_sub && self.ppu_state == PpuState::FetchBg {
-          let ex_attribute = self.exram_read(self.last_nametbl_addr - 0x2000);
-          let bank = ((self.chr_select_hi as usize) << 6) | (ex_attribute as usize & 0b0011_1111);
-          let mapped = (bank << 12) + (addr & 0xFFF);
-          PpuTarget::Chr(mapped % banks.chr.data_size)
-        } else {
-          // https://forums.nesdev.org/viewtopic.php?p=193069#p193069
-          let mapped = match (&self.ppu_state, self.ppu_spr_16 && self.ppu_data_sub) {
-            (_, false) => self.spr_banks.translate(addr),
+  fn chr_translate(&mut self, banks: &mut MemConfig, addr: u16) -> usize {
+    let addr = addr as usize;
 
-            (PpuState::FetchBg, true)  => self.bg_banks.translate(addr),
-            (PpuState::FetchSpr, true) => self.spr_banks.translate(addr),
-            (PpuState::Vblank, true) => {
-              if self.last_selected_bg_regs {
-                self.bg_banks.translate(addr)
-              } else {
-                self.spr_banks.translate(addr)
-              }
-            }
-          };
+    if self.exram_mode == ExRamMode::NametblEx && self.ppu_data_sub && self.ppu_state == PpuState::FetchBg {
+      let ex_attribute = self.exram_read(self.last_nametbl_addr - 0x2000);
+      let bank = ((self.chr_select_hi as usize) << 6) | (ex_attribute as usize & 0b0011_1111);
+      let mapped = (bank << 12) + (addr & 0xFFF);
+      mapped % banks.chr.data_size
+    } else {
+      // https://forums.nesdev.org/viewtopic.php?p=193069#p193069
+      let mapped = match (&self.ppu_state, self.ppu_spr_16 && self.ppu_data_sub) {
+        (_, false) => self.spr_banks.translate(addr),
 
-          PpuTarget::Chr(mapped)
-        }
-      },
-
-      0x2000..=0x2FFF => {
-        if self.exram_mode == ExRamMode::NametblEx && self.ppu_data_sub {
-          if is_attribute(addr - 0x2000) {
-            let ex_attribute = self.exram_read(self.last_nametbl_addr - 0x2000);
-            let pal = ex_attribute >> 6;
-            let attribute = (pal << 6) | (pal << 4) | (pal << 2) | pal;
-            return PpuTarget::Value(attribute);
+        (PpuState::FetchBg, true)  => self.bg_banks.translate(addr),
+        (PpuState::FetchSpr, true) => self.spr_banks.translate(addr),
+        (PpuState::Vblank, true) => {
+          if self.last_selected_bg_regs {
+            self.bg_banks.translate(addr)
           } else {
-            self.last_nametbl_addr = addr;
+            self.spr_banks.translate(addr)
           }
         }
+      };
 
-        let page = (addr - 0x2000) / 1024;
-        let target = self.nametbls_mapping[page];
-
-        match target {
-          NametblMapping::CiRam0 | NametblMapping::CiRam1 
-            => PpuTarget::CiRam(banks.ciram.translate(addr)),
-
-          NametblMapping::ExRam => {
-            match self.exram_mode {
-              ExRamMode::Nametbl | ExRamMode::NametblEx
-                => PpuTarget::ExRam(addr - 0x2000),
-              _ => PpuTarget::Value(0),
-            }
-          }
-
-          NametblMapping::FillMode => {
-            match is_attribute(addr - 0x2000) {
-              false => PpuTarget::Value(self.fill_mode_tile_id),
-              true  => {
-                let pal = self.fill_mode_palette_id;
-                let attribute = (pal << 6) | (pal << 4) | (pal << 2) | pal;
-                PpuTarget::Value(attribute)
-              }
-            }
-          },
-        }
-      }
-
-      _ => unreachable!()
+      mapped
     }
   }
+
+  // fn map_ppu_addr_branching(&mut self, banks: &mut MemConfig, addr: usize) -> PpuTarget {  
+  //   match addr {
+  //     0x0000..=0x1FFF => {
+  //       if self.exram_mode == ExRamMode::NametblEx && self.ppu_data_sub && self.ppu_state == PpuState::FetchBg {
+  //         let ex_attribute = self.exram_read(self.last_nametbl_addr - 0x2000);
+  //         let bank = ((self.chr_select_hi as usize) << 6) | (ex_attribute as usize & 0b0011_1111);
+  //         let mapped = (bank << 12) + (addr & 0xFFF);
+  //         PpuTarget::Chr(mapped % banks.chr.data_size)
+  //       } else {
+  //         // https://forums.nesdev.org/viewtopic.php?p=193069#p193069
+  //         let mapped = match (&self.ppu_state, self.ppu_spr_16 && self.ppu_data_sub) {
+  //           (_, false) => self.spr_banks.translate(addr),
+
+  //           (PpuState::FetchBg, true)  => self.bg_banks.translate(addr),
+  //           (PpuState::FetchSpr, true) => self.spr_banks.translate(addr),
+  //           (PpuState::Vblank, true) => {
+  //             if self.last_selected_bg_regs {
+  //               self.bg_banks.translate(addr)
+  //             } else {
+  //               self.spr_banks.translate(addr)
+  //             }
+  //           }
+  //         };
+
+  //         PpuTarget::Chr(mapped)
+  //       }
+  //     },
+
+  //     0x2000..=0x2FFF => {
+  //       if self.exram_mode == ExRamMode::NametblEx && self.ppu_data_sub {
+  //         if is_attribute(addr - 0x2000) {
+  //           let ex_attribute = self.exram_read(self.last_nametbl_addr - 0x2000);
+  //           let pal = ex_attribute >> 6;
+  //           let attribute = (pal << 6) | (pal << 4) | (pal << 2) | pal;
+  //           return PpuTarget::Value(attribute);
+  //         } else {
+  //           self.last_nametbl_addr = addr;
+  //         }
+  //       }
+
+  //       let page = (addr - 0x2000) / 1024;
+  //       let target = self.nametbls_mapping[page];
+
+  //       match target {
+  //         NametblMapping::CiRam0 | NametblMapping::CiRam1 
+  //           => PpuTarget::CiRam(banks.ciram.translate(addr)),
+
+  //         NametblMapping::ExRam => {
+  //           match self.exram_mode {
+  //             ExRamMode::Nametbl | ExRamMode::NametblEx
+  //               => PpuTarget::ExRam(addr - 0x2000),
+  //             _ => PpuTarget::Value(0),
+  //           }
+  //         }
+
+  //         NametblMapping::FillMode => {
+  //           match is_attribute(addr - 0x2000) {
+  //             false => PpuTarget::Value(self.fill_mode_tile_id),
+  //             true  => {
+  //               let pal = self.fill_mode_palette_id;
+  //               let attribute = (pal << 6) | (pal << 4) | (pal << 2) | pal;
+  //               PpuTarget::Value(attribute)
+  //             }
+  //           }
+  //         },
+  //       }
+  //     }
+
+  //     _ => unreachable!()
+  //   }
+  // }
 
   fn exram_read(&mut self, addr: usize) -> u8 {
     self.exram[addr % self.exram.len()]

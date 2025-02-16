@@ -1,4 +1,4 @@
-use crate::{cart::{CartHeader, Mirroring, PpuTarget, PrgTarget}, mmu::{Banking, MemConfig}, ppu::PpuState};
+use crate::{cart::{CartHeader, Mirroring}, mmu::{Banking, MemConfig}, ppu::PpuState};
 
 mod mmc1;
 mod mmc2;
@@ -125,23 +125,6 @@ pub trait Mapper {
 
   fn chr_translate  (&mut self, cfg: &mut MemConfig, addr: u16) -> usize { cfg.chr.translate(addr as usize) }
   fn ciram_translate(&mut self, cfg: &mut MemConfig, addr: u16) -> usize { cfg.ciram.translate(addr as usize) }
-
-  fn map_prg_addr_branching(&mut self, cfg: &mut MemConfig, addr: usize) -> PrgTarget {
-    match addr {
-      0x4020..=0x5FFF => PrgTarget::Cart,
-      0x6000..=0x7FFF => PrgTarget::SRam(true, cfg.sram.translate(addr)),
-      0x8000..=0xFFFF => PrgTarget::Prg(cfg.prg.translate(addr)),
-      _ => unreachable!()
-    }
-  }
-  
-  fn map_ppu_addr_branching(&mut self, cfg: &mut MemConfig, addr: usize) -> PpuTarget {
-    match addr {
-      0x0000..=0x1FFF => PpuTarget::Chr(cfg.chr.translate(addr)),
-      0x2000..=0x2FFF => PpuTarget::CiRam(cfg.ciram.translate(addr)),
-      _ => unreachable!("Accessing vram at address 0x{addr:04x}")
-    }
-  }
 
   fn cart_read(&mut self, _addr: usize) -> u8 { 0xFF }
   fn cart_write(&mut self, _cfg: &mut MemConfig, _addr: usize, _val: u8) {}

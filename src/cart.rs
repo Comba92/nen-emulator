@@ -1,5 +1,5 @@
 use serde::ser::SerializeStruct;
-use crate::{bus::Bus, mapper::{self, Dummy, Mapper}, mem::Memory, mmu::{MemConfig, MemMapping}, ppu::Ppu};
+use crate::{mapper::{self, Dummy, Mapper}, mmu::{MemConfig, MemMapping}};
 
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CartHeader {
@@ -370,47 +370,6 @@ impl Cart {
 
   pub fn set_sram(&mut self, data: Vec<u8>) {
     self.sram = data.into_boxed_slice();
-  }
-
-  pub fn prg_read_branching(&mut self, addr: usize) -> u8 {
-    let target = self.mapper.map_prg_addr_branching(&mut self.cfg, addr);
-    match target {
-      PrgTarget::Cart => self.mapper.cart_read(addr),
-      PrgTarget::SRam(enabled, mapped) => if enabled {
-          self.sram[mapped % self.sram.len()]
-        } else { 0xde }
-      PrgTarget::Prg(mapped) => self.prg[mapped],
-    }
-  }
-  pub fn prg_write_branching(&mut self, addr: usize, val: u8) {
-    let target = self.mapper.map_prg_addr_branching(&mut self.cfg, addr);
-    match target {
-      PrgTarget::Cart => self.mapper.cart_write(&mut self.cfg, addr, val),
-      PrgTarget::SRam(enabled, mapped) => if enabled {
-        self.sram[mapped % self.sram.len()] = val;
-      }
-      PrgTarget::Prg(_) => self.mapper.prg_write(&mut self.cfg, addr, val),
-    }
-  }
-
-  pub fn vram_read_branching(&mut self, addr: usize) -> u8 {
-    let target = self.mapper.map_ppu_addr_branching(&mut self.cfg, addr);
-    match target {
-      PpuTarget::CiRam(mapped) => self.ciram[mapped],
-      PpuTarget::Chr(mapped)   => self.chr[mapped],
-      PpuTarget::ExRam(mapped) => self.mapper.exram_read(mapped),
-      PpuTarget::Value(val) => val,
-    }
-  }
-
-  pub fn vram_write_branching(&mut self, addr: usize, val: u8) {
-    let target = self.mapper.map_ppu_addr_branching(&mut self.cfg, addr);
-    match target {
-      PpuTarget::CiRam(mapped) => self.ciram[mapped] = val,
-      PpuTarget::Chr(mapped)   => if self.header.uses_chr_ram { self.chr[mapped] = val; }
-      PpuTarget::ExRam(mapped) => self.mapper.exram_write(mapped, val),
-      PpuTarget::Value(_) => {}
-    }
   }
 }
 

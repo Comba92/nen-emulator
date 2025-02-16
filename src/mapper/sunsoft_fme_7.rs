@@ -1,4 +1,4 @@
-use crate::{bus::Bus, cart::{CartHeader, Mirroring, PrgTarget}, mmu::{set_byte_hi, set_byte_lo, MemConfig}};
+use crate::{bus::Bus, cart::{CartHeader, Mirroring}, mmu::{set_byte_hi, set_byte_lo, MemConfig}};
 use super::{Banking, Mapper};
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -101,20 +101,20 @@ impl Mapper for SunsoftFME7 {
     }
   }
 
-  fn map_prg_addr_branching(&mut self, banks: &mut MemConfig, addr: usize) -> PrgTarget {
-    match addr {
-      0x4020..=0x5FFF => PrgTarget::Cart,
-      0x6000..=0x7FFF => {
-        if self.sram_banked {
-          PrgTarget::SRam(self.sram_enabled, banks.sram.translate(addr))
-        } else {
-          PrgTarget::Prg(banks.sram.translate(addr))
-        }
-      }
-      0x8000..=0xFFFF => PrgTarget::Prg(banks.prg.translate(addr)),
-      _ => unreachable!()
-    }
-  }
+  // fn map_prg_addr_branching(&mut self, banks: &mut MemConfig, addr: usize) -> PrgTarget {
+  //   match addr {
+  //     0x4020..=0x5FFF => PrgTarget::Cart,
+  //     0x6000..=0x7FFF => {
+  //       if self.sram_banked {
+  //         PrgTarget::SRam(self.sram_enabled, banks.sram.translate(addr))
+  //       } else {
+  //         PrgTarget::Prg(banks.sram.translate(addr))
+  //       }
+  //     }
+  //     0x8000..=0xFFFF => PrgTarget::Prg(banks.prg.translate(addr)),
+  //     _ => unreachable!()
+  //   }
+  // }
 
   fn notify_cpu_cycle(&mut self) {
     if !self.irq_counter_enabled { return; }
