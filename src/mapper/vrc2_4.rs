@@ -96,20 +96,20 @@ impl VRC2_4 {
     (addr & 0xFF00 | (a1 << 1) | a0) & 0xF00F
   }
 
-  fn update_prg_banks(&self, banks: &mut MemConfig) {
+  fn update_prg_banks(&self, cfg: &mut MemConfig) {
     match self.swap_mode {
       false => {
-        banks.prg.set_page(0, self.prg_select0 as usize);
-        banks.prg.set_page(2, banks.prg.banks_count-2);
+        cfg.prg.set_page(0, self.prg_select0 as usize);
+        cfg.prg.set_page(2, cfg.prg.banks_count-2);
       }
       true  => {
-        banks.prg.set_page(0, banks.prg.banks_count-2);
-        banks.prg.set_page(2, self.prg_select0 as usize);
+        cfg.prg.set_page(0, cfg.prg.banks_count-2);
+        cfg.prg.set_page(2, self.prg_select0 as usize);
       }
     }
   }
 
-  fn update_chr_banks(&mut self, banks: &mut MemConfig, addr: usize, val: u8) {
+  fn update_chr_banks(&mut self, cfg: &mut MemConfig, addr: usize, val: u8) {
     let res = match addr {
       0xB000 => Some((0, false)),
       0xB001 => Some((0, true)),
@@ -144,19 +144,19 @@ impl VRC2_4 {
         self.chr_selects[reg].set_lo(val & 0b1111);
       }
 
-      banks.chr.set_page(reg, self.chr_selects[reg].0 as usize);
+      cfg.chr.set_page(reg, self.chr_selects[reg].0 as usize);
     }
   }
 }
 
 #[typetag::serde]
 impl Mapper for VRC2_4 {
-  fn new(header: &CartHeader, banks: &mut MemConfig) -> Box<Self> {
-    banks.prg = Banking::new_prg(header, 4);
-    banks.chr = Banking::new_chr(header, 8);
+  fn new(header: &CartHeader, cfg: &mut MemConfig) -> Box<Self> {
+    cfg.prg = Banking::new_prg(header, 4);
+    cfg.chr = Banking::new_chr(header, 8);
 
-    banks.prg.set_page(2, banks.prg.banks_count-2);
-    banks.prg.set_page(3, banks.prg.banks_count-1);
+    cfg.prg.set_page(2, cfg.prg.banks_count-2);
+    cfg.prg.set_page(3, cfg.prg.banks_count-1);
 
     let mapper = Self {
       mapper: header.mapper,
@@ -166,22 +166,22 @@ impl Mapper for VRC2_4 {
     Box::new(mapper)
   }
 
-  fn prg_write(&mut self, banks: &mut MemConfig, addr: usize, val: u8) {
+  fn prg_write(&mut self, cfg: &mut MemConfig, addr: usize, val: u8) {
     let addr = self.translate_addr(addr);
     match addr {
       0x9002 => {
         self.sram_ctrl = val & 0b01 != 0;
         self.swap_mode = val & 0b10 != 0 && self.mapper != 22;
-        self.update_prg_banks(banks);
+        self.update_prg_banks(cfg);
       }
 
       0x8000..=0x8006 => {
         self.prg_select0 = val & 0b1_1111;
-        self.update_prg_banks(banks);
+        self.update_prg_banks(cfg);
       }
       0xA000..=0xA006 => {
         self.prg_select1 = val & 0b1_1111;
-        banks.prg.set_page(1, self.prg_select1 as usize);
+        cfg.prg.set_page(1, self.prg_select1 as usize);
       }
       0x9000..=0x9003 => {
         let mirroring = match val & 0b11 {
@@ -190,9 +190,9 @@ impl Mapper for VRC2_4 {
         2 => Mirroring::SingleScreenA,
         _ => Mirroring::SingleScreenB,
         };
-        banks.ciram.update(mirroring);
+        cfg.ciram.update(mirroring);
       }
-      0xB000..=0xE003 => self.update_chr_banks(banks, addr, val),
+      0xB000..=0xE003 => self.update_chr_banks(cfg, addr, val),
 
       0xF000 => self.irq.latch = (self.irq.latch & 0xF0) | (val as u16 & 0b1111),
       0xF001 => self.irq.latch = (self.irq.latch & 0x0F) | ((val as u16 & 0b1111) << 4),
@@ -202,7 +202,7 @@ impl Mapper for VRC2_4 {
     }
   }
 
-  fn map_prg_addr(&mut self, banks: &mut MemConfig, addr: usize) -> PrgTarget {
+  fn map_prg_addr_branching(&mut self, banks: &mut MemConfig, addr: usize) -> PrgTarget {
     match addr {
       0x4020..=0x5FFF => PrgTarget::Cart,
       0x6000..=0x7FFF => {
@@ -214,6 +214,10 @@ impl Mapper for VRC2_4 {
       0x8000..=0xFFFF => PrgTarget::Prg(banks.prg.translate(addr)),
       _ => unreachable!()
     }
+  }
+
+  fn sram_translate(&mut self, banks: &mut MemConfig, addr: u16) -> usize {
+    if self.mapper == 2 { 0 } else { banks.sram.translate(addr as usize) }
   }
 
   fn notify_cpu_cycle(&mut self) {

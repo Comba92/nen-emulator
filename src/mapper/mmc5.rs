@@ -36,14 +36,17 @@ pub struct MMC5 {
 
   chr_mode: ChrMode,
   chr_selects: [u8; 12],
-  spr_banks: Banking<ChrBanking>,
-  bg_banks:  Banking<ChrBanking>,
+  // spr_banks: Banking<ChrBanking>,
+  // bg_banks:  Banking<ChrBanking>,
+  spr_banks: Banking,
+  bg_banks:  Banking,
   last_selected_bg_regs: bool,
   chr_select_hi: u8,
   
   exram_mode: ExRamMode,
   exram: Box<[u8]>,
-  ex_attr_bank: Banking<ChrBanking>,
+  // ex_attr_bank: Banking<ChrBanking>,
+  ex_attr_bank: Banking,
   last_nametbl_addr: usize,
 
   nametbls_mapping: [NametblMapping; 4],
@@ -446,7 +449,7 @@ impl Mapper for MMC5 {
     }
   }
 
-  fn map_prg_addr(&mut self, banks: &mut MemConfig, addr: usize) -> PrgTarget {
+  fn map_prg_addr_branching(&mut self, banks: &mut MemConfig, addr: usize) -> PrgTarget {
     match addr {
       0x4020..=0x5FFF => PrgTarget::Cart,
       0x6000..=0xFFFF => {
@@ -465,7 +468,7 @@ impl Mapper for MMC5 {
     }
   }
 
-  fn map_ppu_addr(&mut self, banks: &mut MemConfig, addr: usize) -> PpuTarget {  
+  fn map_ppu_addr_branching(&mut self, banks: &mut MemConfig, addr: usize) -> PpuTarget {  
     match addr {
       0x0000..=0x1FFF => {
         if self.exram_mode == ExRamMode::NametblEx && self.ppu_data_sub && self.ppu_state == PpuState::FetchBg {

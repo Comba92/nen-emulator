@@ -274,20 +274,6 @@ impl Ppu {
 	}
 }
 
-const PPU_MAPPING_READS: [fn(&Ppu, u16) -> u8; 4] = [
-	|ppu: &Ppu, addr: u16| ppu.cart.as_mut().vram_read(addr as usize),
-	|ppu: &Ppu, addr: u16| ppu.cart.as_mut().vram_read(addr as usize),
-	|ppu: &Ppu, addr: u16| ppu.cart.as_mut().vram_read(addr as usize),
-	|ppu: &Ppu, addr: u16| if addr >= 0x3F00 { ppu.palettes[ppu.mirror_palette(addr) as usize] } else { 0 },
-];
-
-const PPU_MAPPING_WRITES: [fn(&mut Ppu, u16, u8); 4] = [
-	|ppu: &mut Ppu, addr: u16, val: u8| ppu.cart.as_mut().vram_write(addr as usize, val),
-	|ppu: &mut Ppu, addr: u16, val: u8| ppu.cart.as_mut().vram_write(addr as usize, val),
-	|ppu: &mut Ppu, addr: u16, val: u8| ppu.cart.as_mut().vram_write(addr as usize, val),
-	|ppu: &mut Ppu, addr: u16, val: u8| if addr >= 0x3F00 { ppu.palettes[ppu.mirror_palette(addr) as usize] = val & 0b0011_1111 },
-];
-
 impl Ppu {
 	#[allow(unused)]
 	fn map_address(&self, addr: u16) -> (VramDst, usize) {
@@ -314,7 +300,7 @@ impl Ppu {
 		let (dst, addr) = self.map_address(addr);
 		match dst {
 			VramDst::Patterntbl | VramDst::Nametbl => self.cart.as_mut()
-				.vram_read(addr),
+				.vram_read_branching(addr),
 			VramDst::Palettes => self.palettes[addr],
 			VramDst::Unused => 0,
 		}
@@ -359,7 +345,7 @@ impl Ppu {
 		let (dst, addr) = self.map_address(self.v.0);
 		match dst {
 			VramDst::Patterntbl | VramDst::Nametbl => self.cart.as_mut()
-				.vram_write(addr, val),
+				.vram_write_branching(addr, val),
 			VramDst::Palettes => self.palettes[addr] = val & 0b0011_1111,
 			VramDst::Unused => {}
 		}
@@ -374,6 +360,29 @@ impl Ppu {
 		self.increase_vram_address();
 	}
 
+	pub fn chr_read(&self, addr: u16) -> u8 {
+    let cart = self.cart.as_mut();
+    cart.chr[cart.mapper.chr_translate(&mut cart.cfg, addr)]
+  }
+
+  pub fn chr_write(&mut self, addr: u16, val: u8) {
+    let cart = self.cart.as_mut();
+    cart.chr[cart.mapper.chr_translate(&mut cart.cfg, addr)] = val;
+  }
+
+  pub fn ciram_read(&self, addr: u16) -> u8 {
+    let cart = self.cart.as_mut();
+    cart.ciram[cart.mapper.ciram_translate(&mut cart.cfg, addr)]
+  }
+
+  pub fn ciram_write(&mut self, addr: u16, val: u8) {
+    let cart = self.cart.as_mut();
+    cart.ciram[cart.mapper.ciram_translate(&mut cart.cfg, addr)] = val;
+  }
+}
+
+
+impl Ppu {
 	pub fn read_reg(&mut self, addr: u16) -> u8 {
 		match addr {
 			0x2002 => {

@@ -1,4 +1,4 @@
-use crate::cart::{MemConfig, CartHeader, Mirroring, PrgTarget};
+use crate::{bus::Bus, cart::{CartHeader, MemConfig, Mirroring, PrgTarget}};
 
 use super::{set_byte_hi, set_byte_lo, Banking, Mapper};
 
@@ -17,8 +17,6 @@ pub struct SunsoftFME7 {
   sram_banked: bool,
   sram_enabled: bool,
 
-  prg0_select: usize,
-
   irq_enabled: bool,
   irq_counter_enabled: bool,
   irq_requested: Option<()>,
@@ -29,12 +27,12 @@ pub struct SunsoftFME7 {
 impl Mapper for SunsoftFME7 {
   fn new(header: &CartHeader, banks: &mut MemConfig) -> Box<Self> {
     banks.prg = Banking::new_prg(header, 4);
-    banks.chr = Banking::new_chr(header, 8);
-    
     banks.prg.set_page_to_last_bank(3);
+    banks.chr = Banking::new_chr(header, 8);
 
     let mapper = Self {
       command: Command::Chr(0),
+
       ..Default::default()
     };
     Box::new(mapper)
@@ -64,10 +62,20 @@ impl Mapper for SunsoftFME7 {
             self.sram_enabled = val >> 7 != 0;
 
             let bank = val as usize & 0b11_1111;
+            banks.sram.set_page(0, bank);
+
             if self.sram_banked {
-              banks.sram.set_page(0, bank);
+              banks.mapping.cpu_reads[3]  = Bus::sram_read;
+              banks.mapping.cpu_writes[3] = Bus::sram_write;
             } else {
-              self.prg0_select = (bank % banks.prg.banks_count) * banks.prg.bank_size;
+              banks.mapping.cpu_reads[3]  = |bus: &mut Bus, addr: u16| {
+                let cart = bus.cart.as_mut();
+                cart.prg[cart.mapper.sram_translate(&mut cart.cfg, addr)]
+              };
+              banks.mapping.cpu_writes[3] = |bus: &mut Bus, addr: u16, val: u8| {
+                let cart = bus.cart.as_mut();
+                cart.prg[cart.mapper.sram_translate(&mut cart.cfg, addr)] = val;
+              };
             }
           }
           Command::Prg1(page) => 
@@ -94,14 +102,14 @@ impl Mapper for SunsoftFME7 {
     }
   }
 
-  fn map_prg_addr(&mut self, banks: &mut MemConfig, addr: usize) -> PrgTarget {
+  fn map_prg_addr_branching(&mut self, banks: &mut MemConfig, addr: usize) -> PrgTarget {
     match addr {
       0x4020..=0x5FFF => PrgTarget::Cart,
       0x6000..=0x7FFF => {
         if self.sram_banked {
           PrgTarget::SRam(self.sram_enabled, banks.sram.translate(addr))
         } else {
-          PrgTarget::Prg(self.prg0_select + ((addr - 0x6000) % banks.prg.bank_size))
+          PrgTarget::Prg(banks.sram.translate(addr))
         }
       }
       0x8000..=0xFFFF => PrgTarget::Prg(banks.prg.translate(addr)),

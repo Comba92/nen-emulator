@@ -10,8 +10,10 @@ enum NametblSrc { #[default] CiRam, ChrRom }
 pub struct VRC6 {
   mapper: u16,
 
-  vram_chrrom_banks: Banking<CiramBanking>,
-  vram_ciram_banks: Banking<CiramBanking>,
+  // vram_chrrom_banks: Banking<CiramBanking>,
+  // vram_ciram_banks: Banking<CiramBanking>,
+  vram_chrrom_banks: Banking,
+  vram_ciram_banks: Banking,
   chr_selects: [usize; 8],
 
   irq: KonamiIrq,
@@ -252,7 +254,7 @@ impl Mapper for VRC6 {
     }
   }
 
-  fn map_ppu_addr(&mut self, banks: &mut MemConfig, addr: usize) -> PpuTarget {
+  fn map_ppu_addr_branching(&mut self, banks: &mut MemConfig, addr: usize) -> PpuTarget {
     match addr {
       0x0000..=0x1FFF => PpuTarget::Chr(banks.chr.translate(addr)),
       0x2000..=0x2FFF => match self.nametbl_src {

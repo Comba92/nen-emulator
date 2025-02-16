@@ -10,8 +10,10 @@ enum Mmc2Latch { FD, #[default] FE }
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct MMC2 {
   mapper: u16,
-  chr_banks0: Banking<ChrBanking>,
-  chr_banks1: Banking<ChrBanking>,
+  // chr_banks0: Banking<ChrBanking>,
+  // chr_banks1: Banking<ChrBanking>,
+  chr_banks0: Banking,
+  chr_banks1: Banking,
   latch0: Mmc2Latch,
   latch1: Mmc2Latch,
 }
@@ -66,7 +68,7 @@ impl Mapper for MMC2 {
     }
   }
 
-  fn map_ppu_addr(&mut self, banks: &mut MemConfig, addr: usize) -> PpuTarget {
+  fn map_ppu_addr_branching(&mut self, banks: &mut MemConfig, addr: usize) -> PpuTarget {
     let res = match addr {
       0x0000..=0x0FFF => PpuTarget::Chr(self.chr_banks0.page_to_bank_addr(self.latch0 as usize, addr)),
       0x1000..=0x1FFF => PpuTarget::Chr(self.chr_banks1.page_to_bank_addr(self.latch1 as usize, addr)),

@@ -2,6 +2,9 @@ use crate::cart::{MemConfig, CartHeader, Mirroring, PrgTarget};
 
 use super::{set_byte_hi, set_byte_lo, Banking, Mapper};
 
+
+// Mapper 16
+// https://www.nesdev.org/wiki/INES_Mapper_016
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct BandaiFCG {
   submapper: u8,
@@ -20,6 +23,8 @@ impl Mapper for BandaiFCG {
     banks.prg.set_page_to_last_bank(1);
 
     banks.chr = Banking::new_chr(header, 8);
+
+    // TODO: change mapping cfg based on submapper.
 
     let eeprom = vec![0; 256].into_boxed_slice();
     Box::new(Self{
@@ -74,7 +79,7 @@ impl Mapper for BandaiFCG {
     }
   }
 
-  fn map_prg_addr(&mut self, banks: &mut MemConfig, addr: usize) -> PrgTarget {
+  fn map_prg_addr_branching(&mut self, banks: &mut MemConfig, addr: usize) -> PrgTarget {
     match addr {
       0x6000..=0x7FFF => PrgTarget::Prg(addr),
       0x8000..=0xFFFF => PrgTarget::Prg(banks.prg.translate(addr)),

@@ -227,10 +227,14 @@ impl CartHeader {
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct MemConfig {
-  pub prg:  Banking<PrgBanking>,
-  pub chr:  Banking<ChrBanking>,
-  pub sram: Banking<SramBanking>,
-  pub ciram: Banking<CiramBanking>,
+  // pub prg:  Banking<PrgBanking>,
+  // pub chr:  Banking<ChrBanking>,
+  // pub sram: Banking<SramBanking>,
+  // pub ciram: Banking<CiramBanking>,
+  pub prg:  Banking,
+  pub chr:  Banking,
+  pub sram: Banking,
+  pub ciram: Banking,
 
   #[serde(skip)]
   pub mapping: MemMapping,
@@ -270,15 +274,15 @@ impl Default for MemMapping {
           0x4000..=0x4013 => bus.apu.read_reg(addr),
           0x4016 => bus.joypad.read1(),
           0x4017 => bus.joypad.read2(),
-          0x4020..=0x5FFF => bus.cart.as_mut().prg_read(addr as usize),
+          0x4020..=0x5FFF => bus.cart.as_mut().mapper.cart_read(addr as usize),
           _ => 0,
         }
       },
-      |bus: &mut Bus, addr: u16| bus.cart.as_mut().prg_read(addr as usize),
-      |bus: &mut Bus, addr: u16| bus.cart.as_mut().prg_read(addr as usize),
-      |bus: &mut Bus, addr: u16| bus.cart.as_mut().prg_read(addr as usize),
-      |bus: &mut Bus, addr: u16| bus.cart.as_mut().prg_read(addr as usize),
-      |bus: &mut Bus, addr: u16| bus.cart.as_mut().prg_read(addr as usize),
+      Bus::sram_read,
+      Bus::prg_read,
+      Bus::prg_read,
+      Bus::prg_read,
+      Bus::prg_read,
     ];
 
     let cpu_writes = [
@@ -300,28 +304,31 @@ impl Default for MemMapping {
             bus.apu.write_reg(addr as u16, val);
             bus.tick();
           }
-          0x4020..=0x5FFF => bus.cart.as_mut().prg_write(addr as usize, val),
+          0x4020..=0x5FFF => {
+            let cart = bus.cart.as_mut();
+            cart.mapper.cart_write(&mut cart.cfg, addr as usize, val);
+          }
           _ => {}
         }
       },
-      |bus: &mut Bus, addr: u16, val: u8| bus.cart.as_mut().prg_write(addr as usize, val),
-      |bus: &mut Bus, addr: u16, val: u8| bus.cart.as_mut().prg_write(addr as usize, val),
-      |bus: &mut Bus, addr: u16, val: u8| bus.cart.as_mut().prg_write(addr as usize, val),
-      |bus: &mut Bus, addr: u16, val: u8| bus.cart.as_mut().prg_write(addr as usize, val),
-      |bus: &mut Bus, addr: u16, val: u8| bus.cart.as_mut().prg_write(addr as usize, val),
+      Bus::sram_write,
+      Bus::prg_write,
+      Bus::prg_write,
+      Bus::prg_write,
+      Bus::prg_write,
     ];
 
     let ppu_reads = [
-      |ppu: &Ppu, addr: u16| ppu.cart.as_mut().vram_read(addr as usize),
-      |ppu: &Ppu, addr: u16| ppu.cart.as_mut().vram_read(addr as usize),
-      |ppu: &Ppu, addr: u16| ppu.cart.as_mut().vram_read(addr as usize),
+      Ppu::chr_read,
+      Ppu::chr_read,
+      Ppu::ciram_read,
       |ppu: &Ppu, addr: u16| if addr >= 0x3F00 { ppu.palettes[ppu.mirror_palette(addr) as usize] } else { 0 }
     ];
 
     let ppu_writes = [
-      |ppu: &mut Ppu, addr: u16, val: u8| ppu.cart.as_mut().vram_write(addr as usize, val),
-      |ppu: &mut Ppu, addr: u16, val: u8| ppu.cart.as_mut().vram_write(addr as usize, val),
-      |ppu: &mut Ppu, addr: u16, val: u8| ppu.cart.as_mut().vram_write(addr as usize, val),
+      Ppu::chr_write,
+      Ppu::chr_write,
+      Ppu::ciram_write,
       |ppu: &mut Ppu, addr: u16, val: u8| if addr >= 0x3F00 { ppu.palettes[ppu.mirror_palette(addr) as usize] = val & 0b0011_1111 },
     ];
 
@@ -339,7 +346,7 @@ impl SharedCart {
   }
 
   pub fn mapping(&self) -> &mut MemMapping {
-    &mut self.as_mut().config.mapping
+    &mut self.as_mut().cfg.mapping
   }
 
   pub fn as_mut(&self) -> &mut Cart {
@@ -384,8 +391,7 @@ pub struct Cart {
   pub chr: Box<[u8]>,
   pub sram: Box<[u8]>,
   pub ciram: Box<[u8]>,
-  #[serde(alias = "banks")]
-  pub config: MemConfig,
+  pub cfg: MemConfig,
   pub mapper: Box<dyn Mapper>,
 }
 
@@ -397,7 +403,7 @@ impl Default for Cart {
       chr: Default::default(),
       ciram: Default::default(),
       sram: Default::default(),
-      config: Default::default(),
+      cfg: Default::default(),
       mapper: Box::new(Dummy)
     }
   }
@@ -415,7 +421,7 @@ impl serde::Serialize for Cart {
     se.serialize_field("header", &self.header)?;
     se.serialize_field("sram", &self.sram)?;
     se.serialize_field("ciram", &self.ciram)?;
-    se.serialize_field("config", &self.config)?;
+    se.serialize_field("config", &self.cfg)?;
     se.serialize_field("mapper", &self.mapper)?;
 
     // we only serialize chr if it is chr ram
@@ -464,7 +470,7 @@ impl Cart {
     let mut banks = MemConfig::new(&header);
     let mapper = mapper::new_mapper(&header, &mut banks)?;
     
-    Ok(Cart { header, prg, chr, sram, ciram, config: banks, mapper })
+    Ok(Cart { header, prg, chr, sram, ciram, cfg: banks, mapper })
   }
 
   pub fn get_sram(&self) -> Option<Vec<u8>> {
@@ -477,8 +483,8 @@ impl Cart {
     self.sram = data.into_boxed_slice();
   }
 
-  pub fn prg_read(&mut self, addr: usize) -> u8 {
-    let target = self.mapper.map_prg_addr(&mut self.config, addr);
+  pub fn prg_read_branching(&mut self, addr: usize) -> u8 {
+    let target = self.mapper.map_prg_addr_branching(&mut self.cfg, addr);
     match target {
       PrgTarget::Cart => self.mapper.cart_read(addr),
       PrgTarget::SRam(enabled, mapped) => if enabled {
@@ -487,19 +493,19 @@ impl Cart {
       PrgTarget::Prg(mapped) => self.prg[mapped],
     }
   }
-  pub fn prg_write(&mut self, addr: usize, val: u8) {
-    let target = self.mapper.map_prg_addr(&mut self.config, addr);
+  pub fn prg_write_branching(&mut self, addr: usize, val: u8) {
+    let target = self.mapper.map_prg_addr_branching(&mut self.cfg, addr);
     match target {
-      PrgTarget::Cart => self.mapper.cart_write(&mut self.config, addr, val),
+      PrgTarget::Cart => self.mapper.cart_write(&mut self.cfg, addr, val),
       PrgTarget::SRam(enabled, mapped) => if enabled {
         self.sram[mapped % self.sram.len()] = val;
       }
-      PrgTarget::Prg(_) => self.mapper.prg_write(&mut self.config, addr, val),
+      PrgTarget::Prg(_) => self.mapper.prg_write(&mut self.cfg, addr, val),
     }
   }
 
-  pub fn vram_read(&mut self, addr: usize) -> u8 {
-    let target = self.mapper.map_ppu_addr(&mut self.config, addr);
+  pub fn vram_read_branching(&mut self, addr: usize) -> u8 {
+    let target = self.mapper.map_ppu_addr_branching(&mut self.cfg, addr);
     match target {
       PpuTarget::CiRam(mapped) => self.ciram[mapped],
       PpuTarget::Chr(mapped)   => self.chr[mapped],
@@ -508,8 +514,8 @@ impl Cart {
     }
   }
 
-  pub fn vram_write(&mut self, addr: usize, val: u8) {
-    let target = self.mapper.map_ppu_addr(&mut self.config, addr);
+  pub fn vram_write_branching(&mut self, addr: usize, val: u8) {
+    let target = self.mapper.map_ppu_addr_branching(&mut self.cfg, addr);
     match target {
       PpuTarget::CiRam(mapped) => self.ciram[mapped] = val,
       PpuTarget::Chr(mapped)   => if self.header.uses_chr_ram { self.chr[mapped] = val; }

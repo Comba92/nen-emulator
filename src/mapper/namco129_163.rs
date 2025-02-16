@@ -131,7 +131,7 @@ impl Mapper for Namco129_163 {
     }
   }
 
-  fn map_ppu_addr(&mut self, banks: &mut MemConfig, addr: usize) -> PpuTarget {
+  fn map_ppu_addr_branching(&mut self, banks: &mut MemConfig, addr: usize) -> PpuTarget {
     let page = addr / 0x400;
 
     match self.chr_selects[page] {
