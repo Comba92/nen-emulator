@@ -1,6 +1,5 @@
-use crate::{bus::Bus, cart::{CartHeader, MemConfig, Mirroring, PrgTarget}};
-
-use super::{set_byte_hi, set_byte_lo, Banking, Mapper};
+use crate::{bus::Bus, cart::{CartHeader, Mirroring, PrgTarget}, mmu::{set_byte_hi, set_byte_lo, MemConfig}};
+use super::{Banking, Mapper};
 
 #[derive(serde::Serialize, serde::Deserialize)]
 enum Command { Chr(u8), Prg0, Prg1(u8), Nametbl, IrqCtrl, IrqLo, IrqHi }

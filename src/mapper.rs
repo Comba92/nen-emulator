@@ -1,6 +1,4 @@
-use std::marker::{self, PhantomData};
-
-use crate::{cart::{MemConfig, CartHeader, Mirroring, PpuTarget, PrgTarget}, ppu::PpuState};
+use crate::{cart::{CartHeader, Mirroring, PpuTarget, PrgTarget}, mmu::{Banking, MemConfig}, ppu::PpuState};
 
 mod mmc1;
 mod mmc2;
@@ -117,14 +115,6 @@ const MAPPERS_TABLE: [(u16, &'static str); 39] = [
   (210, "Namco 175/340"),
 ];
 
-pub fn set_byte_hi(dst: u16, val: u8) -> u16 {
-  (dst & 0x00FF) | ((val as u16) << 8)
-}
-
-pub fn set_byte_lo(dst: u16, val: u8) -> u16 {
-  (dst & 0xFF00) | val as u16
-}
-
 #[typetag::serde(tag = "mmu")]
 pub trait Mapper {
   fn new(header: &CartHeader, cfg: &mut MemConfig) -> Box<Self> where Self: Sized;
@@ -173,129 +163,6 @@ pub trait Mapper {
   fn notify_ppumask(&mut self, _val: u8) {}
   fn notify_ppu_state(&mut self, _state: PpuState) {}
   fn notify_mmc5_scanline(&mut self) {}
-}
-
-#[derive(Debug, Default)]
-pub struct PrgBanking;
-#[derive(Debug, Default)]
-pub struct ChrBanking;
-#[derive(Debug, Default)]
-pub struct SramBanking;
-#[derive(Debug, Default)]
-pub struct CiramBanking;
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
-pub struct Banking {
-  data_size: usize,
-  bank_size: usize,
-  bank_size_shift: usize,
-  banks_count: usize,
-  banks_count_shift: usize,
-  pages_start: usize,
-  bankings: Box<[usize]>,
-  // kind: marker::PhantomData<T>
-}
-
-// https://stackoverflow.com/questions/25787613/division-and-multiplication-by-power-of-2
-// impl<T> Banking<T> {
-impl Banking {
-  pub fn new(rom_size: usize, pages_start: usize, page_size: usize, pages_count: usize) -> Self {
-    let bankings = vec![0; pages_count].into_boxed_slice();
-    let bank_size = page_size;
-    let cfg_count = rom_size / bank_size;
-    let bank_size_shift = if bank_size != 0 { bank_size.ilog2() as usize } else { 0 };
-    let cfg_count_shift = if cfg_count != 0 { cfg_count.ilog2() as usize } else { 0 };
-    // Self { bankings, data_size: rom_size, pages_start, bank_size, bank_size_shift, banks_count: cfg_count, banks_count_shift: cfg_count_shift, kind: PhantomData::<T> }
-    Self { bankings, data_size: rom_size, pages_start, bank_size, bank_size_shift, banks_count: cfg_count, banks_count_shift: cfg_count_shift }
-  }
-
-  pub fn set_page(&mut self, page: usize, bank: usize) {
-    // some games might write bigger bank numbers than really avaible
-    // let bank = bank % self.cfg_count;
-    let bank = bank & (self.banks_count-1);
-    // i do not expect to write outside the slots array.
-    // self.bankings[page] = bank * self.bank_size;
-    self.bankings[page] = bank << self.bank_size_shift;
-  }
-
-  pub fn swap_pages(&mut self, left: usize, right: usize) {
-    self.bankings.swap(left, right);
-  }
-
-  pub fn set_page_to_last_bank(&mut self, page: usize) {
-    let last_bank = self.banks_count-1;
-    self.set_page(page, last_bank);
-  }
-
-  fn page_to_bank_addr(&self, page: usize, addr: usize) -> usize {
-    // i do not expect to write outside the slots array here either. 
-    // the bus object should take responsibilty to always pass correct addresses in range.
-    // self.bankings[page] + (addr % self.bank_size)
-    self.bankings[page] + (addr & (self.bank_size-1))
-  }
-
-  pub fn translate(&self, addr: usize) -> usize {
-    // let page = (addr - self.pages_start) / self.bank_size;
-    let page = (addr - self.pages_start) >> self.bank_size_shift;
-    self.page_to_bank_addr(page, addr)
-  }
-// }
-
-// impl Banking<PrgBanking> {
-  pub fn new_prg(header: &CartHeader, pages_count: usize) -> Self {
-    let pages_size = 32*1024 / pages_count;
-    Self::new(header.prg_size, 0x8000, pages_size, pages_count)
-  }
-// }
-
-// impl Banking<SramBanking> {
-  pub fn new_sram(header: &CartHeader) -> Self {
-    Self::new(header.sram_real_size(), 0x6000, 8*1024, 1)
-  }
-// }
-
-// impl Banking<ChrBanking> {
-  pub fn new_chr(header: &CartHeader, pages_count: usize) -> Self {
-    let pages_size = 8*1024 / pages_count;
-    Self::new(header.chr_real_size(), 0, pages_size, pages_count)
-  }
-// }
-
-// impl Banking<CiramBanking> {
-  pub fn new_ciram(header: &CartHeader) -> Self {
-    let mut res = Self::new(4*1024, 0x2000, 1024, 4);
-    if header.mirroring != Mirroring::FourScreen {
-      res.banks_count = 2;
-    }
-
-    res.update(header.mirroring);
-    res
-  }
-
-  pub fn update(&mut self, mirroring: Mirroring) {
-    match mirroring {
-      Mirroring::Horizontal => {
-        self.set_page(0, 0);
-        self.set_page(1, 0);
-        self.set_page(2, 1);
-        self.set_page(3, 1);
-      }
-      Mirroring::Vertical => {
-        self.set_page(0, 0);
-        self.set_page(1, 1);
-        self.set_page(2, 0);
-        self.set_page(3, 1);
-      }
-      Mirroring::SingleScreenA => for i in 0..4 {
-        self.set_page(i, 0);
-      }
-      Mirroring::SingleScreenB => for i in 0..4 {
-        self.set_page(i, 1);
-      }
-      Mirroring::FourScreen => for i in 0..4 {
-        self.set_page(i, i);
-      }
-    }
-  }
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]

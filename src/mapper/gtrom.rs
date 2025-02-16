@@ -1,4 +1,4 @@
-use crate::{bus::Bus, cart::{CartHeader, MemConfig, PpuTarget, PrgTarget}, ppu::Ppu};
+use crate::{bus::Bus, cart::{CartHeader, PpuTarget, PrgTarget}, mmu::MemConfig, ppu::Ppu};
 
 use super::{Banking, Mapper};
 
@@ -14,8 +14,11 @@ impl GTROM {
     cfg.ciram.set_page(0, ((val >> 5) as usize & 1) + 2);
 
     cfg.mapping.cpu_writes[3] = Bus::prg_write;
-    cfg.mapping.ppu_reads[3]  = Ppu::ciram_read;
-    cfg.mapping.ppu_writes[3] = Ppu::ciram_write;
+
+    for i in 12..16 {
+      cfg.mapping.ppu_reads[i]  = Ppu::ciram_read;
+      cfg.mapping.ppu_writes[i] = Ppu::ciram_write;
+    }
   }
 }
 

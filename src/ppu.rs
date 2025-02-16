@@ -1,5 +1,3 @@
-use std::sync::LazyLock;
-
 use crate::{cart::{ConsoleTiming, SharedCart}, frame::FrameBuffer};
 use bitfield_struct::bitfield;
 use bitflags::bitflags;
@@ -307,7 +305,8 @@ impl Ppu {
 	}
 
 	fn peek_vram_branchless(&self, addr: u16) -> u8 {
-		let dev = (addr >> 12) & 0b11;
+		// 16 handlers, one for each 1kb
+		let dev = (addr >> 10) & 0xF;
 		let handler = self.cart.mapping().ppu_reads[dev as usize];
 		handler(self, addr & 0x3FFF)
 	}
@@ -354,7 +353,8 @@ impl Ppu {
 	}
 
 	fn write_vram_branchless(&mut self, val: u8) {
-		let dev = (self.v.0 >> 12) & 0b11;
+		// 16 handlers, one for each 1kb
+		let dev = (self.v.0 >> 10) & 0xF;
 		let handler = self.cart.mapping().ppu_writes[dev as usize];
 		handler(self, self.v.0 & 0x3FFF, val);
 		self.increase_vram_address();
@@ -379,6 +379,44 @@ impl Ppu {
     let cart = self.cart.as_mut();
     cart.ciram[cart.mapper.ciram_translate(&mut cart.cfg, addr)] = val;
   }
+
+	pub fn ciram0_read(&self, addr: u16) -> u8 {
+    let cart = self.cart.as_mut();
+    cart.ciram[addr as usize & 0x3FF]
+  }
+
+  pub fn ciram0_write(&mut self, addr: u16, val: u8) {
+    let cart = self.cart.as_mut();
+		cart.ciram[addr as usize & 0x3FF] = val;
+  }
+
+	pub fn ciram1_read(&self, addr: u16) -> u8 {
+    let cart = self.cart.as_mut();
+    cart.ciram[(addr as usize & 0x3FF) + 0x400]
+  }
+
+  pub fn ciram1_write(&mut self, addr: u16, val: u8) {
+    let cart = self.cart.as_mut();
+		cart.ciram[(addr as usize & 0x3FF) + 0x400] = val;
+  }
+
+	pub fn chr_from_vram_read(&self, addr: u16) -> u8 {
+		let cart = self.cart.as_mut();
+		cart.chr[cart.mapper.ciram_translate(&mut cart.cfg, addr)]
+  }
+
+  pub fn chr_from_vram_write(&mut self, addr: u16, val: u8) {
+		let cart = self.cart.as_mut();
+		cart.chr[cart.mapper.ciram_translate(&mut cart.cfg, addr)] = val;
+  }
+
+	pub fn palettes_read(&self, addr: u16) -> u8 {
+    if addr >= 0x3F00 { self.palettes[self.mirror_palette(addr) as usize] } else { 0 }
+	}
+
+	pub fn palettes_write(&mut self, addr: u16, val: u8) {
+    if addr >= 0x3F00 { self.palettes[self.mirror_palette(addr) as usize] = val & 0b0011_1111; }
+	}
 }
 
 

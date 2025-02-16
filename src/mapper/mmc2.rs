@@ -1,6 +1,6 @@
-use crate::cart::{MemConfig, CartHeader, Mirroring, PpuTarget};
+use crate::{cart::{CartHeader, Mirroring, PpuTarget}, mmu::MemConfig};
 
-use super::{Banking, ChrBanking, Mapper};
+use super::{Banking, Mapper};
 
 // Mapper 09 / 10
 // https://www.nesdev.org/wiki/MMC2
@@ -16,6 +16,18 @@ pub struct MMC2 {
   chr_banks1: Banking,
   latch0: Mmc2Latch,
   latch1: Mmc2Latch,
+}
+
+impl MMC2 {
+  fn update_latches(&mut self, addr: u16) {
+    match (addr, self.mapper) {
+      (0x0FD8, 9) | (0x0FD8..=0x0FDF, 10) => self.latch0 = Mmc2Latch::FD,
+      (0x0FE8, 9) | (0x0FE8..=0x0FEF, 10) => self.latch0 = Mmc2Latch::FE,
+      (0x1FD8..=0x1FDF, _) => self.latch1 = Mmc2Latch::FD,
+      (0x1FE8..=0x1FEF, _) => self.latch1 = Mmc2Latch::FE,
+      _ => {}
+    };
+  }
 }
 
 #[typetag::serde]
@@ -86,6 +98,23 @@ impl Mapper for MMC2 {
       _ => {}
     };
 
+    res
+  }
+
+  fn chr_translate(&mut self, _: &mut MemConfig, addr: u16) -> usize {
+    let res = match addr {
+      0x0000..=0x0FFF => self.chr_banks0.page_to_bank_addr(self.latch0 as usize, addr as usize),
+      0x1000..=0x1FFF => self.chr_banks1.page_to_bank_addr(self.latch1 as usize, addr as usize),
+      _ => unreachable!()
+    };
+
+    self.update_latches(addr);
+    res
+  }
+
+  fn ciram_translate(&mut self, banks: &mut MemConfig, addr: u16) -> usize {
+    let res = banks.ciram.translate(addr as usize);
+    self.update_latches(addr);
     res
   }
 }

@@ -1,6 +1,6 @@
 use bitfield_struct::bitfield;
 
-use crate::cart::{MemConfig, CartHeader, Mirroring, PrgTarget};
+use crate::{cart::{CartHeader, Mirroring, PrgTarget}, mmu::MemConfig};
 use super::{konami_irq::KonamiIrq, Banking, Mapper};
 
 #[bitfield(u16, order = Lsb)]

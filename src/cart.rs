@@ -1,5 +1,5 @@
 use serde::ser::SerializeStruct;
-use crate::{bus::Bus, mapper::{self, Banking, ChrBanking, CiramBanking, Dummy, Mapper, PrgBanking, SramBanking}, mem::Memory, ppu::Ppu};
+use crate::{bus::Bus, mapper::{self, Dummy, Mapper}, mem::Memory, mmu::{MemConfig, MemMapping}, ppu::Ppu};
 
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CartHeader {
@@ -222,117 +222,6 @@ impl CartHeader {
     };
 
     Ok(header)
-  }
-}
-
-#[derive(serde::Serialize, serde::Deserialize)]
-pub struct MemConfig {
-  // pub prg:  Banking<PrgBanking>,
-  // pub chr:  Banking<ChrBanking>,
-  // pub sram: Banking<SramBanking>,
-  // pub ciram: Banking<CiramBanking>,
-  pub prg:  Banking,
-  pub chr:  Banking,
-  pub sram: Banking,
-  pub ciram: Banking,
-
-  #[serde(skip)]
-  pub mapping: MemMapping,
-}
-impl Default for MemConfig {
-  fn default() -> Self {
-    let header = Default::default();
-    Self::new(&header)
-  }
-}
-
-impl MemConfig {
-  pub fn new(header: &CartHeader) -> Self {
-    let prg = Banking::new_prg(header, 1);
-    let chr = Banking::new_chr(header, 1);
-    let sram = Banking::new_sram(header);
-    let ciram = Banking::new_ciram(header);
-    let mapping = MemMapping::default();
-    Self {prg, chr, sram, ciram, mapping}
-  }
-}
-
-pub struct MemMapping {
-  pub cpu_reads: [fn(&mut Bus, u16) -> u8; 8],
-  pub cpu_writes: [fn(&mut Bus, u16, u8); 8],
-  pub ppu_reads: [fn(&Ppu, u16) -> u8; 4],
-  pub ppu_writes: [fn(&mut Ppu, u16, u8); 4],
-}
-
-impl Default for MemMapping {
-  fn default() -> Self {
-    let cpu_reads = [
-      |bus: &mut Bus, addr: u16| bus.ram[addr as usize & 0x7FF],
-      |bus: &mut Bus, addr: u16| bus.ppu.read_reg(addr & 0x2007),
-      |bus: &mut Bus, addr: u16| {
-        match addr {
-          0x4000..=0x4013 => bus.apu.read_reg(addr),
-          0x4016 => bus.joypad.read1(),
-          0x4017 => bus.joypad.read2(),
-          0x4020..=0x5FFF => bus.cart.as_mut().mapper.cart_read(addr as usize),
-          _ => 0,
-        }
-      },
-      Bus::sram_read,
-      Bus::prg_read,
-      Bus::prg_read,
-      Bus::prg_read,
-      Bus::prg_read,
-    ];
-
-    let cpu_writes = [
-      |bus: &mut Bus, addr: u16, val: u8| bus.ram[addr as usize & 0x7FF] = val,
-      |bus: &mut Bus, addr: u16, val: u8| bus.ppu.write_reg(addr & 0x2007, val),
-      |bus: &mut Bus, addr: u16, val: u8| {
-        match addr {
-          0x4000..=0x4013 => bus.apu.write_reg(addr as u16, val),
-          0x4017 => {
-            bus.apu.write_reg(addr as u16, val);
-            bus.joypad.write(val);
-          }
-          0x4016 => bus.joypad.write(val),
-          0x4014 => {
-            bus.oam_dma.init(val);
-            bus.tick();
-          }
-          0x4015 => {
-            bus.apu.write_reg(addr as u16, val);
-            bus.tick();
-          }
-          0x4020..=0x5FFF => {
-            let cart = bus.cart.as_mut();
-            cart.mapper.cart_write(&mut cart.cfg, addr as usize, val);
-          }
-          _ => {}
-        }
-      },
-      Bus::sram_write,
-      Bus::prg_write,
-      Bus::prg_write,
-      Bus::prg_write,
-      Bus::prg_write,
-    ];
-
-    let ppu_reads = [
-      Ppu::chr_read,
-      Ppu::chr_read,
-      Ppu::ciram_read,
-      |ppu: &Ppu, addr: u16| if addr >= 0x3F00 { ppu.palettes[ppu.mirror_palette(addr) as usize] } else { 0 }
-    ];
-
-    let ppu_writes = [
-      Ppu::chr_write,
-      Ppu::chr_write,
-      Ppu::ciram_write,
-      |ppu: &mut Ppu, addr: u16, val: u8| if addr >= 0x3F00 { ppu.palettes[ppu.mirror_palette(addr) as usize] = val & 0b0011_1111 },
-    ];
-
-    Self { cpu_reads, cpu_writes, ppu_reads, ppu_writes }
   }
 }
 

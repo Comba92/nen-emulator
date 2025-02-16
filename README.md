@@ -88,11 +88,12 @@ I haven't kept track of a game compatibility list, but most of the development w
 - [x] 11. [ColorDreams](https://www.nesdev.org/wiki/Color_Dreams)
 - [x] 13. [CPROM (used for Videomation, a painting program for NES)](https://www.nesdev.org/wiki/CPROM)
 - [ ] 16, [Bandai FCG](https://www.nesdev.org/wiki/INES_Mapper_016)
-- Note: Not usable, graphical glitches
-- [x] 19. [Namco 129/163](https://www.nesdev.org/wiki/INES_Mapper_019)
+- Note: not usable, graphical glitches
+- [ ] 19. [Namco 129/163](https://www.nesdev.org/wiki/INES_Mapper_019)
+- Note: not usable, graphical glitches
 - Note: audio chip not implemented
 - [x] 21, 22, 23, 25. [VRC2 and VRC4](https://www.nesdev.org/wiki/VRC2_and_VRC4)
-- Note: compatibility might not be the best. (TODO: use submappers to discriminate board)
+- Note: generally works, but might have problems for games I haven't checked. (TODO: use submappers to discriminate board)
 - [x] 24. [VRC6a (used for Akumajou Densetsu, japanese version of Castlevania III with enhanced audio)](https://www.nesdev.org/wiki/VRC6)
 - [x] 26. [VRC6b (used for Madara and Esper Dream 2)](https://www.nesdev.org/wiki/VRC6)
 - [x] 30. [UNROM512](https://www.nesdev.org/wiki/UNROM_512)

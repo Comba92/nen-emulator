@@ -6,6 +6,7 @@ pub mod addr;
 
 pub mod mem;
 pub mod bus;
+pub mod mmu;
 pub mod dma;
 pub mod mapper;
 

@@ -1,4 +1,4 @@
-use crate::cart::{MemConfig, CartHeader, Mirroring};
+use crate::{cart::{CartHeader, Mirroring}, mmu::MemConfig};
 
 use super::{Banking, Mapper};
 

@@ -1,4 +1,4 @@
-use crate::{cart::{CartHeader, MemConfig, Mirroring, PpuTarget, PrgTarget}, ppu::Ppu};
+use crate::{cart::{CartHeader, Mirroring, PpuTarget, PrgTarget}, mmu::MemConfig, ppu::Ppu};
 
 use super::{Banking, Mapper};
 
@@ -10,8 +10,8 @@ pub struct Sunsoft4 {
   chrrom_nametbls: bool,
   
   // TODO: we probably dont need these, just use the ciram banking in cfg
-  ciram_banks:  Banking,
-  chrrom_banks: Banking,
+  vram_ciram_banks:  Banking,
+  vram_chrrom_banks: Banking,
 
   mirroring: Mirroring,
   nametbl0: usize,
@@ -23,22 +23,22 @@ impl Sunsoft4 {
   pub fn update_chrrom_banks(&mut self) {
     match self.mirroring {
       Mirroring::Horizontal => {
-        self.chrrom_banks.set_page(0, self.nametbl0);
-        self.chrrom_banks.set_page(1, self.nametbl0);
-        self.chrrom_banks.set_page(2, self.nametbl1);
-        self.chrrom_banks.set_page(3, self.nametbl1);
+        self.vram_chrrom_banks.set_page(0, self.nametbl0);
+        self.vram_chrrom_banks.set_page(1, self.nametbl0);
+        self.vram_chrrom_banks.set_page(2, self.nametbl1);
+        self.vram_chrrom_banks.set_page(3, self.nametbl1);
       }
       Mirroring::Vertical => {
-        self.chrrom_banks.set_page(0, self.nametbl0);
-        self.chrrom_banks.set_page(1, self.nametbl1);
-        self.chrrom_banks.set_page(2, self.nametbl0);
-        self.chrrom_banks.set_page(3, self.nametbl1);
+        self.vram_chrrom_banks.set_page(0, self.nametbl0);
+        self.vram_chrrom_banks.set_page(1, self.nametbl1);
+        self.vram_chrrom_banks.set_page(2, self.nametbl0);
+        self.vram_chrrom_banks.set_page(3, self.nametbl1);
       }
       Mirroring::SingleScreenA => for i in 0..4 {
-        self.chrrom_banks.set_page(i, self.nametbl0);
+        self.vram_chrrom_banks.set_page(i, self.nametbl0);
       }
       Mirroring::SingleScreenB => for i in 0..4 {
-        self.chrrom_banks.set_page(i, self.nametbl1);
+        self.vram_chrrom_banks.set_page(i, self.nametbl1);
       }
       _ => {}
     }
@@ -52,12 +52,12 @@ impl Mapper for Sunsoft4 {
     cfg.prg.set_page_to_last_bank(1);
 
     cfg.chr = Banking::new_chr(header, 4);
-    let chrrom_banks = Banking::new(header.chr_real_size(), 0x2000, 1024, 4);
-    let ciram_banks  = Banking::new_ciram(header);
+    let vram_chrrom_banks = Banking::new(header.chr_real_size(), 0x2000, 1024, 4);
+    let vram_ciram_banks  = Banking::new_ciram(header);
 
     Box::new(Self{ 
-      chrrom_banks,
-      ciram_banks,
+      vram_chrrom_banks,
+      vram_ciram_banks,
 
       mirroring: header.mirroring,
       ..Default::default()
@@ -76,14 +76,14 @@ impl Mapper for Sunsoft4 {
         self.nametbl0 = val as usize | 0b1000_0000;
         self.update_chrrom_banks();
         if self.chrrom_nametbls {
-          banks.ciram = self.chrrom_banks.clone();
+          banks.ciram = self.vram_chrrom_banks.clone();
         }
       }
       0xD000..=0xDFFF => {
         self.nametbl1 = val as usize | 0b1000_0000;
         self.update_chrrom_banks();
         if self.chrrom_nametbls {
-          banks.ciram = self.chrrom_banks.clone();
+          banks.ciram = self.vram_chrrom_banks.clone();
         }
       }
       0xE000..=0xEFFF => {
@@ -93,26 +93,16 @@ impl Mapper for Sunsoft4 {
           2 => Mirroring::SingleScreenA,
           _ => Mirroring::SingleScreenB,
         };
-        self.ciram_banks.update(self.mirroring);
+        self.vram_ciram_banks.update(self.mirroring);
 
         self.chrrom_nametbls = val >> 4 != 0;
 
         if self.chrrom_nametbls {
-          banks.ciram = self.chrrom_banks.clone();
-
-          banks.mapping.ppu_reads[2]  = |ppu: &Ppu, addr: u16| {
-            let cart = ppu.cart.as_mut();
-            cart.chr[cart.mapper.ciram_translate(&mut cart.cfg, addr)]
-          };
-          banks.mapping.ppu_writes[2] = |ppu: &mut Ppu, addr: u16, val: u8| {
-            let cart = ppu.cart.as_mut();
-            cart.chr[cart.mapper.ciram_translate(&mut cart.cfg, addr)] = val;
-          };
+          banks.ciram = self.vram_chrrom_banks.clone();
+          banks.mapping.set_vram_handlers(Ppu::chr_from_vram_read, Ppu::chr_from_vram_write);
         } else {
-          banks.ciram = self.ciram_banks.clone();
-
-          banks.mapping.ppu_reads[2]  = Ppu::ciram_read;
-          banks.mapping.ppu_writes[2] = Ppu::ciram_write;
+          banks.ciram = self.vram_ciram_banks.clone();
+          banks.mapping.set_vram_handlers(Ppu::ciram_read, Ppu::ciram_write);
         }
       }
       0xF000..=0xFFFF => {
@@ -136,7 +126,7 @@ impl Mapper for Sunsoft4 {
       0x0000..=0x1FFF => PpuTarget::Chr(banks.chr.translate(addr)),
       0x2000..=0x2FFF => {
         if self.chrrom_nametbls {
-          PpuTarget::Chr(self.chrrom_banks.translate(addr))
+          PpuTarget::Chr(self.vram_chrrom_banks.translate(addr))
         } else {
           PpuTarget::CiRam(banks.ciram.translate(addr))
         }

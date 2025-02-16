@@ -1,5 +1,5 @@
-use crate::{apu::{ApuDivider, Channel}, cart::{MemConfig, CartHeader, Mirroring, PpuTarget}};
-use super::{konami_irq::KonamiIrq, Banking, Mapper, CiramBanking};
+use crate::{apu::{ApuDivider, Channel}, cart::{CartHeader, Mirroring, PpuTarget}, mmu::MemConfig, ppu::Ppu};
+use super::{konami_irq::KonamiIrq, Banking, Mapper};
 
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 enum ChrMode { #[default] Bank1kb, Bank2kb, BankMixed }
@@ -13,7 +13,7 @@ pub struct VRC6 {
   // vram_chrrom_banks: Banking<CiramBanking>,
   // vram_ciram_banks: Banking<CiramBanking>,
   vram_chrrom_banks: Banking,
-  vram_ciram_banks: Banking,
+  vram_ciram_banks:  Banking,
   chr_selects: [usize; 8],
 
   irq: KonamiIrq,
@@ -155,7 +155,7 @@ impl Mapper for VRC6 {
     banks.prg = Banking::new_prg(header, 4);
     banks.chr = Banking::new_chr(header, 8);
     let vram_chrrom_banks = Banking::new(header.chr_real_size(), 0x2000, 1024, 4);
-    let vram_ciram_banks =  Banking::new_ciram(header);
+    let vram_ciram_banks  =  Banking::new_ciram(header);
     
     banks.prg.set_page_to_last_bank(3);
     
@@ -197,7 +197,6 @@ impl Mapper for VRC6 {
         self.update_chr_banks(banks);
 
         self.nametbl_mode = val & 0b10_1111;
-
         self.nametbl_src = match (val >> 4) & 1 != 0 {
           false => NametblSrc::CiRam,
           true  => NametblSrc::ChrRom,
@@ -206,6 +205,17 @@ impl Mapper for VRC6 {
         self.chr_latch = (val >> 5) & 1 != 0;
         self.sram_enabled = (val >> 7) & 1 != 0;
         self.update_mirroring();
+
+        match self.nametbl_src {
+          NametblSrc::ChrRom => {
+            banks.ciram = self.vram_chrrom_banks.clone();
+            banks.mapping.set_vram_handlers(Ppu::chr_from_vram_read, Ppu::chr_from_vram_write);
+          }
+          NametblSrc::CiRam => {
+            banks.ciram = self.vram_ciram_banks.clone();
+            banks.mapping.set_vram_handlers(Ppu::ciram_read, Ppu::ciram_write);
+          }
+        }
       },
 
       0xD000..=0xD003 => {

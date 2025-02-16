@@ -1,6 +1,6 @@
-use crate::cart::{MemConfig, CartHeader, Mirroring, PrgTarget};
+use crate::{cart::{CartHeader, Mirroring, PrgTarget}, mmu::{set_byte_hi, set_byte_lo, MemConfig}};
 
-use super::{set_byte_hi, set_byte_lo, Banking, Mapper};
+use super::{Banking, Mapper};
 
 
 // Mapper 16

@@ -1,4 +1,4 @@
-use crate::cart::{MemConfig, CartHeader};
+use crate::{cart::CartHeader, mmu::MemConfig};
 use super::{konami_irq::{self, KonamiIrq}, Banking, Mapper};
 
 // Mapper 73

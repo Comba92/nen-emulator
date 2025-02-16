@@ -1,5 +1,5 @@
-use crate::{apu::{pulse::Pulse, Channel}, cart::{MemConfig, CartHeader, Mirroring, PpuTarget, PrgTarget}, ppu::PpuState};
-use super::{Banking, ChrBanking, Mapper};
+use crate::{apu::{pulse::Pulse, Channel}, cart::{CartHeader, Mirroring, PpuTarget, PrgTarget}, mmu::MemConfig, ppu::PpuState};
+use super::{Banking, Mapper};
 
 #[derive(Default, PartialEq, serde::Serialize, serde::Deserialize)]
 enum PrgMode { Bank32kb, Bank16kb, BankMixed, #[default] Bank8kb }

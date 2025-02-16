@@ -1,10 +1,12 @@
-use crate::cart::{MemConfig, CartHeader, PpuTarget};
+use crate::{cart::{CartHeader, PpuTarget}, mmu::{set_byte_hi, set_byte_lo, MemConfig}, ppu::Ppu};
 
-use super::{set_byte_hi, set_byte_lo, Banking, Mapper};
+use super::{Banking, Mapper};
 
 #[derive(Default, Clone, Copy, serde::Serialize, serde::Deserialize)]
 enum ChrTarget { #[default] Chr, Ciram0, Ciram1 }
 
+// Mapper 19
+// https://www.nesdev.org/wiki/INES_Mapper_019
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct Namco129_163 {
   irq_value: u16,
@@ -17,6 +19,27 @@ pub struct Namco129_163 {
   exram_write_enabled: [bool; 4],
 
   apu_enabled: bool,
+}
+
+impl Namco129_163 {
+  fn update_vram_mapping(&mut self, banks: &mut MemConfig) {
+    for (i, target) in self.chr_selects.iter().enumerate() {
+      match target {
+        ChrTarget::Chr => {
+          banks.mapping.ppu_reads[i]  = Ppu::chr_read;
+          banks.mapping.ppu_writes[i] = Ppu::chr_write;
+        }
+        ChrTarget::Ciram0 => {
+          banks.mapping.ppu_reads[i]  = Ppu::ciram0_read;
+          banks.mapping.ppu_writes[i] = Ppu::ciram0_write;
+        }
+        ChrTarget::Ciram1 => {
+          banks.mapping.ppu_reads[i]  = Ppu::ciram1_read;
+          banks.mapping.ppu_writes[i] = Ppu::ciram1_write;
+        }
+      }
+    }
+  }
 }
 
 #[typetag::serde]
@@ -75,6 +98,7 @@ impl Mapper for Namco129_163 {
         }
 
         banks.chr.set_page(page, val as usize);
+        self.update_vram_mapping(banks);
       }
       0xA000..=0xBFFF => {
         let page = (addr as usize - 0x8000) / 0x800;
@@ -86,6 +110,7 @@ impl Mapper for Namco129_163 {
         }
 
         banks.chr.set_page(page, val as usize);
+        self.update_vram_mapping(banks);
       }
       0xC000..=0xDFFF => {
         let page = (addr as usize - 0x8000) / 0x800;
@@ -101,6 +126,7 @@ impl Mapper for Namco129_163 {
         }
 
         banks.chr.set_page(page, val as usize);
+        self.update_vram_mapping(banks);
       }
       0xE000..=0xE7FF => {
         let bank = val as usize & 0b11_1111;
