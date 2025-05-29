@@ -54,6 +54,7 @@ The emulator supports mostly all the basic NES features you'd expect from a NES 
 - [x] Games with [tricky and obscure behaviour](https://www.nesdev.org/wiki/Tricky-to-emulate_games) run correctly, except for one or two exceptions. For more information: 
 - [x] BATTLETOADS & BATTLETOADS 2 RUN!
 - [x] All [nametable mirrorings](https://www.nesdev.org/wiki/Mirroring) are supported. 
+- [x] RAM random initializing for games which uses it to seed RNG
 
 - [x] [iNes](https://www.nesdev.org/wiki/INES) and [NES2.0](https://www.nesdev.org/wiki/NES_2.0) headers are supported.
 - [x] Zip files are supported.
@@ -159,7 +160,6 @@ Adding more user features is a pain, tho.
 
 ## What's missing
 - [ ] Famicon Disk System Support
-- [ ] RAM random initializing for games which uses it to seed RNG
 
 - [ ] Custom keybindings
 - [ ] Custom palettes

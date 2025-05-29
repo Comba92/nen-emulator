@@ -145,9 +145,14 @@ impl Bus {
     let ppu = Ppu::new(shared_cart.clone());
     let apu = Apu::new(shared_cart.clone());
 
+    let ram = (0..0x8000)
+      .map(|_| rand::random::<u8>())
+      .collect::<Vec<_>>()
+      .into_boxed_slice();
+
     Self {
       timing,
-      ram: vec![0; 0x800].into_boxed_slice(), 
+      ram,
       ppu,
       ppu_pal_cycles: 0,
       apu,
