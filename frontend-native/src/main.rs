@@ -83,14 +83,14 @@ fn load_sram(ctx: &mut EmuCtx) {
 }
 
 fn save_state(ctx: &EmuCtx) {
-  let path = PathBuf::from(&ctx.rom_path).with_extension("cmbsv");
+  let path = PathBuf::from(&ctx.rom_path).with_extension("nensv");
   let writer = BufWriter::new(fs::File::create(path).expect("Couldn't create savestate file"));
   let _ = pot::to_writer(&ctx.emu, writer)
     .inspect_err(|e| eprintln!("Couldn't write the savestate to file: {e}"));
 }
 
 fn load_state(ctx: &mut EmuCtx) {
-  let path = PathBuf::from(&ctx.rom_path).with_extension("cmbsv");
+  let path = PathBuf::from(&ctx.rom_path).with_extension("nensv");
   let savestate = fs::File::open(path);
 
   match savestate {

@@ -175,6 +175,7 @@ This section contains some of the resources I've used during development. Sadly 
 ### Design
 - https://gendev.spritesmind.net/forum/viewtopic.php?p=35653&sid=8395d8875e87653545c0905281b093a0#p35653
 - https://gist.github.com/adamveld12/d0398717145a2c8dedab
+- https://www.nesdev.org/wiki/Catch-up
 
 ### CPU
 - https://www.nesdev.org/6502.txt

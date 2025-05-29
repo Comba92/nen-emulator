@@ -195,8 +195,8 @@ impl<T> Banking<T> {
     let bankings = vec![0; pages_count].into_boxed_slice();
     let bank_size = page_size;
     let banks_count = rom_size / bank_size;
-    let bank_size_shift = bank_size.ilog2() as usize;
-    let banks_count_shift = banks_count.ilog2() as usize;
+    let bank_size_shift = bank_size.checked_ilog2().unwrap_or_default() as usize;
+    let banks_count_shift = banks_count.checked_ilog2().unwrap_or_default() as usize;
     Self { bankings, data_size: rom_size, pages_start, bank_size, bank_size_shift, banks_count, banks_count_shift, kind: PhantomData::<T> }
   }
 
