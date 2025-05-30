@@ -3,7 +3,6 @@ pub trait Memory {
   fn write(&mut self, addr: u16, val: u8);
 
   fn tick(&mut self) {}
-  fn handle_dma(&mut self) -> bool { false }
 
   fn nmi_poll(&mut self) -> bool { false }
   fn irq_poll(&mut self) -> bool { false }

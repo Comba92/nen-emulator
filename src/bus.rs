@@ -42,11 +42,15 @@ impl Memory for Bus {
     let (dst, addr) = map_address(addr);
     match dst {
       BusDst::Ram => self.ram[addr],
-      BusDst::Ppu => self.ppu.read_reg(addr as u16),
-      BusDst::Apu | BusDst::DmcDma => self.apu.read_reg(addr as u16),
+      BusDst::Ppu => {
+        self.ppu.read_reg(addr as u16)
+      }
+      BusDst::Apu | BusDst::DmcDma => {
+        self.apu.read_reg(addr as u16)
+      }
       BusDst::Joypad1 => self.joypad.read1(),
       BusDst::Joypad2 => self.joypad.read2(),
-      BusDst::Cart | BusDst::SRam | BusDst::Prg  => self.cart.as_mut().prg_read(addr),
+      BusDst::Cart | BusDst::SRam | BusDst::Prg => self.cart.as_mut().prg_read(addr),
       _ => { 0 }
     }
   }
@@ -65,10 +69,29 @@ impl Memory for Bus {
       BusDst::OamDma => {
         self.oam_dma.init(val);
         self.tick();
+
+        while self.oam_dma.is_transfering() {
+          let addr = self.oam_dma.current();
+          let to_write = self.read(addr);
+          self.tick();
+          self.write(0x2004, to_write);
+          self.tick();
+        }
       }
       BusDst::DmcDma => {
         self.apu.write_reg(addr as u16, val);
         self.tick();
+
+        while self.apu.dmc.reader.is_transfering() && self.apu.dmc.is_empty() {
+          self.tick();
+          self.tick();
+    
+          let addr = self.apu.dmc.reader.current();
+          let to_write = self.read(addr);
+          self.tick();
+          self.apu.dmc.load_sample(to_write);
+          self.tick();
+        }
       }
       BusDst::Cart | BusDst::SRam | BusDst::Prg => self.cart.as_mut().prg_write(addr, val),
       BusDst::NoImpl => {}
@@ -100,31 +123,6 @@ impl Memory for Bus {
 
     self.apu.step();
     self.cart.as_mut().mapper.notify_cpu_cycle();
-  }
-
-  fn handle_dma(&mut self) -> bool {
-    if self.apu.dmc.reader.is_transfering() && self.apu.dmc.is_empty() {
-      self.tick();
-      self.tick();
-
-      let addr = self.apu.dmc.reader.current();
-      let to_write = self.read(addr);
-      self.tick();
-      self.apu.dmc.load_sample(to_write);
-      self.tick();
-
-      return true;
-    } else if self.oam_dma.is_transfering() {
-      let addr = self.oam_dma.current();
-      let to_write = self.read(addr);
-      self.tick();
-      self.write(0x2004, to_write);
-      self.tick();
-
-      return true;
-    }
-
-    return false;
   }
 }
 

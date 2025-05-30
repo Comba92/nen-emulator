@@ -1,4 +1,5 @@
-use crate::{apu::Apu, bus::Bus, cart::{Cart, CartHeader}, cpu::Cpu, frame::FrameBuffer, joypad::{Joypad, JoypadButton}, ppu::Ppu};
+use crate::{apu::Apu, bus::Bus, cart::{Cart, CartHeader}, cpu::Cpu, joypad::{Joypad, JoypadButton}, ppu::Ppu};
+use ppu::frame::FrameBuffer;
 use wasm_bindgen::prelude::wasm_bindgen;
 
 pub mod cpu;
@@ -10,7 +11,6 @@ pub mod dma;
 pub mod mapper;
 
 pub mod ppu;
-pub mod frame;
 
 pub mod apu;
 pub mod joypad;

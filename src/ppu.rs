@@ -1,9 +1,11 @@
-use crate::{cart::{ConsoleTiming, SharedCart}, frame::FrameBuffer};
+use crate::cart::{ConsoleTiming, SharedCart};
 use bitfield_struct::bitfield;
 use bitflags::bitflags;
+use frame::FrameBuffer;
 use render::Fetcher;
 
 mod render;
+pub mod frame;
 
 bitflags! {
 	#[derive(Default, serde::Serialize, serde::Deserialize)]

@@ -4,7 +4,7 @@ use std::sync::LazyLock;
 pub struct RGBColor(pub u8, pub u8, pub u8);
 
 pub static SYS_COLORS: LazyLock<[RGBColor; 64]> = LazyLock::new(|| {
-  let bytes = include_bytes!("../palettes/Composite_wiki.pal");
+  let bytes = include_bytes!("../../palettes/Composite_wiki.pal");
 
   let colors: Vec<RGBColor> = bytes
     .chunks(3)

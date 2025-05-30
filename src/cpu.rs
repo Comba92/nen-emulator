@@ -242,8 +242,6 @@ impl<M: Memory> Cpu<M> {
 
 impl<M: Memory> Cpu<M> {
   pub fn step(&mut self) {
-    if self.bus.handle_dma() { return; }
-
     self.interrupts_poll();
     
     let opcode = self.pc_fetch();
