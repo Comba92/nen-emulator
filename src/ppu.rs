@@ -214,6 +214,8 @@ impl Ppu {
 	}
 
 	pub fn step(&mut self) {
+		// TODO: state machine???
+
 		if (0..=239).contains(&self.scanline) {
 			self.render_step();
 		} if self.scanline == 241 {

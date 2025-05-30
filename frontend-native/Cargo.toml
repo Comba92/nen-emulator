@@ -6,6 +6,12 @@ edition = "2021"
 [features]
 static = ["sdl2/bundled", "sdl2/static-link"]
 
+# [profile.release]
+# opt-level = 3
+# debug = 1
+# strip = true
+# lto = "thin"
+
 [dependencies]
 nen-emulator = {path = ".."}
 pot = "3.0.1"

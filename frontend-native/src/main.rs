@@ -229,8 +229,9 @@ fn main() {
 
   let emu = Nes::boot_empty();
 
-  let mut texture = texture_creator.create_texture_target(
-    sdl2::pixels::PixelFormatEnum::RGBA32, emu.get_screen().width as u32, emu.get_screen().height as u32
+  let mut texture = texture_creator.create_texture_streaming(
+    sdl2::pixels::PixelFormatEnum::RGBA32,
+    emu.get_screen().width as u32, emu.get_screen().height as u32
   ).unwrap();
 
   let desired_spec = AudioSpecDesired {
@@ -329,11 +330,17 @@ fn main() {
     }
 
     canvas.clear();
-    texture.update(
-      None, 
-      &ctx.emu.get_screen().buffer, 
-      ctx.emu.get_screen().pitch()
-    ).unwrap();
+
+    texture.with_lock(None, |pixels, _pitch| {
+      pixels.copy_from_slice(&ctx.emu.get_screen().buffer);
+    }).unwrap();
+
+    // this is slower
+    // texture.update(
+    //   None, 
+    //   &ctx.emu.get_screen().buffer, 
+    //   ctx.emu.get_screen().pitch()
+    // ).unwrap();
 
     canvas.copy(&texture, None, None).unwrap();
     canvas.present();

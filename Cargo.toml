@@ -7,10 +7,10 @@ readme = "README.md"
 repository = "https://github.com/Comba92/nen-emulator"
 license-file = "LICENSE"
 
-[profile.release]
+# [profile.release]
 # opt-level = 3
 # debug = 1
-# strip = "true"
+# strip = true
 # lto = "thin"
 
 

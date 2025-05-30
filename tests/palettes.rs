@@ -1,4 +1,4 @@
-use nen_emulator::frame::RGBColor;
+use nen_emulator::ppu::frame::RGBColor;
 
 #[test]
 fn load_palette() {

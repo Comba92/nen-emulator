@@ -39,4 +39,4 @@
 - [x] PPUDATA access during rendering (Burai Fighter (U))
 - [x] CHR ROM write should have no effect
 - [x] Controller open bus (Captain Planet, Dirty Harry, Infiltrator, Mad Max, Paperboy, The Last Starfighter)
-- [ ] RAM random content to seed RNG
+- [x] RAM random content to seed RNG
