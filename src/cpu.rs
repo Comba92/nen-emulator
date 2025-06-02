@@ -357,14 +357,6 @@ impl<M: Memory> Cpu<M> {
     }
   }
 
-  fn set_register(&mut self, dst: RegTarget, res: u8) {
-    match dst {
-      RegTarget::A => self.a = res,
-      RegTarget::X => self.x = res,
-      RegTarget::Y => self.y = res,
-    }
-  }
-
   fn fetch_operand_value(&mut self) -> u8 {
     use AddressingMode::*;
     match self.instr_mode {
@@ -378,14 +370,14 @@ impl<M: Memory> Cpu<M> {
 enum RegTarget { A, X, Y }
 
 impl<M: Memory> Cpu<M> {
-  fn load (&mut self, dst: RegTarget) {
+  fn load (&mut self) -> u8 {
     let val = self.fetch_operand_value();
     self.set_zn(val);
-    self.set_register(dst, val);
+    val
   }
-  fn lda(&mut self) { self.load(RegTarget::A) }
-  fn ldx(&mut self) { self.load(RegTarget::X) }
-  fn ldy(&mut self) { self.load(RegTarget::Y) }
+  fn lda(&mut self) { self.a = self.load() }
+  fn ldx(&mut self) { self.x = self.load() }
+  fn ldy(&mut self) { self.y = self.load() }
 
   fn store(&mut self, val: u8) {
     self.absolute_dummy_read();
@@ -403,16 +395,27 @@ impl<M: Memory> Cpu<M> {
   fn stx(&mut self) { self.store(self.x) }
   fn sty(&mut self) { self.store(self.y) }
 
-  fn transfer(&mut self, src: u8, dst: RegTarget) {
-    self.set_zn(src);
-    self.set_register(dst, src);
+  fn tax(&mut self) {
+    self.set_zn(self.a);
+    self.x = self.a;
   }
-  fn tax(&mut self) { self.transfer(self.a, RegTarget::X) }
-  fn tay(&mut self) { self.transfer(self.a, RegTarget::Y) }
-  fn tsx(&mut self) { self.transfer(self.sp, RegTarget::X) }
-  fn txa(&mut self) { self.transfer(self.x, RegTarget::A) }
+  fn tay(&mut self) { 
+    self.set_zn(self.a);
+    self.y = self.a;
+  }
+  fn tsx(&mut self) {
+    self.set_zn(self.sp);
+    self.x = self.sp;
+  }
+  fn txa(&mut self) {
+    self.set_zn(self.x);
+    self.a = self.x; 
+  }
   fn txs(&mut self) { self.sp = self.x; }
-  fn tya(&mut self) { self.transfer(self.y, RegTarget::A) }
+  fn tya(&mut self) { 
+    self.set_zn(self.y);
+    self.a = self.y;
+  }
 
   fn pha(&mut self) {
     self.stack_push(self.a);

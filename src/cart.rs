@@ -126,6 +126,10 @@ impl CartHeader {
       return Err("Nintendo header magic values not found");
     }
 
+    if rom.len() < HEADER_SIZE {
+      return Err("File too small to contain a 16 bytes header");
+    }
+
     header.prg_16kb_banks = rom[4] as usize;
     header.chr_8kb_banks = if rom[5] > 0 { rom[5] } else { 1 } as usize;
     header.uses_chr_ram = rom[5] == 0;
@@ -353,11 +357,7 @@ pub enum PpuTarget { Chr(usize), CiRam(usize), ExRam(usize), Value(u8) }
 pub enum PrgTarget { Prg(usize), SRam(bool, usize), Cart }
 
 impl Cart {
-  pub fn new(rom: &[u8]) -> Result<Self, String> {
-    if rom.len() < HEADER_SIZE {
-      return Err("File too small to contain a 16 bytes header".to_string());
-    }
-    
+  pub fn new(rom: &[u8]) -> Result<Self, String> {    
     let header = CartHeader::new(&rom)
       .map_err(|e| format!("Not a valid iNES/Nes2.0 rom: {e}"))?;
 

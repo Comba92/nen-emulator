@@ -1,6 +1,6 @@
 use std::marker::{self, PhantomData};
 
-use crate::{cart::{CartBanking, CartHeader, Mirroring, PpuTarget, PrgTarget}, ppu::PpuState};
+use crate::{cart::{CartBanking, CartHeader, Mirroring, PpuTarget, PrgTarget}, ppu::RenderingState};
 
 mod mmc1;
 mod mmc2;
@@ -165,7 +165,7 @@ pub trait Mapper {
   // Mmc5 ppu notify
   fn notify_ppuctrl(&mut self, _val: u8) {}
   fn notify_ppumask(&mut self, _val: u8) {}
-  fn notify_ppu_state(&mut self, _state: PpuState) {}
+  fn notify_ppu_state(&mut self, _state: RenderingState) {}
   fn notify_mmc5_scanline(&mut self) {}
 }
 

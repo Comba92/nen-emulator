@@ -121,10 +121,21 @@ enum VramDst {
 }
 
 #[derive(Default, PartialEq, serde::Serialize, serde::Deserialize)]
-pub enum PpuState {
+pub enum RenderingState {
 	FetchBg,
 	FetchSpr,
 	#[default] Vblank
+}
+
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+pub enum PpuState {
+	Disabled,
+	#[default]
+	Rendering,
+	PostRenderLine,
+	Vblank,
+	Idling,
+	PreRenderLine
 }
 
 pub const NAMETABLES: u16 = 0x2000;
@@ -134,7 +145,7 @@ pub const PALETTES: u16 = 0x3F00;
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct Ppu {
 	#[serde(skip)]
-	pub screen: FrameBuffer,
+	pub frame: FrameBuffer,
 	renderer: Fetcher,
 
 	v: LoopyReg,   // current vram address
@@ -142,6 +153,7 @@ pub struct Ppu {
 	x: u8,         // Fine X Scroll
 	w: WriteLatch, // First or second write toggle
 	
+	state: PpuState,
 	ctrl: Ctrl,
 	mask: Mask,
 	mask_tmp: u8,
@@ -174,7 +186,7 @@ impl Ppu {
 		let last_scanline = 241 + cart.as_ref().header.timing.vblank_len();
 		
 		Self {
-			screen: FrameBuffer::nes_screen(),
+			frame: FrameBuffer::default(),
 			renderer: Fetcher::new(),
 
 			v: LoopyReg::new(),
@@ -218,8 +230,8 @@ impl Ppu {
 
 		if (0..=239).contains(&self.scanline) {
 			self.render_step();
-		} if self.scanline == 241 {
-			self.cart.as_mut().mapper.notify_ppu_state(PpuState::Vblank);
+		} else if self.scanline == 241 {
+			self.cart.as_mut().mapper.notify_ppu_state(RenderingState::Vblank);
 
 			if self.cycle == 1 {
 				self.frame_ready = Some(());
@@ -259,6 +271,95 @@ impl Ppu {
 		if self.cycle > 340 {
 			self.cycle = 0;
 			self.scanline += 1;
+			if self.scanline > self.last_scanline {
+				self.scanline = 0;
+				self.in_odd_frame = !self.in_odd_frame;
+				
+				self.nmi_suppress = false;
+				self.vblank_suppress = false;
+			}
+		}
+	}
+
+	#[allow(unused)]
+	pub fn step_state_machine(&mut self) {
+		match self.state {
+			PpuState::Disabled => {}
+
+			PpuState::Rendering => {
+				self.render_step();
+				if self.scanline == 239 && self.cycle == 340 {
+					self.state = PpuState::PostRenderLine;
+				}
+			}
+
+			PpuState::PostRenderLine => {
+				if self.cycle == 340 {
+					self.state = PpuState::Vblank;
+				}
+			}
+
+			PpuState::Vblank => {
+				if self.cycle == 1 {
+					
+					if self.cycle == 1 {
+						self.frame_ready = Some(());
+						self.stat.set(Stat::vblank, !self.vblank_suppress);
+						
+						if self.ctrl.contains(Ctrl::nmi_enabled) && !self.nmi_suppress {
+							self.nmi_tmp = Some(());
+						}
+					}
+					
+					self.cart.as_mut().mapper.notify_ppu_state(RenderingState::Vblank);
+					self.state = PpuState::Idling;
+				}
+			}
+
+			PpuState::Idling => {
+				if self.scanline == self.last_scanline-1 && self.cycle == 340 {
+					self.state = PpuState::PreRenderLine;
+				}
+			}
+
+			PpuState::PreRenderLine => {
+				self.render_step();
+
+				if self.cycle == 1 {
+					self.stat = Stat::empty();
+					self.oam_addr = 0;
+				} else if self.cycle == 304 {
+					self.reset_render_y();
+				} else if self.cart.as_mut().header.timing != ConsoleTiming::PAL 
+					&& self.cycle == 339 && self.in_odd_frame
+					&& self.rendering_enabled()
+				{
+					// Odd cycle skip, this isn't present in PAL
+					self.cycle += 1;
+				}
+			}
+		}
+
+		// This is needed for Battletoads tigh timings
+		if self.mask_write_delay > 0 {
+			self.mask_write_delay -= 1;
+			if self.mask_write_delay == 0 {
+				self.mask = Mask::from_bits_retain(self.mask_tmp);
+				self.cart.as_mut().mapper.notify_ppumask(self.mask.bits());
+
+				if !self.rendering_enabled() {
+					self.state = PpuState::Disabled;
+				} else {
+					self.state = PpuState::Idling;
+				}
+			}
+		}
+
+		self.cycle += 1;
+		if self.cycle > 340 {
+			self.cycle = 0;
+			self.scanline += 1;
+
 			if self.scanline > self.last_scanline {
 				self.scanline = 0;
 				self.in_odd_frame = !self.in_odd_frame;

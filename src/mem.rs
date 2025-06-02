@@ -11,6 +11,11 @@ pub trait Memory {
 pub struct Ram64Kb {
   pub mem: [u8; 64*1024]
 }
+impl Default for Ram64Kb {
+  fn default() -> Self {
+    Self { mem: [0; 64 * 1024 ]}
+  }
+}
 
 impl Memory for Ram64Kb {
   fn read(&mut self, addr: u16) -> u8 {

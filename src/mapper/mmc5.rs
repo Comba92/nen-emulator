@@ -1,4 +1,4 @@
-use crate::{apu::{pulse::Pulse, Channel}, cart::{CartBanking, CartHeader, Mirroring, PpuTarget, PrgTarget}, ppu::PpuState};
+use crate::{apu::{pulse::Pulse, Channel}, cart::{CartBanking, CartHeader, Mirroring, PpuTarget, PrgTarget}, ppu::RenderingState};
 use super::{Banking, ChrBanking, Mapper};
 
 #[derive(Default, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -26,7 +26,7 @@ fn is_attribute(addr: usize) -> bool {
 pub struct MMC5 {
   ppu_spr_16: bool,
   ppu_data_sub: bool,
-  ppu_state: PpuState,
+  ppu_state: RenderingState,
   
   prg_mode: PrgMode,
   prg_selects: [(AccessTarget, usize); 5],
@@ -468,7 +468,7 @@ impl Mapper for MMC5 {
   fn map_ppu_addr(&mut self, banks: &mut CartBanking, addr: usize) -> PpuTarget {  
     match addr {
       0x0000..=0x1FFF => {
-        if self.exram_mode == ExRamMode::NametblEx && self.ppu_data_sub && self.ppu_state == PpuState::FetchBg {
+        if self.exram_mode == ExRamMode::NametblEx && self.ppu_data_sub && self.ppu_state == RenderingState::FetchBg {
           let ex_attribute = self.exram_read(self.last_nametbl_addr - 0x2000);
           let bank = ((self.chr_select_hi as usize) << 6) | (ex_attribute as usize & 0b0011_1111);
           let mapped = (bank << 12) + (addr & 0xFFF);
@@ -478,9 +478,9 @@ impl Mapper for MMC5 {
           let mapped = match (&self.ppu_state, self.ppu_spr_16 && self.ppu_data_sub) {
             (_, false) => self.spr_banks.translate(addr),
 
-            (PpuState::FetchBg, true)  => self.bg_banks.translate(addr),
-            (PpuState::FetchSpr, true) => self.spr_banks.translate(addr),
-            (PpuState::Vblank, true) => {
+            (RenderingState::FetchBg, true)  => self.bg_banks.translate(addr),
+            (RenderingState::FetchSpr, true) => self.spr_banks.translate(addr),
+            (RenderingState::Vblank, true) => {
               if self.last_selected_bg_regs {
                 self.bg_banks.translate(addr)
               } else {
@@ -561,9 +561,9 @@ impl Mapper for MMC5 {
     self.ppu_data_sub = data_sub;
   }
 
-  fn notify_ppu_state(&mut self, state: PpuState) {
+  fn notify_ppu_state(&mut self, state: RenderingState) {
     match state {
-      PpuState::Vblank => self.notify_nmi(),
+      RenderingState::Vblank => self.notify_nmi(),
       _ => {}
     }
 

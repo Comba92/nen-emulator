@@ -231,7 +231,7 @@ fn main() {
 
   let mut texture = texture_creator.create_texture_streaming(
     sdl2::pixels::PixelFormatEnum::RGBA32,
-    emu.get_screen().width as u32, emu.get_screen().height as u32
+    emu.get_frame().width as u32, emu.get_frame().height as u32
   ).unwrap();
 
   let desired_spec = AudioSpecDesired {
@@ -332,14 +332,14 @@ fn main() {
     canvas.clear();
 
     texture.with_lock(None, |pixels, _pitch| {
-      pixels.copy_from_slice(&ctx.emu.get_screen().buffer);
+      pixels.copy_from_slice(&ctx.emu.get_frame().buffer);
     }).unwrap();
 
     // this is slower
     // texture.update(
     //   None, 
-    //   &ctx.emu.get_screen().buffer, 
-    //   ctx.emu.get_screen().pitch()
+    //   &ctx.emu.get_frame().buffer, 
+    //   ctx.emu.get_frame().pitch()
     // ).unwrap();
 
     canvas.copy(&texture, None, None).unwrap();

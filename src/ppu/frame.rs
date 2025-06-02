@@ -28,18 +28,18 @@ pub struct FrameBuffer {
 
 impl Default for FrameBuffer {
   fn default() -> Self {
-    FrameBuffer::nes_screen()
+    FrameBuffer::nes_rgba_frame()
   }
 }
 
 impl FrameBuffer {
-  pub fn new(width: usize, height: usize) -> Self {
-    let buffer = vec![0; width * height * PIXEL_BYTES].into_boxed_slice();
+  pub fn new(width: usize, height: usize, pitch: usize) -> Self {
+    let buffer = vec![0; width * height * pitch].into_boxed_slice();
     Self { buffer, width, height }
   }
 
-  pub fn nes_screen() -> Self {
-    FrameBuffer::new(SCREEN_WIDTH*8, SCREEN_HEIGHT*8)
+  pub fn nes_rgba_frame() -> Self {
+    FrameBuffer::new(SCREEN_WIDTH*8, SCREEN_HEIGHT*8, PIXEL_BYTES)
   }
 
   pub fn pitch(&self) -> usize {
