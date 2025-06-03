@@ -136,7 +136,6 @@ pub struct Apu {
   pub dmc: Dmc,
   
   #[cfg_attr(feature = "serde", serde(skip))]
-
   ctx: SharedCtx,
   
   frame_mode: FrameCounterMode,
@@ -146,7 +145,8 @@ pub struct Apu {
   irq_disabled: bool,
   pub frame_irq_flag: Option<()>,
 
-  pub samples: Vec<f32>,
+  samples_buf: Vec<f32>,
+  samples_out: Vec<f32>,
   cycles_per_sample: f32,
   sample_cycles: f32,
 
@@ -204,9 +204,30 @@ impl Apu {
   }
 
   pub fn consume_samples(&mut self) -> Vec<f32> {
-    let samples = mem::take(&mut self.samples);
-    self.samples.reserve(800);
+    for sample in &self.samples_buf {
+      self.high_pass_filter0.consume(*sample);
+      self.high_pass_filter1.consume(self.high_pass_filter0.output());
+      self.low_pass_filter.consume(self.high_pass_filter1.output());
+      self.quality_filter.consume(self.low_pass_filter.output());
+
+      if self.sample_cycles >= self.cycles_per_sample {
+        let output = self.quality_filter.output();
+        self.samples_out.push(output);
+        self.sample_cycles -= self.cycles_per_sample;
+      }
+
+      self.sample_cycles += 1.0;
+    }
+    
+    self.samples_buf.clear();
+    let samples = mem::take(&mut self.samples_out);
+    self.samples_out.reserve(800);
     samples
+  }
+
+  pub fn discard_samples(&mut self) {
+    // self.samples_buf.clear();
+    self.samples_out.clear();
   }
 
   pub fn tick(&mut self) {
@@ -224,20 +245,23 @@ impl Apu {
     // self.sample_cycles += 1.0;
 
     // OPT: this if is EXTREMELY costly
-    let sample = self.mix_channels();
-    self.high_pass_filter0.consume(sample);
-    self.high_pass_filter1.consume(self.high_pass_filter0.output());
-    self.low_pass_filter.consume(self.high_pass_filter1.output());
-    self.quality_filter.consume(self.low_pass_filter.output());
+    // let sample = self.mix_channels();
+    // self.high_pass_filter0.consume(sample);
+    // self.high_pass_filter1.consume(self.high_pass_filter0.output());
+    // self.low_pass_filter.consume(self.high_pass_filter1.output());
+    // self.quality_filter.consume(self.low_pass_filter.output());
 
-    if self.sample_cycles >= self.cycles_per_sample {
-      let output = self.quality_filter.output();
-      self.samples.push(output);
-      self.sample_cycles -= self.cycles_per_sample;
-    }
+    // if self.sample_cycles >= self.cycles_per_sample {
+    //   let output = self.quality_filter.output();
+    //   self.samples_out.push(output);
+    //   self.sample_cycles -= self.cycles_per_sample;
+    // }
     
-    self.sample_cycles += 1.0;
+    // self.sample_cycles += 1.0;
     
+    let sample = self.mix_channels();
+    self.samples_buf.push(sample);
+
     self.dmc.step_timer();
     self.triangle.step_timer();
     
@@ -263,6 +287,27 @@ impl Apu {
     }
 
     self.cycles += 1;
+  }
+
+  fn mix_channels(&mut self) -> f32 {
+    let pulse1   = self.pulse1.get_sample();
+    let pulse2   = self.pulse2.get_sample();
+    let triangle = self.triangle.get_sample();
+    let noise    = self.noise.get_sample();
+    let dmc      = self.dmc.get_sample();
+
+    // magic value taken from here
+    // https://github.com/zeta0134/rustico/blob/e1ee2211cc6173fe2df0df036c9c2a30e9966136/core/src/mmc/vrc6.rs
+    let ext_out = 0.00845 * self.ctx.mapper().get_sample() as f32;
+
+    let pulse_out = 0.00752 * (pulse1 + pulse2) as f32;
+    let tnd_out = 
+      0.00851 * triangle as f32
+      + 0.00494 * noise as f32
+      + 0.00335 * dmc as f32;
+      
+    let sum = pulse_out + tnd_out + ext_out;
+    sum
   }
 
   fn step_quarter_frame(&mut self) {
@@ -326,25 +371,6 @@ impl Apu {
       (41566, FrameCounterMode::Step5) => self.cycles = 0,
       _ => {}
     }
-  }
-
-  fn mix_channels(&mut self) -> f32 {
-    let pulse1   = self.pulse1.get_sample();
-    let pulse2   = self.pulse2.get_sample();
-    let triangle = self.triangle.get_sample();
-    let noise    = self.noise.get_sample();
-    let dmc = self.dmc.get_sample();
-
-    let ext_out = self.ctx.mapper().get_sample();
-
-    let pulse_out = 0.00752 * (pulse1 + pulse2) as f32;
-    let tnd_out = 
-      0.00851 * triangle as f32
-      + 0.00494 * noise as f32
-      + 0.00335 * dmc as f32;
-      
-    let sum = pulse_out + tnd_out + ext_out;
-    sum
   }
 
   pub fn read_reg(&mut self, addr: u16) -> u8 {

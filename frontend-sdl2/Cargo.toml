@@ -10,7 +10,7 @@ edition = "2021"
 # lto = "thin"
 
 [features]
-static = ["sdl2/bundled", "sdl2/static-link"]
+static = ["sdl2/bundled"]
 serde = ["nen-emulator/serde"]
 
 [dependencies]

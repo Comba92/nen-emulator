@@ -48,7 +48,6 @@ pub struct MMC5 {
   exram_mode: ExRamMode,
   exram: Box<[u8]>,
   ex_attr_bank: Banking<ChrBanking>,
-  // ex_attr_bank: Banking,
   last_nametbl_addr: usize,
 
   nametbls_mapping: [NametblMapping; 4],
@@ -663,13 +662,8 @@ impl Mapper for MMC5 {
     }
   }
 
-  fn get_sample(&self) -> f32 {
-    let sum = self.pulse1.get_sample() 
-    + self.pulse2.get_sample();
-
-    // magic value taken from here
-    // https://github.com/zeta0134/rustico/blob/e1ee2211cc6173fe2df0df036c9c2a30e9966136/core/src/mmc/vrc6.rs
-    0.00845 * sum as f32
+  fn get_sample(&self) -> u8 {
+    self.pulse1.get_sample() + self.pulse2.get_sample()
   }
 
   fn poll_irq(&mut self) -> bool {

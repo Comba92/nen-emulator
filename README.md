@@ -125,16 +125,24 @@ To build the emulator library, simply use in the root folder:
 cargo build -r
 ```
 
+The savestates feature is locked behined the "serde" feature; serde is a dependency that drastically increases compile times for this project.
+Add the feature flag to conditionally compile with the serde dependency:
+```bash
+cargo build -r --features="serde"
+```
+
 Two frontends are avaible.
 The SDL2 frontend, in frontend-native.
 To build, again, it's simply:
 ```bash
-cargo build -r                   # Dynamically linked with SDL2
-cargo build --features="static"  # Statically linked with SDL2
+cargo build -r                   # Dynamically linked with SDL2, no savestates feature
+cargo build -r --features="static"  # Statically linked with SDL2
+cargo build -r --features="serde"   # Savestates feature
+cargo build -r --all-features       # Savestates feature and statically linked with SDL2
 ```
 
 The WASM frontend is still WIP, but already avaible here: https://comba92.github.io/nen-emulator/frontend-wasm/index.html
-It is missing audio playback, savestates, and with a lackluster UI.
+It is missing audio playback, savestates, and has a lackluster UI.
 
 ## Architecture
 ### Dependency tree

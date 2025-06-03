@@ -74,7 +74,7 @@ pub trait Mapper {
   
   // Generic cpu cycle notify / apu extension clocking
   fn notify_cpu_cycle(&mut self) {}
-  fn get_sample(&self) -> f32 { 0.0 }
+  fn get_sample(&self) -> u8 { 0 }
   
   // Mmc3 scanline notify
   fn notify_mmc3_scanline(&mut self) {}

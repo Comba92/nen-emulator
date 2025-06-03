@@ -148,7 +148,9 @@ impl Ppu {
 			|| !self.mask.contains(Mask::bg_strip_show) && x < 8
 		{
 			let color = self.color_from_palette(0, 0);
-			self.frame.set_pixel(x, y, color);
+			// TODO: THIS IS RETARDED, setting pixels is always sequential, you just need to push to the buffer, there is no need for coordinates
+			// self.frame_out.set_pixel(x, y, color);
+			self.frame_buf.set_pixel(x, y, color);
 			return;
 		}
 
@@ -185,7 +187,9 @@ impl Ppu {
 			self.stat.insert(Stat::spr0_hit);
 		}
 
-		self.frame.set_pixel(x, y, pixel_color);
+		// TODO: THIS IS RETARDED, setting pixels is always sequential, you just need to push to the buffer, there is no need for coordinates
+		// self.frame_out.set_pixel(x, y, color);
+		self.frame_buf.set_pixel(x, y, pixel_color);
 	}
 
 

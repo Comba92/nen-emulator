@@ -93,8 +93,8 @@ fn save_state(ctx: &EmuCtx) {
 }
 
 #[cfg(not(feature = "serde"))]
-fn save_state(ctx: &EmuCtx) {
-  eprintln!("serde feature must be enabled for savestates");
+fn save_state(_: &EmuCtx) {
+  eprintln!("serde feature must be enabled during compilation for savestates");
 }
 
 
@@ -123,8 +123,8 @@ fn load_state(ctx: &mut EmuCtx) {
 }
 
 #[cfg(not(feature = "serde"))]
-fn load_state(ctx: &mut EmuCtx) {
-  eprintln!("serde feature must be enabled for savestates");
+fn load_state(_: &mut EmuCtx) {
+  eprintln!("serde feature must be enabled during compilation for savestates");
 }
 
 fn handle_input(keys: &Keymaps, event: &Event, ctx: &mut EmuCtx) {
@@ -254,7 +254,7 @@ fn main() {
 
   let mut texture = texture_creator.create_texture_streaming(
     sdl2::pixels::PixelFormatEnum::RGBA32,
-    emu.get_frame().width as u32, emu.get_frame().height as u32
+    32*8, 30*8
   ).unwrap();
 
   let desired_spec = AudioSpecDesired {
@@ -289,8 +289,10 @@ fn main() {
         ctx.emu.step_until_vblank();
       }
 
-      let samples = ctx.emu.get_samples();
-      if !ctx.is_muted {
+      if ctx.is_muted {
+        ctx.emu.clear_samples();
+      } else {
+        let samples = ctx.emu.get_samples();
         ctx.audio.queue_audio(&samples).unwrap();
       }
     }

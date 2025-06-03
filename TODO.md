@@ -15,7 +15,8 @@
 - [x] Memory Handler
 - [x] Conditional comp
 - [ ] Get rid of LazyLocks
-- [ ] Delay computing of frame and samples
+- [x] Delay computing of frame and samples
+- [ ] Clean up README
 
 - https://www.nesdev.org/wiki/INES_Mapper_210 -- Mapper19 like
 

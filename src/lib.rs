@@ -8,6 +8,8 @@ use apu::Apu;
 use joypad::JoypadButton;
 use mapper::Mapper;
 
+use crate::ppu::frame::FramebufRGBA;
+
 pub mod cpu;
 pub mod addr;
 pub mod ppu;
@@ -90,12 +92,16 @@ impl Emulator {
     self.apu.reset();
   }
 
-  pub fn get_frame(&self) -> &ppu::frame::FrameBuffer {
-    &self.ppu.frame
+  pub fn get_frame(&mut self) -> &ppu::frame::FrameBuffer<FramebufRGBA> {
+    self.ppu.indexed_framebuf_to_rgba()
   }
 
   pub fn get_samples(&mut self) -> Vec<f32> {
     self.apu.consume_samples()
+  }
+
+  pub fn clear_samples(&mut self) {
+    self.apu.discard_samples();
   }
 
   pub fn get_region_fps(&self) -> f32 {
@@ -151,22 +157,18 @@ impl Emulator {
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct EmuCtx {
   #[cfg_attr(feature = "serde", serde(skip))]
-
   bus: *mut Bus,
   #[cfg_attr(feature = "serde", serde(skip))]
-
   cpu: *mut Cpu,
   #[cfg_attr(feature = "serde", serde(skip))]
-
   ppu: *mut Ppu,
   #[cfg_attr(feature = "serde", serde(skip))]
-
   apu: *mut Apu,
+  #[cfg_attr(feature = "serde", serde(skip))]
+  pub joypad: *mut Joypad,
+
   // oam_dma: *mut OamDma,
   // dmc_dma: *mut DmcDma,
-  #[cfg_attr(feature = "serde", serde(skip))]
-
-  pub joypad: *mut Joypad,
 }
 
 #[cfg(feature = "serde")]
@@ -184,10 +186,10 @@ impl Default for EmuCtx {
       cpu: ptr::null_mut(),
       ppu: ptr::null_mut(),
       apu: ptr::null_mut(),
-      // oam_dma: ptr::null_mut(),
-      // dmc_dma: ptr::null_mut(),
       joypad: ptr::null_mut(),
       bus: ptr::null_mut(),
+      // oam_dma: ptr::null_mut(),
+      // dmc_dma: ptr::null_mut(),
     }
   }
 }

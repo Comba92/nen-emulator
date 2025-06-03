@@ -1,4 +1,4 @@
-use crate::{cart::ConsoleTiming, dma::OamDma, SharedCtx};
+use crate::{cart::ConsoleTiming, dma::OamDma, ppu::frame::{FramebufIndexed, FramebufRGBA}, SharedCtx};
 use bitfield_struct::bitfield;
 use bitflags::bitflags;
 use frame::FrameBuffer;
@@ -147,7 +147,8 @@ pub const PALETTES: u16 = 0x3F00;
 #[derive(Default)]
 pub struct Ppu {
 	#[cfg_attr(feature = "serde", serde(skip))]
-	pub frame: FrameBuffer,
+	frame_buf: FrameBuffer<FramebufIndexed>,
+	frame_out: FrameBuffer<FramebufRGBA>,
 	renderer: Fetcher,
 
 	v: LoopyReg,   // current vram address
@@ -189,7 +190,8 @@ impl Ppu {
 		let last_scanline = 241 + timing.vblank_len();
 
 		Self {
-			frame: FrameBuffer::default(),
+			frame_buf: FrameBuffer::default(),
+			frame_out: FrameBuffer::default(),
 			renderer: Fetcher::new(),
 
 			v: LoopyReg::new(),
@@ -225,6 +227,19 @@ impl Ppu {
 
 		self.cycle = 0;
 		self.scanline = self.last_scanline;
+	}
+
+	pub fn indexed_framebuf_to_rgba(&mut self) -> &FrameBuffer<FramebufRGBA> {
+		for (i, color_idx) in self.frame_buf.buffer.iter().enumerate() {
+			let color = &frame::SYS_COLORS[*color_idx as usize];
+			let idx = i*4;
+			self.frame_out.buffer[idx + 0] = color.0;
+			self.frame_out.buffer[idx + 1] = color.1;
+			self.frame_out.buffer[idx + 2] = color.2;
+			self.frame_out.buffer[idx + 3] = 255;
+		}
+
+		&self.frame_out
 	}
 
 	pub fn tick(&mut self) {

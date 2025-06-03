@@ -135,8 +135,8 @@ pub struct MemConfig {
   pub sram: Banking<SramBanking>,
   pub vram: Banking<VramBanking>,
 
+  // we can't serialize a collection of function pointers
   #[cfg_attr(feature = "serde", serde(skip))]
-
   pub mapping: MemMapping,
 }
 impl Default for MemConfig {

@@ -18,41 +18,67 @@ pub static SYS_COLORS: LazyLock<[RGBColor; 64]> = LazyLock::new(|| {
 
 pub const GREYSCALE_PALETTE: [u8; 4] = [0x3F, 0x00, 0x10, 0x20];
 
-const PIXEL_BYTES: usize = 4;
-pub struct FrameBuffer {
+pub struct FramebufIndexed;
+pub struct FramebufRGBA; 
+
+// TODO: Buffer can probably be a constant size array
+pub struct FrameBuffer<T> {
   pub buffer: Box<[u8]>,
   pub width: usize,
   pub height: usize,
+  kind: std::marker::PhantomData<T>,
 }
 
-impl Default for FrameBuffer {
+impl Default for FrameBuffer<FramebufRGBA> {
   fn default() -> Self {
     FrameBuffer::nes_rgba_frame()
   }
 }
 
-impl FrameBuffer {
-  pub fn new(width: usize, height: usize, pitch: usize) -> Self {
-    let buffer = vec![0; width * height * pitch].into_boxed_slice();
-    Self { buffer, width, height }
+impl Default for FrameBuffer<FramebufIndexed> {
+  fn default() -> Self {
+    FrameBuffer::nes_indexed_frame()
+  }
+}
+
+impl<T> FrameBuffer<T> {
+  pub fn new(width: usize, height: usize, pixel_size: usize) -> Self {
+    let buffer = vec![0x0f; width * height * pixel_size].into_boxed_slice();
+    Self { buffer, width, height, kind: std::marker::PhantomData::<T> }
   }
 
   pub fn nes_rgba_frame() -> Self {
-    FrameBuffer::new(SCREEN_WIDTH*8, SCREEN_HEIGHT*8, PIXEL_BYTES)
+    FrameBuffer::new(SCREEN_WIDTH*8, SCREEN_HEIGHT*8, 4)
   }
 
-  pub fn pitch(&self) -> usize {
-    self.width * PIXEL_BYTES
+  pub fn nes_indexed_frame() -> Self {
+    FrameBuffer::new(SCREEN_WIDTH*8, SCREEN_HEIGHT*8, 1)
   }
+}
 
+impl FrameBuffer<FramebufRGBA> {
   pub fn set_pixel(&mut self, x: usize, y: usize, color_id: u8) {
     let color = &SYS_COLORS[color_id as usize];
-    let idx = (y*self.width + x) * PIXEL_BYTES;
-    // assert!(idx < self.buffer.len(), "Got: {x} {y} - {color:?}");
+    let idx = (y*self.width + x) * 4;
     self.buffer[idx + 0] = color.0;
     self.buffer[idx + 1] = color.1;
     self.buffer[idx + 2] = color.2;
     self.buffer[idx + 3] = 255;
+  }
+
+  pub fn pitch(&self) -> usize {
+    self.width * 4
+  }
+}
+
+impl FrameBuffer<FramebufIndexed> {
+  pub fn set_pixel(&mut self, x: usize, y: usize, color_id: u8) {
+    let idx = y*self.width + x;
+    self.buffer[idx] = color_id;
+  }
+
+  pub fn pitch(&self) -> usize {
+    self.width
   }
 }
 
