@@ -226,7 +226,7 @@ impl Apu {
   }
 
   pub fn discard_samples(&mut self) {
-    // self.samples_buf.clear();
+    self.samples_buf.clear();
     self.samples_out.clear();
   }
 
