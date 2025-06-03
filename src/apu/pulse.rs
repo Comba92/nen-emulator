@@ -11,7 +11,8 @@ const PULSE_SEQUENCES: [[u8; 8]; 4] = [
   // [1,1,1,1,1,1,0,0],
 ];
 
-#[derive(Default, Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Default, Clone, Copy)]
 enum PulseDutyMode {
   #[default] Duty12, Duty25, Duty50, Duty25Neg,
 }
@@ -27,7 +28,8 @@ impl From<u8> for PulseDutyMode {
   }
 }
 
-#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Default)]
 pub struct Pulse {
   timer: ApuDivider,
   duty_mode: PulseDutyMode,

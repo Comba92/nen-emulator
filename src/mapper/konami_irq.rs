@@ -1,11 +1,13 @@
-#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Default)]
 pub enum IrqMode { 
   #[default] Mode0, // Scanline 
   Mode1             // Cycle
 }
 
 // https://www.nesdev.org/wiki/VRC_IRQ
-#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Default)]
 pub struct KonamiIrq {
   pub prescaler: isize,
   pub count: u16,

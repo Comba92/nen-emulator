@@ -1,0 +1,21 @@
+[package]
+name = "frontend-sdl2"
+version = "0.1.0"
+edition = "2021"
+
+# [profile.release]
+# opt-level = 3
+# debug = 1
+# strip = true
+# lto = "thin"
+
+[features]
+static = ["sdl2/bundled", "sdl2/static-link"]
+serde = ["nen-emulator/serde"]
+
+[dependencies]
+nen-emulator = { path = "../" }
+sdl2 = "0.37.0"
+zip = "4.0.0"
+pot = "3.0.1"
+

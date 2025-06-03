@@ -1,8 +1,12 @@
-use crate::cart::{CartBanking, CartHeader, Mirroring, PrgTarget};
+use crate::{banks::MemConfig, cart::{CartHeader, Mirroring}, mapper::{set_byte_hi, set_byte_lo}};
 
-use super::{set_byte_hi, set_byte_lo, Banking, Mapper};
+use super::{Banking, Mapper};
 
-#[derive(Default, serde::Serialize, serde::Deserialize)]
+
+// Mapper 16
+// https://www.nesdev.org/wiki/INES_Mapper_016
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Default)]
 pub struct BandaiFCG {
   submapper: u8,
   eeprom: Box<[u8]>,
@@ -13,13 +17,15 @@ pub struct BandaiFCG {
   irq_requested: Option<()>,
 }
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl Mapper for BandaiFCG {
-  fn new(header: &CartHeader, banks: &mut CartBanking) -> Box<Self> {
+  fn new(header: &CartHeader, banks: &mut MemConfig) -> Box<Self> {
     banks.prg = Banking::new_prg(header, 2);
     banks.prg.set_page_to_last_bank(1);
 
     banks.chr = Banking::new_chr(header, 8);
+
+    // TODO: change mapping cfg based on submapper.
 
     let eeprom = vec![0; 256].into_boxed_slice();
     Box::new(Self{
@@ -29,7 +35,7 @@ impl Mapper for BandaiFCG {
     })
   }
 
-  fn prg_write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {
+  fn prg_write(&mut self, banks: &mut MemConfig, addr: usize, val: u8) {
     match (addr, self.submapper) {
       (0x6000..=0x7FFF, 5) => {
         // submapper 5 eeprom read
@@ -50,7 +56,7 @@ impl Mapper for BandaiFCG {
           2 => Mirroring::SingleScreenA,
           _ => Mirroring::SingleScreenB,
         };
-        banks.ciram.update(mirroring);
+        banks.vram.update(mirroring);
       }
 
       (0x600A | 0x800A, _) =>  {
@@ -74,13 +80,13 @@ impl Mapper for BandaiFCG {
     }
   }
 
-  fn map_prg_addr(&mut self, banks: &mut CartBanking, addr: usize) -> PrgTarget {
-    match addr {
-      0x6000..=0x7FFF => PrgTarget::Prg(addr),
-      0x8000..=0xFFFF => PrgTarget::Prg(banks.prg.translate(addr)),
-      _ => unreachable!(),
-    }
-  }
+  // fn map_prg_addr_branching(&mut self, banks: &mut MemConfig, addr: usize) -> PrgTarget {
+  //   match addr {
+  //     0x6000..=0x7FFF => PrgTarget::Prg(addr),
+  //     0x8000..=0xFFFF => PrgTarget::Prg(banks.prg.translate(addr)),
+  //     _ => unreachable!(),
+  //   }
+  // }
 
   fn notify_cpu_cycle(&mut self) {
     if !self.irq_enabled { return; }

@@ -1,7 +1,8 @@
 use bitflags::bitflags;
 
 bitflags! {
-  #[derive(Clone, Copy, serde::Serialize, serde::Deserialize)]
+	#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+  #[derive(Default, Clone, Copy)]
   pub struct JoypadButton: u8 {
     const right  = 0b1000_0000;
     const left   = 0b0100_0000;
@@ -15,7 +16,8 @@ bitflags! {
   }
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Default)]
 pub struct Joypad {
 	strobe: bool,
 	pub buttons1: JoypadButton,
@@ -24,17 +26,8 @@ pub struct Joypad {
 	button_idx2: u8,
 }
 
+// https://www.nesdev.org/wiki/Standard_controller
 impl Joypad {
-	pub fn new() -> Self {
-		Joypad {
-			strobe: false,
-			button_idx1: 0,
-			button_idx2: 0,
-			buttons1: JoypadButton::empty(),
-			buttons2: JoypadButton::empty(),
-		}
-	}
-
 	pub fn write(&mut self, val: u8) {
 		self.strobe = (val & 1) != 0;
 		if self.strobe {

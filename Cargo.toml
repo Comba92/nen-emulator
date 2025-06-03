@@ -1,6 +1,6 @@
 [package]
 name = "nen-emulator"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Comba"]
 edition = "2021"
 readme = "README.md"
@@ -13,15 +13,16 @@ license-file = "LICENSE"
 # strip = true
 # lto = "thin"
 
+[features]
+# serde drastically increases compilation times, only enable when shipping
+serde = ["dep:serde", "dep:typetag"]
 
 [dependencies]
 bitflags = { version = "2.6.0", features = ["serde"] }
 bitfield-struct = "0.11.0"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-typetag = "0.2.19"
-wasm-bindgen = "0.2.99"
-rand = "0.9.1"
+serde = { version = "1.0", features = ["derive"], optional = true }
+typetag = { version = "0.2.20", optional = true }
+getrandom = "0.3.3"
 
 [dev-dependencies]
 sdl2 = { version = "0.37.0" }

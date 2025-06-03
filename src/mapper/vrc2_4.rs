@@ -1,6 +1,6 @@
 use bitfield_struct::bitfield;
 
-use crate::cart::{CartBanking, CartHeader, Mirroring, PrgTarget};
+use crate::{banks::MemConfig, mem::MemMapping, cart::{CartHeader, Mirroring}};
 use super::{konami_irq::KonamiIrq, Banking, Mapper};
 
 #[bitfield(u16, order = Lsb)]
@@ -14,6 +14,7 @@ struct ChrSelectByte {
   __: u8
 }
 
+#[cfg(feature = "serde")]
 impl serde::Serialize for ChrSelectByte {
 	fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
 	where
@@ -21,6 +22,7 @@ impl serde::Serialize for ChrSelectByte {
 		serializer.serialize_u16(self.0)
 	}
 }
+#[cfg(feature = "serde")]
 impl<'de> serde::Deserialize<'de> for ChrSelectByte {
 	fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
 	where
@@ -32,7 +34,8 @@ impl<'de> serde::Deserialize<'de> for ChrSelectByte {
 
 // Mappers 21, 22, 23, 25
 // https://www.nesdev.org/wiki/VRC2_and_VRC4
-#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Default)]
 pub struct VRC2_4 {
   prg_select0: u8,
   prg_select1: u8,
@@ -41,7 +44,6 @@ pub struct VRC2_4 {
   mapper: u16,
   swap_mode: bool,
   sram_ctrl: bool,
-  latch: bool,
 
   irq: KonamiIrq,
 }
@@ -96,20 +98,20 @@ impl VRC2_4 {
     (addr & 0xFF00 | (a1 << 1) | a0) & 0xF00F
   }
 
-  fn update_prg_banks(&self, banks: &mut CartBanking) {
+  fn update_prg_banks(&self, cfg: &mut MemConfig) {
     match self.swap_mode {
       false => {
-        banks.prg.set_page(0, self.prg_select0 as usize);
-        banks.prg.set_page(2, banks.prg.banks_count-2);
+        cfg.prg.set_page(0, self.prg_select0 as usize);
+        cfg.prg.set_page(2, cfg.prg.banks_count-2);
       }
       true  => {
-        banks.prg.set_page(0, banks.prg.banks_count-2);
-        banks.prg.set_page(2, self.prg_select0 as usize);
+        cfg.prg.set_page(0, cfg.prg.banks_count-2);
+        cfg.prg.set_page(2, self.prg_select0 as usize);
       }
     }
   }
 
-  fn update_chr_banks(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {
+  fn update_chr_banks(&mut self, cfg: &mut MemConfig, addr: usize, val: u8) {
     let res = match addr {
       0xB000 => Some((0, false)),
       0xB001 => Some((0, true)),
@@ -144,19 +146,27 @@ impl VRC2_4 {
         self.chr_selects[reg].set_lo(val & 0b1111);
       }
 
-      banks.chr.set_page(reg, self.chr_selects[reg].0 as usize);
+      cfg.chr.set_page(reg, self.chr_selects[reg].0 as usize);
     }
   }
 }
 
-#[typetag::serde]
-impl Mapper for VRC2_4 {
-  fn new(header: &CartHeader, banks: &mut CartBanking) -> Box<Self> {
-    banks.prg = Banking::new_prg(header, 4);
-    banks.chr = Banking::new_chr(header, 8);
 
-    banks.prg.set_page(2, banks.prg.banks_count-2);
-    banks.prg.set_page(3, banks.prg.banks_count-1);
+#[cfg_attr(feature = "serde", typetag::serde)]
+impl Mapper for VRC2_4 {
+  fn new(header: &CartHeader, cfg: &mut MemConfig) -> Box<Self> {
+    cfg.prg = Banking::new_prg(header, 4);
+    cfg.chr = Banking::new_chr(header, 8);
+
+    cfg.prg.set_page(2, cfg.prg.banks_count-2);
+    cfg.prg.set_page(3, cfg.prg.banks_count-1);
+
+    // we simulate the 1bit latch by always reading the first sram address
+    // hoping this will work! 
+    if header.mapper == 2 {
+      cfg.mapping.cpu_reads[MemMapping::SRAM_HANDLER] = |bus, _| bus.sram[0];
+      cfg.mapping.cpu_writes[MemMapping::SRAM_HANDLER] = |bus, _, val| bus.sram[0] = val;
+    }
 
     let mapper = Self {
       mapper: header.mapper,
@@ -166,22 +176,22 @@ impl Mapper for VRC2_4 {
     Box::new(mapper)
   }
 
-  fn prg_write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {
+  fn prg_write(&mut self, cfg: &mut MemConfig, addr: usize, val: u8) {
     let addr = self.translate_addr(addr);
     match addr {
       0x9002 => {
         self.sram_ctrl = val & 0b01 != 0;
         self.swap_mode = val & 0b10 != 0 && self.mapper != 22;
-        self.update_prg_banks(banks);
+        self.update_prg_banks(cfg);
       }
 
       0x8000..=0x8006 => {
         self.prg_select0 = val & 0b1_1111;
-        self.update_prg_banks(banks);
+        self.update_prg_banks(cfg);
       }
       0xA000..=0xA006 => {
         self.prg_select1 = val & 0b1_1111;
-        banks.prg.set_page(1, self.prg_select1 as usize);
+        cfg.prg.set_page(1, self.prg_select1 as usize);
       }
       0x9000..=0x9003 => {
         let mirroring = match val & 0b11 {
@@ -190,29 +200,15 @@ impl Mapper for VRC2_4 {
         2 => Mirroring::SingleScreenA,
         _ => Mirroring::SingleScreenB,
         };
-        banks.ciram.update(mirroring);
+        cfg.vram.update(mirroring);
       }
-      0xB000..=0xE003 => self.update_chr_banks(banks, addr, val),
+      0xB000..=0xE003 => self.update_chr_banks(cfg, addr, val),
 
       0xF000 => self.irq.latch = (self.irq.latch & 0xF0) | (val as u16 & 0b1111),
       0xF001 => self.irq.latch = (self.irq.latch & 0x0F) | ((val as u16 & 0b1111) << 4),
       0xF002 => self.irq.write_ctrl(val),
       0xF003 => self.irq.write_ack(),
       _ => {}
-    }
-  }
-
-  fn map_prg_addr(&mut self, banks: &mut CartBanking, addr: usize) -> PrgTarget {
-    match addr {
-      0x4020..=0x5FFF => PrgTarget::Cart,
-      0x6000..=0x7FFF => {
-        // we simulate the 1bit latch by always reading the first sram address
-        // hoping this will work! 
-        let res = if self.mapper == 2 { 0 } else { banks.sram.translate(addr) };
-        PrgTarget::SRam(true, res)
-      }
-      0x8000..=0xFFFF => PrgTarget::Prg(banks.prg.translate(addr)),
-      _ => unreachable!()
     }
   }
 

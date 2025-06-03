@@ -1,7 +1,7 @@
-use serde::ser::SerializeStruct;
-use crate::mapper::{self, Banking, ChrBanking, Dummy, Mapper, PrgBanking, SramBanking, CiramBanking};
+use crate::mapper;
 
-#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Default, Clone)]
 pub struct CartHeader {
   pub format: HeaderFormat,
   pub console_type: ConsoleType,
@@ -48,13 +48,15 @@ impl CartHeader {
 }
 
 const NES_MAGIC: [u8; 4] = [0x4E, 0x45, 0x53, 0x1A];
-const HEADER_SIZE: usize = 16;
+pub const HEADER_SIZE: usize = 16;
 const PRG_ROM_PAGE_SIZE: usize = 1024 * 16;
 const CHR_ROM_PAGE_SIZE: usize = 1024 * 8;
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub enum HeaderFormat { #[default] INes, Nes2_0 }
-#[derive(Debug, Default, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub enum Mirroring { 
   #[default] Horizontal, 
   Vertical,
@@ -63,9 +65,11 @@ pub enum Mirroring {
   FourScreen
 }
 
-#[derive(Debug, Default, Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Default, Clone, Copy)]
 pub enum ConsoleType { #[default] NES, VsSystem, Playchoice10, Other }
-#[derive(Debug, Default, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub enum ConsoleTiming { NTSC, PAL, World, Dendy, #[default] Unknown }
 impl ConsoleTiming {
   pub fn fps(&self) -> f32 {
@@ -154,7 +158,7 @@ impl CartHeader {
     let mapper_low = rom[6] >> 4;
     let mapper_high = rom[7] & 0b1111_0000;
     header.mapper = (mapper_high | mapper_low) as u16;
-    header.mapper_name = mapper::mapper_name(header.mapper).to_string();
+    // header.mapper_name = mapper::mapper_name(header.mapper).to_string();
 
     header.format = if rom[7] & 0b0000_1100 == 0x8 { HeaderFormat::Nes2_0 } else { HeaderFormat::INes };
     // This field was a later addition to iNes, so most games do not use it, even if they contain prg_ram.
@@ -187,7 +191,7 @@ impl CartHeader {
     
     header.mapper = ((rom[8] as u16 & 0b111) << 8) | header.mapper as u16;
     header.submapper = rom[8] >> 4;
-    // header.mapper_name = mapper::mapper_name(header.mapper).to_string();
+    header.mapper_name = mapper::mapper_name(header.mapper).to_string();
 
     if header.mapper == 1 {
       let ext = match header.submapper {
@@ -226,235 +230,5 @@ impl CartHeader {
     };
 
     Ok(header)
-  }
-}
-
-#[derive(serde::Serialize, serde::Deserialize)]
-pub struct CartBanking {
-  pub prg:  Banking<PrgBanking>,
-  pub chr:  Banking<ChrBanking>,
-  pub sram: Banking<SramBanking>,
-  pub ciram: Banking<CiramBanking>,
-}
-impl Default for CartBanking {
-  fn default() -> Self {
-    let header = &Default::default();
-    let prg = Banking::new_prg(header, 1);
-    let chr = Banking::new_chr(header, 1);
-    let sram = Banking::new_sram(header);
-    let ciram = Banking::new_ciram(header);
-    Self {prg, chr, sram, ciram}
-  }
-}
-
-impl CartBanking {
-  pub fn new(header: &CartHeader) -> Self {
-    let prg = Banking::new_prg(header, 1);
-    let chr = Banking::new_chr(header, 1);
-    let sram = Banking::new_sram(header);
-    let ciram = Banking::new_ciram(header);
-    Self {prg, chr, sram, ciram}
-  }
-}
-
-
-#[derive(Clone)]
-pub struct SharedCart(pub *mut Cart);
-
-impl SharedCart {
-  pub fn new(cart: Cart) -> Self {
-    // save cart into heap, the get its pointer
-    Self(Box::into_raw(Box::new(cart)))
-  }
-
-  pub fn as_mut(&self) -> &mut Cart {
-    unsafe { self.0.as_mut().expect("cart pointer should always be valid") }
-  }
-}
-
-impl AsRef<Cart> for SharedCart {
-  fn as_ref(&self) -> &Cart {
-    unsafe { self.0.as_ref().expect("cart pointer should always be valid") }
-  }
-}
-
-impl serde::Serialize for SharedCart {
-  fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-      S: serde::Serializer {
-    Cart::serialize(self.as_ref(), serializer)
-  }
-}
-
-impl<'de> serde::Deserialize<'de> for SharedCart {
-  fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-  where
-      D: serde::Deserializer<'de> {
-    let cart = Cart::deserialize(deserializer)?;
-    Ok(Self::new(cart))
-  }
-}
-
-impl Default for SharedCart {
-  fn default() -> Self {
-    Self(core::ptr::null_mut())
-  }
-}
-
-#[derive(serde::Deserialize)]
-pub struct Cart {
-  pub header: CartHeader,
-  #[serde(skip)]
-  pub prg: Box<[u8]>,
-  pub chr: Box<[u8]>,
-  pub sram: Box<[u8]>,
-  pub ciram: Box<[u8]>,
-  pub banks: CartBanking,
-  pub mapper: Box<dyn Mapper>,
-}
-
-impl Default for Cart {
-  fn default() -> Self {
-    Self { 
-      header: Default::default(),
-      prg: Default::default(),
-      chr: Default::default(),
-      ciram: Default::default(),
-      sram: Default::default(),
-      banks: Default::default(),
-      mapper: Box::new(Dummy)
-    }
-  }
-}
-
-impl serde::Serialize for Cart {
-  fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-  where
-      S: serde::Serializer {
-    let mut se = serializer.serialize_struct("Cart", 6)?;
-
-    // we do not care to serialize prg
-    se.skip_field("prg")?;
-
-    se.serialize_field("header", &self.header)?;
-    se.serialize_field("sram", &self.sram)?;
-    se.serialize_field("ciram", &self.ciram)?;
-    se.serialize_field("banks", &self.banks)?;
-    se.serialize_field("mapper", &self.mapper)?;
-
-    // we only serialize chr if it is chr ram
-    if self.header.uses_chr_ram {
-      se.serialize_field("chr", &self.chr)?;
-    } else {
-      se.serialize_field("chr", &Vec::<u8>::new().into_boxed_slice())?;
-    }
-
-    se.end()
-  }
-}
-
-pub enum PpuTarget { Chr(usize), CiRam(usize), ExRam(usize), Value(u8) }
-pub enum PrgTarget { Prg(usize), SRam(bool, usize), Cart }
-
-impl Cart {
-  pub fn new(rom: &[u8]) -> Result<Self, String> {    
-    let header = CartHeader::new(&rom)
-      .map_err(|e| format!("Not a valid iNES/Nes2.0 rom: {e}"))?;
-
-    println!("Loaded NES ROM: {:#?}", header);
-
-    let prg_start = HEADER_SIZE + if header.has_trainer { 512 } else { 0 };
-    let chr_start = prg_start + header.prg_size;
-
-    let prg = rom[prg_start..chr_start]
-      .to_vec().into_boxed_slice();
-    let chr = if header.uses_chr_ram {
-      vec![0; header.chr_ram_size]
-    }
-    else { 
-      rom[chr_start..chr_start+header.chr_size].to_vec()
-    }.into_boxed_slice();
-
-    let sram_size = header.sram_real_size();
-    let sram = vec![0; sram_size].into_boxed_slice();
-
-    let ciram_size = if header.has_alt_mirroring { 4 * 1024 } else { 2 * 1024 };
-    let ciram = vec![0; ciram_size].into_boxed_slice();
-    
-    let mut banks = CartBanking::new(&header);
-    let mapper = mapper::new_mapper(&header, &mut banks)?;
-    
-    Ok(Cart { header, prg, chr, sram, ciram, banks, mapper })
-  }
-
-  pub fn get_sram(&self) -> Option<Vec<u8>> {
-    if self.header.has_battery {
-      Some(self.sram.to_vec())
-    } else { None }
-  }
-
-  pub fn set_sram(&mut self, data: Vec<u8>) {
-    self.sram = data.into_boxed_slice();
-  }
-
-  pub fn prg_read(&mut self, addr: usize) -> u8 {
-    let target = self.mapper.map_prg_addr(&mut self.banks, addr);
-    match target {
-      PrgTarget::Cart => self.mapper.cart_read(addr),
-      PrgTarget::SRam(enabled, mapped) => if enabled {
-          self.sram[mapped % self.sram.len()]
-        } else { 0xde }
-      PrgTarget::Prg(mapped) => self.prg[mapped],
-    }
-  }
-  pub fn prg_write(&mut self, addr: usize, val: u8) {
-    let target = self.mapper.map_prg_addr(&mut self.banks, addr);
-    match target {
-      PrgTarget::Cart => self.mapper.cart_write(&mut self.banks, addr, val),
-      PrgTarget::SRam(enabled, mapped) => if enabled {
-        self.sram[mapped % self.sram.len()] = val;
-      }
-      PrgTarget::Prg(_) => self.mapper.prg_write(&mut self.banks, addr, val),
-    }
-  }
-
-  pub fn vram_read(&mut self, addr: usize) -> u8 {
-    let target = self.mapper.map_ppu_addr(&mut self.banks, addr);
-    match target {
-      PpuTarget::CiRam(mapped) => self.ciram[mapped],
-      PpuTarget::Chr(mapped)   => self.chr[mapped],
-      PpuTarget::ExRam(mapped) => self.mapper.exram_read(mapped),
-      PpuTarget::Value(val) => val,
-    }
-  }
-
-  pub fn vram_write(&mut self, addr: usize, val: u8) {
-    let target = self.mapper.map_ppu_addr(&mut self.banks, addr);
-    match target {
-      PpuTarget::CiRam(mapped) => self.ciram[mapped] = val,
-      PpuTarget::Chr(mapped)   => if self.header.uses_chr_ram { self.chr[mapped] = val; }
-      PpuTarget::ExRam(mapped) => self.mapper.exram_write(mapped, val),
-      PpuTarget::Value(_) => {}
-    }
-  }
-}
-
-#[cfg(test)]
-mod cart_tests {
-    use std::fs;
-    use super::*;
-
-  #[test]
-  fn read_headers() {
-    let mut roms = fs::read_dir("./roms/").unwrap();
-    while let Some(Ok(file)) = roms.next() {
-      let rom = fs::read(file.path()).unwrap();
-      let cart = CartHeader::new(&rom);
-      match cart {
-        Ok(cart) => println!("{:?}", cart),
-        Err(e) => println!("{e}")
-      }
-      println!()
-    }
   }
 }

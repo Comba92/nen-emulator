@@ -1,8 +1,7 @@
-use crate::cart::{CartBanking, CartHeader, Mirroring, PrgTarget};
+use crate::{banks::MemConfig, bus::Bus, cart::{CartHeader, Mirroring}, mapper::{set_byte_hi, set_byte_lo}, mem};
+use super::{Banking, Mapper};
 
-use super::{set_byte_hi, set_byte_lo, Banking, Mapper};
-
-#[derive(serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 enum Command { Chr(u8), Prg0, Prg1(u8), Nametbl, IrqCtrl, IrqLo, IrqHi }
 impl Default for Command {
   fn default() -> Self { Self::Chr(0) }
@@ -10,14 +9,13 @@ impl Default for Command {
 
 // Mapper 69
 // https://www.nesdev.org/wiki/Sunsoft_FME-7
-#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Default)]
 pub struct SunsoftFME7 {
   command: Command,
 
   sram_banked: bool,
   sram_enabled: bool,
-
-  prg0_select: usize,
 
   irq_enabled: bool,
   irq_counter_enabled: bool,
@@ -25,22 +23,22 @@ pub struct SunsoftFME7 {
   irq_count: u16,
 }
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl Mapper for SunsoftFME7 {
-  fn new(header: &CartHeader, banks: &mut CartBanking) -> Box<Self> {
+  fn new(header: &CartHeader, banks: &mut MemConfig) -> Box<Self> {
     banks.prg = Banking::new_prg(header, 4);
-    banks.chr = Banking::new_chr(header, 8);
-    
     banks.prg.set_page_to_last_bank(3);
+    banks.chr = Banking::new_chr(header, 8);
 
     let mapper = Self {
       command: Command::Chr(0),
+
       ..Default::default()
     };
     Box::new(mapper)
   }
 
-  fn prg_write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {
+  fn prg_write(&mut self, banks: &mut MemConfig, addr: usize, val: u8) {
     match addr {
       0x8000..=0x9FFF => {
         let val = val & 0b1111;
@@ -64,10 +62,20 @@ impl Mapper for SunsoftFME7 {
             self.sram_enabled = val >> 7 != 0;
 
             let bank = val as usize & 0b11_1111;
+            banks.sram.set_page(0, bank);
+
             if self.sram_banked {
-              banks.sram.set_page(0, bank);
+              banks.mapping.cpu_reads[3]  = mem::sram_read;
+              banks.mapping.cpu_writes[3] = mem::sram_write;
             } else {
-              self.prg0_select = (bank % banks.prg.banks_count) * banks.prg.bank_size;
+              banks.mapping.cpu_reads[3]  = |bus: &mut Bus, addr: u16| {
+                // bus.prg[bus.mapper.sram_translate(&mut bus.cfg, addr)]
+                bus.prg[bus.cfg.sram.translate(addr as usize)]
+              };
+              banks.mapping.cpu_writes[3] = |bus: &mut Bus, addr: u16, val: u8| {
+                // bus.prg[bus.mapper.sram_translate(&mut bus.cfg, addr)] = val;
+                bus.prg[bus.cfg.sram.translate(addr as usize)] = val;
+              };
             }
           }
           Command::Prg1(page) => 
@@ -79,7 +87,7 @@ impl Mapper for SunsoftFME7 {
               2 => Mirroring::SingleScreenA,
               _ => Mirroring::SingleScreenB
             };
-            banks.ciram.update(mirroring);
+            banks.vram.update(mirroring);
           }
           Command::IrqCtrl => {
             self.irq_enabled = val & 1 != 0;
@@ -94,20 +102,20 @@ impl Mapper for SunsoftFME7 {
     }
   }
 
-  fn map_prg_addr(&mut self, banks: &mut CartBanking, addr: usize) -> PrgTarget {
-    match addr {
-      0x4020..=0x5FFF => PrgTarget::Cart,
-      0x6000..=0x7FFF => {
-        if self.sram_banked {
-          PrgTarget::SRam(self.sram_enabled, banks.sram.translate(addr))
-        } else {
-          PrgTarget::Prg(self.prg0_select + ((addr - 0x6000) % banks.prg.bank_size))
-        }
-      }
-      0x8000..=0xFFFF => PrgTarget::Prg(banks.prg.translate(addr)),
-      _ => unreachable!()
-    }
-  }
+  // fn map_prg_addr_branching(&mut self, banks: &mut MemConfig, addr: usize) -> PrgTarget {
+  //   match addr {
+  //     0x4020..=0x5FFF => PrgTarget::Cart,
+  //     0x6000..=0x7FFF => {
+  //       if self.sram_banked {
+  //         PrgTarget::SRam(self.sram_enabled, banks.sram.translate(addr))
+  //       } else {
+  //         PrgTarget::Prg(banks.sram.translate(addr))
+  //       }
+  //     }
+  //     0x8000..=0xFFFF => PrgTarget::Prg(banks.prg.translate(addr)),
+  //     _ => unreachable!()
+  //   }
+  // }
 
   fn notify_cpu_cycle(&mut self) {
     if !self.irq_counter_enabled { return; }

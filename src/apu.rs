@@ -6,7 +6,7 @@ use noise::Noise;
 use pulse::Pulse;
 use triangle::Triangle;
 
-use crate::cart::{ConsoleTiming, SharedCart};
+use crate::{bus::EmuTiming, cart::ConsoleTiming, SharedCtx};
 
 mod envelope;
 
@@ -15,7 +15,8 @@ mod triangle;
 mod noise;
 mod dmc;
 
-#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Default)]
 pub struct ApuDivider {
   pub period: u16,
   pub count: u16,
@@ -46,7 +47,8 @@ const LENGTH_TABLE: [u8; 32] = [
   12, 16, 24, 18, 48, 20, 96, 22, 192, 24, 72, 26, 16, 28, 32, 30
 ];
 
-#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Default)]
 struct LengthCounter {
   count: u8,
   pub halted: bool,
@@ -87,7 +89,8 @@ pub trait Channel: Default {
   fn get_sample(&self) -> u8;
 }
 
-#[derive(Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Default, PartialEq)]
 enum FrameCounterMode {
   #[default] Step4, Step5
 }
@@ -109,7 +112,7 @@ impl Into<u8> for FrameCounterMode {
 }
 
 bitflags! {
-  #[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
+  #[derive(Clone, Default)]
   struct Flags: u8 {
     const pulse1    = 0b0000_0001;
     const pulse2    = 0b0000_0010;
@@ -122,17 +125,19 @@ bitflags! {
   }
 }
 
-#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Default)]
 pub struct Apu {
-  timing: ConsoleTiming,
+  timing: EmuTiming,
   pulse1: Pulse,
   pulse2: Pulse,
   triangle: Triangle,
   noise: Noise,
   pub dmc: Dmc,
   
-  #[serde(skip)]
-  cart: SharedCart,
+  #[cfg_attr(feature = "serde", serde(skip))]
+
+  ctx: SharedCtx,
   
   frame_mode: FrameCounterMode,
   frame_write_delay: u8,
@@ -158,16 +163,13 @@ pub struct Apu {
 // }
 
 impl Apu {
-  pub fn new(cart: SharedCart) -> Self {
-    let timing = cart.as_ref().header.timing;
-
+  pub fn new(timing: ConsoleTiming) -> Self {
     let cycles_per_sample = 
       timing.frame_cpu_cycles() / ((44100.0 / timing.fps()) as f32);
     let cpu_hz = timing.cpu_hz() as f32;
 
     Self {
-      timing,
-      cart,
+      timing: timing.into(),
       noise: Noise::new(timing),
       dmc: Dmc::new(timing),
 
@@ -186,8 +188,8 @@ impl Apu {
     }
   }
 
-  pub fn wire_cart(&mut self, cart: SharedCart) {
-		self.cart = cart;
+  pub fn bind(&mut self, ctx: SharedCtx) {
+		self.ctx = ctx;
 	}
 
   pub fn reset(&mut self) {
@@ -207,7 +209,7 @@ impl Apu {
     samples
   }
 
-  pub fn step(&mut self) {
+  pub fn tick(&mut self) {
     // A frame lasts 29780.5 CPU cycles.
     // We have to output 44100 hertz of samples per second.
     // We have 60 frames per second.
@@ -245,10 +247,8 @@ impl Apu {
       self.noise.step_timer();
     }
 
-    match self.timing {
-      ConsoleTiming::PAL => self.step_frame_pal(),
-      _ => self.step_frame_ntsc(),
-    }
+    const FRAME_STEPPINGS: [fn(&mut Apu); 2] = [Apu::tick_frame_ntsc, Apu::tick_frame_pal];
+    FRAME_STEPPINGS[self.timing as usize](self);
     
     if self.frame_write_delay > 0 {
       self.frame_write_delay -= 1;
@@ -284,7 +284,7 @@ impl Apu {
     self.pulse2.step_sweep(true);
   }
 
-  fn step_frame_ntsc(&mut self) {
+  fn tick_frame_ntsc(&mut self) {
     // we multiply the steps by 2 
     // https://www.nesdev.org/wiki/APU_Frame_Counter
     match (self.cycles, &self.frame_mode) {
@@ -307,7 +307,7 @@ impl Apu {
     }
   }
 
-  fn step_frame_pal(&mut self) {
+  fn tick_frame_pal(&mut self) {
     match (self.cycles, &self.frame_mode) {
       (8313 | 24939, _) => self.step_quarter_frame(),
       (16627, _) => self.step_half_frame(),
@@ -335,7 +335,7 @@ impl Apu {
     let noise    = self.noise.get_sample();
     let dmc = self.dmc.get_sample();
 
-    let ext_out = self.cart.as_mut().mapper.get_sample();
+    let ext_out = self.ctx.mapper().get_sample();
 
     let pulse_out = 0.00752 * (pulse1 + pulse2) as f32;
     let tnd_out = 
@@ -420,7 +420,8 @@ impl Apu {
   }
 }
 
-#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Default)]
 pub struct LowPassIIR {
   alpha: f32,
   previous_output: f32,
@@ -449,7 +450,8 @@ impl LowPassIIR {
   }
 }
 
-#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Default)]
 pub struct HighPassIIR {
   alpha: f32,
   previous_output: f32,

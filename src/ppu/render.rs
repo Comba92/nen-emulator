@@ -1,8 +1,11 @@
 use std::collections::VecDeque;
 
-use super::{Mask, Ppu, RenderingState, Stat, ATTRIBUTES, NAMETABLES, PALETTES};
+use crate::ppu::RenderingState;
 
-#[derive(Default, serde::Serialize, serde::Deserialize)]
+use super::{Mask, Ppu, Stat, ATTRIBUTES, NAMETABLES, PALETTES};
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Default)]
 pub(super) struct Fetcher {
 	state: FetcherState,
 	data: FetcherData,
@@ -24,12 +27,14 @@ impl Fetcher {
 	}
 }
 
-#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Default)]
 enum FetcherState {
 	#[default] Nametbl, Attribute, PtrnLow, PtrnHigh
 }
 
-#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Default)]
 pub (super) struct FetcherData {
 	pub tile_id: u8,
 	pub palette_id: u8,
@@ -38,7 +43,8 @@ pub (super) struct FetcherData {
 	pub tile_plane1: u8,
 }
 
-#[derive(Default, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Default, Clone)]
 pub struct SprData {
 	pub pixel: u8,
 	pub palette_id: u8,
@@ -46,14 +52,16 @@ pub struct SprData {
 	pub is_sprite0: bool,
 }
 
-#[derive(Debug, PartialEq, Default, Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, PartialEq, Default, Clone, Copy)]
 pub enum SpritePriority {
 		Front,
 		#[default]
 		Behind,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug)]
 pub(super) struct OamEntry {
 		pub index: usize,
 		pub y: usize,
@@ -106,7 +114,7 @@ impl Ppu {
 	pub(super) fn render_step(&mut self) {
 		if (1..=256).contains(&self.cycle) || (321..=336).contains(&self.cycle) {
 			if self.cycle == 1 || self.cycle == 321 {
-				self.cart.as_mut().mapper.notify_ppu_state(RenderingState::FetchBg);
+				self.ctx.mapper().notify_ppu_state(RenderingState::FetchBg);
 			}
 			self.fetch_bg_step();
 
@@ -115,7 +123,7 @@ impl Ppu {
 			self.reset_render_x();
 		} else if self.cycle == 260 {
 			// we just render all sprites in one go
-			self.cart.as_mut().mapper.notify_ppu_state(RenderingState::FetchSpr);
+			self.ctx.mapper().notify_ppu_state(RenderingState::FetchSpr);
 			
 			self.evaluate_sprites();
 			self.fetch_sprites();
@@ -124,11 +132,11 @@ impl Ppu {
 		if self.cycle == 3
 			&& self.rendering_enabled()
 		{
-			self.cart.as_mut().mapper.notify_mmc5_scanline();
+			self.ctx.mapper().notify_mmc5_scanline();
 		} else if self.cycle == 260
 			&& self.rendering_enabled()
 		{
-			self.cart.as_mut().mapper.notify_mmc3_scanline();
+			self.ctx.bus().mapper.notify_mmc3_scanline();
 		}
 	}
 

@@ -2,10 +2,11 @@ use core::{fmt, ops::{BitAnd, BitOr, BitXor, Not, Shl, Shr}};
 
 use bitflags::bitflags;
 
-use crate::{bus::Bus, cart::Cart, addr::{AddressingMode, MODES_TABLE}, mem::{Memory, Ram64Kb}};
+use crate::{addr::{AddressingMode, MODES_TABLE}, SharedCtx};
 
 bitflags! {
-#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy)]
   pub struct CpuFlags: u8 {
     const carry     = 0b0000_0001;
     const zero      = 0b0000_0010;
@@ -20,8 +21,7 @@ bitflags! {
 }
 
 // https://www.nesdev.org/wiki/CPU_ALL
-pub const STACK_START: usize = 0x0100;
-pub const STACK_END: usize = 0x0200;
+const STACK_START: usize = 0x0100;
 // SP is always initialized at itself minus 3
 // At boot, it is 0x00 - 0x03 = 0xFD
 // After every successive restart, it will be SP - 0x03
@@ -34,9 +34,8 @@ const NMI_ISR: u16   = 0xFFFA;
 const RESET_ISR: u16 = 0xFFFC;
 const IRQ_ISR: u16   = 0xFFFE;
 
-
-#[derive(serde::Serialize, serde::Deserialize)]
-pub struct Cpu<M: Memory> {
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Cpu {
   pub pc: u16,
   pub sp: u8,
   pub p: CpuFlags,
@@ -46,46 +45,53 @@ pub struct Cpu<M: Memory> {
   pub cycles: usize,
   pub jammed: bool,
 
-  #[serde(skip)]
+  #[cfg_attr(feature = "serde", serde(skip))]
+
   instr_addr: u16,
-  #[serde(skip)]
+  #[cfg_attr(feature = "serde", serde(skip))]
+
   instr_val:  u8,
-  #[serde(skip)]
+  #[cfg_attr(feature = "serde", serde(skip))]
+
   instr_dummy_addr: u16,
-  #[serde(skip)]
+  #[cfg_attr(feature = "serde", serde(skip))]
+
   instr_dummy_readed: bool,
-  #[serde(skip)]
+  #[cfg_attr(feature = "serde", serde(skip))]
+
   instr_mode: AddressingMode,
 
-  pub bus: M,
+  #[cfg_attr(feature = "serde", serde(skip))]
+
+  pub ctx: SharedCtx,
 }
 
-impl<M: Memory> Memory for Cpu<M> {
+impl Cpu {
   fn read(&mut self, addr: u16) -> u8 {
-    let res = self.bus.read(addr);
+    let res = self.ctx.bus().cpu_read(addr);
     self.tick();
     res
   }
 
   fn write(&mut self, addr: u16, val: u8) {
-    self.bus.write(addr, val);
+    self.ctx.bus().cpu_write(addr, val);
     self.tick();
   }
   
   fn tick(&mut self) {
     self.cycles += 1;
-    self.bus.tick();
+    self.ctx.bus().tick();
   }
 }
 
-impl<M: Memory> fmt::Debug for Cpu<M> {
+impl fmt::Debug for Cpu {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-      f.debug_struct("Cpu").field("pc", &self.pc).field("sp", &self.sp).field("sr", &self.p).field("a", &self.a).field("x", &self.x).field("y", &self.y).field("cycles", &self.cycles).finish()
+    f.debug_struct("Cpu").field("pc", &self.pc).field("sp", &self.sp).field("sr", &self.p).field("a", &self.a).field("x", &self.x).field("y", &self.y).field("cycles", &self.cycles).finish()
   }
 }
 
-impl Cpu<Ram64Kb> {
-  pub fn with_ram64kb() -> Self {
+impl Default for Cpu {
+  fn default() -> Self {
     Self {
       pc: PC_RESET,
       sp: SP_RESET,
@@ -94,7 +100,7 @@ impl Cpu<Ram64Kb> {
       p: P_RESET,
       cycles: 0,
       jammed: false,
-      bus: Ram64Kb { mem: [0; 64 * 1024] },
+      ctx: SharedCtx::default(),
 
       instr_addr: 0,
       instr_val: 0,
@@ -105,35 +111,22 @@ impl Cpu<Ram64Kb> {
   }
 }
 
-impl Cpu<Bus> {
-  pub fn with_cart(cart: Cart) -> Self {
-    let mut cpu = Self {
-      pc: PC_RESET,
-      sp: SP_RESET,
-      a: 0, x: 0, y: 0,
-      // At boot, only interrupt flag is enabled
-      p: P_RESET,
-      cycles: 0,
-      jammed: false,
-      bus: Bus::new(cart),
+impl Cpu {
+  pub fn new() -> Self {
+    Self::default()
+  }
 
-      instr_addr: 0,
-      instr_val: 0,
-      instr_dummy_addr: 0,
-      instr_dummy_readed: false,
-      instr_mode: Default::default(),
-    };
+  pub fn boot(&mut self) {
+    // cpu should start by executing the reset subroutine
+    self.pc = self.read16(PC_RESET);
+  }
 
-    // boot only if cart contains prg
-    if !cpu.bus.cart.as_mut().prg.is_empty() {
-      // cpu should start by executing the reset subroutine
-      cpu.pc = cpu.read16(PC_RESET);
-    }
-    cpu
+  pub fn bind(&mut self, ctx: SharedCtx) {
+    self.ctx = ctx;
   }
 }
 
-impl<M: Memory> Cpu<M> {
+impl Cpu {
   pub fn reset(&mut self) {
     self.pc = self.read16(PC_RESET);
     self.sp = self.sp.wrapping_sub(3);
@@ -240,12 +233,14 @@ impl<M: Memory> Cpu<M> {
 }
 
 
-impl<M: Memory> Cpu<M> {
+impl Cpu {
   pub fn step(&mut self) {
+    // temporary solution
+    self.ctx.bus().handle_dmc();
+    
     self.interrupts_poll();
     
     let opcode = self.pc_fetch();
-    // let instr = &INSTRUCTIONS[opcode as usize];
     let mode = MODES_TABLE[opcode as usize];
     self.fetch_operand(mode);
     
@@ -253,9 +248,11 @@ impl<M: Memory> Cpu<M> {
   }
 
   fn interrupts_poll(&mut self) {
-    if self.bus.nmi_poll() {
+    let bus = self.ctx.bus();
+
+    if bus.nmi_poll() {
       self.handle_interrupt(NMI_ISR);
-    } else if self.bus.irq_poll() && !self.p.contains(CpuFlags::irq_off) {
+    } else if bus.irq_poll() && !self.p.contains(CpuFlags::irq_off) {
       self.handle_interrupt(IRQ_ISR);
     }
   }
@@ -366,10 +363,7 @@ impl<M: Memory> Cpu<M> {
   }
 }
 
-
-enum RegTarget { A, X, Y }
-
-impl<M: Memory> Cpu<M> {
+impl Cpu {
   fn load (&mut self) -> u8 {
     let val = self.fetch_operand_value();
     self.set_zn(val);
@@ -634,7 +628,7 @@ impl<M: Memory> Cpu<M> {
   }
 }
 
-impl<M: Memory> Cpu<M> {
+impl Cpu {
   fn usbc(&mut self) { self.sbc(); }
 
   fn alr(&mut self) {
@@ -772,7 +766,7 @@ impl<M: Memory> Cpu<M> {
   }
 }
 
-impl<M: Memory> Cpu<M> {
+impl Cpu {
   fn execute(&mut self, code: u8) {
     match code {
       0 => self.brk(),

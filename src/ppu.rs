@@ -1,4 +1,4 @@
-use crate::cart::{ConsoleTiming, SharedCart};
+use crate::{cart::ConsoleTiming, dma::OamDma, SharedCtx};
 use bitfield_struct::bitfield;
 use bitflags::bitflags;
 use frame::FrameBuffer;
@@ -8,7 +8,8 @@ mod render;
 pub mod frame;
 
 bitflags! {
-	#[derive(Default, serde::Serialize, serde::Deserialize)]
+	#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+	#[derive(Default)]
 	struct Ctrl: u8 {
 		const base_nametbl = 0b0000_0011;
 		const vram_incr    = 0b0000_0100;
@@ -20,7 +21,8 @@ bitflags! {
 		const nmi_enabled  = 0b1000_0000;
 	}
 
-	#[derive(Default, serde::Serialize, serde::Deserialize)]
+	#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+	#[derive(Default)]
 	struct Mask: u8 {
 		const greyscale      = 0b0000_0001;
 		const bg_strip_show  = 0b0000_0010;
@@ -33,7 +35,8 @@ bitflags! {
 		const green_boost = 0b1000_0000;
 	}
 
-	#[derive(Default, serde::Serialize, serde::Deserialize)]
+	#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+	#[derive(Default)]
 	struct Stat: u8 {
 		const open_bus     = 0b0001_1111;
 		const spr_overflow = 0b0010_0000;
@@ -91,6 +94,8 @@ impl LoopyReg {
 		((self.nametbl() as u16) << 10) | ((self.coarse_y() as u16) << 5) | (self.coarse_x() as u16)
 	}
 }
+
+#[cfg(feature = "serde")]
 impl serde::Serialize for LoopyReg {
 	fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
 	where
@@ -98,6 +103,7 @@ impl serde::Serialize for LoopyReg {
 		serializer.serialize_u16(self.0)
 	}
 }
+#[cfg(feature = "serde")]
 impl<'de> serde::Deserialize<'de> for LoopyReg {
 	fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
 	where
@@ -107,27 +113,22 @@ impl<'de> serde::Deserialize<'de> for LoopyReg {
 	}
 }
 
-#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Default)]
 enum WriteLatch {
 	#[default] FirstWrite,
 	SecondWrite,
 }
 
-enum VramDst {
-	Patterntbl,
-	Nametbl,
-	Palettes,
-	Unused,
-}
-
-#[derive(Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Default, PartialEq)]
 pub enum RenderingState {
 	FetchBg,
 	FetchSpr,
 	#[default] Vblank
 }
 
-#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[derive(Default)]
 pub enum PpuState {
 	Disabled,
 	#[default]
@@ -142,9 +143,10 @@ pub const NAMETABLES: u16 = 0x2000;
 pub const ATTRIBUTES: u16 = 0x23C0;
 pub const PALETTES: u16 = 0x3F00;
 
-#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Default)]
 pub struct Ppu {
-	#[serde(skip)]
+	#[cfg_attr(feature = "serde", serde(skip))]
 	pub frame: FrameBuffer,
 	renderer: Fetcher,
 
@@ -153,7 +155,6 @@ pub struct Ppu {
 	x: u8,         // Fine X Scroll
 	w: WriteLatch, // First or second write toggle
 	
-	state: PpuState,
 	ctrl: Ctrl,
 	mask: Mask,
 	mask_tmp: u8,
@@ -162,13 +163,15 @@ pub struct Ppu {
 	oam_addr: u8,
 	data_buf: u8,
 	
-  #[serde(skip)]
-	cart: SharedCart,
+	#[cfg_attr(feature = "serde", serde(skip))]
+	ctx: SharedCtx,
 
-	palettes: [u8; 32],
+	pub palettes: [u8; 32],
 	oam: Box<[u8]>,
+	pub dma: OamDma,
 	pub oam_sprite_limit: u8,
 	
+	timing: ConsoleTiming,
 	pub scanline: usize,
 	pub last_scanline: usize,
 	pub cycle: usize,
@@ -182,9 +185,9 @@ pub struct Ppu {
 }
 
 impl Ppu {
-	pub fn new(cart: SharedCart) -> Self {
-		let last_scanline = 241 + cart.as_ref().header.timing.vblank_len();
-		
+	pub fn new(timing: ConsoleTiming) -> Self {
+		let last_scanline = 241 + timing.vblank_len();
+
 		Self {
 			frame: FrameBuffer::default(),
 			renderer: Fetcher::new(),
@@ -193,12 +196,11 @@ impl Ppu {
 			t: LoopyReg::new(),
 			w: WriteLatch::FirstWrite,
 
-			cart,
 			palettes: [0; 32],
 			oam: vec![0; 256].into_boxed_slice(),
 			oam_sprite_limit: u8::MAX,
 
-
+			timing,
 			scanline: last_scanline,
 			last_scanline,
 			
@@ -206,9 +208,9 @@ impl Ppu {
 		}
 	}
 
-	pub fn wire_cart(&mut self, cart: SharedCart) {
-		self.cart = cart;
-	}
+	pub fn bind(&mut self, ctx: SharedCtx) {
+    self.ctx = ctx;
+  }
 	
 	pub fn reset(&mut self) {
 		self.ctrl = Ctrl::from_bits_truncate(0);
@@ -225,13 +227,13 @@ impl Ppu {
 		self.scanline = self.last_scanline;
 	}
 
-	pub fn step(&mut self) {
+	pub fn tick(&mut self) {
 		// TODO: state machine???
 
 		if (0..=239).contains(&self.scanline) {
 			self.render_step();
 		} else if self.scanline == 241 {
-			self.cart.as_mut().mapper.notify_ppu_state(RenderingState::Vblank);
+			self.ctx.mapper().notify_ppu_state(RenderingState::Vblank);
 
 			if self.cycle == 1 {
 				self.frame_ready = Some(());
@@ -249,7 +251,7 @@ impl Ppu {
 				self.oam_addr = 0;
 			} else if self.cycle == 304 {
 				self.reset_render_y();
-			} else if self.cart.as_mut().header.timing != ConsoleTiming::PAL 
+			} else if self.timing != ConsoleTiming::PAL 
 				&& self.cycle == 339 && self.in_odd_frame
 				&& self.rendering_enabled()
 			{
@@ -263,7 +265,7 @@ impl Ppu {
 			self.mask_write_delay -= 1;
 			if self.mask_write_delay == 0 {
 				self.mask = Mask::from_bits_retain(self.mask_tmp);
-				self.cart.as_mut().mapper.notify_ppumask(self.mask.bits());
+				self.ctx.mapper().notify_ppumask(self.mask.bits());
 			}
 		}
 
@@ -271,95 +273,6 @@ impl Ppu {
 		if self.cycle > 340 {
 			self.cycle = 0;
 			self.scanline += 1;
-			if self.scanline > self.last_scanline {
-				self.scanline = 0;
-				self.in_odd_frame = !self.in_odd_frame;
-				
-				self.nmi_suppress = false;
-				self.vblank_suppress = false;
-			}
-		}
-	}
-
-	#[allow(unused)]
-	pub fn step_state_machine(&mut self) {
-		match self.state {
-			PpuState::Disabled => {}
-
-			PpuState::Rendering => {
-				self.render_step();
-				if self.scanline == 239 && self.cycle == 340 {
-					self.state = PpuState::PostRenderLine;
-				}
-			}
-
-			PpuState::PostRenderLine => {
-				if self.cycle == 340 {
-					self.state = PpuState::Vblank;
-				}
-			}
-
-			PpuState::Vblank => {
-				if self.cycle == 1 {
-					
-					if self.cycle == 1 {
-						self.frame_ready = Some(());
-						self.stat.set(Stat::vblank, !self.vblank_suppress);
-						
-						if self.ctrl.contains(Ctrl::nmi_enabled) && !self.nmi_suppress {
-							self.nmi_tmp = Some(());
-						}
-					}
-					
-					self.cart.as_mut().mapper.notify_ppu_state(RenderingState::Vblank);
-					self.state = PpuState::Idling;
-				}
-			}
-
-			PpuState::Idling => {
-				if self.scanline == self.last_scanline-1 && self.cycle == 340 {
-					self.state = PpuState::PreRenderLine;
-				}
-			}
-
-			PpuState::PreRenderLine => {
-				self.render_step();
-
-				if self.cycle == 1 {
-					self.stat = Stat::empty();
-					self.oam_addr = 0;
-				} else if self.cycle == 304 {
-					self.reset_render_y();
-				} else if self.cart.as_mut().header.timing != ConsoleTiming::PAL 
-					&& self.cycle == 339 && self.in_odd_frame
-					&& self.rendering_enabled()
-				{
-					// Odd cycle skip, this isn't present in PAL
-					self.cycle += 1;
-				}
-			}
-		}
-
-		// This is needed for Battletoads tigh timings
-		if self.mask_write_delay > 0 {
-			self.mask_write_delay -= 1;
-			if self.mask_write_delay == 0 {
-				self.mask = Mask::from_bits_retain(self.mask_tmp);
-				self.cart.as_mut().mapper.notify_ppumask(self.mask.bits());
-
-				if !self.rendering_enabled() {
-					self.state = PpuState::Disabled;
-				} else {
-					self.state = PpuState::Idling;
-				}
-			}
-		}
-
-		self.cycle += 1;
-		if self.cycle > 340 {
-			self.cycle = 0;
-			self.scanline += 1;
-
 			if self.scanline > self.last_scanline {
 				self.scanline = 0;
 				self.in_odd_frame = !self.in_odd_frame;
@@ -375,29 +288,8 @@ impl Ppu {
 		|| self.mask.contains(Mask::spr_enabled)
 	}
 
-	fn map_address(&self, addr: u16) -> (VramDst, usize) {
-		match addr {
-			0x0000..=0x1FFF => (VramDst::Patterntbl, addr as usize),
-			0x2000..=0x2FFF => {
-				// let mirrored = self.mirror_nametbl(addr);
-				(VramDst::Nametbl, addr as usize)
-			}
-			0x3F00..=0x3FFF => {
-				let palette = self.mirror_palette(addr);
-				(VramDst::Palettes, palette as usize)
-			}
-			_ => (VramDst::Unused, 0),
-		}
-	}
-
 	pub fn peek_vram(&self, addr: u16) -> u8 {
-		let (dst, addr) = self.map_address(addr);
-		match dst {
-			VramDst::Patterntbl | VramDst::Nametbl => self.cart.as_mut()
-				.vram_read(addr),
-			VramDst::Palettes => self.palettes[addr],
-			VramDst::Unused => 0,
-		}
+		self.ctx.bus().ppu_read(addr)
 	}
 
 	fn increase_vram_address(&mut self) {
@@ -425,14 +317,7 @@ impl Ppu {
 	}
 
 	pub fn write_vram(&mut self, val: u8) {
-		let (dst, addr) = self.map_address(self.v.0);
-		match dst {
-			VramDst::Patterntbl | VramDst::Nametbl => self.cart.as_mut()
-				.vram_write(addr, val),
-			VramDst::Palettes => self.palettes[addr] = val & 0b0011_1111,
-			VramDst::Unused => {}
-		}
-
+		self.ctx.bus().ppu_write(self.v.0, val);
 		self.increase_vram_address();
 	}
 
@@ -481,7 +366,7 @@ impl Ppu {
 					self.nmi_tmp = Some(());
 				}
 
-				self.cart.as_mut().mapper.notify_ppuctrl(self.ctrl.bits());
+				self.ctx.mapper().notify_ppuctrl(self.ctrl.bits());
 			}
 			0x2001 => {
 				self.mask_tmp = val;
@@ -531,7 +416,7 @@ impl Ppu {
 		}
 	}
 
-	fn mirror_palette(&self, addr: u16) -> u16 {
+	pub fn mirror_palette(&self, addr: u16) -> u16 {
 		let addr = (addr - PALETTES) % 32;
 		if addr >= 16 && addr % 4 == 0 { addr - 16 }
 		else { addr }

@@ -1,4 +1,5 @@
-#[derive(Default, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
 enum EnvelopeMode {
   #[default] OneShot, Loop
 }
@@ -11,7 +12,8 @@ impl From<u8> for EnvelopeMode {
   }
 }
 
-#[derive(Default, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Default, Clone, Copy, PartialEq)]
 enum VolumeMode {
   #[default] Envelope, Constant
 }
@@ -24,7 +26,8 @@ impl From<u8> for VolumeMode {
   }
 }
 
-#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Default)]
 pub(super) struct Envelope {
   pub start: bool,
   pub level: u8,

@@ -1,5 +1,5 @@
-use std::{collections::HashMap, error::Error, fs, io::{Read, BufReader, BufWriter}, path::PathBuf, time::{Duration, Instant}};
-use nen_emulator::{joypad::JoypadButton as NesJoypadButton, Nes};
+use std::{collections::HashMap, error::Error, fs, io::{BufReader, BufWriter, Read, Write}, path::PathBuf, time::{Duration, Instant}};
+use nen_emulator::{joypad::JoypadButton as NesJoypadButton, Emulator};
 use sdl2::{audio::{AudioQueue, AudioSpecDesired, AudioStatus}, controller::{Axis, Button}, event::Event, keyboard::Keycode};
 
 enum InputAction {
@@ -48,7 +48,7 @@ impl Keymaps {
   }
 }
 
-fn open_rom(path: &str) -> Result<Nes, Box<dyn Error>> {
+fn open_rom(path: &str) -> Result<Box<Emulator>, Box<dyn Error>> {
 	let mut bytes = Vec::new();
 	let file = fs::File::open(path)?;
 
@@ -63,12 +63,12 @@ fn open_rom(path: &str) -> Result<Nes, Box<dyn Error>> {
 		)?;
 
 	
-  Nes::boot_from_bytes(&bytes)
+  Emulator::new(&bytes)
     .map_err(|msg| msg.into())
 }
 
 fn save_sram(ctx: &EmuCtx) {
-  if let Some(data) = ctx.emu.save_sram() {
+  if let Some(data) = ctx.emu.get_sram() {
     let path = PathBuf::from(&ctx.rom_path).with_extension("srm");
     let _ = fs::write(path, data)
       .inspect_err(|e| eprintln!("Couldn't save: {e}"));
@@ -78,17 +78,27 @@ fn save_sram(ctx: &EmuCtx) {
 fn load_sram(ctx: &mut EmuCtx) {
   let path = PathBuf::from(&ctx.rom_path).with_extension("srm");
   if let Ok(data) = fs::read(path) {
-    ctx.emu.load_sram(data);
+    ctx.emu.set_sram(&data);
   }
 }
 
+#[cfg(feature = "serde")]
 fn save_state(ctx: &EmuCtx) {
   let path = PathBuf::from(&ctx.rom_path).with_extension("nensv");
   let writer = BufWriter::new(fs::File::create(path).expect("Couldn't create savestate file"));
   let _ = pot::to_writer(&ctx.emu, writer)
-    .inspect_err(|e| eprintln!("Couldn't write the savestate to file: {e}"));
+    .inspect_err(|e| eprintln!("Couldn't write savestate to file: {e}"));
+  // let s = ron::to_string(&ctx.emu).unwrap();
+  // writer.write_fmt(format_args!("{s}")).unwrap();
 }
 
+#[cfg(not(feature = "serde"))]
+fn save_state(ctx: &EmuCtx) {
+  eprintln!("serde feature must be enabled for savestates");
+}
+
+
+#[cfg(feature = "serde")]
 fn load_state(ctx: &mut EmuCtx) {
   let path = PathBuf::from(&ctx.rom_path).with_extension("nensv");
   let savestate = fs::File::open(path);
@@ -99,18 +109,26 @@ fn load_state(ctx: &mut EmuCtx) {
       let new_emu = pot::from_reader(reader);
       match new_emu {
         Ok(new_emu) => {
-          ctx.emu.load_from_emu(new_emu);
+          ctx.emu.load_savestate(new_emu);
         }
-        Err(e) => eprintln!("Couldn't deserialize emu: {e:?}")
+        Err(e) => eprintln!("Couldn't deserialize emulator object: {e:?}")
       }
+      // let mut s = String::new();
+      // reader.read_to_string(&mut s).unwrap();
+      // let new_emu = ron::from_str(&s).unwrap();
+      // ctx.emu.load_savestate(new_emu);
     }
-    Err(e) => eprintln!("Couldn't load state: {e:?}")
+    Err(e) => eprintln!("Couldn't read savestate from file: {e:?}")
   }
+}
+
+#[cfg(not(feature = "serde"))]
+fn load_state(ctx: &mut EmuCtx) {
+  eprintln!("serde feature must be enabled for savestates");
 }
 
 fn handle_input(keys: &Keymaps, event: &Event, ctx: &mut EmuCtx) {
   let emu = &mut ctx.emu;
-  let joypad = emu.get_joypad();
 
   match event {
     Event::KeyDown { keycode, .. } 
@@ -118,10 +136,11 @@ fn handle_input(keys: &Keymaps, event: &Event, ctx: &mut EmuCtx) {
       if let Some(keycode) = keycode {
         if let Some(action) = keys.keymap.get(&keycode) {
           match (action, event) {
-            (InputAction::Game(button), Event::KeyDown {..}) => joypad.buttons1.insert(*button),
-            (InputAction::Game(button), Event::KeyUp {..}) => joypad.buttons1.remove(*button),
+            (InputAction::Game(button), Event::KeyDown {..}) => emu.set_joypad_btn(*button),
+            (InputAction::Game(button), Event::KeyUp {..}) => emu.clear_joypad_btn(*button),
             (InputAction::Pause, Event::KeyDown {..}) => {
               ctx.is_paused = !ctx.is_paused;
+              ctx.is_muted = ctx.audio.status() == AudioStatus::Playing;
               match &ctx.audio.status() {
                 AudioStatus::Playing => ctx.audio.pause(),
                 _=> ctx.audio.resume(),
@@ -129,6 +148,7 @@ fn handle_input(keys: &Keymaps, event: &Event, ctx: &mut EmuCtx) {
             },
             (InputAction::Reset, Event::KeyDown {..}) => emu.reset(),
             (InputAction::Mute, Event::KeyDown {..}) => {
+              ctx.is_muted = ctx.audio.status() != AudioStatus::Playing;
               match &ctx.audio.status() {
                 AudioStatus::Playing => ctx.audio.pause(),
                 _=> ctx.audio.resume(),
@@ -147,10 +167,11 @@ fn handle_input(keys: &Keymaps, event: &Event, ctx: &mut EmuCtx) {
     | Event::ControllerButtonUp { button, .. }  => {
       if let Some(action) = keys.padmap.get(&button) {
         match (action, event) {
-          (InputAction::Game(button), Event::ControllerButtonDown {..}) => joypad.buttons1.insert(*button),
-          (InputAction::Game(button), Event::ControllerButtonUp {..}) => joypad.buttons1.remove(*button),
+          (InputAction::Game(button), Event::ControllerButtonDown {..}) => emu.set_joypad_btn(*button),
+          (InputAction::Game(button), Event::ControllerButtonUp {..}) => emu.clear_joypad_btn(*button),
           (InputAction::Pause, Event::ControllerButtonDown {..}) => {
             ctx.is_paused = !ctx.is_paused;
+            ctx.is_muted = ctx.audio.status() == AudioStatus::Playing;
             match &ctx.audio.status() {
               AudioStatus::Playing => ctx.audio.pause(),
               _=> ctx.audio.resume(),
@@ -158,6 +179,7 @@ fn handle_input(keys: &Keymaps, event: &Event, ctx: &mut EmuCtx) {
           }
           (InputAction::Reset, Event::ControllerButtonDown {..}) => emu.reset(),
           (InputAction::Mute, Event::KeyDown {..}) => {
+            ctx.is_muted = ctx.audio.status() != AudioStatus::Playing;
             match &ctx.audio.status() {
               AudioStatus::Playing => ctx.audio.pause(),
               _=> ctx.audio.resume(),
@@ -169,19 +191,19 @@ fn handle_input(keys: &Keymaps, event: &Event, ctx: &mut EmuCtx) {
     }
 
     Event::ControllerAxisMotion { axis: Axis::LeftX, value, .. } => {
-      if *value > AXIS_DEAD_ZONE { joypad.buttons1.insert(NesJoypadButton::right); }
-      else if *value < -AXIS_DEAD_ZONE { joypad.buttons1.insert(NesJoypadButton::left); }
+      if *value > AXIS_DEAD_ZONE { emu.set_joypad_btn(NesJoypadButton::right); }
+      else if *value < -AXIS_DEAD_ZONE { emu.set_joypad_btn(NesJoypadButton::left); }
       else {
-        joypad.buttons1.remove(NesJoypadButton::left);
-        joypad.buttons1.remove(NesJoypadButton::right);
+        emu.clear_joypad_btn(NesJoypadButton::left);
+        emu.clear_joypad_btn(NesJoypadButton::right);
       }
     }
     Event::ControllerAxisMotion { axis: Axis::LeftY, value, .. } => {
-      if *value > AXIS_DEAD_ZONE { joypad.buttons1.insert(NesJoypadButton::down); }
-      else if *value < -AXIS_DEAD_ZONE { joypad.buttons1.insert(NesJoypadButton::up); }
+      if *value > AXIS_DEAD_ZONE { emu.set_joypad_btn(NesJoypadButton::down); }
+      else if *value < -AXIS_DEAD_ZONE { emu.set_joypad_btn(NesJoypadButton::up); }
       else {
-        joypad.buttons1.remove(NesJoypadButton::up);
-        joypad.buttons1.remove(NesJoypadButton::down);
+        emu.clear_joypad_btn(NesJoypadButton::up);
+        emu.clear_joypad_btn(NesJoypadButton::down);
       }
     }
     _ => {}
@@ -189,9 +211,10 @@ fn handle_input(keys: &Keymaps, event: &Event, ctx: &mut EmuCtx) {
 }
 
 struct EmuCtx {
-  emu: Nes,
+  emu: Box<Emulator>,
   is_paused: bool,
   is_running: bool,
+  is_muted: bool,
   audio: AudioQueue<f32>,
   ms_frame: Duration,
   rom_path: String,
@@ -227,7 +250,7 @@ fn main() {
 
   let keymaps = Keymaps::new();
 
-  let emu = Nes::boot_empty();
+  let emu = Box::new(Emulator::default());
 
   let mut texture = texture_creator.create_texture_streaming(
     sdl2::pixels::PixelFormatEnum::RGBA32,
@@ -244,9 +267,10 @@ fn main() {
     .open_queue::<f32, _>(None, &desired_spec).unwrap();
 
   let mut ctx = EmuCtx {
-    ms_frame: Duration::from_secs_f32(1.0 / emu.get_fps()),
+    ms_frame: Duration::from_secs_f32(1.0 / 60.0),
     is_paused: true,
     is_running: false,
+    is_muted: false,
     audio: audio_dev,
     emu,
     rom_path: String::new(),
@@ -260,16 +284,14 @@ fn main() {
     if !ctx.is_paused {
       ctx.emu.step_until_vblank();
 
-      let is_muted = ctx.audio.status() != AudioStatus::Playing;
-
       // if you don't have enough audio, we run for another frame
-      if !is_muted && ctx.audio.size() < SAMPLES_PER_FRAME*3 {
+      if !ctx.is_muted && ctx.audio.size() < SAMPLES_PER_FRAME*3 {
         ctx.emu.step_until_vblank();
       }
 
-      if is_muted { ctx.emu.get_samples(); }
-      else {
-        ctx.audio.queue_audio(&ctx.emu.get_samples()).unwrap();
+      let samples = ctx.emu.get_samples();
+      if !ctx.is_muted {
+        ctx.audio.queue_audio(&samples).unwrap();
       }
     }
 
@@ -307,14 +329,14 @@ fn main() {
               ctx.emu = new_emu;
               ctx.is_paused = false;
               ctx.is_running = true;
-              ctx.ms_frame = Duration::from_secs_f32(1.0 / ctx.emu.get_fps());
+              ctx.ms_frame = Duration::from_secs_f32(1.0 / ctx.emu.get_region_fps());
 
               load_sram(&mut ctx);
             },
             Err(e) => eprintln!("{e}"),
           }
 
-          ctx.audio.resume();
+          if !ctx.is_muted { ctx.audio.resume(); }
         }
         Event::ControllerDeviceAdded { which , .. } => {
           match controller.open(which) {
@@ -334,13 +356,6 @@ fn main() {
     texture.with_lock(None, |pixels, _pitch| {
       pixels.copy_from_slice(&ctx.emu.get_frame().buffer);
     }).unwrap();
-
-    // this is slower
-    // texture.update(
-    //   None, 
-    //   &ctx.emu.get_frame().buffer, 
-    //   ctx.emu.get_frame().pitch()
-    // ).unwrap();
 
     canvas.copy(&texture, None, None).unwrap();
     canvas.present();

@@ -10,7 +10,7 @@ const RATE_TABLE_PAL: [u16; 16] = [
   398, 354, 316, 298, 276, 236, 210, 198, 176, 148, 132, 118,  98,  78,  66,  50
 ];
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Dmc {
   timing: ConsoleTiming,
   pub irq_enabled: bool,

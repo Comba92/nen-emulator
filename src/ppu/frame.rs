@@ -16,7 +16,6 @@ pub static SYS_COLORS: LazyLock<[RGBColor; 64]> = LazyLock::new(|| {
   colors.try_into().unwrap()
 });
 
-
 pub const GREYSCALE_PALETTE: [u8; 4] = [0x3F, 0x00, 0x10, 0x20];
 
 const PIXEL_BYTES: usize = 4;
@@ -49,6 +48,7 @@ impl FrameBuffer {
   pub fn set_pixel(&mut self, x: usize, y: usize, color_id: u8) {
     let color = &SYS_COLORS[color_id as usize];
     let idx = (y*self.width + x) * PIXEL_BYTES;
+    // assert!(idx < self.buffer.len(), "Got: {x} {y} - {color:?}");
     self.buffer[idx + 0] = color.0;
     self.buffer[idx + 1] = color.1;
     self.buffer[idx + 2] = color.2;

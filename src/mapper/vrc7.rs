@@ -1,15 +1,16 @@
-use crate::cart::{CartBanking, CartHeader, Mirroring};
+use crate::{banks::MemConfig, cart::{CartHeader, Mirroring}};
 
 use super::{konami_irq::KonamiIrq, Banking, Mapper};
 
-#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Default)]
 pub struct VRC7 {
   irq: KonamiIrq,
   sram_enabled: bool,
 }
 
 impl VRC7 {
-  fn update_chr_banks(&self, banks: &mut CartBanking, addr: usize, val: u8) {
+  fn update_chr_banks(&self, banks: &mut MemConfig, addr: usize, val: u8) {
     let val = val as usize;
     match addr {
       0xA000 => banks.chr.set_page(0, val),
@@ -25,9 +26,9 @@ impl VRC7 {
   }
 }
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl Mapper for VRC7 {
-  fn new(header: &CartHeader, banks: &mut CartBanking) -> Box<Self> {
+  fn new(header: &CartHeader, banks: &mut MemConfig) -> Box<Self> {
     banks.prg = Banking::new_prg(header, 4);
     banks.prg.set_page_to_last_bank(3);
     banks.chr = Banking::new_chr(header, 8);
@@ -35,7 +36,7 @@ impl Mapper for VRC7 {
     Box::new(Self::default())
   }
 
-  fn prg_write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {
+  fn prg_write(&mut self, banks: &mut MemConfig, addr: usize, val: u8) {
     match addr {
       0x8000 => banks.prg.set_page(0, val as usize & 0b0011_1111),
       0x8010 | 0x8008 => banks.prg.set_page(1, val as usize & 0b0011_1111),
@@ -49,7 +50,7 @@ impl Mapper for VRC7 {
           _ => Mirroring::SingleScreenB,
         };
 
-        banks.ciram.update(mirroring);
+        banks.vram.update(mirroring);
         self.sram_enabled = val >> 7 != 0;
       }
       0xE008 | 0xE010 => self.irq.latch = val as u16,

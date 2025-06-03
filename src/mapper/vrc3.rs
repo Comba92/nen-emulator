@@ -1,22 +1,22 @@
-use crate::cart::{CartBanking, CartHeader};
+use crate::{banks::MemConfig, cart::CartHeader};
 use super::{konami_irq::{self, KonamiIrq}, Banking, Mapper};
 
 // Mapper 73
 // https://www.nesdev.org/wiki/VRC3
-#[derive(serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct VRC3 {
   irq: KonamiIrq,
 }
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl Mapper for VRC3 {
-  fn new(header: &CartHeader, banks: &mut CartBanking) -> Box<Self> {
+  fn new(header: &CartHeader, banks: &mut MemConfig) -> Box<Self> {
     banks.prg = Banking::new_prg(header, 2);
     banks.prg.set_page_to_last_bank(1);
     Box::new(Self{irq: Default::default()})
   }
 
-  fn prg_write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {
+  fn prg_write(&mut self, banks: &mut MemConfig, addr: usize, val: u8) {
     match addr {
       0xF000..=0xFFFF => banks.prg.set_page(0, val as usize & 0b111),
       0x8000..=0x8FFF => self.irq.latch = (self.irq.latch & 0xFFF0) | ((val as u16 & 0b1111)),

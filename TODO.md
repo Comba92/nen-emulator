@@ -12,6 +12,10 @@
 - [x] Mappers
 - [ ] Convert usizes to u8
 - [x] Nametable mirroring can be optimized with the bankings method
+- [x] Memory Handler
+- [x] Conditional comp
+- [ ] Get rid of LazyLocks
+- [ ] Delay computing of frame and samples
 
 - https://www.nesdev.org/wiki/INES_Mapper_210 -- Mapper19 like
 

@@ -2,13 +2,13 @@ use crate::cart::{CartBanking, CartHeader, Mirroring, PrgTarget};
 
 use super::{mmc3::MMC3, Banking, Mapper};
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct INesMapper091 {
   submapper: u8,
   mmc3: MMC3,
 }
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl Mapper for INesMapper091 {
   fn new(header: &CartHeader, banks: &mut CartBanking) -> Box<Self> {
     let mmc3 = *MMC3::new(header, banks);

@@ -1,17 +1,22 @@
-use crate::{apu::{ApuDivider, Channel}, cart::{CartBanking, CartHeader, Mirroring, PpuTarget}};
-use super::{konami_irq::KonamiIrq, Banking, Mapper, CiramBanking};
+use crate::{apu::{ApuDivider, Channel}, banks::{MemConfig, VramBanking}, cart::{CartHeader, Mirroring}, mem};
+use super::{konami_irq::KonamiIrq, Banking, Mapper};
 
-#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Default)]
 enum ChrMode { #[default] Bank1kb, Bank2kb, BankMixed }
-#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Default)]
 enum NametblSrc { #[default] CiRam, ChrRom }
 
-#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Default)]
 pub struct VRC6 {
   mapper: u16,
 
-  vram_chrrom_banks: Banking<CiramBanking>,
-  vram_ciram_banks: Banking<CiramBanking>,
+  vram_chrrom_banks: Banking<VramBanking>,
+  vram_ciram_banks: Banking<VramBanking>,
+  // vram_chrrom_banks: Banking,
+  // vram_ciram_banks:  Banking,
   chr_selects: [usize; 8],
 
   irq: KonamiIrq,
@@ -32,7 +37,7 @@ pub struct VRC6 {
 }
 
 impl VRC6 {
-  fn update_chr_banks(&self, banks: &mut CartBanking) {
+  fn update_chr_banks(&self, banks: &mut MemConfig) {
     let bank_half = self.chr_latch as usize;
 
     match &self.chr_mode {
@@ -147,13 +152,13 @@ impl VRC6 {
   }
 }
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl Mapper for VRC6 {
-  fn new(header: &CartHeader, banks: &mut CartBanking) -> Box<Self> {
+  fn new(header: &CartHeader, banks: &mut MemConfig) -> Box<Self> {
     banks.prg = Banking::new_prg(header, 4);
     banks.chr = Banking::new_chr(header, 8);
     let vram_chrrom_banks = Banking::new(header.chr_real_size(), 0x2000, 1024, 4);
-    let vram_ciram_banks =  Banking::new_ciram(header);
+    let vram_ciram_banks  =  Banking::new_vram(header);
     
     banks.prg.set_page_to_last_bank(3);
     
@@ -171,7 +176,7 @@ impl Mapper for VRC6 {
     Box::new(mapper)
   }
 
-  fn prg_write(&mut self, banks: &mut CartBanking, mut addr: usize, val: u8) {
+  fn prg_write(&mut self, banks: &mut MemConfig, mut addr: usize, val: u8) {
 		if self.mapper == 26 {
 			addr = (addr & 0xFFFC) | ((addr & 0x01) << 1) | ((addr & 0x02) >> 1);
 		}
@@ -195,7 +200,6 @@ impl Mapper for VRC6 {
         self.update_chr_banks(banks);
 
         self.nametbl_mode = val & 0b10_1111;
-
         self.nametbl_src = match (val >> 4) & 1 != 0 {
           false => NametblSrc::CiRam,
           true  => NametblSrc::ChrRom,
@@ -204,6 +208,17 @@ impl Mapper for VRC6 {
         self.chr_latch = (val >> 5) & 1 != 0;
         self.sram_enabled = (val >> 7) & 1 != 0;
         self.update_mirroring();
+
+        match self.nametbl_src {
+          NametblSrc::ChrRom => {
+            banks.vram = self.vram_chrrom_banks.clone();
+            banks.mapping.set_vram_handlers(mem::chr_from_vram_read, mem::chr_from_vram_write);
+          }
+          NametblSrc::CiRam => {
+            banks.vram = self.vram_ciram_banks.clone();
+            banks.mapping.set_vram_handlers(mem::vram_read, mem::vram_write);
+          }
+        }
       },
 
       0xD000..=0xD003 => {
@@ -252,22 +267,22 @@ impl Mapper for VRC6 {
     }
   }
 
-  fn map_ppu_addr(&mut self, banks: &mut CartBanking, addr: usize) -> PpuTarget {
-    match addr {
-      0x0000..=0x1FFF => PpuTarget::Chr(banks.chr.translate(addr)),
-      0x2000..=0x2FFF => match self.nametbl_src {
-        NametblSrc::CiRam => {
-          let ciram_addr = self.vram_ciram_banks.translate(addr);
-          PpuTarget::CiRam(ciram_addr)
-        }
-        NametblSrc::ChrRom => {
-          let chrrom_addr = self.vram_chrrom_banks.translate(addr);
-          PpuTarget::Chr(chrrom_addr)
-        }
-      }
-      _ => unreachable!()
-    }
-  }
+  // fn map_ppu_addr_branching(&mut self, banks: &mut MemConfig, addr: usize) -> PpuTarget {
+  //   match addr {
+  //     0x0000..=0x1FFF => PpuTarget::Chr(banks.chr.translate(addr)),
+  //     0x2000..=0x2FFF => match self.nametbl_src {
+  //       NametblSrc::CiRam => {
+  //         let ciram_addr = self.vram_ciram_banks.translate(addr);
+  //         PpuTarget::CiRam(ciram_addr)
+  //       }
+  //       NametblSrc::ChrRom => {
+  //         let chrrom_addr = self.vram_chrrom_banks.translate(addr);
+  //         PpuTarget::Chr(chrrom_addr)
+  //       }
+  //     }
+  //     _ => unreachable!()
+  //   }
+  // }
 
   fn notify_cpu_cycle(&mut self) {
     self.irq.handle_irq();
@@ -290,7 +305,8 @@ impl Mapper for VRC6 {
 }
 
 
-#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Default)]
 struct PulseVRC6 {
   timer: ApuDivider,
   pub freq_shift: u8,
@@ -346,7 +362,8 @@ impl Channel for PulseVRC6 {
   }
 }
 
-#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Default)]
 struct SawtoothVRC6 {
   timer: ApuDivider,
   freq_shift: u8,

@@ -1,15 +1,18 @@
-use crate::cart::{CartBanking, CartHeader, Mirroring};
+use crate::{banks::MemConfig, cart::{CartHeader, Mirroring}};
 
 use super::{Banking, Mapper};
 
-#[derive(Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Default, PartialEq)]
 enum PrgMode { #[default] FixLastPages, FixFirstPages }
-#[derive(Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Default, PartialEq)]
 enum ChrMode { #[default] BiggerFirst, BiggerLast }
 
 // Mapper 04
 // https://www.nesdev.org/wiki/MMC3
-#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Default)]
 pub struct MMC3 {
   pub reg_select: u8,
 
@@ -29,7 +32,7 @@ pub struct MMC3 {
 }
 
 impl MMC3 {
-  fn write_bank_select(&mut self, banks: &mut CartBanking, val: u8) {
+  fn write_bank_select(&mut self, banks: &mut MemConfig, val: u8) {
     self.reg_select = val & 0b111;
 
     let prg_mode = match (val >> 6) & 1 != 0 {
@@ -54,7 +57,7 @@ impl MMC3 {
     self.chr_mode = chr_mode;
   }
 
-  fn update_prg_bank(&mut self, banks: &mut CartBanking, bank: u8) {
+  fn update_prg_bank(&mut self, banks: &mut MemConfig, bank: u8) {
     let page = match self.prg_mode {
       PrgMode::FixLastPages => {
         match self.reg_select {
@@ -75,7 +78,7 @@ impl MMC3 {
     banks.prg.set_page(page, bank as usize);
   }
 
-  fn update_chr_bank(&mut self, banks: &mut CartBanking, bank: u8) {
+  fn update_chr_bank(&mut self, banks: &mut MemConfig, bank: u8) {
     let bank = bank as usize;
 
     match self.chr_mode {
@@ -117,9 +120,9 @@ impl MMC3 {
   }
 }
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl Mapper for MMC3 {
-  fn new(header: &CartHeader, banks: &mut CartBanking) -> Box<Self> {
+  fn new(header: &CartHeader, banks: &mut MemConfig) -> Box<Self> {
     banks.prg = Banking::new_prg(header, 4);
     banks.chr = Banking::new_chr(header, 8);
 
@@ -137,7 +140,7 @@ impl Mapper for MMC3 {
     Box::new(mapper)
   }
 
-  fn prg_write(&mut self, banks: &mut CartBanking, addr: usize, val: u8) {
+  fn prg_write(&mut self, banks: &mut MemConfig, addr: usize, val: u8) {
     let addr_even = addr % 2 == 0;
     match (addr, addr_even) {
       (0x8000..=0x9FFE, true) => self.write_bank_select(banks, val),
@@ -152,7 +155,7 @@ impl Mapper for MMC3 {
             false => Mirroring::Vertical,
             true  => Mirroring::Horizontal,
           };
-          banks.ciram.update(self.mirroring);
+          banks.vram.update(self.mirroring);
         }
       }
       (0xA001..=0xBFFF, false) => {

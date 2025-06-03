@@ -5,7 +5,8 @@ const TRIANGLE_SEQUENCE: [u8; 32] = [
   0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15,
 ];
 
-#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Default)]
 pub(super) struct Triangle {
   linear_reload: bool,
   linear_period: u8,
