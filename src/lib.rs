@@ -60,23 +60,19 @@ impl Emulator {
   }
   
   fn bind_pointers(&mut self) {
-    // BINDING ORDER IS IMPORTANT (cpu should be last) !!!
-
-    self.ctx.bind(
-      &mut self.bus, 
-      &mut self.cpu, 
-      &mut self.ppu, 
-      &mut self.apu, 
-      // &mut self.oam_dma, 
-      // &mut self.dmc_dma, 
-      &mut self.joypad);
+    self.ctx.bus = &mut self.bus;
+    self.ctx.ppu = &mut self.ppu;
+    self.ctx.apu = &mut self.apu;
+    self.ctx.joypad = &mut self.joypad;
+    self.ctx.cpu = &mut self.cpu;
+    // &mut self.oam_dma; 
+    // &mut self.dmc_dma;
 
     let shared_ctx = SharedCtx(&mut self.ctx);
-    
-    self.bus.bind(shared_ctx);
-    self.ppu.bind(shared_ctx);
-    self.apu.bind(shared_ctx);
-    self.cpu.bind(shared_ctx);
+    self.bus.ctx = shared_ctx;
+    self.ppu.ctx = shared_ctx;
+    self.apu.ctx = shared_ctx;
+    self.cpu.ctx = shared_ctx;
   }
 
   pub fn step_until_vblank(&mut self) {
@@ -194,28 +190,6 @@ impl Default for EmuCtx {
   }
 }
 
-impl EmuCtx {
-  fn bind(
-    &mut self, 
-    bus: *mut Bus,
-    cpu: *mut Cpu, 
-    ppu: *mut Ppu,
-    apu: *mut Apu,
-    // oam_dma: *mut OamDma,
-    // dmc_dma: *mut DmcDma,
-    joypad: *mut Joypad
-  )
-{
-    self.bus = bus;
-    self.cpu = cpu;
-    self.ppu = ppu;
-    self.apu = apu;
-    // self.oam_dma = oam_dma;
-    // self.dmc_dma = dmc_dma;
-    self.joypad = joypad;
-  }
-}
-
 #[derive(Clone, Copy)]
 pub struct SharedCtx(*mut EmuCtx);
 impl Default for SharedCtx {
@@ -251,6 +225,10 @@ impl SharedCtx {
     unsafe { &mut*self.get().apu }
   }
 
+  pub fn joypad(&self) -> &mut Joypad {
+    unsafe { &mut*self.get().joypad }
+  }
+
   // pub fn oam_dma(&self) -> &mut OamDma {
   //   unsafe { &mut*self.get().oam_dma }
   // }
@@ -258,8 +236,4 @@ impl SharedCtx {
   // pub fn dmc_dma(&self) -> &mut DmcDma {
   //   unsafe { &mut*self.get().dmc_dma }
   // }
-
-  pub fn joypad(&self) -> &mut Joypad {
-    unsafe { &mut*self.get().joypad }
-  }
 }

@@ -120,10 +120,6 @@ impl Cpu {
     // cpu should start by executing the reset subroutine
     self.pc = self.read16(PC_RESET);
   }
-
-  pub fn bind(&mut self, ctx: SharedCtx) {
-    self.ctx = ctx;
-  }
 }
 
 impl Cpu {

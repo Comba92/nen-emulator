@@ -165,7 +165,7 @@ pub struct Ppu {
 	data_buf: u8,
 	
 	#[cfg_attr(feature = "serde", serde(skip))]
-	ctx: SharedCtx,
+	pub ctx: SharedCtx,
 
 	pub palettes: [u8; 32],
 	oam: Box<[u8]>,
@@ -209,10 +209,6 @@ impl Ppu {
 			..Default::default()
 		}
 	}
-
-	pub fn bind(&mut self, ctx: SharedCtx) {
-    self.ctx = ctx;
-  }
 	
 	pub fn reset(&mut self) {
 		self.ctrl = Ctrl::from_bits_truncate(0);

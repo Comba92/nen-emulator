@@ -136,7 +136,7 @@ pub struct Apu {
   pub dmc: Dmc,
   
   #[cfg_attr(feature = "serde", serde(skip))]
-  ctx: SharedCtx,
+  pub ctx: SharedCtx,
   
   frame_mode: FrameCounterMode,
   frame_write_delay: u8,
@@ -187,10 +187,6 @@ impl Apu {
       ..Default::default()
     }
   }
-
-  pub fn bind(&mut self, ctx: SharedCtx) {
-		self.ctx = ctx;
-	}
 
   pub fn reset(&mut self) {
     self.pulse1.set_enabled(false);

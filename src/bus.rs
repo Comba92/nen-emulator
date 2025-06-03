@@ -127,10 +127,6 @@ impl Bus {
 
     Ok(Self { cart: header, prg, chr, vram, sram, ram, mapper, cfg, ppu_timing, ..Default::default() })
   }
-
-  pub fn bind(&mut self, ctx: SharedCtx) {
-    self.ctx = ctx;
-  }
 }
 
 
