@@ -1,0 +1,15 @@
+[package]
+name = "frontend-eframe"
+version = "0.1.0"
+edition = "2024"
+
+
+[features]
+serde = []
+
+[dependencies]
+eframe = "0.31.1"
+egui = "0.31.1"
+egui_glow = "0.31.1"
+nen-emulator = { path = "../" }
+sdl2 = "0.37.0"

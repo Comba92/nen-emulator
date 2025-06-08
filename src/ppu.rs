@@ -147,8 +147,8 @@ pub const PALETTES: u16 = 0x3F00;
 #[derive(Default)]
 pub struct Ppu {
 	#[cfg_attr(feature = "serde", serde(skip))]
-	frame_buf: FrameBuffer<FramebufIndexed>,
-	frame_out: FrameBuffer<FramebufRGBA>,
+	pub frame_buf: FrameBuffer<FramebufIndexed>,
+	pub frame_out: FrameBuffer<FramebufRGBA>,
 	renderer: Fetcher,
 
 	v: LoopyReg,   // current vram address

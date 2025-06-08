@@ -1,14 +1,11 @@
 use std::ptr;
 
-use bus::Bus;
-use cpu::Cpu;
-use joypad::Joypad;
-use ppu::Ppu;
-use apu::Apu;
-use joypad::JoypadButton;
-use mapper::Mapper;
-
-use crate::ppu::frame::FramebufRGBA;
+pub use bus::Bus;
+pub use cpu::Cpu;
+pub use ppu::{Ppu, frame::{self, FramebufIndexed, FramebufRGBA}};
+pub use apu::Apu;
+pub use joypad::{Joypad, JoypadButton};
+pub use mapper::Mapper;
 
 pub mod cpu;
 pub mod addr;
@@ -80,6 +77,8 @@ impl Emulator {
       if self.bus.vblank_poll() { break; }
       self.cpu.step();
     }
+
+    // TODO: consider clearing samples here, and returning (framebuf, samples)
   }
 
   pub fn reset(&mut self) {
@@ -88,7 +87,11 @@ impl Emulator {
     self.apu.reset();
   }
 
-  pub fn get_frame(&mut self) -> &ppu::frame::FrameBuffer<FramebufRGBA> {
+  pub fn get_frame_indexed(&self) -> &frame::FrameBuffer<FramebufIndexed> {
+    &self.ppu.frame_buf
+  }
+
+  pub fn get_frame_rgba(&mut self) -> &frame::FrameBuffer<FramebufRGBA> {
     self.ppu.indexed_framebuf_to_rgba()
   }
 
@@ -112,6 +115,10 @@ impl Emulator {
 
   pub fn clear_joypad_btn(&mut self, btn: JoypadButton) {
     self.joypad.buttons1.remove(btn);
+  }
+
+  pub fn clear_all_joypad_btns(&mut self) {
+    self.joypad.buttons1 = JoypadButton::empty();
   }
 
   pub fn toggle_sprite_limit(&mut self) {

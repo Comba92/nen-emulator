@@ -1,6 +1,6 @@
 use std::{collections::HashMap, error::Error, fs, io::{BufReader, BufWriter, Read, Write}, path::PathBuf, time::{Duration, Instant}};
 use nen_emulator::{joypad::JoypadButton as NesJoypadButton, Emulator};
-use sdl2::{audio::{AudioQueue, AudioSpecDesired, AudioStatus}, controller::{Axis, Button}, event::Event, keyboard::Keycode};
+use sdl2::{audio::{AudioQueue, AudioSpecDesired, AudioStatus}, controller::{Axis, Button}, event::Event, keyboard::Keycode, pixels::PixelFormatEnum};
 
 enum InputAction {
   Game(NesJoypadButton), Pause, Reset, Mute, Save, Load, SpriteLimit
@@ -67,7 +67,7 @@ fn open_rom(path: &str) -> Result<Box<Emulator>, Box<dyn Error>> {
     .map_err(|msg| msg.into())
 }
 
-fn save_sram(ctx: &EmuCtx) {
+fn save_sram(ctx: &EmuRuntimeState) {
   if let Some(data) = ctx.emu.get_sram() {
     let path = PathBuf::from(&ctx.rom_path).with_extension("srm");
     let _ = fs::write(path, data)
@@ -75,7 +75,7 @@ fn save_sram(ctx: &EmuCtx) {
   }
 }
 
-fn load_sram(ctx: &mut EmuCtx) {
+fn load_sram(ctx: &mut EmuRuntimeState) {
   let path = PathBuf::from(&ctx.rom_path).with_extension("srm");
   if let Ok(data) = fs::read(path) {
     ctx.emu.set_sram(&data);
@@ -83,7 +83,7 @@ fn load_sram(ctx: &mut EmuCtx) {
 }
 
 #[cfg(feature = "serde")]
-fn save_state(ctx: &EmuCtx) {
+fn save_state(ctx: &EmuRuntimeState) {
   let path = PathBuf::from(&ctx.rom_path).with_extension("nensv");
   let writer = BufWriter::new(fs::File::create(path).expect("Couldn't create savestate file"));
   let _ = pot::to_writer(&ctx.emu, writer)
@@ -93,13 +93,13 @@ fn save_state(ctx: &EmuCtx) {
 }
 
 #[cfg(not(feature = "serde"))]
-fn save_state(_: &EmuCtx) {
-  eprintln!("serde feature must be enabled during compilation for savestates");
+fn save_state(_: &EmuRuntimeState) {
+  eprintln!("serde cargo feature must be enabled during compilation for savestate functionality");
 }
 
 
 #[cfg(feature = "serde")]
-fn load_state(ctx: &mut EmuCtx) {
+fn load_state(ctx: &mut EmuRuntimeState) {
   let path = PathBuf::from(&ctx.rom_path).with_extension("nensv");
   let savestate = fs::File::open(path);
 
@@ -123,11 +123,11 @@ fn load_state(ctx: &mut EmuCtx) {
 }
 
 #[cfg(not(feature = "serde"))]
-fn load_state(_: &mut EmuCtx) {
-  eprintln!("serde feature must be enabled during compilation for savestates");
+fn load_state(_: &mut EmuRuntimeState) {
+  eprintln!("serde cargo feature must be enabled during compilation for savestate functionality");
 }
 
-fn handle_input(keys: &Keymaps, event: &Event, ctx: &mut EmuCtx) {
+fn handle_input(keys: &Keymaps, event: &Event, ctx: &mut EmuRuntimeState) {
   let emu = &mut ctx.emu;
 
   match event {
@@ -210,7 +210,7 @@ fn handle_input(keys: &Keymaps, event: &Event, ctx: &mut EmuCtx) {
   }
 }
 
-struct EmuCtx {
+struct EmuRuntimeState {
   emu: Box<Emulator>,
   is_paused: bool,
   is_running: bool,
@@ -228,45 +228,53 @@ fn main() {
   let sdl = sdl2::init().unwrap();
   let video= sdl.video().unwrap();
   let audio = sdl.audio().unwrap();
+  let controller = sdl.game_controller().unwrap();
+  let mut controllers = Vec::new();
+
   let window = video.window("NEN Emulator", WINDOW_WIDTH, WINDOW_HEIGHT)
       .position_centered()
       .resizable()
       .build()
       .unwrap();
+    
+  let mut events = sdl.event_pump().unwrap();
+
+  // let colors = &nen_emulator::frame::SYS_COLORS
+  //   .iter()
+  //   .map(|c| Color::RGBA(c.0, c.1, c.2, 255))
+  //   .collect::<Vec<_>>();
+  // let palette = Palette::with_colors(colors).unwrap();
+
+  // let mut surface = Surface::new(32*8, 30*8,PixelFormatEnum::Index8).unwrap();
+  // surface.set_palette(&palette).unwrap();
+  // let mut canvas = Canvas::from_surface(surface).unwrap();
+
   let mut canvas = window
       .into_canvas()
-      .accelerated()
+      .software()
       .build()
       .unwrap();
 
   // keep aspect ratio
   canvas.set_logical_size(32*8, 30*8).unwrap();
 
-  let controller = sdl.game_controller().unwrap();
-  let mut controllers = Vec::new();
-    
-  let mut events = sdl.event_pump().unwrap();
   let texture_creator = canvas.texture_creator();
-
-  let keymaps = Keymaps::new();
-
-  let emu = Box::new(Emulator::default());
-
   let mut texture = texture_creator.create_texture_streaming(
-    sdl2::pixels::PixelFormatEnum::RGBA32,
-    32*8, 30*8
+      PixelFormatEnum::RGBA32,
+      32*8, 30*8
   ).unwrap();
-
+    
   let desired_spec = AudioSpecDesired {
     freq: Some(44100),
     channels: Some(1),
     samples: None,
   };
-
   let audio_dev = audio
     .open_queue::<f32, _>(None, &desired_spec).unwrap();
 
-  let mut ctx = EmuCtx {
+  let emu = Box::new(Emulator::default());
+  let keymaps = Keymaps::new();
+  let mut ctx = EmuRuntimeState {
     ms_frame: Duration::from_secs_f32(1.0 / 60.0),
     is_paused: true,
     is_running: false,
@@ -354,15 +362,13 @@ fn main() {
     }
 
     canvas.clear();
-
     texture.with_lock(None, |pixels, _pitch| {
-      pixels.copy_from_slice(&ctx.emu.get_frame().buffer);
+      pixels.copy_from_slice(&ctx.emu.get_frame_rgba().buffer);
     }).unwrap();
-
     canvas.copy(&texture, None, None).unwrap();
     canvas.present();
 
-    let ms_elapsed = Instant::now() - ms_since_start;
+    let ms_elapsed = ms_since_start.elapsed();
     if ctx.ms_frame > ms_elapsed {
       std::thread::sleep(ctx.ms_frame - ms_elapsed);
     }
