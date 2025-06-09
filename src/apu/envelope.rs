@@ -1,7 +1,9 @@
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Default, Clone, Copy, PartialEq, Eq)]
 enum EnvelopeMode {
-  #[default] OneShot, Loop
+  #[default]
+  OneShot,
+  Loop,
 }
 impl From<u8> for EnvelopeMode {
   fn from(value: u8) -> Self {
@@ -15,7 +17,9 @@ impl From<u8> for EnvelopeMode {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Default, Clone, Copy, PartialEq)]
 enum VolumeMode {
-  #[default] Envelope, Constant
+  #[default]
+  Envelope,
+  Constant,
 }
 impl From<u8> for VolumeMode {
   fn from(value: u8) -> Self {

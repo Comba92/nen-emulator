@@ -11,14 +11,14 @@ pub struct CartHeader {
   pub has_trainer: bool,
   pub mirroring: Mirroring,
   pub has_alt_mirroring: bool,
-  
+
   pub mapper: u16,
   pub submapper: u8,
   pub mapper_name: String,
-  
+
   pub prg_16kb_banks: usize,
   pub chr_8kb_banks: usize,
-  
+
   pub prg_size: usize,
   pub chr_size: usize,
   pub uses_chr_ram: bool,
@@ -39,11 +39,13 @@ impl CartHeader {
   }
 
   pub fn sram_real_size(&self) -> usize {
-    if self.has_battery && self.eeprom_size > 0 { 
+    if self.has_battery && self.eeprom_size > 0 {
       self.eeprom_size
-    } else if self.prg_ram_size > 0 { 
-      self.prg_ram_size 
-    } else { 8 * 1024 }
+    } else if self.prg_ram_size > 0 {
+      self.prg_ram_size
+    } else {
+      8 * 1024
+    }
   }
 }
 
@@ -54,23 +56,41 @@ const CHR_ROM_PAGE_SIZE: usize = 1024 * 8;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
-pub enum HeaderFormat { #[default] INes, Nes2_0 }
+pub enum HeaderFormat {
+  #[default]
+  INes,
+  Nes2_0,
+}
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
-pub enum Mirroring { 
-  #[default] Horizontal, 
+pub enum Mirroring {
+  #[default]
+  Horizontal,
   Vertical,
-  SingleScreenA, 
-  SingleScreenB, 
-  FourScreen
+  SingleScreenA,
+  SingleScreenB,
+  FourScreen,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Default, Clone, Copy)]
-pub enum ConsoleType { #[default] NES, VsSystem, Playchoice10, Other }
+pub enum ConsoleType {
+  #[default]
+  NES,
+  VsSystem,
+  Playchoice10,
+  Other,
+}
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
-pub enum ConsoleTiming { NTSC, PAL, World, Dendy, #[default] Unknown }
+pub enum ConsoleTiming {
+  NTSC,
+  PAL,
+  World,
+  Dendy,
+  #[default]
+  Unknown,
+}
 impl ConsoleTiming {
   pub fn fps(&self) -> f32 {
     use ConsoleTiming::*;
@@ -85,7 +105,7 @@ impl ConsoleTiming {
     match self {
       PAL => 1662607,
       Dendy => 1773448,
-      _ => 1789773
+      _ => 1789773,
     }
   }
 
@@ -116,10 +136,12 @@ impl ConsoleTiming {
 }
 
 pub fn is_nes_rom(rom: &[u8]) -> bool {
-  if rom.len() < 4 { return false; }
+  if rom.len() < 4 {
+    return false;
+  }
 
   let magic_str = &rom[0..=3];
-  magic_str == NES_MAGIC 
+  magic_str == NES_MAGIC
 }
 
 impl CartHeader {
@@ -141,15 +163,19 @@ impl CartHeader {
     header.prg_size = header.prg_16kb_banks as usize * PRG_ROM_PAGE_SIZE;
     header.chr_size = header.chr_8kb_banks as usize * CHR_ROM_PAGE_SIZE;
     // iNes header doesn't hold information about chr ram size, so it defaults to 8kb if no chr rom is present
-    header.chr_ram_size = if header.uses_chr_ram { CHR_ROM_PAGE_SIZE } else { 0 };
-    
+    header.chr_ram_size = if header.uses_chr_ram {
+      CHR_ROM_PAGE_SIZE
+    } else {
+      0
+    };
+
     let nametbl_mirroring = rom[6] & 1;
     header.has_alt_mirroring = rom[6] & 0b0000_1000 != 0;
-    header.mirroring = match (nametbl_mirroring, header.has_alt_mirroring)  {
-      (_, true)   => Mirroring::FourScreen,
-      (0, false)  => Mirroring::Horizontal,
-      (1, false)  => Mirroring::Vertical,
-      _ => unreachable!()
+    header.mirroring = match (nametbl_mirroring, header.has_alt_mirroring) {
+      (_, true) => Mirroring::FourScreen,
+      (0, false) => Mirroring::Horizontal,
+      (1, false) => Mirroring::Vertical,
+      _ => unreachable!(),
     };
 
     header.has_battery = rom[6] & 0b0000_0010 != 0;
@@ -160,35 +186,42 @@ impl CartHeader {
     header.mapper = (mapper_high | mapper_low) as u16;
     // header.mapper_name = mapper::mapper_name(header.mapper).to_string();
 
-    header.format = if rom[7] & 0b0000_1100 == 0x8 { HeaderFormat::Nes2_0 } else { HeaderFormat::INes };
+    header.format = if rom[7] & 0b0000_1100 == 0x8 {
+      HeaderFormat::Nes2_0
+    } else {
+      HeaderFormat::INes
+    };
     // This field was a later addition to iNes, so most games do not use it, even if they contain prg_ram.
     // If it is 0, prg ram is inferred as 8kb.
     header.prg_ram_size = rom[8] as usize * 1024;
 
-    let title_start = HEADER_SIZE + header.prg_size-32;
-    let title_bytes = &rom[title_start..title_start+16];
+    let title_start = HEADER_SIZE + header.prg_size - 32;
+    let title_bytes = &rom[title_start..title_start + 16];
     header.game_title = String::from_utf8_lossy(title_bytes)
       .into_owned()
       .chars()
-      .filter(|c| c.is_ascii_alphanumeric() || c.is_ascii_punctuation() || c.is_ascii_whitespace())
+      .filter(|c| {
+        c.is_ascii_alphanumeric() || c.is_ascii_punctuation() || c.is_ascii_whitespace()
+      })
       .collect::<String>()
-      .trim().to_string();
+      .trim()
+      .to_string();
 
     if header.format == HeaderFormat::INes {
       return Ok(header);
     }
 
     if rom[9] & 0b1111 == 0xF || rom[9] >> 4 == 0xF {
-      return Err("NES 2.0 'exponent-multiplier' notation for ROM sizes not implemented")
+      return Err("NES 2.0 'exponent-multiplier' notation for ROM sizes not implemented");
     }
 
     header.console_type = match rom[7] & 0b11 {
       0 => ConsoleType::NES,
       1 => ConsoleType::VsSystem,
       2 => ConsoleType::Playchoice10,
-      _ => ConsoleType::Other
+      _ => ConsoleType::Other,
     };
-    
+
     header.mapper = ((rom[8] as u16 & 0b111) << 8) | header.mapper as u16;
     header.submapper = rom[8] >> 4;
     header.mapper_name = mapper::mapper_name(header.mapper).to_string();
@@ -212,15 +245,31 @@ impl CartHeader {
     }
 
     header.prg_16kb_banks = ((rom[9] as usize & 0b1111) << 8) + rom[4] as usize;
-    header.chr_8kb_banks  = ((rom[9] as usize >> 4) << 8)     + rom[5] as usize;
+    header.chr_8kb_banks = ((rom[9] as usize >> 4) << 8) + rom[5] as usize;
 
     header.prg_size = header.prg_16kb_banks * PRG_ROM_PAGE_SIZE;
     header.chr_size = header.chr_8kb_banks * CHR_ROM_PAGE_SIZE;
 
-    header.prg_ram_size   = if rom[10] & 0b0000_1111 == 0 { 0 } else {64 << (rom[10] & 0b0000_1111)};
-    header.eeprom_size    = if rom[10] & 0b1111_0000 == 0 { 0 } else {64 << (rom[10] >> 4)};
-    header.chr_ram_size   = if rom[11] & 0b0000_1111 == 0 { 0 } else {64 << (rom[11] & 0b0000_1111)};
-    header.chr_nvram_size = if rom[11] & 0b1111_0000 == 0 { 0 } else {64 << (rom[11] >> 4)};
+    header.prg_ram_size = if rom[10] & 0b0000_1111 == 0 {
+      0
+    } else {
+      64 << (rom[10] & 0b0000_1111)
+    };
+    header.eeprom_size = if rom[10] & 0b1111_0000 == 0 {
+      0
+    } else {
+      64 << (rom[10] >> 4)
+    };
+    header.chr_ram_size = if rom[11] & 0b0000_1111 == 0 {
+      0
+    } else {
+      64 << (rom[11] & 0b0000_1111)
+    };
+    header.chr_nvram_size = if rom[11] & 0b1111_0000 == 0 {
+      0
+    } else {
+      64 << (rom[11] >> 4)
+    };
 
     header.timing = match rom[12] & 0b11 {
       0 => ConsoleTiming::NTSC,

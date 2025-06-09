@@ -1,13 +1,25 @@
-use crate::{banks::MemConfig, cart::{CartHeader, Mirroring}};
+use crate::{
+  banks::MemConfig,
+  cart::{CartHeader, Mirroring},
+};
 
 use super::{Banking, Mapper};
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Default, PartialEq)]
-enum PrgMode { Bank32kb, FixFirstPage, #[default] FixLastPage }
+enum PrgMode {
+  Bank32kb,
+  FixFirstPage,
+  #[default]
+  FixLastPage,
+}
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Default, PartialEq)]
-enum ChrMode { #[default] Bank8kb, Bank4kb }
+enum ChrMode {
+  #[default]
+  Bank8kb,
+  Bank4kb,
+}
 
 // Mapper 01
 // https://www.nesdev.org/wiki/MMC1
@@ -48,7 +60,7 @@ impl MMC1 {
 
     self.chr_mode = match (val >> 4) != 0 {
       false => ChrMode::Bank8kb,
-      true  => ChrMode::Bank4kb,
+      true => ChrMode::Bank4kb,
     };
     self.update_all_banks(cfg);
   }
@@ -57,13 +69,12 @@ impl MMC1 {
     let (bank0, bank1) = match self.prg_mode {
       PrgMode::Bank32kb => {
         let bank = self.prg_select & !1;
-        (bank, bank+1)
-      },
+        (bank, bank + 1)
+      }
       PrgMode::FixFirstPage => (0, self.prg_select),
-      PrgMode::FixLastPage => 
-        (self.prg_select, self.prg_last_bank),
+      PrgMode::FixLastPage => (self.prg_select, self.prg_last_bank),
     };
-    
+
     cfg.prg.set_page(0, bank0 | self.prg_256kb_bank);
     cfg.prg.set_page(1, bank1 | self.prg_256kb_bank);
   }
@@ -73,7 +84,7 @@ impl MMC1 {
       ChrMode::Bank8kb => {
         let bank = self.chr_select0 & !1;
         cfg.chr.set_page(0, bank);
-        cfg.chr.set_page(1, bank+1);
+        cfg.chr.set_page(1, bank + 1);
       }
       ChrMode::Bank4kb => {
         cfg.chr.set_page(0, self.chr_select0);
@@ -82,26 +93,25 @@ impl MMC1 {
     }
 
     // SxRom register at 0xA000 and 0xC000
-    let sxrom_select = 
-    if self.last_wrote_chr_select1 
-      && self.chr_mode == ChrMode::Bank4kb 
-    {
+    let sxrom_select = if self.last_wrote_chr_select1 && self.chr_mode == ChrMode::Bank4kb {
       self.chr_select1
-    } else { self.chr_select0 };
+    } else {
+      self.chr_select0
+    };
 
     if self.has_512kb_prg {
       self.prg_256kb_bank = sxrom_select & 0b1_0000;
       self.update_prg_banks(cfg);
     }
 
-    const KB8: usize  = 8 * 1024;
+    const KB8: usize = 8 * 1024;
     const KB16: usize = 16 * 1024;
     const KB32: usize = 32 * 1024;
     let bank = match cfg.sram.data_size {
-        KB8 => 0,
-        KB16 => (sxrom_select >> 3) & 0b01,
-        KB32 => (sxrom_select >> 2) & 0b11,
-        _ => 0,
+      KB8 => 0,
+      KB16 => (sxrom_select >> 3) & 0b01,
+      KB32 => (sxrom_select >> 2) & 0b11,
+      _ => 0,
     };
     cfg.sram.set_page(0, bank);
   }
@@ -116,15 +126,15 @@ impl Mapper for MMC1 {
 
     let has_512kb_prg = header.prg_size > 256 * 1024;
 
-    // 512kb prg roms acts as if they only have 256kb, so the last prg bank counts should be half 
+    // 512kb prg roms acts as if they only have 256kb, so the last prg bank counts should be half
     let prg_last_bank = if has_512kb_prg {
-      cfg.prg.banks_count/2-1
+      cfg.prg.banks_count / 2 - 1
     } else {
-      cfg.prg.banks_count-1
+      cfg.prg.banks_count - 1
     };
 
     // mode 3 by default
-    cfg.prg.set_page(1, cfg.prg.banks_count-1);
+    cfg.prg.set_page(1, cfg.prg.banks_count - 1);
 
     // bank 8kb by default
     cfg.chr.set_page(0, 0);
@@ -139,12 +149,12 @@ impl Mapper for MMC1 {
     Box::new(mapper)
   }
 
-  fn prg_write(&mut self, cfg: &mut MemConfig, addr: usize, val: u8) {    
+  fn prg_write(&mut self, cfg: &mut MemConfig, addr: usize, val: u8) {
     if self.write_lock_delay > 0 {
       self.write_lock_delay = 2;
       return;
     }
-    
+
     if val & 0b1000_0000 != 0 {
       self.shift_reg = 0;
       self.shift_writes = 0;
@@ -154,7 +164,7 @@ impl Mapper for MMC1 {
       self.shift_reg = (self.shift_reg >> 1) | ((val & 1) << 4);
       self.shift_writes += 1;
     }
-    
+
     self.write_lock_delay = 2;
 
     if self.shift_writes >= 5 {
@@ -171,12 +181,12 @@ impl Mapper for MMC1 {
           self.update_all_banks(cfg);
         }
         0xE000..=0xFFFF => {
-          self.prg_select  = self.shift_reg as usize & 0b1111;
+          self.prg_select = self.shift_reg as usize & 0b1111;
           self.update_prg_banks(cfg);
         }
         _ => {}
       }
-      
+
       self.shift_writes = 0;
       self.shift_reg = 0;
     }

@@ -1,8 +1,9 @@
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Default)]
-pub enum IrqMode { 
-  #[default] Mode0, // Scanline 
-  Mode1             // Cycle
+pub enum IrqMode {
+  #[default]
+  Mode0, // Scanline
+  Mode1, // Cycle
 }
 
 // https://www.nesdev.org/wiki/VRC_IRQ
@@ -24,7 +25,7 @@ impl KonamiIrq {
     self.enabled = val & 0b010 != 0;
     self.mode = match val & 0b100 != 0 {
       false => IrqMode::Mode0,
-      true  => IrqMode::Mode1,
+      true => IrqMode::Mode1,
     };
 
     self.requested = None;
@@ -36,11 +37,13 @@ impl KonamiIrq {
 
   pub fn write_ack(&mut self) {
     self.requested = None;
-    self.enabled = self.enabled_after_ack;    
+    self.enabled = self.enabled_after_ack;
   }
 
   pub fn handle_irq(&mut self) {
-    if !self.enabled { return; }
+    if !self.enabled {
+      return;
+    }
 
     match self.mode {
       IrqMode::Mode1 => {

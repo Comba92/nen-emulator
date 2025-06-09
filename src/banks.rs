@@ -1,4 +1,7 @@
-use crate::{cart::{CartHeader, Mirroring}, mem::MemMapping};
+use crate::{
+  cart::{CartHeader, Mirroring},
+  mem::MemMapping,
+};
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Default, Clone)]
@@ -21,10 +24,10 @@ pub struct Banking<T> {
 
   bank_size_shift: usize,
   banks_count_shift: usize,
-  
+
   pages_start: usize,
   pub bankings: Box<[usize]>,
-  kind: std::marker::PhantomData<T>
+  kind: std::marker::PhantomData<T>,
 }
 
 // https://stackoverflow.com/questions/25787613/division-and-multiplication-by-power-of-2
@@ -35,13 +38,22 @@ impl<T> Banking<T> {
     let banks_count = rom_size / bank_size;
     let bank_size_shift = bank_size.checked_ilog2().unwrap_or_default() as usize;
     let banks_count_shift = banks_count.checked_ilog2().unwrap_or_default() as usize;
-    Self { bankings, data_size: rom_size, pages_start, bank_size, bank_size_shift, banks_count, banks_count_shift, kind: std::marker::PhantomData::<T> }
+    Self {
+      bankings,
+      data_size: rom_size,
+      pages_start,
+      bank_size,
+      bank_size_shift,
+      banks_count,
+      banks_count_shift,
+      kind: std::marker::PhantomData::<T>,
+    }
   }
 
   pub fn set_page(&mut self, page: usize, bank: usize) {
     // some games might write bigger bank numbers than really avaible
     // let bank = bank % self.banks_count;
-    let bank = bank & (self.banks_count-1);
+    let bank = bank & (self.banks_count - 1);
     // i do not expect to write outside the slots array.
     // self.bankings[page] = bank * self.bank_size;
     self.bankings[page] = bank << self.bank_size_shift;
@@ -52,15 +64,15 @@ impl<T> Banking<T> {
   }
 
   pub fn set_page_to_last_bank(&mut self, page: usize) {
-    let last_bank = self.banks_count-1;
+    let last_bank = self.banks_count - 1;
     self.set_page(page, last_bank);
   }
 
   pub fn page_to_bank_addr(&self, page: usize, addr: usize) -> usize {
-    // i do not expect to write outside the slots array here either. 
+    // i do not expect to write outside the slots array here either.
     // the bus object should take responsibilty to always pass correct addresses in range.
     // self.bankings[page] + (addr % self.bank_size)
-    self.bankings[page] + (addr & (self.bank_size-1))
+    self.bankings[page] + (addr & (self.bank_size - 1))
   }
 
   pub fn translate(&self, addr: usize) -> usize {
@@ -72,27 +84,27 @@ impl<T> Banking<T> {
 
 impl Banking<PrgBanking> {
   pub fn new_prg(header: &CartHeader, pages_count: usize) -> Self {
-    let pages_size = 32*1024 / pages_count;
+    let pages_size = 32 * 1024 / pages_count;
     Self::new(header.prg_size, 0x8000, pages_size, pages_count)
   }
 }
 
 impl Banking<SramBanking> {
   pub fn new_sram(header: &CartHeader) -> Self {
-    Self::new(header.sram_real_size(), 0x6000, 8*1024, 1)
+    Self::new(header.sram_real_size(), 0x6000, 8 * 1024, 1)
   }
 }
 
 impl Banking<ChrBanking> {
   pub fn new_chr(header: &CartHeader, pages_count: usize) -> Self {
-    let pages_size = 8*1024 / pages_count;
+    let pages_size = 8 * 1024 / pages_count;
     Self::new(header.chr_real_size(), 0, pages_size, pages_count)
   }
 }
 
 impl Banking<VramBanking> {
   pub fn new_vram(header: &CartHeader) -> Self {
-    let mut res = Self::new(4*1024, 0x2000, 1024, 4);
+    let mut res = Self::new(4 * 1024, 0x2000, 1024, 4);
     if header.mirroring != Mirroring::FourScreen {
       res.banks_count = 2;
     }
@@ -115,14 +127,20 @@ impl Banking<VramBanking> {
         self.set_page(2, 0);
         self.set_page(3, 1);
       }
-      Mirroring::SingleScreenA => for i in 0..4 {
-        self.set_page(i, 0);
+      Mirroring::SingleScreenA => {
+        for i in 0..4 {
+          self.set_page(i, 0);
+        }
       }
-      Mirroring::SingleScreenB => for i in 0..4 {
-        self.set_page(i, 1);
+      Mirroring::SingleScreenB => {
+        for i in 0..4 {
+          self.set_page(i, 1);
+        }
       }
-      Mirroring::FourScreen => for i in 0..4 {
-        self.set_page(i, i);
+      Mirroring::FourScreen => {
+        for i in 0..4 {
+          self.set_page(i, i);
+        }
       }
     }
   }
@@ -130,8 +148,8 @@ impl Banking<VramBanking> {
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct MemConfig {
-  pub prg:  Banking<PrgBanking>,
-  pub chr:  Banking<ChrBanking>,
+  pub prg: Banking<PrgBanking>,
+  pub chr: Banking<ChrBanking>,
   pub sram: Banking<SramBanking>,
   pub vram: Banking<VramBanking>,
 
@@ -146,7 +164,13 @@ impl Default for MemConfig {
     let chr = Banking::new_chr(header, 1);
     let sram = Banking::new_sram(header);
     let vram = Banking::new_vram(header);
-    Self {prg, chr, sram, vram, mapping: MemMapping::default() }
+    Self {
+      prg,
+      chr,
+      sram,
+      vram,
+      mapping: MemMapping::default(),
+    }
   }
 }
 
@@ -156,6 +180,12 @@ impl MemConfig {
     let chr = Banking::new_chr(header, 1);
     let sram = Banking::new_sram(header);
     let vram = Banking::new_vram(header);
-    Self {prg, chr, sram, vram,  mapping: MemMapping::default() }
+    Self {
+      prg,
+      chr,
+      sram,
+      vram,
+      mapping: MemMapping::default(),
+    }
   }
 }

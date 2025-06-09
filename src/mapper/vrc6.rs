@@ -1,12 +1,26 @@
-use crate::{apu::{ApuDivider, Channel}, banks::{MemConfig, VramBanking}, cart::{CartHeader, Mirroring}, mem};
 use super::{konami_irq::KonamiIrq, Banking, Mapper};
+use crate::{
+  apu::{ApuDivider, Channel},
+  banks::{MemConfig, VramBanking},
+  cart::{CartHeader, Mirroring},
+  mem,
+};
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Default)]
-enum ChrMode { #[default] Bank1kb, Bank2kb, BankMixed }
+enum ChrMode {
+  #[default]
+  Bank1kb,
+  Bank2kb,
+  BankMixed,
+}
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Default)]
-enum NametblSrc { #[default] CiRam, ChrRom }
+enum NametblSrc {
+  #[default]
+  CiRam,
+  ChrRom,
+}
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Default)]
@@ -46,19 +60,26 @@ impl VRC6 {
           banks.chr.set_page(reg, bank as usize);
         }
       }
-      ChrMode::Bank2kb => 
+      ChrMode::Bank2kb => {
         for reg in (0..self.chr_selects.len()).step_by(2) {
-          banks.chr.set_page(reg, self.chr_selects[reg/2] as usize);
-          banks.chr.set_page(reg, self.chr_selects[reg/2] as usize | bank_half);
+          banks.chr.set_page(reg, self.chr_selects[reg / 2] as usize);
+          banks
+            .chr
+            .set_page(reg, self.chr_selects[reg / 2] as usize | bank_half);
         }
+      }
       ChrMode::BankMixed => {
-        for reg in 0..self.chr_selects.len()/2 {
+        for reg in 0..self.chr_selects.len() / 2 {
           banks.chr.set_page(reg, self.chr_selects[reg] as usize);
         }
         banks.chr.set_page(4, self.chr_selects[4] as usize);
-        banks.chr.set_page(5, self.chr_selects[4] as usize | bank_half);
+        banks
+          .chr
+          .set_page(5, self.chr_selects[4] as usize | bank_half);
         banks.chr.set_page(6, self.chr_selects[5] as usize);
-        banks.chr.set_page(7, self.chr_selects[5] as usize | bank_half);
+        banks
+          .chr
+          .set_page(7, self.chr_selects[5] as usize | bank_half);
       }
     }
   }
@@ -113,7 +134,7 @@ impl VRC6 {
           self.vram_chrrom_banks.set_page(3, self.chr_selects[7]);
         }
         _ => {}
-      }
+      },
       NametblSrc::CiRam => match self.nametbl_mode {
         0x20 | 0x27 => self.vram_ciram_banks.update(Mirroring::Vertical),
         0x23 | 0x24 => self.vram_ciram_banks.update(Mirroring::Horizontal),
@@ -139,12 +160,14 @@ impl VRC6 {
           self.vram_ciram_banks.set_page(3, self.chr_selects[7]);
         }
         _ => {}
-      }
+      },
     }
   }
 
   fn handle_apu(&mut self) {
-    if self.apu_halted { return; }
+    if self.apu_halted {
+      return;
+    }
 
     self.pulse1.step_timer();
     self.pulse2.step_timer();
@@ -158,10 +181,10 @@ impl Mapper for VRC6 {
     banks.prg = Banking::new_prg(header, 4);
     banks.chr = Banking::new_chr(header, 8);
     let vram_chrrom_banks = Banking::new(header.chr_real_size(), 0x2000, 1024, 4);
-    let vram_ciram_banks  =  Banking::new_vram(header);
-    
+    let vram_ciram_banks = Banking::new_vram(header);
+
     banks.prg.set_page_to_last_bank(3);
-    
+
     let mut mapper = Self {
       mapper: header.mapper,
       vram_chrrom_banks,
@@ -177,20 +200,20 @@ impl Mapper for VRC6 {
   }
 
   fn prg_write(&mut self, banks: &mut MemConfig, mut addr: usize, val: u8) {
-		if self.mapper == 26 {
-			addr = (addr & 0xFFFC) | ((addr & 0x01) << 1) | ((addr & 0x02) >> 1);
-		}
+    if self.mapper == 26 {
+      addr = (addr & 0xFFFC) | ((addr & 0x01) << 1) | ((addr & 0x02) >> 1);
+    }
 
     match addr & 0xF003 {
       0x8000..=0x8003 => {
         let bank = (val as usize & 0b1111) << 1;
         banks.prg.set_page(0, bank);
-        banks.prg.set_page(1, bank+1);
+        banks.prg.set_page(1, bank + 1);
       }
       0xC000..=0xC003 => {
         banks.prg.set_page(2, val as usize & 0b1_1111);
       }
-      
+
       0xB003 => {
         self.chr_mode = match val & 0b11 {
           0 => ChrMode::Bank1kb,
@@ -202,7 +225,7 @@ impl Mapper for VRC6 {
         self.nametbl_mode = val & 0b10_1111;
         self.nametbl_src = match (val >> 4) & 1 != 0 {
           false => NametblSrc::CiRam,
-          true  => NametblSrc::ChrRom,
+          true => NametblSrc::ChrRom,
         };
 
         self.chr_latch = (val >> 5) & 1 != 0;
@@ -212,14 +235,18 @@ impl Mapper for VRC6 {
         match self.nametbl_src {
           NametblSrc::ChrRom => {
             banks.vram = self.vram_chrrom_banks.clone();
-            banks.mapping.set_vram_handlers(mem::chr_from_vram_read, mem::chr_from_vram_write);
+            banks
+              .mapping
+              .set_vram_handlers(mem::chr_from_vram_read, mem::chr_from_vram_write);
           }
           NametblSrc::CiRam => {
             banks.vram = self.vram_ciram_banks.clone();
-            banks.mapping.set_vram_handlers(mem::vram_read, mem::vram_write);
+            banks
+              .mapping
+              .set_vram_handlers(mem::vram_read, mem::vram_write);
           }
         }
-      },
+      }
 
       0xD000..=0xD003 => {
         let reg = addr - 0xD000;
@@ -235,7 +262,7 @@ impl Mapper for VRC6 {
       0xF000 => self.irq.latch = val as u16,
       0xF001 => self.irq.write_ctrl(val),
       0xF002 => self.irq.write_ack(),
-      
+
       0x9003 => {
         self.apu_halted = val & 1 != 0;
         self.apu_freq16 = (val >> 1) & 1 != 0;
@@ -269,18 +296,18 @@ impl Mapper for VRC6 {
 
   // fn map_ppu_addr_branching(&mut self, banks: &mut MemConfig, addr: usize) -> PpuTarget {
   //   match addr {
-  //     0x0000..=0x1FFF => PpuTarget::Chr(banks.chr.translate(addr)),
-  //     0x2000..=0x2FFF => match self.nametbl_src {
-  //       NametblSrc::CiRam => {
-  //         let ciram_addr = self.vram_ciram_banks.translate(addr);
-  //         PpuTarget::CiRam(ciram_addr)
-  //       }
-  //       NametblSrc::ChrRom => {
-  //         let chrrom_addr = self.vram_chrrom_banks.translate(addr);
-  //         PpuTarget::Chr(chrrom_addr)
-  //       }
+  //   0x0000..=0x1FFF => PpuTarget::Chr(banks.chr.translate(addr)),
+  //   0x2000..=0x2FFF => match self.nametbl_src {
+  //     NametblSrc::CiRam => {
+  //     let ciram_addr = self.vram_ciram_banks.translate(addr);
+  //     PpuTarget::CiRam(ciram_addr)
   //     }
-  //     _ => unreachable!()
+  //     NametblSrc::ChrRom => {
+  //     let chrrom_addr = self.vram_chrrom_banks.translate(addr);
+  //     PpuTarget::Chr(chrrom_addr)
+  //     }
+  //   }
+  //   _ => unreachable!()
   //   }
   // }
 
@@ -290,16 +317,13 @@ impl Mapper for VRC6 {
   }
 
   fn get_sample(&self) -> u8 {
-    self.pulse1.get_sample() 
-      + self.pulse2.get_sample()
-      + self.sawtooth.get_sample()
+    self.pulse1.get_sample() + self.pulse2.get_sample() + self.sawtooth.get_sample()
   }
 
   fn poll_irq(&mut self) -> bool {
     self.irq.requested.is_some()
   }
 }
-
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Default)]
@@ -324,8 +348,7 @@ impl PulseVRC6 {
   }
 
   pub fn set_period_high(&mut self, val: u8) {
-    self.timer.period = self.timer.period & 0x00FF
-    | ((val as u16 & 0b1111) << 8);
+    self.timer.period = self.timer.period & 0x00FF | ((val as u16 & 0b1111) << 8);
     self.enabled = (val >> 7) != 0;
     if !self.enabled {
       self.duty_idx = 0;
@@ -343,18 +366,20 @@ impl Channel for PulseVRC6 {
   fn step_quarter(&mut self) {}
   fn step_half(&mut self) {}
 
-  fn is_enabled(&self) -> bool { self.enabled }
+  fn is_enabled(&self) -> bool {
+    self.enabled
+  }
 
   fn set_enabled(&mut self, enabled: bool) {
     self.enabled = enabled;
   }
 
   fn get_sample(&self) -> u8 {
-    if (self.ignore_duty || self.duty_idx <= self.duty_cycle)  
-      && self.enabled
-    { 
+    if (self.ignore_duty || self.duty_idx <= self.duty_cycle) && self.enabled {
       self.volume
-    } else { 0 }
+    } else {
+      0
+    }
   }
 }
 
@@ -378,8 +403,7 @@ impl SawtoothVRC6 {
   }
 
   pub fn set_period_high(&mut self, val: u8) {
-    self.timer.period = self.timer.period & 0x00FF
-    | ((val as u16 & 0b1111) << 8);
+    self.timer.period = self.timer.period & 0x00FF | ((val as u16 & 0b1111) << 8);
     self.enabled = (val >> 7) != 0;
     if !self.enabled {
       self.acc = 0;
@@ -413,6 +437,8 @@ impl Channel for SawtoothVRC6 {
   fn get_sample(&self) -> u8 {
     if self.enabled {
       self.acc >> 3
-    } else { 0 }
+    } else {
+      0
+    }
   }
 }

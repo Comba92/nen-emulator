@@ -1,4 +1,7 @@
-use crate::{banks::MemConfig, cart::{CartHeader, Mirroring}};
+use crate::{
+  banks::MemConfig,
+  cart::{CartHeader, Mirroring},
+};
 
 use super::{konami_irq::KonamiIrq, Banking, Mapper};
 

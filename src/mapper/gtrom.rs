@@ -1,4 +1,8 @@
-use crate::{banks::MemConfig, mem::{self, MemMapping}, cart::CartHeader};
+use crate::{
+  banks::MemConfig,
+  cart::CartHeader,
+  mem::{self, MemMapping},
+};
 
 use super::{Banking, Mapper};
 
@@ -16,7 +20,7 @@ impl GTROM {
     cfg.mapping.cpu_writes[MemMapping::SRAM_HANDLER] = mem::prg_write;
 
     for i in 12..16 {
-      cfg.mapping.ppu_reads[i]  = mem::vram_read;
+      cfg.mapping.ppu_reads[i] = mem::vram_read;
       cfg.mapping.ppu_writes[i] = mem::vram_write;
     }
   }
@@ -27,7 +31,7 @@ impl Mapper for GTROM {
   fn new(header: &CartHeader, cfg: &mut MemConfig) -> Box<Self> {
     cfg.prg = Banking::new_prg(header, 1);
     cfg.chr = Banking::new_chr(header, 1);
-    cfg.vram = Banking::new(header.chr_real_size(), 0x2000, 8*1024, 1);
+    cfg.vram = Banking::new(header.chr_real_size(), 0x2000, 8 * 1024, 1);
 
     Box::new(Self)
   }
@@ -37,7 +41,7 @@ impl Mapper for GTROM {
       self.write(cfg, val);
     }
   }
-  fn cart_write(&mut self, cfg: &mut MemConfig, addr: usize, val:u8) {
+  fn cart_write(&mut self, cfg: &mut MemConfig, addr: usize, val: u8) {
     if (0x5000..=0x5FFF).contains(&addr) {
       self.write(cfg, val);
     }
@@ -45,18 +49,18 @@ impl Mapper for GTROM {
 
   // fn map_prg_addr_branching(&mut self, cfg: &mut MemConfig, addr: usize) -> PrgTarget {
   //   match addr {
-  //     0x6000..=0x7FFF => PrgTarget::Prg(addr),
-  //     0x8000..=0xFFFF => PrgTarget::Prg(cfg.prg.translate(addr)),
-  //     _ => unreachable!()
+  //   0x6000..=0x7FFF => PrgTarget::Prg(addr),
+  //   0x8000..=0xFFFF => PrgTarget::Prg(cfg.prg.translate(addr)),
+  //   _ => unreachable!()
   //   }
   // }
 
   // fn map_ppu_addr_branching(&mut self, cfg: &mut MemConfig, addr: usize) -> PpuTarget {
   //   match addr {
-  //     0x0000..=0x1FFF => PpuTarget::Chr(cfg.chr.translate(addr)),
-  //     // this thing uses the vram mirrors as additional ram
-  //     0x2000..=0x3FFF => PpuTarget::Chr(cfg.ciram.translate(addr)),
-  //     _ => unreachable!()
+  //   0x0000..=0x1FFF => PpuTarget::Chr(cfg.chr.translate(addr)),
+  //   // this thing uses the vram mirrors as additional ram
+  //   0x2000..=0x3FFF => PpuTarget::Chr(cfg.ciram.translate(addr)),
+  //   _ => unreachable!()
   //   }
   // }
 }

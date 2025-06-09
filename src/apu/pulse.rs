@@ -1,10 +1,10 @@
-use super::{envelope::Envelope, Channel, LengthCounter, ApuDivider};
+use super::{envelope::Envelope, ApuDivider, Channel, LengthCounter};
 
 const PULSE_SEQUENCES: [[u8; 8]; 4] = [
-  [ 0, 1, 0, 0, 0, 0, 0, 0 ],
-  [ 0, 1, 1, 0, 0, 0, 0, 0 ],
-  [ 0, 1, 1, 1, 1, 0, 0, 0 ],
-  [ 1, 0, 0, 1, 1, 1, 1, 1 ],
+  [0, 1, 0, 0, 0, 0, 0, 0],
+  [0, 1, 1, 0, 0, 0, 0, 0],
+  [0, 1, 1, 1, 1, 0, 0, 0],
+  [1, 0, 0, 1, 1, 1, 1, 1],
   // [0,0,0,0,0,0,0,1],
   // [0,0,0,0,0,0,1,1],
   // [0,0,0,0,1,1,1,1],
@@ -14,7 +14,11 @@ const PULSE_SEQUENCES: [[u8; 8]; 4] = [
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Default, Clone, Copy)]
 enum PulseDutyMode {
-  #[default] Duty12, Duty25, Duty50, Duty25Neg,
+  #[default]
+  Duty12,
+  Duty25,
+  Duty50,
+  Duty25Neg,
 }
 impl From<u8> for PulseDutyMode {
   fn from(value: u8) -> Self {
@@ -23,7 +27,7 @@ impl From<u8> for PulseDutyMode {
       1 => PulseDutyMode::Duty25,
       2 => PulseDutyMode::Duty50,
       3 => PulseDutyMode::Duty25Neg,
-      _ => unreachable!("envelope mode is a value between 0 and 3 (included)")
+      _ => unreachable!("envelope mode is a value between 0 and 3 (included)"),
     }
   }
 }
@@ -36,7 +40,7 @@ pub struct Pulse {
   duty_idx: usize,
 
   envelope: Envelope,
-  
+
   sweep_enabled: bool,
   sweep_reload: bool,
   sweep_shift: u8,
@@ -61,7 +65,9 @@ impl Pulse {
     self.sweep_reload = true;
   }
 
-  pub fn set_timer_low(&mut self, val: u8) { self.timer.set_period_low(val);}
+  pub fn set_timer_low(&mut self, val: u8) {
+    self.timer.set_period_low(val);
+  }
 
   pub fn set_timer_high(&mut self, val: u8) {
     self.length.reload(val);
@@ -71,17 +77,14 @@ impl Pulse {
   }
 
   pub fn step_sweep(&mut self, complement: bool) {
-    if self.sweep_count == 0 
-      && self.sweep_enabled 
-      && self.sweep_shift != 0
-      && !self.is_muted() 
+    if self.sweep_count == 0 && self.sweep_enabled && self.sweep_shift != 0 && !self.is_muted()
     {
       let change_amount = self.timer.period >> self.sweep_shift;
       if self.sweep_negate {
         self.timer.period = self.timer.period.saturating_sub(change_amount);
-        if complement { 
+        if complement {
           self.timer.period = self.timer.period.saturating_sub(1);
-        }     
+        }
       } else {
         self.timer.period = self.timer.period + change_amount;
       }
@@ -103,31 +106,37 @@ impl Pulse {
 impl Channel for Pulse {
   fn step_timer(&mut self) {
     self.timer.step(|_| {
-      self.duty_idx = 
-        (self.duty_idx + 1) % PULSE_SEQUENCES[self.duty_mode as usize].len();
+      self.duty_idx = (self.duty_idx + 1) % PULSE_SEQUENCES[self.duty_mode as usize].len();
     });
   }
 
   fn step_quarter(&mut self) {
     self.envelope.step();
   }
-  
+
   fn step_half(&mut self) {
     self.length.step();
   }
 
-  fn is_enabled(&self) -> bool { self.length.is_enabled() }
+  fn is_enabled(&self) -> bool {
+    self.length.is_enabled()
+  }
 
-  fn set_enabled(&mut self, enable: bool) { 
-    if enable { self.length.enabled = true; }
-    else { self.length.disable(); }
+  fn set_enabled(&mut self, enable: bool) {
+    if enable {
+      self.length.enabled = true;
+    } else {
+      self.length.disable();
+    }
   }
 
   // TODO: something is wrong here
   fn get_sample(&self) -> u8 {
     let sample = PULSE_SEQUENCES[self.duty_mode as usize][self.duty_idx];
-    if !self.is_muted() && self.is_enabled() { 
-        sample * self.envelope.volume() 
-    } else { 0 }
+    if !self.is_muted() && self.is_enabled() {
+      sample * self.envelope.volume()
+    } else {
+      0
+    }
   }
 }

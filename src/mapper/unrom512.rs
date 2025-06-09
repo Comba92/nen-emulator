@@ -1,7 +1,9 @@
-use crate::{banks::MemConfig, cart::{CartHeader, Mirroring}};
+use crate::{
+  banks::MemConfig,
+  cart::{CartHeader, Mirroring},
+};
 
 use super::{Banking, Mapper};
-
 
 // Mapper 30
 // https://www.nesdev.org/wiki/UNROM_512
@@ -23,7 +25,7 @@ impl Mapper for UNROM512 {
     banks.chr.set_page(0, (val >> 5) as usize & 0b11);
     let mirroring = match (val >> 7) != 0 {
       false => Mirroring::SingleScreenA,
-      true  => Mirroring::SingleScreenB,
+      true => Mirroring::SingleScreenB,
     };
     banks.vram.update(mirroring);
   }

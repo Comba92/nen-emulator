@@ -1,7 +1,11 @@
 use bitfield_struct::bitfield;
 
-use crate::{banks::MemConfig, mem::MemMapping, cart::{CartHeader, Mirroring}};
 use super::{konami_irq::KonamiIrq, Banking, Mapper};
+use crate::{
+  banks::MemConfig,
+  cart::{CartHeader, Mirroring},
+  mem::MemMapping,
+};
 
 #[bitfield(u16, order = Lsb)]
 struct ChrSelectByte {
@@ -11,22 +15,24 @@ struct ChrSelectByte {
   hi: u8,
 
   #[bits(7)]
-  __: u8
+  __: u8,
 }
 
 #[cfg(feature = "serde")]
 impl serde::Serialize for ChrSelectByte {
-	fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-	where
-		S: serde::Serializer {
-		serializer.serialize_u16(self.0)
-	}
+  fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+  where
+    S: serde::Serializer,
+  {
+    serializer.serialize_u16(self.0)
+  }
 }
 #[cfg(feature = "serde")]
 impl<'de> serde::Deserialize<'de> for ChrSelectByte {
-	fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-	where
-		D: serde::Deserializer<'de> {
+  fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+  where
+    D: serde::Deserializer<'de>,
+  {
     let val = u16::deserialize(deserializer)?;
     Ok(ChrSelectByte::from_bits(val))
   }
@@ -53,7 +59,7 @@ impl VRC2_4 {
   fn translate_addr(&self, addr: usize) -> usize {
     // Taken from Mesen emulator source, this trick makes it work without discriminating submapper
     // https://github.com/SourMesen/Mesen2/blob/master/Core/NES/Mappers/Konami/VRC2_4.h
-    
+
     let (a0, a1) = match self.mapper {
       21 => {
         // Vrc4 a/c
@@ -92,7 +98,7 @@ impl VRC2_4 {
         a1 |= (addr >> 2) & 1;
         (a0, a1)
       }
-      _ => unreachable!()
+      _ => unreachable!(),
     };
 
     (addr & 0xFF00 | (a1 << 1) | a0) & 0xF00F
@@ -102,10 +108,10 @@ impl VRC2_4 {
     match self.swap_mode {
       false => {
         cfg.prg.set_page(0, self.prg_select0 as usize);
-        cfg.prg.set_page(2, cfg.prg.banks_count-2);
+        cfg.prg.set_page(2, cfg.prg.banks_count - 2);
       }
-      true  => {
-        cfg.prg.set_page(0, cfg.prg.banks_count-2);
+      true => {
+        cfg.prg.set_page(0, cfg.prg.banks_count - 2);
         cfg.prg.set_page(2, self.prg_select0 as usize);
       }
     }
@@ -151,18 +157,17 @@ impl VRC2_4 {
   }
 }
 
-
 #[cfg_attr(feature = "serde", typetag::serde)]
 impl Mapper for VRC2_4 {
   fn new(header: &CartHeader, cfg: &mut MemConfig) -> Box<Self> {
     cfg.prg = Banking::new_prg(header, 4);
     cfg.chr = Banking::new_chr(header, 8);
 
-    cfg.prg.set_page(2, cfg.prg.banks_count-2);
-    cfg.prg.set_page(3, cfg.prg.banks_count-1);
+    cfg.prg.set_page(2, cfg.prg.banks_count - 2);
+    cfg.prg.set_page(3, cfg.prg.banks_count - 1);
 
     // we simulate the 1bit latch by always reading the first sram address
-    // hoping this will work! 
+    // hoping this will work!
     if header.mapper == 2 {
       cfg.mapping.cpu_reads[MemMapping::SRAM_HANDLER] = |bus, _| bus.sram[0];
       cfg.mapping.cpu_writes[MemMapping::SRAM_HANDLER] = |bus, _, val| bus.sram[0] = val;
@@ -195,10 +200,10 @@ impl Mapper for VRC2_4 {
       }
       0x9000..=0x9003 => {
         let mirroring = match val & 0b11 {
-        0 => Mirroring::Vertical,
-        1 => Mirroring::Horizontal,
-        2 => Mirroring::SingleScreenA,
-        _ => Mirroring::SingleScreenB,
+          0 => Mirroring::Vertical,
+          1 => Mirroring::Horizontal,
+          2 => Mirroring::SingleScreenA,
+          _ => Mirroring::SingleScreenB,
         };
         cfg.vram.update(mirroring);
       }

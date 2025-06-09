@@ -10,10 +10,10 @@ use crate::{bus::EmuTiming, cart::ConsoleTiming, SharedCtx};
 
 mod envelope;
 
+mod dmc;
+mod noise;
 pub mod pulse;
 mod triangle;
-mod noise;
-mod dmc;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Default)]
@@ -23,13 +23,11 @@ pub struct ApuDivider {
 }
 impl ApuDivider {
   pub fn set_period_low(&mut self, val: u8) {
-    self.period = self.period & 0xFF00
-    | val as u16;
+    self.period = self.period & 0xFF00 | val as u16;
   }
 
   pub fn set_period_high(&mut self, val: u8) {
-    self.period = self.period & 0x00FF
-    | ((val as u16 & 0b111) << 8);
+    self.period = self.period & 0x00FF | ((val as u16 & 0b111) << 8);
   }
 
   pub fn step<F: FnOnce(&mut Self)>(&mut self, callback: F) {
@@ -43,8 +41,8 @@ impl ApuDivider {
 }
 
 const LENGTH_TABLE: [u8; 32] = [
-  10, 254, 20,  2, 40,  4, 80,  6, 160,  8, 60, 10, 14, 12, 26, 14,
-  12, 16, 24, 18, 48, 20, 96, 22, 192, 24, 72, 26, 16, 28, 32, 30
+  10, 254, 20, 2, 40, 4, 80, 6, 160, 8, 60, 10, 14, 12, 26, 14, 12, 16, 24, 18, 48, 20, 96, 22,
+  192, 24, 72, 26, 16, 28, 32, 30,
 ];
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -92,13 +90,15 @@ pub trait Channel: Default {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Default, PartialEq)]
 enum FrameCounterMode {
-  #[default] Step4, Step5
+  #[default]
+  Step4,
+  Step5,
 }
 impl From<u8> for FrameCounterMode {
   fn from(value: u8) -> Self {
     match value {
       0 => FrameCounterMode::Step4,
-      _ => FrameCounterMode::Step5
+      _ => FrameCounterMode::Step5,
     }
   }
 }
@@ -114,14 +114,14 @@ impl Into<u8> for FrameCounterMode {
 bitflags! {
   #[derive(Clone, Default)]
   struct Flags: u8 {
-    const pulse1    = 0b0000_0001;
-    const pulse2    = 0b0000_0010;
-    const triangle  = 0b0000_0100;
-    const noise     = 0b0000_1000;
-    const dmc       = 0b0001_0000;
-    const unused      = 0b0010_0000;
-    const frame_irq   = 0b0100_0000;
-    const dmc_irq     = 0b1000_0000;
+  const pulse1  = 0b0000_0001;
+  const pulse2  = 0b0000_0010;
+  const triangle  = 0b0000_0100;
+  const noise   = 0b0000_1000;
+  const dmc     = 0b0001_0000;
+  const unused    = 0b0010_0000;
+  const frame_irq   = 0b0100_0000;
+  const dmc_irq   = 0b1000_0000;
   }
 }
 
@@ -134,10 +134,10 @@ pub struct Apu {
   triangle: Triangle,
   noise: Noise,
   pub dmc: Dmc,
-  
+
   #[cfg_attr(feature = "serde", serde(skip))]
   pub ctx: SharedCtx,
-  
+
   frame_mode: FrameCounterMode,
   frame_write_delay: u8,
   frame_tmp: u8,
@@ -164,8 +164,7 @@ pub struct Apu {
 
 impl Apu {
   pub fn new(timing: ConsoleTiming) -> Self {
-    let cycles_per_sample = 
-      timing.frame_cpu_cycles() / ((44100.0 / timing.fps()) as f32);
+    let cycles_per_sample = timing.frame_cpu_cycles() / ((44100.0 / timing.fps()) as f32);
     let cpu_hz = timing.cpu_hz() as f32;
 
     Self {
@@ -175,14 +174,10 @@ impl Apu {
 
       cycles_per_sample,
 
-      high_pass_filter0: HighPassIIR
-        ::new(cpu_hz, 90.0),
-      high_pass_filter1: HighPassIIR
-        ::new(cpu_hz, 440.0),
-      low_pass_filter: LowPassIIR
-        ::new(cpu_hz, 14_000.0),
-      quality_filter: LowPassIIR
-        ::new(cpu_hz, 0.40 * 44_100.0),
+      high_pass_filter0: HighPassIIR::new(cpu_hz, 90.0),
+      high_pass_filter1: HighPassIIR::new(cpu_hz, 440.0),
+      low_pass_filter: LowPassIIR::new(cpu_hz, 14_000.0),
+      quality_filter: LowPassIIR::new(cpu_hz, 0.40 * 44_100.0),
 
       ..Default::default()
     }
@@ -202,8 +197,10 @@ impl Apu {
   pub fn consume_samples(&mut self) -> Vec<f32> {
     for sample in &self.samples_buf {
       self.high_pass_filter0.consume(*sample);
-      self.high_pass_filter1.consume(self.high_pass_filter0.output());
-      self.low_pass_filter.consume(self.high_pass_filter1.output());
+      self.high_pass_filter1
+        .consume(self.high_pass_filter0.output());
+      self.low_pass_filter
+        .consume(self.high_pass_filter1.output());
       self.quality_filter.consume(self.low_pass_filter.output());
 
       if self.sample_cycles >= self.cycles_per_sample {
@@ -214,7 +211,7 @@ impl Apu {
 
       self.sample_cycles += 1.0;
     }
-    
+
     self.samples_buf.clear();
     let samples = mem::take(&mut self.samples_out);
     self.samples_out.reserve(800);
@@ -252,15 +249,15 @@ impl Apu {
     //   self.samples_out.push(output);
     //   self.sample_cycles -= self.cycles_per_sample;
     // }
-    
+
     // self.sample_cycles += 1.0;
-    
+
     let sample = self.mix_channels();
     self.samples_buf.push(sample);
 
     self.dmc.step_timer();
     self.triangle.step_timer();
-    
+
     if self.cycles % 2 == 1 {
       self.pulse1.step_timer();
       self.pulse2.step_timer();
@@ -269,7 +266,7 @@ impl Apu {
 
     const FRAME_STEPPINGS: [fn(&mut Apu); 2] = [Apu::tick_frame_ntsc, Apu::tick_frame_pal];
     FRAME_STEPPINGS[self.timing as usize](self);
-    
+
     if self.frame_write_delay > 0 {
       self.frame_write_delay -= 1;
       if self.frame_write_delay == 0 {
@@ -286,22 +283,19 @@ impl Apu {
   }
 
   fn mix_channels(&mut self) -> f32 {
-    let pulse1   = self.pulse1.get_sample();
-    let pulse2   = self.pulse2.get_sample();
+    let pulse1 = self.pulse1.get_sample();
+    let pulse2 = self.pulse2.get_sample();
     let triangle = self.triangle.get_sample();
-    let noise    = self.noise.get_sample();
-    let dmc      = self.dmc.get_sample();
+    let noise = self.noise.get_sample();
+    let dmc = self.dmc.get_sample();
 
     // magic value taken from here
     // https://github.com/zeta0134/rustico/blob/e1ee2211cc6173fe2df0df036c9c2a30e9966136/core/src/mmc/vrc6.rs
     let ext_out = 0.00845 * self.ctx.mapper().get_sample() as f32;
 
     let pulse_out = 0.00752 * (pulse1 + pulse2) as f32;
-    let tnd_out = 
-      0.00851 * triangle as f32
-      + 0.00494 * noise as f32
-      + 0.00335 * dmc as f32;
-      
+    let tnd_out = 0.00851 * triangle as f32 + 0.00494 * noise as f32 + 0.00335 * dmc as f32;
+
     let sum = pulse_out + tnd_out + ext_out;
     sum
   }
@@ -326,7 +320,7 @@ impl Apu {
   }
 
   fn tick_frame_ntsc(&mut self) {
-    // we multiply the steps by 2 
+    // we multiply the steps by 2
     // https://www.nesdev.org/wiki/APU_Frame_Counter
     match (self.cycles, &self.frame_mode) {
       (7457 | 22371, _) => self.step_quarter_frame(),
@@ -340,7 +334,9 @@ impl Apu {
           self.frame_irq_flag = Some(());
         }
 
-        if self.cycles == 29830 { self.cycles = 0; }
+        if self.cycles == 29830 {
+          self.cycles = 0;
+        }
       }
       (37281, FrameCounterMode::Step5) => self.step_half_frame(),
       (37282, FrameCounterMode::Step5) => self.cycles = 0,
@@ -356,12 +352,14 @@ impl Apu {
         if self.cycles == 33252 {
           self.step_half_frame();
         }
-        
+
         if !self.irq_disabled {
           self.frame_irq_flag = Some(());
         }
 
-        if self.cycles == 33254 { self.cycles = 0; }
+        if self.cycles == 33254 {
+          self.cycles = 0;
+        }
       }
       (41565, FrameCounterMode::Step5) => self.step_half_frame(),
       (41566, FrameCounterMode::Step5) => self.cycles = 0,
@@ -386,7 +384,7 @@ impl Apu {
 
         flags.bits()
       }
-      _ => 0
+      _ => 0,
     }
   }
 
@@ -437,7 +435,7 @@ impl Apu {
         // https://www.nesdev.org/wiki/APU_Frame_Counter
         self.frame_write_delay = if self.cycles % 2 == 1 { 3 } else { 4 };
       }
-    _ => {}
+      _ => {}
     }
   }
 }
@@ -459,7 +457,7 @@ impl LowPassIIR {
       alpha,
       previous_output: 0.0,
       delta: 0.0,
-    }
+    };
   }
 
   pub fn consume(&mut self, new_input: f32) {
@@ -483,24 +481,24 @@ pub struct HighPassIIR {
 
 impl HighPassIIR {
   pub fn new(sample_rate: f32, cutoff_frequency: f32) -> HighPassIIR {
-      let delta_t = 1.0 / sample_rate;
-      let time_constant = 1.0 / cutoff_frequency;
-      let alpha = time_constant / (time_constant + delta_t);
-      return HighPassIIR {
-          alpha,
-          previous_output: 0.0,
-          previous_input: 0.0,
-          delta: 0.0,
-      }
+    let delta_t = 1.0 / sample_rate;
+    let time_constant = 1.0 / cutoff_frequency;
+    let alpha = time_constant / (time_constant + delta_t);
+    return HighPassIIR {
+      alpha,
+      previous_output: 0.0,
+      previous_input: 0.0,
+      delta: 0.0,
+    };
   }
 
   fn consume(&mut self, new_input: f32) {
-      self.previous_output = self.output();
-      self.delta = new_input - self.previous_input;
-      self.previous_input = new_input;
+    self.previous_output = self.output();
+    self.delta = new_input - self.previous_input;
+    self.previous_input = new_input;
   }
 
   fn output(&self) -> f32 {
-      return self.alpha * self.previous_output + self.alpha * self.delta;
+    return self.alpha * self.previous_output + self.alpha * self.delta;
   }
 }

@@ -1,10 +1,20 @@
-use crate::{banks::MemConfig, cart::CartHeader, mapper::{set_byte_hi, set_byte_lo}, mem};
+use crate::{
+  banks::MemConfig,
+  cart::CartHeader,
+  mapper::{set_byte_hi, set_byte_lo},
+  mem,
+};
 
 use super::{Banking, Mapper};
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Default, Clone, Copy)]
-enum ChrTarget { #[default] Chr, Ciram0, Ciram1 }
+enum ChrTarget {
+  #[default]
+  Chr,
+  Ciram0,
+  Ciram1,
+}
 
 // Mapper 19
 // https://www.nesdev.org/wiki/INES_Mapper_019
@@ -28,15 +38,15 @@ impl Namco129_163 {
     for (i, target) in self.chr_selects.iter().enumerate() {
       match target {
         ChrTarget::Chr => {
-          banks.mapping.ppu_reads[i]  = mem::chr_read;
+          banks.mapping.ppu_reads[i] = mem::chr_read;
           banks.mapping.ppu_writes[i] = mem::chr_write;
         }
         ChrTarget::Ciram0 => {
-          banks.mapping.ppu_reads[i]  = mem::vram0_read;
+          banks.mapping.ppu_reads[i] = mem::vram0_read;
           banks.mapping.ppu_writes[i] = mem::vram0_write;
         }
         ChrTarget::Ciram1 => {
-          banks.mapping.ppu_reads[i]  = mem::vram1_read;
+          banks.mapping.ppu_reads[i] = mem::vram1_read;
           banks.mapping.ppu_writes[i] = mem::vram1_write;
         }
       }
@@ -49,11 +59,11 @@ impl Mapper for Namco129_163 {
   fn new(header: &CartHeader, banks: &mut MemConfig) -> Box<Self> {
     banks.prg = Banking::new_prg(header, 4);
     banks.prg.set_page_to_last_bank(3);
-    
+
     banks.chr = Banking::new(header.chr_real_size(), 0, 1024, 12);
     let chr_selects = [Default::default(); 12];
 
-    Box::new(Self{
+    Box::new(Self {
       chr_selects,
       ..Default::default()
     })
@@ -79,8 +89,7 @@ impl Mapper for Namco129_163 {
         self.irq_requested = None;
       }
       0x5800..=0x5FFFF => {
-        self.irq_value = 
-          set_byte_hi(self.irq_value, val) & 0b0111_1111;
+        self.irq_value = set_byte_hi(self.irq_value, val) & 0b0111_1111;
         self.irq_enabled = val >> 7 != 0;
         self.irq_requested = None;
       }
@@ -88,7 +97,7 @@ impl Mapper for Namco129_163 {
     }
   }
 
-  fn prg_write(&mut self, banks: &mut MemConfig, addr: usize, val: u8) {    
+  fn prg_write(&mut self, banks: &mut MemConfig, addr: usize, val: u8) {
     match addr {
       0x8000..=0x9FFF => {
         let page = (addr as usize - 0x8000) / 0x800;
@@ -151,7 +160,7 @@ impl Mapper for Namco129_163 {
           self.exram_write_enabled.fill(false);
         } else {
           for i in 0..self.exram_write_enabled.len() {
-            self.exram_write_enabled[i] = val as usize >> i == 0; 
+            self.exram_write_enabled[i] = val as usize >> i == 0;
           }
         }
       }
@@ -163,14 +172,16 @@ impl Mapper for Namco129_163 {
   //   let page = addr / 0x400;
 
   //   match self.chr_selects[page] {
-  //     ChrTarget::Chr => PpuTarget::Chr(banks.chr.translate(addr)),
-  //     ChrTarget::Ciram0 => PpuTarget::CiRam(addr % 0x400),
-  //     ChrTarget::Ciram1 => PpuTarget::CiRam((addr % 0x400) + 0x400),
+  //   ChrTarget::Chr => PpuTarget::Chr(banks.chr.translate(addr)),
+  //   ChrTarget::Ciram0 => PpuTarget::CiRam(addr % 0x400),
+  //   ChrTarget::Ciram1 => PpuTarget::CiRam((addr % 0x400) + 0x400),
   //   }
   // }
 
   fn notify_cpu_cycle(&mut self) {
-    if self.irq_requested.is_some() { return; }
+    if self.irq_requested.is_some() {
+      return;
+    }
 
     self.irq_value += 1;
     if self.irq_value >= 0x7FFF {

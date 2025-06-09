@@ -1,29 +1,31 @@
 use std::ptr;
 
+pub use apu::Apu;
 pub use bus::Bus;
 pub use cpu::Cpu;
-pub use ppu::{Ppu, frame::{self, FramebufIndexed, FramebufRGBA}};
-pub use apu::Apu;
 pub use joypad::{Joypad, JoypadButton};
 pub use mapper::Mapper;
+pub use ppu::{
+  frame::{self, FramebufIndexed, FramebufRGBA},
+  Ppu,
+};
 
-pub mod cpu;
 pub mod addr;
-pub mod ppu;
 pub mod apu;
+pub mod banks;
+pub mod bus;
+pub mod cart;
+pub mod cpu;
 pub mod dma;
 pub mod joypad;
-pub mod cart;
-pub mod bus;
-pub mod mem;
-pub mod banks;
 pub mod mapper;
+pub mod mem;
+pub mod ppu;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Default)]
 pub struct Emulator {
   #[cfg_attr(feature = "serde", serde(skip))]
-
   pub ctx: EmuCtx,
 
   bus: Bus,
@@ -36,7 +38,7 @@ pub struct Emulator {
 impl Emulator {
   pub fn new(rom: &[u8]) -> Result<Box<Self>, String> {
     let bus = Bus::new(rom)?;
-    
+
     let timing = bus.cart.timing;
     let ppu = Ppu::new(timing);
     let apu = Apu::new(timing);
@@ -48,21 +50,26 @@ impl Emulator {
     let ctx = EmuCtx::default();
 
     let mut emu = Box::new(Self {
-      ctx, bus, cpu, ppu, apu, joypad,
+      ctx,
+      bus,
+      cpu,
+      ppu,
+      apu,
+      joypad,
     });
     emu.bind_pointers();
     emu.cpu.boot();
 
     Ok(emu)
   }
-  
+
   fn bind_pointers(&mut self) {
     self.ctx.bus = &mut self.bus;
     self.ctx.ppu = &mut self.ppu;
     self.ctx.apu = &mut self.apu;
     self.ctx.joypad = &mut self.joypad;
     self.ctx.cpu = &mut self.cpu;
-    // &mut self.oam_dma; 
+    // &mut self.oam_dma;
     // &mut self.dmc_dma;
 
     let shared_ctx = SharedCtx(&mut self.ctx);
@@ -74,7 +81,9 @@ impl Emulator {
 
   pub fn step_until_vblank(&mut self) {
     loop {
-      if self.bus.vblank_poll() { break; }
+      if self.bus.vblank_poll() {
+        break;
+      }
       self.cpu.step();
     }
 
@@ -107,7 +116,9 @@ impl Emulator {
     self.bus.cart.timing.fps()
   }
 
-  pub const fn get_resolution(&mut self) -> (usize, usize) { (32*8, 30*8) }
+  pub const fn get_resolution(&mut self) -> (usize, usize) {
+    (32 * 8, 30 * 8)
+  }
 
   pub fn set_joypad_btn(&mut self, btn: JoypadButton) {
     self.joypad.buttons1.insert(btn);
@@ -138,8 +149,7 @@ impl Emulator {
   pub fn load_savestate(&mut self, other: Emulator) {
     // save prg and chr and memtable in temp values
     let prg = core::mem::take(&mut self.bus.prg);
-    let chr = (!self.bus.cart.uses_chr_ram)
-      .then(|| core::mem::take(&mut self.bus.chr));
+    let chr = (!self.bus.cart.uses_chr_ram).then(|| core::mem::take(&mut self.bus.chr));
     // the mapping is a collection of fn pointers, we can't serialize them, so we copy them from what we already have
     let mem = core::mem::take(&mut self.bus.cfg.mapping);
 
@@ -149,7 +159,9 @@ impl Emulator {
     // the new emulator is missing prg and chr; we take the temp ones
     self.bus.prg = prg;
     // we only copy the temp chr if it is not chr ram, as that has already been deserialized by serde
-    if let Some(chr) = chr { self.bus.chr = chr; }
+    if let Some(chr) = chr {
+      self.bus.chr = chr;
+    }
     self.bus.cfg.mapping = mem;
 
     // When loading a savestate, we have to rebind all the ctx pointers
@@ -169,7 +181,6 @@ pub struct EmuCtx {
   apu: *mut Apu,
   #[cfg_attr(feature = "serde", serde(skip))]
   pub joypad: *mut Joypad,
-
   // oam_dma: *mut OamDma,
   // dmc_dma: *mut DmcDma,
 }
@@ -178,7 +189,8 @@ pub struct EmuCtx {
 impl<'de> serde::Deserialize<'de> for EmuCtx {
   fn deserialize<D>(_: D) -> Result<Self, D::Error>
   where
-      D: serde::Deserializer<'de> {
+    D: serde::Deserializer<'de>,
+  {
     Ok(EmuCtx::default())
   }
 }
@@ -213,7 +225,7 @@ impl SharedCtx {
   }
 
   pub fn bus(&self) -> &mut Bus {
-    unsafe { &mut*self.get().bus }
+    unsafe { &mut *self.get().bus }
   }
 
   pub fn mapper(&self) -> &mut Box<dyn Mapper> {
@@ -221,19 +233,19 @@ impl SharedCtx {
   }
 
   pub fn cpu(&self) -> &mut Cpu {
-    unsafe { &mut*self.get().cpu }
+    unsafe { &mut *self.get().cpu }
   }
 
   pub fn ppu(&self) -> &mut Ppu {
-    unsafe { &mut*self.get().ppu }
+    unsafe { &mut *self.get().ppu }
   }
 
   pub fn apu(&self) -> &mut Apu {
-    unsafe { &mut*self.get().apu }
+    unsafe { &mut *self.get().apu }
   }
 
   pub fn joypad(&self) -> &mut Joypad {
-    unsafe { &mut*self.get().joypad }
+    unsafe { &mut *self.get().joypad }
   }
 
   // pub fn oam_dma(&self) -> &mut OamDma {

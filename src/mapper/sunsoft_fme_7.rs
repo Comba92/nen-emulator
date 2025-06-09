@@ -1,10 +1,26 @@
-use crate::{banks::MemConfig, bus::Bus, cart::{CartHeader, Mirroring}, mapper::{set_byte_hi, set_byte_lo}, mem};
 use super::{Banking, Mapper};
+use crate::{
+  banks::MemConfig,
+  bus::Bus,
+  cart::{CartHeader, Mirroring},
+  mapper::{set_byte_hi, set_byte_lo},
+  mem,
+};
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-enum Command { Chr(u8), Prg0, Prg1(u8), Nametbl, IrqCtrl, IrqLo, IrqHi }
+enum Command {
+  Chr(u8),
+  Prg0,
+  Prg1(u8),
+  Nametbl,
+  IrqCtrl,
+  IrqLo,
+  IrqHi,
+}
 impl Default for Command {
-  fn default() -> Self { Self::Chr(0) }
+  fn default() -> Self {
+    Self::Chr(0)
+  }
 }
 
 // Mapper 69
@@ -50,13 +66,12 @@ impl Mapper for SunsoftFME7 {
           0xE => Command::IrqLo,
           0xF => Command::IrqHi,
           0x0..=0x7 => Command::Chr(val),
-          _ => unreachable!("")
+          _ => unreachable!(""),
         };
       }
       0xA000..=0xBFFF => {
         match self.command {
-          Command::Chr(page) => 
-            banks.chr.set_page(page as usize, val as usize),
+          Command::Chr(page) => banks.chr.set_page(page as usize, val as usize),
           Command::Prg0 => {
             self.sram_banked = (val >> 6) & 1 != 0;
             self.sram_enabled = val >> 7 != 0;
@@ -65,10 +80,10 @@ impl Mapper for SunsoftFME7 {
             banks.sram.set_page(0, bank);
 
             if self.sram_banked {
-              banks.mapping.cpu_reads[3]  = mem::sram_read;
+              banks.mapping.cpu_reads[3] = mem::sram_read;
               banks.mapping.cpu_writes[3] = mem::sram_write;
             } else {
-              banks.mapping.cpu_reads[3]  = |bus: &mut Bus, addr: u16| {
+              banks.mapping.cpu_reads[3] = |bus: &mut Bus, addr: u16| {
                 // bus.prg[bus.mapper.sram_translate(&mut bus.cfg, addr)]
                 bus.prg[bus.cfg.sram.translate(addr as usize)]
               };
@@ -78,14 +93,15 @@ impl Mapper for SunsoftFME7 {
               };
             }
           }
-          Command::Prg1(page) => 
-            banks.prg.set_page(page as usize, val as usize & 0b11_1111),
+          Command::Prg1(page) => {
+            banks.prg.set_page(page as usize, val as usize & 0b11_1111)
+          }
           Command::Nametbl => {
             let mirroring = match val & 0b11 {
               0 => Mirroring::Vertical,
               1 => Mirroring::Horizontal,
               2 => Mirroring::SingleScreenA,
-              _ => Mirroring::SingleScreenB
+              _ => Mirroring::SingleScreenB,
             };
             banks.vram.update(mirroring);
           }
@@ -104,21 +120,23 @@ impl Mapper for SunsoftFME7 {
 
   // fn map_prg_addr_branching(&mut self, banks: &mut MemConfig, addr: usize) -> PrgTarget {
   //   match addr {
-  //     0x4020..=0x5FFF => PrgTarget::Cart,
-  //     0x6000..=0x7FFF => {
-  //       if self.sram_banked {
-  //         PrgTarget::SRam(self.sram_enabled, banks.sram.translate(addr))
-  //       } else {
-  //         PrgTarget::Prg(banks.sram.translate(addr))
-  //       }
+  //   0x4020..=0x5FFF => PrgTarget::Cart,
+  //   0x6000..=0x7FFF => {
+  //     if self.sram_banked {
+  //     PrgTarget::SRam(self.sram_enabled, banks.sram.translate(addr))
+  //     } else {
+  //     PrgTarget::Prg(banks.sram.translate(addr))
   //     }
-  //     0x8000..=0xFFFF => PrgTarget::Prg(banks.prg.translate(addr)),
-  //     _ => unreachable!()
+  //   }
+  //   0x8000..=0xFFFF => PrgTarget::Prg(banks.prg.translate(addr)),
+  //   _ => unreachable!()
   //   }
   // }
 
   fn notify_cpu_cycle(&mut self) {
-    if !self.irq_counter_enabled { return; }
+    if !self.irq_counter_enabled {
+      return;
+    }
 
     self.irq_count = self.irq_count.wrapping_sub(1);
     if self.irq_count == 0xFFFF && self.irq_enabled {

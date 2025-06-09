@@ -1,22 +1,28 @@
-use core::{fmt, ops::{BitAnd, BitOr, BitXor, Not, Shl, Shr}};
+use core::{
+  fmt,
+  ops::{BitAnd, BitOr, BitXor, Not, Shl, Shr},
+};
 
 use bitflags::bitflags;
 
-use crate::{addr::{AddressingMode, MODES_TABLE}, SharedCtx};
+use crate::{
+  addr::{AddressingMode, MODES_TABLE},
+  SharedCtx,
+};
 
 bitflags! {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy)]
   pub struct CpuFlags: u8 {
-    const carry     = 0b0000_0001;
-    const zero      = 0b0000_0010;
-    const irq_off   = 0b0000_0100;
-    const decimal   = 0b0000_1000;
-    const brk       = 0b0001_0000;
-    const unused    = 0b0010_0000;
-    const brkpush   = 0b0011_0000;
-    const overflow  = 0b0100_0000;
-    const negative  = 0b1000_0000;
+  const carry   = 0b0000_0001;
+  const zero    = 0b0000_0010;
+  const irq_off   = 0b0000_0100;
+  const decimal   = 0b0000_1000;
+  const brk     = 0b0001_0000;
+  const unused  = 0b0010_0000;
+  const brkpush   = 0b0011_0000;
+  const overflow  = 0b0100_0000;
+  const negative  = 0b1000_0000;
   }
 }
 
@@ -30,9 +36,9 @@ const PC_RESET: u16 = RESET_ISR;
 const _P_RESET_U8: u8 = 0x24;
 const P_RESET: CpuFlags = CpuFlags::irq_off.union(CpuFlags::brkpush);
 
-const NMI_ISR: u16   = 0xFFFA;
+const NMI_ISR: u16 = 0xFFFA;
 const RESET_ISR: u16 = 0xFFFC;
-const IRQ_ISR: u16   = 0xFFFE;
+const IRQ_ISR: u16 = 0xFFFE;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Cpu {
@@ -46,23 +52,17 @@ pub struct Cpu {
   pub jammed: bool,
 
   #[cfg_attr(feature = "serde", serde(skip))]
-
   instr_addr: u16,
   #[cfg_attr(feature = "serde", serde(skip))]
-
-  instr_val:  u8,
+  instr_val: u8,
   #[cfg_attr(feature = "serde", serde(skip))]
-
   instr_dummy_addr: u16,
   #[cfg_attr(feature = "serde", serde(skip))]
-
   instr_dummy_readed: bool,
   #[cfg_attr(feature = "serde", serde(skip))]
-
   instr_mode: AddressingMode,
 
   #[cfg_attr(feature = "serde", serde(skip))]
-
   pub ctx: SharedCtx,
 }
 
@@ -77,7 +77,7 @@ impl Cpu {
     self.ctx.bus().cpu_write(addr, val);
     self.tick();
   }
-  
+
   fn tick(&mut self) {
     self.cycles += 1;
     self.ctx.bus().tick();
@@ -86,7 +86,15 @@ impl Cpu {
 
 impl fmt::Debug for Cpu {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    f.debug_struct("Cpu").field("pc", &self.pc).field("sp", &self.sp).field("sr", &self.p).field("a", &self.a).field("x", &self.x).field("y", &self.y).field("cycles", &self.cycles).finish()
+    f.debug_struct("Cpu")
+      .field("pc", &self.pc)
+      .field("sp", &self.sp)
+      .field("sr", &self.p)
+      .field("a", &self.a)
+      .field("x", &self.x)
+      .field("y", &self.y)
+      .field("cycles", &self.cycles)
+      .finish()
   }
 }
 
@@ -95,7 +103,9 @@ impl Default for Cpu {
     Self {
       pc: PC_RESET,
       sp: SP_RESET,
-      a: 0, x: 0, y: 0,
+      a: 0,
+      x: 0,
+      y: 0,
       // At boot, only interrupt flag is enabled
       p: P_RESET,
       cycles: 0,
@@ -145,7 +155,7 @@ impl Cpu {
     self.set_zero(res);
     self.set_neg(res);
   }
-  
+
   fn set_czn(&mut self, res: u16) {
     self.set_carry(res);
     self.set_zn(res as u8);
@@ -173,7 +183,9 @@ impl Cpu {
       let low = self.read(page | 0xFF);
       let high = self.read(page | 0x00);
       u16::from_le_bytes([low, high])
-    } else { self.read16(addr) }
+    } else {
+      self.read16(addr)
+    }
   }
 
   fn pc_fetch(&mut self) -> u8 {
@@ -228,18 +240,17 @@ impl Cpu {
   }
 }
 
-
 impl Cpu {
   pub fn step(&mut self) {
     // temporary solution
     self.ctx.bus().handle_dmc();
-    
+
     self.interrupts_poll();
-    
+
     let opcode = self.pc_fetch();
     let mode = MODES_TABLE[opcode as usize];
     self.fetch_operand(mode);
-    
+
     self.execute(opcode);
   }
 
@@ -252,7 +263,7 @@ impl Cpu {
       self.handle_interrupt(IRQ_ISR);
     }
   }
-  
+
   fn handle_interrupt(&mut self, isr_addr: u16) {
     // https://www.nesdev.org/wiki/CPU_interrupts
     self.tick();
@@ -297,17 +308,17 @@ impl Cpu {
       Implied => {
         // dummy read
         self.read(self.pc + 1);
-      },
+      }
       Accumulator => {
         // dummy read
         self.read(self.pc + 1);
         self.instr_val = self.a;
-      },
+      }
       Immediate | Relative => self.instr_val = self.pc_fetch(),
-      ZeroPage  => self.instr_addr = self.pc_fetch() as u16,
+      ZeroPage => self.instr_addr = self.pc_fetch() as u16,
       ZeroPageX => self.fetch_zeropage_operand(self.x),
       ZeroPageY => self.fetch_zeropage_operand(self.y),
-      Absolute  => self.instr_addr = self.pc_fetch16(),
+      Absolute => self.instr_addr = self.pc_fetch16(),
       AbsoluteX => self.fetch_absolute_operand(self.x),
       AbsoluteY => self.fetch_absolute_operand(self.y),
       Indirect => {
@@ -341,8 +352,9 @@ impl Cpu {
   }
 
   fn absolute_dummy_read(&mut self) {
-    let should_dummy_read = !self.instr_dummy_readed 
-    && (self.instr_mode == AddressingMode::AbsoluteX || self.instr_mode == AddressingMode::AbsoluteY);
+    let should_dummy_read = !self.instr_dummy_readed
+      && (self.instr_mode == AddressingMode::AbsoluteX
+        || self.instr_mode == AddressingMode::AbsoluteY);
 
     if should_dummy_read {
       self.read(self.instr_dummy_addr);
@@ -354,20 +366,26 @@ impl Cpu {
     use AddressingMode::*;
     match self.instr_mode {
       Implied | Immediate | Accumulator | Relative => self.instr_val,
-      _ => self.read(self.instr_addr)
+      _ => self.read(self.instr_addr),
     }
   }
 }
 
 impl Cpu {
-  fn load (&mut self) -> u8 {
+  fn load(&mut self) -> u8 {
     let val = self.fetch_operand_value();
     self.set_zn(val);
     val
   }
-  fn lda(&mut self) { self.a = self.load() }
-  fn ldx(&mut self) { self.x = self.load() }
-  fn ldy(&mut self) { self.y = self.load() }
+  fn lda(&mut self) {
+    self.a = self.load()
+  }
+  fn ldx(&mut self) {
+    self.x = self.load()
+  }
+  fn ldy(&mut self) {
+    self.y = self.load()
+  }
 
   fn store(&mut self, val: u8) {
     self.absolute_dummy_read();
@@ -382,14 +400,18 @@ impl Cpu {
 
     self.store(self.a)
   }
-  fn stx(&mut self) { self.store(self.x) }
-  fn sty(&mut self) { self.store(self.y) }
+  fn stx(&mut self) {
+    self.store(self.x)
+  }
+  fn sty(&mut self) {
+    self.store(self.y)
+  }
 
   fn tax(&mut self) {
     self.set_zn(self.a);
     self.x = self.a;
   }
-  fn tay(&mut self) { 
+  fn tay(&mut self) {
     self.set_zn(self.a);
     self.y = self.a;
   }
@@ -399,10 +421,12 @@ impl Cpu {
   }
   fn txa(&mut self) {
     self.set_zn(self.x);
-    self.a = self.x; 
+    self.a = self.x;
   }
-  fn txs(&mut self) { self.sp = self.x; }
-  fn tya(&mut self) { 
+  fn txs(&mut self) {
+    self.sp = self.x;
+  }
+  fn tya(&mut self) {
     self.set_zn(self.y);
     self.a = self.y;
   }
@@ -439,9 +463,15 @@ impl Cpu {
     self.a = res;
     self.instr_val = res;
   }
-  fn and(&mut self) { self.logical(u8::bitand) }
-  fn eor(&mut self) { self.logical(u8::bitxor) }
-  fn ora(&mut self) { self.logical(u8::bitor) }
+  fn and(&mut self) {
+    self.logical(u8::bitand)
+  }
+  fn eor(&mut self) {
+    self.logical(u8::bitxor)
+  }
+  fn ora(&mut self) {
+    self.logical(u8::bitor)
+  }
 
   fn bit(&mut self) {
     let val = self.fetch_operand_value();
@@ -473,9 +503,15 @@ impl Cpu {
     self.set_zn(res);
     self.p.set(CpuFlags::carry, reg >= val);
   }
-  fn cmp(&mut self) { self.compare(self.a) }
-  fn cpx(&mut self) { self.compare(self.x) }
-  fn cpy(&mut self) { self.compare(self.y) }
+  fn cmp(&mut self) {
+    self.compare(self.a)
+  }
+  fn cpx(&mut self) {
+    self.compare(self.x)
+  }
+  fn cpy(&mut self) {
+    self.compare(self.y)
+  }
 
   fn increase(&mut self, val: u8, f: fn(u8, u8) -> u8) -> u8 {
     let res = f(val, 1);
@@ -586,25 +622,59 @@ impl Cpu {
       self.pc = new_pc;
     }
   }
-  fn bcc(&mut self) { self.branch(self.carry() == 0) }
-  fn bcs(&mut self) { self.branch(self.carry() == 1) }
-  fn beq(&mut self) { self.branch(self.p.contains(CpuFlags::zero)) }
-  fn bne(&mut self) { self.branch(!self.p.contains(CpuFlags::zero)) }
-  fn bmi(&mut self) { self.branch(self.p.contains(CpuFlags::negative)) }
-  fn bpl(&mut self) { self.branch(!self.p.contains(CpuFlags::negative)) }
-  fn bvc(&mut self) { self.branch(!self.p.contains(CpuFlags::overflow)) }
-  fn bvs(&mut self) { self.branch(self.p.contains(CpuFlags::overflow)) }
+  fn bcc(&mut self) {
+    self.branch(self.carry() == 0)
+  }
+  fn bcs(&mut self) {
+    self.branch(self.carry() == 1)
+  }
+  fn beq(&mut self) {
+    self.branch(self.p.contains(CpuFlags::zero))
+  }
+  fn bne(&mut self) {
+    self.branch(!self.p.contains(CpuFlags::zero))
+  }
+  fn bmi(&mut self) {
+    self.branch(self.p.contains(CpuFlags::negative))
+  }
+  fn bpl(&mut self) {
+    self.branch(!self.p.contains(CpuFlags::negative))
+  }
+  fn bvc(&mut self) {
+    self.branch(!self.p.contains(CpuFlags::overflow))
+  }
+  fn bvs(&mut self) {
+    self.branch(self.p.contains(CpuFlags::overflow))
+  }
 
-  fn clear_stat(&mut self, s: CpuFlags) { self.p.remove(s); }
-  fn clc(&mut self) { self.clear_stat(CpuFlags::carry) }
-  fn cld(&mut self) { self.clear_stat(CpuFlags::decimal) }
-  fn cli(&mut self) { self.clear_stat(CpuFlags::irq_off) }
-  fn clv(&mut self) { self.clear_stat(CpuFlags::overflow) }
+  fn clear_stat(&mut self, s: CpuFlags) {
+    self.p.remove(s);
+  }
+  fn clc(&mut self) {
+    self.clear_stat(CpuFlags::carry)
+  }
+  fn cld(&mut self) {
+    self.clear_stat(CpuFlags::decimal)
+  }
+  fn cli(&mut self) {
+    self.clear_stat(CpuFlags::irq_off)
+  }
+  fn clv(&mut self) {
+    self.clear_stat(CpuFlags::overflow)
+  }
 
-  fn set_stat(&mut self, s: CpuFlags) { self.p.insert(s); }
-  fn sec(&mut self) { self.set_stat(CpuFlags::carry) }
-  fn sed(&mut self) { self.set_stat(CpuFlags::decimal) }
-  fn sei(&mut self) { self.set_stat(CpuFlags::irq_off) }
+  fn set_stat(&mut self, s: CpuFlags) {
+    self.p.insert(s);
+  }
+  fn sec(&mut self) {
+    self.set_stat(CpuFlags::carry)
+  }
+  fn sed(&mut self) {
+    self.set_stat(CpuFlags::decimal)
+  }
+  fn sei(&mut self) {
+    self.set_stat(CpuFlags::irq_off)
+  }
 
   fn brk(&mut self) {
     self.stack_push16(self.pc.wrapping_add(1));
@@ -625,7 +695,9 @@ impl Cpu {
 }
 
 impl Cpu {
-  fn usbc(&mut self) { self.sbc(); }
+  fn usbc(&mut self) {
+    self.sbc();
+  }
 
   fn alr(&mut self) {
     self.and();
@@ -655,7 +727,8 @@ impl Cpu {
 
   fn anc(&mut self) {
     self.and();
-    self.p.set(CpuFlags::carry, self.p.contains(CpuFlags::negative));
+    self.p
+      .set(CpuFlags::carry, self.p.contains(CpuFlags::negative));
   }
 
   fn arr(&mut self) {
@@ -677,7 +750,7 @@ impl Cpu {
   // also called ISB, INS
   fn isc(&mut self) {
     self.inc();
-    self.sbc(); 
+    self.sbc();
   }
 
   fn las(&mut self) {
@@ -710,7 +783,7 @@ impl Cpu {
 
   fn high_addr_bitand(&mut self, val: u8) {
     let addr_hi = (self.instr_addr >> 8) as u8;
-    let addr_lo = (self.instr_addr & 0xFF) as u8; 
+    let addr_lo = (self.instr_addr & 0xFF) as u8;
     let res = val & addr_hi.wrapping_add(1);
     let dst = (((val & (addr_hi.wrapping_add(1))) as u16) << 8) | addr_lo as u16;
     self.write(dst, res);
@@ -769,9 +842,8 @@ impl Cpu {
       1 | 5 | 9 | 13 | 17 | 21 | 25 | 29 => self.ora(),
       2 | 18 | 34 | 50 | 66 | 82 | 98 | 114 | 146 | 178 | 210 | 242 => self.jam(),
       3 | 7 | 15 | 19 | 23 | 27 | 31 => self.slo(),
-      4 | 12 | 20 | 26 | 28 | 52 | 58 | 60 | 68 | 84 | 90 | 92 
-      | 100 | 116 | 122 | 124 | 128 | 130 | 137 | 194
-      | 212 | 218 | 220 | 226 | 234 | 244 | 250 | 252 => self.nop(),
+      4 | 12 | 20 | 26 | 28 | 52 | 58 | 60 | 68 | 84 | 90 | 92 | 100 | 116 | 122 | 124
+      | 128 | 130 | 137 | 194 | 212 | 218 | 220 | 226 | 234 | 244 | 250 | 252 => self.nop(),
       6 | 10 | 14 | 22 | 30 => self.asl(),
       8 => self.php(),
       11 | 43 => self.anc(),

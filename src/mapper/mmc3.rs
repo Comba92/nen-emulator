@@ -1,13 +1,24 @@
-use crate::{banks::MemConfig, cart::{CartHeader, Mirroring}};
+use crate::{
+  banks::MemConfig,
+  cart::{CartHeader, Mirroring},
+};
 
 use super::{Banking, Mapper};
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Default, PartialEq)]
-enum PrgMode { #[default] FixLastPages, FixFirstPages }
+enum PrgMode {
+  #[default]
+  FixLastPages,
+  FixFirstPages,
+}
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Default, PartialEq)]
-enum ChrMode { #[default] BiggerFirst, BiggerLast }
+enum ChrMode {
+  #[default]
+  BiggerFirst,
+  BiggerLast,
+}
 
 // Mapper 04
 // https://www.nesdev.org/wiki/MMC3
@@ -37,7 +48,7 @@ impl MMC3 {
 
     let prg_mode = match (val >> 6) & 1 != 0 {
       false => PrgMode::FixLastPages,
-      true  => PrgMode::FixFirstPages,
+      true => PrgMode::FixFirstPages,
     };
     if prg_mode != self.prg_mode {
       banks.prg.swap_pages(0, 2);
@@ -46,7 +57,7 @@ impl MMC3 {
 
     let chr_mode = match (val >> 7) != 0 {
       false => ChrMode::BiggerFirst,
-      true  => ChrMode::BiggerLast,
+      true => ChrMode::BiggerLast,
     };
     if chr_mode != self.chr_mode {
       banks.chr.swap_pages(0, 4);
@@ -59,20 +70,16 @@ impl MMC3 {
 
   fn update_prg_bank(&mut self, banks: &mut MemConfig, bank: u8) {
     let page = match self.prg_mode {
-      PrgMode::FixLastPages => {
-        match self.reg_select {
-          6 => 0,
-          7 => 1,
-          _ => unreachable!()
-        }
-      }
-      PrgMode::FixFirstPages => {
-        match self.reg_select {
-          7 => 1,
-          6 => 2,
-          _ => unreachable!()
-        }
-      }
+      PrgMode::FixLastPages => match self.reg_select {
+        6 => 0,
+        7 => 1,
+        _ => unreachable!(),
+      },
+      PrgMode::FixFirstPages => match self.reg_select {
+        7 => 1,
+        6 => 2,
+        _ => unreachable!(),
+      },
     };
 
     banks.prg.set_page(page, bank as usize);
@@ -82,40 +89,36 @@ impl MMC3 {
     let bank = bank as usize;
 
     match self.chr_mode {
-      ChrMode::BiggerFirst => {
-        match self.reg_select {
-          0 => {
-            banks.chr.set_page(0, bank);
-            banks.chr.set_page(1, bank+1);
-          }
-          1 => {
-            banks.chr.set_page(2, bank);
-            banks.chr.set_page(3, bank+1);
-          }
-          2 => banks.chr.set_page(4, bank),
-          3 => banks.chr.set_page(5, bank),
-          4 => banks.chr.set_page(6, bank),
-          5 => banks.chr.set_page(7, bank),
-          _ => unreachable!()
+      ChrMode::BiggerFirst => match self.reg_select {
+        0 => {
+          banks.chr.set_page(0, bank);
+          banks.chr.set_page(1, bank + 1);
         }
-      }
-      ChrMode::BiggerLast => {
-        match self.reg_select {
-          0 => {
-            banks.chr.set_page(4, bank);
-            banks.chr.set_page(5, bank+1);
-          }
-          1 => {
-            banks.chr.set_page(6, bank);
-            banks.chr.set_page(7, bank+1);
-          }
-          2 => banks.chr.set_page(0, bank),
-          3 => banks.chr.set_page(1, bank),
-          4 => banks.chr.set_page(2, bank),
-          5 => banks.chr.set_page(3, bank),
-          _ => unreachable!()
+        1 => {
+          banks.chr.set_page(2, bank);
+          banks.chr.set_page(3, bank + 1);
         }
-      }
+        2 => banks.chr.set_page(4, bank),
+        3 => banks.chr.set_page(5, bank),
+        4 => banks.chr.set_page(6, bank),
+        5 => banks.chr.set_page(7, bank),
+        _ => unreachable!(),
+      },
+      ChrMode::BiggerLast => match self.reg_select {
+        0 => {
+          banks.chr.set_page(4, bank);
+          banks.chr.set_page(5, bank + 1);
+        }
+        1 => {
+          banks.chr.set_page(6, bank);
+          banks.chr.set_page(7, bank + 1);
+        }
+        2 => banks.chr.set_page(0, bank),
+        3 => banks.chr.set_page(1, bank),
+        4 => banks.chr.set_page(2, bank),
+        5 => banks.chr.set_page(3, bank),
+        _ => unreachable!(),
+      },
     }
   }
 }
@@ -128,13 +131,13 @@ impl Mapper for MMC3 {
 
     // bank second last page to second last bank by default
     // this page is never set by registers, so not setting it here fuck up everything
-    banks.prg.set_page(2, banks.prg.banks_count-2);
+    banks.prg.set_page(2, banks.prg.banks_count - 2);
     // last page always fixed to last bank
     banks.prg.set_page_to_last_bank(3);
 
     let mapper = Self {
       mirroring: header.mirroring,
-     ..Default::default()
+      ..Default::default()
     };
 
     Box::new(mapper)
@@ -148,19 +151,19 @@ impl Mapper for MMC3 {
         0 | 1 => self.update_chr_bank(banks, val & !1),
         6 | 7 => self.update_prg_bank(banks, val & 0b11_1111),
         _ => self.update_chr_bank(banks, val),
-      }
+      },
       (0xA000..=0xBFFE, true) => {
         if self.mirroring != Mirroring::FourScreen {
           self.mirroring = match val & 1 != 0 {
             false => Mirroring::Vertical,
-            true  => Mirroring::Horizontal,
+            true => Mirroring::Horizontal,
           };
           banks.vram.update(self.mirroring);
         }
       }
       (0xA001..=0xBFFF, false) => {
         self.sram_write_enabled = val & 0b0100_0000 == 0;
-        self.sram_read_enabled  = val & 0b1000_0000 != 0;
+        self.sram_read_enabled = val & 0b1000_0000 != 0;
       }
       (0xC000..=0xDFFE, true) => self.irq_latch = val,
       (0xC001..=0xDFFF, false) => self.irq_reload = true,
@@ -172,7 +175,7 @@ impl Mapper for MMC3 {
       _ => {}
     }
   }
- 
+
   fn notify_mmc3_scanline(&mut self) {
     if self.irq_count == 0 || self.irq_reload {
       self.irq_count = self.irq_latch;

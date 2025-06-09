@@ -1,7 +1,10 @@
-use crate::{banks::MemConfig, cart::{CartHeader, Mirroring}, mapper::{set_byte_hi, set_byte_lo}};
+use crate::{
+  banks::MemConfig,
+  cart::{CartHeader, Mirroring},
+  mapper::{set_byte_hi, set_byte_lo},
+};
 
 use super::{Banking, Mapper};
-
 
 // Mapper 16
 // https://www.nesdev.org/wiki/INES_Mapper_016
@@ -28,7 +31,7 @@ impl Mapper for BandaiFCG {
     // TODO: change mapping cfg based on submapper.
 
     let eeprom = vec![0; 256].into_boxed_slice();
-    Box::new(Self{
+    Box::new(Self {
       submapper: header.submapper,
       eeprom,
       ..Default::default()
@@ -40,14 +43,13 @@ impl Mapper for BandaiFCG {
       (0x6000..=0x7FFF, 5) => {
         // submapper 5 eeprom read
       }
-      
+
       (0x6000..=0x6007 | 0x8000..=0x8007, _) => {
         let page = addr & 0x07;
         banks.chr.set_page(page, val as usize);
       }
 
-      (0x6008 | 0x8008, _) => 
-        banks.prg.set_page(0, val as usize & 0b1111),
+      (0x6008 | 0x8008, _) => banks.prg.set_page(0, val as usize & 0b1111),
 
       (0x6009 | 0x8009, _) => {
         let mirroring = match val & 0b11 {
@@ -59,7 +61,7 @@ impl Mapper for BandaiFCG {
         banks.vram.update(mirroring);
       }
 
-      (0x600A | 0x800A, _) =>  {
+      (0x600A | 0x800A, _) => {
         self.irq_enabled = val & 1 != 0;
         self.irq_requested = None;
 
@@ -76,20 +78,22 @@ impl Mapper for BandaiFCG {
       (0x800D, _) => {
         // submapper 5 eeprom ctrl
       }
-        _ => {}
+      _ => {}
     }
   }
 
   // fn map_prg_addr_branching(&mut self, banks: &mut MemConfig, addr: usize) -> PrgTarget {
   //   match addr {
-  //     0x6000..=0x7FFF => PrgTarget::Prg(addr),
-  //     0x8000..=0xFFFF => PrgTarget::Prg(banks.prg.translate(addr)),
-  //     _ => unreachable!(),
+  //   0x6000..=0x7FFF => PrgTarget::Prg(addr),
+  //   0x8000..=0xFFFF => PrgTarget::Prg(banks.prg.translate(addr)),
+  //   _ => unreachable!(),
   //   }
   // }
 
   fn notify_cpu_cycle(&mut self) {
-    if !self.irq_enabled { return; }
+    if !self.irq_enabled {
+      return;
+    }
 
     if self.irq_count == 0 {
       self.irq_requested = Some(());

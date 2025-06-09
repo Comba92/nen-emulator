@@ -1,13 +1,16 @@
 #![allow(unused)]
 
-use crate::{cart::ConsoleTiming, dma::{Dma, DmcDma}};
-use super::{Channel, ApuDivider};
+use super::{ApuDivider, Channel};
+use crate::{
+  cart::ConsoleTiming,
+  dma::{Dma, DmcDma},
+};
 
 const RATE_TABLE_NTSC: [u16; 16] = [
-  428, 380, 340, 320, 286, 254, 226, 214, 190, 160, 142, 128, 106,  84,  72,  54
+  428, 380, 340, 320, 286, 254, 226, 214, 190, 160, 142, 128, 106, 84, 72, 54,
 ];
 const RATE_TABLE_PAL: [u16; 16] = [
-  398, 354, 316, 298, 276, 236, 210, 198, 176, 148, 132, 118,  98,  78,  66,  50
+  398, 354, 316, 298, 276, 236, 210, 198, 176, 148, 132, 118, 98, 78, 66, 50,
 ];
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -31,7 +34,21 @@ pub struct Dmc {
 
 impl Default for Dmc {
   fn default() -> Self {
-    Self { timing: Default::default(), irq_enabled: Default::default(), irq_flag: Default::default(), loop_enabled: Default::default(), timer: Default::default(), level: Default::default(), buffer: Default::default(), bits_remaining: Default::default(), address: Default::default(), length: Default::default(), shift_reg: Default::default(), silence: true, reader: Default::default() }
+    Self {
+      timing: Default::default(),
+      irq_enabled: Default::default(),
+      irq_flag: Default::default(),
+      loop_enabled: Default::default(),
+      timer: Default::default(),
+      level: Default::default(),
+      buffer: Default::default(),
+      bits_remaining: Default::default(),
+      address: Default::default(),
+      length: Default::default(),
+      shift_reg: Default::default(),
+      silence: true,
+      reader: Default::default(),
+    }
   }
 }
 
@@ -45,7 +62,7 @@ impl Dmc {
   fn rate_table(&self) -> &[u16] {
     match self.timing {
       ConsoleTiming::PAL => &RATE_TABLE_PAL,
-      _ => &RATE_TABLE_NTSC
+      _ => &RATE_TABLE_NTSC,
     }
   }
 
@@ -106,7 +123,9 @@ impl Channel for Dmc {
     self.timer.step(|_| {
       if !self.silence {
         if self.shift_reg & 1 != 0 {
-          if self.level <= 125 { self.level += 2; }
+          if self.level <= 125 {
+            self.level += 2;
+          }
         } else if self.level >= 2 {
           self.level -= 2;
         }
@@ -140,7 +159,9 @@ impl Channel for Dmc {
     // If the DMC bit is clear, the DMC bytes remaining will be set to 0 and the DMC will silence when it empties.
     // If the DMC bit is set, the DMC sample will be restarted only if its bytes remaining is 0. If there are bits remaining in the 1-byte sample buffer, these will finish playing before the next sample is fetched
     if enabled {
-      if self.reader.remaining == 0 { self.restart_dma(); }
+      if self.reader.remaining == 0 {
+        self.restart_dma();
+      }
     } else {
       self.reader.remaining = 0;
     }

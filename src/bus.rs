@@ -1,8 +1,18 @@
-use crate::{banks::MemConfig, cart::{self, CartHeader, ConsoleTiming}, dma::Dma, mapper::{self, DummyMapper, Mapper}, SharedCtx};
+use crate::{
+  banks::MemConfig,
+  cart::{self, CartHeader, ConsoleTiming},
+  dma::Dma,
+  mapper::{self, DummyMapper, Mapper},
+  SharedCtx,
+};
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Default, Clone, Copy)]
-pub enum EmuTiming { #[default] NSTC, PAL }
+pub enum EmuTiming {
+  #[default]
+  NSTC,
+  PAL,
+}
 impl From<ConsoleTiming> for EmuTiming {
   fn from(value: ConsoleTiming) -> Self {
     match value {
@@ -17,15 +27,13 @@ pub struct Bus {
   // TODO: Should ctx own header?
   pub cart: CartHeader,
   #[cfg_attr(feature = "serde", serde(skip))]
-
   pub ctx: SharedCtx,
 
   // TODO: could ram be owned by CPU??
-  pub ram:  Box<[u8]>,
+  pub ram: Box<[u8]>,
   #[cfg_attr(feature = "serde", serde(skip))]
-
-  pub prg:  Box<[u8]>,
-  pub chr:  Box<[u8]>,
+  pub prg: Box<[u8]>,
+  pub chr: Box<[u8]>,
   pub vram: Box<[u8]>,
   pub sram: Box<[u8]>,
 
@@ -37,12 +45,12 @@ pub struct Bus {
   pub mapper: Box<dyn Mapper>,
 }
 
-
 #[cfg(feature = "serde")]
 impl serde::Serialize for Bus {
   fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
   where
-      S: serde::Serializer {
+    S: serde::Serializer,
+  {
     use serde::ser::SerializeStruct;
     let mut se = serializer.serialize_struct("Bus", 9)?;
 
@@ -74,11 +82,11 @@ impl Default for Bus {
   fn default() -> Self {
     Self {
       cart: CartHeader::default(),
-      ctx:  SharedCtx::default(),
+      ctx: SharedCtx::default(),
 
-      ram:  Default::default(),
-      prg:  Default::default(),
-      chr:  Default::default(),
+      ram: Default::default(),
+      prg: Default::default(),
+      chr: Default::default(),
       vram: Default::default(),
       sram: Default::default(),
 
@@ -93,8 +101,8 @@ impl Default for Bus {
 
 impl Bus {
   pub fn new(rom: &[u8]) -> Result<Self, String> {
-    let header = CartHeader::new(&rom)
-      .map_err(|e| format!("Not a valid iNES/Nes2.0 rom: {e}"))?;
+    let header =
+      CartHeader::new(&rom).map_err(|e| format!("Not a valid iNES/Nes2.0 rom: {e}"))?;
 
     println!("Loaded NES ROM: {:#?}", header);
 
@@ -104,31 +112,44 @@ impl Bus {
     let prg_start = cart::HEADER_SIZE + if header.has_trainer { 512 } else { 0 };
     let chr_start = prg_start + header.prg_size;
 
-    let prg = rom[prg_start..chr_start]
-      .to_vec().into_boxed_slice();
+    let prg = rom[prg_start..chr_start].to_vec().into_boxed_slice();
     let chr = if header.uses_chr_ram {
       vec![0; header.chr_ram_size]
+    } else {
+      rom[chr_start..chr_start + header.chr_size].to_vec()
     }
-    else { 
-      rom[chr_start..chr_start+header.chr_size].to_vec()
-    }.into_boxed_slice();
+    .into_boxed_slice();
 
     let sram_size = header.sram_real_size();
     let sram = vec![0; sram_size].into_boxed_slice();
 
-    let vram_size = if header.has_alt_mirroring { 4 * 1024 } else { 2 * 1024 };
+    let vram_size = if header.has_alt_mirroring {
+      4 * 1024
+    } else {
+      2 * 1024
+    };
     let vram = vec![0; vram_size].into_boxed_slice();
-    
+
     let mut ram = vec![0; 2 * 1024].into_boxed_slice();
     let _ = getrandom::fill(&mut ram)
       .inspect_err(|e| eprintln!("Couldn't initialize RAM with random values: {e}"));
 
     let ppu_timing = header.timing.into();
 
-    Ok(Self { cart: header, prg, chr, vram, sram, ram, mapper, cfg, ppu_timing, ..Default::default() })
+    Ok(Self {
+      cart: header,
+      prg,
+      chr,
+      vram,
+      sram,
+      ram,
+      mapper,
+      cfg,
+      ppu_timing,
+      ..Default::default()
+    })
   }
 }
-
 
 impl Bus {
   pub fn cpu_read(&mut self, addr: u16) -> u8 {
@@ -147,33 +168,30 @@ impl Bus {
   }
 
   pub fn ppu_read(&mut self, addr: u16) -> u8 {
-		let dev = (addr >> 10) & 0xf;
-		let handler = self.cfg.mapping.ppu_reads[dev as usize];
-		handler(self, addr & 0x3fff)
+    let dev = (addr >> 10) & 0xf;
+    let handler = self.cfg.mapping.ppu_reads[dev as usize];
+    handler(self, addr & 0x3fff)
   }
 
   pub fn ppu_write(&mut self, addr: u16, val: u8) {
-		let dev = (addr >> 10) & 0xf;
-		let handler = self.cfg.mapping.ppu_writes[dev as usize];
-		handler(self, addr & 0x3fff, val);
+    let dev = (addr >> 10) & 0xf;
+    let handler = self.cfg.mapping.ppu_writes[dev as usize];
+    handler(self, addr & 0x3fff, val);
   }
 
   // TODO: these functions dont have to be here
   pub fn tick(&mut self) {
-    const PPU_STEPPINGS: [fn(&mut Bus); 2] = [Bus::ppu_step_nstc, Bus::ppu_step_pal]; 
+    const PPU_STEPPINGS: [fn(&mut Bus); 2] = [Bus::ppu_step_nstc, Bus::ppu_step_pal];
     PPU_STEPPINGS[self.ppu_timing as usize](self);
     self.ctx.apu().tick();
     self.mapper.notify_cpu_cycle();
   }
 
-
   pub fn handle_dmc(&mut self) {
-    while self.ctx.apu().dmc.reader.is_transfering()
-      && self.ctx.apu().dmc.is_empty() 
-    {
+    while self.ctx.apu().dmc.reader.is_transfering() && self.ctx.apu().dmc.is_empty() {
       self.tick();
       self.tick();
-      
+
       let addr = self.ctx.apu().dmc.reader.current();
       let to_write = self.cpu_read(addr);
       self.tick();
@@ -191,7 +209,7 @@ impl Bus {
 
   fn ppu_step_pal(&mut self) {
     self.ppu_step_nstc();
-    
+
     // PPU is run for 3.2 cycles on PAL
     self.ppu_pal_cycles += 1;
     if self.ppu_pal_cycles >= 5 {
@@ -202,8 +220,8 @@ impl Bus {
 
   pub fn irq_poll(&mut self) -> bool {
     self.mapper.poll_irq()
-    || self.ctx.apu().frame_irq_flag.is_some()
-    || self.ctx.apu().dmc.irq_flag.is_some()
+      || self.ctx.apu().frame_irq_flag.is_some()
+      || self.ctx.apu().dmc.irq_flag.is_some()
   }
 
   pub fn nmi_poll(&mut self) -> bool {
