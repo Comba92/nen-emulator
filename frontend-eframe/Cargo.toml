@@ -12,4 +12,6 @@ eframe = "0.31.1"
 egui = "0.31.1"
 egui_glow = "0.31.1"
 nen-emulator = { path = "../" }
-sdl2 = "0.37.0"
+# sdl2 = "0.37.0"
+zip = "4.0.0"
+pot = "3.0.1"

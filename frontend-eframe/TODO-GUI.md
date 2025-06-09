@@ -1,3 +1,4 @@
+- [ ] Savestates
 - [ ] Video size
 - [x] Aspect ratio
 - [ ] Video filter
@@ -6,9 +7,10 @@
 
 - [ ] Audio volume
 - [ ] Keybinds
-- [ ] Folders
+- [ ] Folders / persistance
 - [ ] Controller (gilrs)
 
+- [ ] Clear texture when reset
 - [ ] Theme and style
 
 - [ ] Registers viewer

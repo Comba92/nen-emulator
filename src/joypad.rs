@@ -2,17 +2,17 @@ use bitflags::bitflags;
 
 bitflags! {
   #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-  #[derive(Default, Clone, Copy)]
+  #[derive(Debug, Default, Clone, Copy)]
   pub struct JoypadButton: u8 {
-  const right  = 0b1000_0000;
-  const left   = 0b0100_0000;
-  const down   = 0b0010_0000;
-  const up   = 0b0001_0000;
+  const Right  = 0b1000_0000;
+  const Left   = 0b0100_0000;
+  const Down   = 0b0010_0000;
+  const Up   = 0b0001_0000;
 
-  const start  = 0b0000_1000;
-  const select = 0b0000_0100;
-  const a    = 0b0000_0010;
-  const b    = 0b0000_0001;
+  const Start  = 0b0000_1000;
+  const Select = 0b0000_0100;
+  const A    = 0b0000_0010;
+  const B    = 0b0000_0001;
   }
 }
 
@@ -38,7 +38,7 @@ impl Joypad {
 
   pub fn read1(&mut self) -> u8 {
     if self.strobe {
-      return self.buttons1.contains(JoypadButton::a) as u8;
+      return self.buttons1.contains(JoypadButton::A) as u8;
     }
 
     let res = (self.buttons1.bits() >> self.button_idx1) & 1;
@@ -49,7 +49,7 @@ impl Joypad {
 
   pub fn read2(&mut self) -> u8 {
     if self.strobe {
-      return self.buttons2.contains(JoypadButton::a) as u8;
+      return self.buttons2.contains(JoypadButton::A) as u8;
     }
 
     let res = (self.buttons2.bits() >> self.button_idx2) & 1;

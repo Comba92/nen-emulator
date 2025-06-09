@@ -1,4 +1,4 @@
-use std::{io::Read, sync::Arc, time::{Duration, Instant}};
+use std::{collections::HashMap, io::{Read, Seek, Write}, sync::Arc, time::{Duration, Instant}};
 
 use eframe::egui;
 use nen_emulator::{Emulator, JoypadButton};
@@ -39,20 +39,59 @@ enum AppState {
   EmuRunning, EmuPaused, #[default] EmuStopped,
 }
 
+enum EmuKeys {
+  Up, Down, Left, Right, A, B, Start, Select, 
+}
+
+struct EmuKey {
+  btn: JoypadButton,
+  name: &'static str,
+  value: String,
+}
+impl EmuKey {
+  pub fn new(btn: JoypadButton, name: &'static str) -> Self {
+    Self { btn, name, value: String::new() }
+  }
+}
+
+struct KeyMap {
+  keys: HashMap<egui::Key, EmuKey>,
+}
+impl Default for KeyMap {
+  fn default() -> Self {
+    use egui::Key;
+    use nen_emulator::JoypadButton as Btn;
+    let keys = HashMap::from([
+      (Key::ArrowUp, EmuKey::new(Btn::Up, "Up")),
+      (Key::ArrowDown, EmuKey::new(Btn::Down, "Down")),
+      (Key::ArrowLeft, EmuKey::new(Btn::Left, "Left")),
+      (Key::ArrowRight,EmuKey::new(Btn::Right, "Right")),
+      (Key::Z, EmuKey::new(Btn::A, "A")),
+      (Key::X, EmuKey::new(Btn::B, "B")),
+      (Key::A, EmuKey::new(Btn::Start, "Start")),
+      (Key::S, EmuKey::new(Btn::Select, "Select")),
+    ]);
+
+    Self { keys }
+  }
+}
+
 #[derive(Default)]
 struct AppCtx {
   emu: Box<Emulator>,
   state: AppState,
+  keymap: KeyMap,
   
   video_tex: Option<egui::TextureHandle>,
   
-  current_rom: String,
+  current_rom_path: String,
   recent_roms: Vec<String>,
   should_close: bool,
 
   show_bugs_wnd: bool,
   show_about_wnd: bool,
   show_closing_wnd: bool,
+  show_keybinds_wnd: bool,
   is_fullscreen: bool,
 
   frame_dt: f32,
@@ -121,6 +160,7 @@ impl AppCtx {
           }
           if ui.button("Quit").clicked() {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            ui.close_menu();
           }
         });
       
@@ -153,7 +193,7 @@ impl AppCtx {
           }
           if ui.button("Reload ROM").clicked() {
             self.save_sram();
-            self.open_rom(&self.current_rom.clone());
+            self.open_rom(&self.current_rom_path.clone());
             ui.close_menu();
           }
           if ui.button("Power OFF").clicked() {
@@ -176,7 +216,8 @@ impl AppCtx {
         });
         ui.menu_button("Settings", |ui| {
           if ui.button("Keyboard binds").clicked() {
-
+            self.show_keybinds_wnd = true;
+            ui.close_menu();
           }
           if ui.button("Controller binds").clicked() {
 
@@ -242,6 +283,16 @@ impl AppCtx {
       ui.hyperlink_to("Report bugs on the github issues page: ", "https://github.com/Comba92/nen-emulator/issues")
     });
 
+    let mut show_keybinds_wnd = self.show_keybinds_wnd;
+    egui::Window::new("Keybinds")
+    .open(&mut show_keybinds_wnd)
+    .collapsible(true)
+    .vscroll(true)
+    .show(ctx, |ui| {
+      // TODO, this is hell
+    });
+    self.show_keybinds_wnd = show_keybinds_wnd;
+
     let mut show_closing_wnd = self.show_closing_wnd;
     egui::Window::new("Confirm quitting?")
     .open(&mut show_closing_wnd)
@@ -253,26 +304,19 @@ impl AppCtx {
           self.should_close = true;
         }
         if ui.button("No").clicked() {
-          self.show_closing_wnd = false;
+          self.show_closing_wnd = true;
         }
       });
     });
+    self.show_closing_wnd = show_closing_wnd;
   }
 
   fn handle_keyboard_input(&mut self, ctx: &egui::Context) {
     ctx.input(|i| {
       self.emu.clear_all_joypad_btns();
       for key in &i.keys_down {
-        match key {
-          egui::Key::A => self.emu.set_joypad_btn(JoypadButton::left),
-          egui::Key::D => self.emu.set_joypad_btn(JoypadButton::right),
-          egui::Key::W => self.emu.set_joypad_btn(JoypadButton::up),
-          egui::Key::S => self.emu.set_joypad_btn(JoypadButton::down),
-          egui::Key::J => self.emu.set_joypad_btn(JoypadButton::a),
-          egui::Key::K => self.emu.set_joypad_btn(JoypadButton::b),
-          egui::Key::M => self.emu.set_joypad_btn(JoypadButton::start),
-          egui::Key::N => self.emu.set_joypad_btn(JoypadButton::select),
-          _ => {}
+        if let Some(key) = self.keymap.keys.get(key) {
+          self.emu.set_joypad_btn(key.btn);
         }
       }
     });
@@ -295,24 +339,66 @@ impl AppCtx {
     });
   }
   
+  // TODO: handle errors
   fn open_rom(&mut self, rom_path: &str) {
-    let rom_file: std::fs::File = std::fs::File::open(&rom_path).unwrap();
-    let mut reader = std::io::BufReader::new(rom_file);
     let mut rom_bytes = Vec::new();
-    reader.read_to_end(&mut rom_bytes).unwrap();
+	  let mut file = std::fs::File::open(rom_path).unwrap();
+    let reader = std::io::BufReader::new(&file);
+    
+	  let _read_count = zip::read::ZipArchive::new(reader)
+      .map_err(|e| std::io::Error::other(e))
+      .and_then(|mut archive|
+        // we only take the first file in the archive, might be done in a smarter way
+        archive.by_index(0)
+        .map_err(|e| std::io::Error::other(e))
+        .and_then(|mut f| f.read_to_end(&mut rom_bytes))
+      ).or_else(|_| {
+        // it is a raw .nes file
+        file.rewind().unwrap();
+        std::io::BufReader::new(&file)
+        .read_to_end(&mut rom_bytes)
+      })
+      .unwrap();
 
     // TODO: ask user if should close/save current game?
     if let Ok(new_emu) = Emulator::new(&rom_bytes) {
+      println!("Loading emu");
       self.save_sram();
       self.emu = new_emu;
+      self.load_sram();
       self.state = AppState::EmuRunning;
-      self.current_rom = rom_path.to_string();
-      self.recent_roms.push(rom_path.to_string());
+      self.current_rom_path = rom_path.to_string();
+
+      if !self.recent_roms.contains(&self.current_rom_path) {
+        self.recent_roms.push(rom_path.to_string());
+
+        if self.recent_roms.len() > 10 {
+          self.recent_roms.remove(0);
+        }
+      }
     }
   }
 
+  // TODO: handle errors
   fn save_sram(&mut self) {
-    // TODO
+    if let Some(data) = self.emu.get_sram() {
+      let path = std::path::PathBuf::from(&self.current_rom_path).with_extension("srm");
+      let _ = std::io::BufWriter::new(std::fs::File::create(path).unwrap())
+        .write(data)
+        .inspect_err(|e| eprintln!("Couldn't save: {e}"));
+      }
+  }
+  
+  // TODO: handle errors
+  fn load_sram(&mut self) {
+    let path = std::path::PathBuf::from(&self.current_rom_path).with_extension("srm");
+    let mut data = Vec::new();
+    let file = std::fs::File::open(path);
+    if let Ok(file) = file {
+      let _ = std::io::BufReader::new(file)
+      .read_to_end(&mut data).unwrap();
+      self.emu.set_sram(&data);
+    }
   }
 }
 
