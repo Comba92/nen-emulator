@@ -12,6 +12,7 @@ use super::{Banking, Mapper};
 #[derive(Default)]
 pub struct BandaiFCG {
   submapper: u8,
+  #[allow(unused)]
   eeprom: Box<[u8]>,
 
   irq_enabled: bool,

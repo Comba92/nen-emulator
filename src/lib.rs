@@ -15,6 +15,7 @@ pub mod apu;
 pub mod banks;
 pub mod bus;
 pub mod cart;
+pub mod fds;
 pub mod cpu;
 pub mod dma;
 pub mod joypad;

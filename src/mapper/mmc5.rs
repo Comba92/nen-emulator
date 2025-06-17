@@ -81,7 +81,7 @@ pub struct MMC5 {
 
   exram_mode: ExRamMode,
   exram: Box<[u8]>,
-  ex_attr_bank: Banking<ChrBanking>,
+  // ex_attr_bank: Banking<ChrBanking>,
   last_nametbl_addr: usize,
 
   nametbls_mapping: [NametblMapping; 4],
@@ -297,7 +297,7 @@ impl Mapper for MMC5 {
     banks.prg = Banking::new_prg(header, 4);
     let spr_banks = Banking::new_chr(header, 8);
     let bg_banks = Banking::new_chr(header, 8);
-    let ex_attr_bank = Banking::new(header.chr_real_size(), 0, 4 * 1024, 1);
+    // let ex_attr_bank = Banking::new(header.chr_real_size(), 0, 4 * 1024, 1);
     banks.sram = Banking::new(header.sram_real_size(), 0x6000, 8 * 1024, 4);
 
     let mut mapper = Self {
@@ -305,7 +305,7 @@ impl Mapper for MMC5 {
       ppu_data_sub: true,
       spr_banks,
       bg_banks,
-      ex_attr_bank,
+      // ex_attr_bank,
 
       ..Default::default()
     };

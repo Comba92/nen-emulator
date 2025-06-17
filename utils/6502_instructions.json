@@ -1,0 +1,5230 @@
+{
+  "modes": [
+    {
+      "kind": "Absolute",
+      "size_bytes": 3,
+      "cycles": 3,
+      "dummy_reads": "Never",
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#modes_absolute"
+      ]
+    },
+    {
+      "kind": "AbsoluteX",
+      "size_bytes": 3,
+      "cycles": 3,
+      "dummy_reads": "AtPageCross",
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#modes_indexed"
+      ]
+    },
+    {
+      "kind": "AbsoluteY",
+      "size_bytes": 3,
+      "cycles": 3,
+      "dummy_reads": "AtPageCross",
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#modes_indexed"
+      ]
+    },
+    {
+      "kind": "Accumulator",
+      "size_bytes": 1,
+      "cycles": 2,
+      "dummy_reads": "Always",
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#modes_implied"
+      ]
+    },
+    {
+      "kind": "Immediate",
+      "size_bytes": 1,
+      "cycles": 2,
+      "dummy_reads": "Never",
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#modes_immediate"
+      ]
+    },
+    {
+      "kind": "Implied",
+      "size_bytes": 1,
+      "cycles": 2,
+      "dummy_reads": "Always",
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#modes_implied"
+      ]
+    },
+    {
+      "kind": "Indirect",
+      "size_bytes": 3,
+      "cycles": 5,
+      "dummy_reads": "Never",
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#modes_indirect"
+      ]
+    },
+    {
+      "kind": "IndirectX",
+      "size_bytes": 2,
+      "cycles": 5,
+      "dummy_reads": "Always",
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#modes_preindexed_indirect"
+      ]
+    },
+    {
+      "kind": "IndirectY",
+      "size_bytes": 2,
+      "cycles": 4,
+      "dummy_reads": "AtPageCross",
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#modes_postindexed_indirect"
+      ]
+    },
+    {
+      "kind": "Relative",
+      "size_bytes": 1,
+      "cycles": 2,
+      "dummy_reads": "Never",
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#modes_relative"
+      ]
+    },
+    {
+      "kind": "ZeroPage",
+      "size_bytes": 2,
+      "cycles": 2,
+      "dummy_reads": "Never",
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#modes_zeropage"
+      ]
+    },
+    {
+      "kind": "ZeroPageX",
+      "size_bytes": 2,
+      "cycles": 3,
+      "dummy_reads": "Always",
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#modes_zeropage_indexed"
+      ]
+    },
+    {
+      "kind": "ZeroPageY",
+      "size_bytes": 2,
+      "cycles": 3,
+      "dummy_reads": "Always",
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#modes_zeropage_indexed"
+      ]
+    }
+  ],
+  "opcodes": [
+    {
+      "name": "BRK",
+      "name_long": "Break / Software Interrupt",
+      "opcode": 0,
+      "opcode_hex": "0x00",
+      "addressing_mode": "Implied",
+      "cycles": 7,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "B"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#BRK",
+        "http://www.6502.org/users/obelisk/6502/reference.html#BRK",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#BRK"
+      ]
+    },
+    {
+      "name": "ORA",
+      "name_long": "Logical Inclusive OR",
+      "opcode": 1,
+      "opcode_hex": "0x01",
+      "addressing_mode": "IndirectX",
+      "cycles": 6,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#ORA",
+        "http://www.6502.org/users/obelisk/6502/reference.html#ORA",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#ORA"
+      ]
+    },
+    {
+      "name": "JAM",
+      "name_long": "",
+      "opcode": 2,
+      "opcode_hex": "0x02",
+      "addressing_mode": "Implied",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "JAM",
+        "KIL",
+        "HLT"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#JAM"
+      ]
+    },
+    {
+      "name": "SLO",
+      "name_long": "",
+      "opcode": 3,
+      "opcode_hex": "0x03",
+      "addressing_mode": "IndirectX",
+      "cycles": 8,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [
+        "SLO",
+        "ASO"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#SLO"
+      ]
+    },
+    {
+      "name": "NOP",
+      "name_long": "No operation",
+      "opcode": 4,
+      "opcode_hex": "0x04",
+      "addressing_mode": "ZeroPage",
+      "cycles": 3,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "NOP"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#NOP"
+      ]
+    },
+    {
+      "name": "ORA",
+      "name_long": "Logical Inclusive OR",
+      "opcode": 5,
+      "opcode_hex": "0x05",
+      "addressing_mode": "ZeroPage",
+      "cycles": 3,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#ORA",
+        "http://www.6502.org/users/obelisk/6502/reference.html#ORA",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#ORA"
+      ]
+    },
+    {
+      "name": "ASL",
+      "name_long": "Arithmetic shift left",
+      "opcode": 6,
+      "opcode_hex": "0x06",
+      "addressing_mode": "ZeroPage",
+      "cycles": 5,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [],
+      "status_flags": [
+        "C",
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#ASL",
+        "http://www.6502.org/users/obelisk/6502/reference.html#ASL",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#ASL"
+      ]
+    },
+    {
+      "name": "SLO",
+      "name_long": "",
+      "opcode": 7,
+      "opcode_hex": "0x07",
+      "addressing_mode": "ZeroPage",
+      "cycles": 5,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [
+        "SLO",
+        "ASO"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#SLO"
+      ]
+    },
+    {
+      "name": "PHP",
+      "name_long": "Push processor status",
+      "opcode": 8,
+      "opcode_hex": "0x08",
+      "addressing_mode": "Implied",
+      "cycles": 3,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#PHP",
+        "http://www.6502.org/users/obelisk/6502/reference.html#PHP",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#PHP"
+      ]
+    },
+    {
+      "name": "ORA",
+      "name_long": "Logical Inclusive OR",
+      "opcode": 9,
+      "opcode_hex": "0x09",
+      "addressing_mode": "Immediate",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#ORA",
+        "http://www.6502.org/users/obelisk/6502/reference.html#ORA",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#ORA"
+      ]
+    },
+    {
+      "name": "ASL",
+      "name_long": "Arithmetic shift left",
+      "opcode": 10,
+      "opcode_hex": "0x0a",
+      "addressing_mode": "Accumulator",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [],
+      "status_flags": [
+        "C",
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#ASL",
+        "http://www.6502.org/users/obelisk/6502/reference.html#ASL",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#ASL"
+      ]
+    },
+    {
+      "name": "ANC",
+      "name_long": "",
+      "opcode": 11,
+      "opcode_hex": "0x0b",
+      "addressing_mode": "Immediate",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "ANC"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#ANC"
+      ]
+    },
+    {
+      "name": "NOP",
+      "name_long": "No operation",
+      "opcode": 12,
+      "opcode_hex": "0x0c",
+      "addressing_mode": "Absolute",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "NOP"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#NOP"
+      ]
+    },
+    {
+      "name": "ORA",
+      "name_long": "Logical Inclusive OR",
+      "opcode": 13,
+      "opcode_hex": "0x0d",
+      "addressing_mode": "Absolute",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#ORA",
+        "http://www.6502.org/users/obelisk/6502/reference.html#ORA",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#ORA"
+      ]
+    },
+    {
+      "name": "ASL",
+      "name_long": "Arithmetic shift left",
+      "opcode": 14,
+      "opcode_hex": "0x0e",
+      "addressing_mode": "Absolute",
+      "cycles": 6,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [],
+      "status_flags": [
+        "C",
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#ASL",
+        "http://www.6502.org/users/obelisk/6502/reference.html#ASL",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#ASL"
+      ]
+    },
+    {
+      "name": "SLO",
+      "name_long": "",
+      "opcode": 15,
+      "opcode_hex": "0x0f",
+      "addressing_mode": "Absolute",
+      "cycles": 6,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [
+        "SLO",
+        "ASO"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#SLO"
+      ]
+    },
+    {
+      "name": "BPL",
+      "name_long": "Branch if positive",
+      "opcode": 16,
+      "opcode_hex": "0x10",
+      "addressing_mode": "Relative",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#BPL",
+        "http://www.6502.org/users/obelisk/6502/reference.html#BPL",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#BPL"
+      ]
+    },
+    {
+      "name": "ORA",
+      "name_long": "Logical Inclusive OR",
+      "opcode": 17,
+      "opcode_hex": "0x11",
+      "addressing_mode": "IndirectY",
+      "cycles": 5,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#ORA",
+        "http://www.6502.org/users/obelisk/6502/reference.html#ORA",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#ORA"
+      ]
+    },
+    {
+      "name": "JAM",
+      "name_long": "",
+      "opcode": 18,
+      "opcode_hex": "0x12",
+      "addressing_mode": "Implied",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "JAM",
+        "KIL",
+        "HLT"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#JAM"
+      ]
+    },
+    {
+      "name": "SLO",
+      "name_long": "",
+      "opcode": 19,
+      "opcode_hex": "0x13",
+      "addressing_mode": "IndirectY",
+      "cycles": 8,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [
+        "SLO",
+        "ASO"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#SLO"
+      ]
+    },
+    {
+      "name": "NOP",
+      "name_long": "No operation",
+      "opcode": 20,
+      "opcode_hex": "0x14",
+      "addressing_mode": "ZeroPageX",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "NOP"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#NOP"
+      ]
+    },
+    {
+      "name": "ORA",
+      "name_long": "Logical Inclusive OR",
+      "opcode": 21,
+      "opcode_hex": "0x15",
+      "addressing_mode": "ZeroPageX",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#ORA",
+        "http://www.6502.org/users/obelisk/6502/reference.html#ORA",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#ORA"
+      ]
+    },
+    {
+      "name": "ASL",
+      "name_long": "Arithmetic shift left",
+      "opcode": 22,
+      "opcode_hex": "0x16",
+      "addressing_mode": "ZeroPageX",
+      "cycles": 6,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [],
+      "status_flags": [
+        "C",
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#ASL",
+        "http://www.6502.org/users/obelisk/6502/reference.html#ASL",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#ASL"
+      ]
+    },
+    {
+      "name": "SLO",
+      "name_long": "",
+      "opcode": 23,
+      "opcode_hex": "0x17",
+      "addressing_mode": "ZeroPageX",
+      "cycles": 6,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [
+        "SLO",
+        "ASO"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#SLO"
+      ]
+    },
+    {
+      "name": "CLC",
+      "name_long": "Clear carry",
+      "opcode": 24,
+      "opcode_hex": "0x18",
+      "addressing_mode": "Implied",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "C"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#CLC",
+        "http://www.6502.org/users/obelisk/6502/reference.html#CLC",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#CLC"
+      ]
+    },
+    {
+      "name": "ORA",
+      "name_long": "Logical Inclusive OR",
+      "opcode": 25,
+      "opcode_hex": "0x19",
+      "addressing_mode": "AbsoluteY",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#ORA",
+        "http://www.6502.org/users/obelisk/6502/reference.html#ORA",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#ORA"
+      ]
+    },
+    {
+      "name": "NOP",
+      "name_long": "No operation",
+      "opcode": 26,
+      "opcode_hex": "0x1a",
+      "addressing_mode": "Implied",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "NOP"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#NOP"
+      ]
+    },
+    {
+      "name": "SLO",
+      "name_long": "",
+      "opcode": 27,
+      "opcode_hex": "0x1b",
+      "addressing_mode": "AbsoluteY",
+      "cycles": 7,
+      "dummy_reads": true,
+      "dummy_writes": true,
+      "all_names": [
+        "SLO",
+        "ASO"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#SLO"
+      ]
+    },
+    {
+      "name": "NOP",
+      "name_long": "No operation",
+      "opcode": 28,
+      "opcode_hex": "0x1c",
+      "addressing_mode": "AbsoluteX",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "NOP"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#NOP"
+      ]
+    },
+    {
+      "name": "ORA",
+      "name_long": "Logical Inclusive OR",
+      "opcode": 29,
+      "opcode_hex": "0x1d",
+      "addressing_mode": "AbsoluteX",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#ORA",
+        "http://www.6502.org/users/obelisk/6502/reference.html#ORA",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#ORA"
+      ]
+    },
+    {
+      "name": "ASL",
+      "name_long": "Arithmetic shift left",
+      "opcode": 30,
+      "opcode_hex": "0x1e",
+      "addressing_mode": "AbsoluteX",
+      "cycles": 7,
+      "dummy_reads": true,
+      "dummy_writes": true,
+      "all_names": [],
+      "status_flags": [
+        "C",
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#ASL",
+        "http://www.6502.org/users/obelisk/6502/reference.html#ASL",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#ASL"
+      ]
+    },
+    {
+      "name": "SLO",
+      "name_long": "",
+      "opcode": 31,
+      "opcode_hex": "0x1f",
+      "addressing_mode": "AbsoluteX",
+      "cycles": 7,
+      "dummy_reads": true,
+      "dummy_writes": true,
+      "all_names": [
+        "SLO",
+        "ASO"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#SLO"
+      ]
+    },
+    {
+      "name": "JSR",
+      "name_long": "Jump to subroutine",
+      "opcode": 32,
+      "opcode_hex": "0x20",
+      "addressing_mode": "Absolute",
+      "cycles": 6,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#JSR",
+        "http://www.6502.org/users/obelisk/6502/reference.html#JSR",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#JSR"
+      ]
+    },
+    {
+      "name": "AND",
+      "name_long": "Logical AND",
+      "opcode": 33,
+      "opcode_hex": "0x21",
+      "addressing_mode": "IndirectX",
+      "cycles": 6,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#AND",
+        "http://www.6502.org/users/obelisk/6502/reference.html#AND",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#AND"
+      ]
+    },
+    {
+      "name": "JAM",
+      "name_long": "",
+      "opcode": 34,
+      "opcode_hex": "0x22",
+      "addressing_mode": "Implied",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "JAM",
+        "KIL",
+        "HLT"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#JAM"
+      ]
+    },
+    {
+      "name": "RLA",
+      "name_long": "",
+      "opcode": 35,
+      "opcode_hex": "0x23",
+      "addressing_mode": "IndirectX",
+      "cycles": 8,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [
+        "RLA"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#RLA"
+      ]
+    },
+    {
+      "name": "BIT",
+      "name_long": "Bit test",
+      "opcode": 36,
+      "opcode_hex": "0x24",
+      "addressing_mode": "ZeroPage",
+      "cycles": 3,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "V",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#BIT",
+        "http://www.6502.org/users/obelisk/6502/reference.html#BIT",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#BIT"
+      ]
+    },
+    {
+      "name": "AND",
+      "name_long": "Logical AND",
+      "opcode": 37,
+      "opcode_hex": "0x25",
+      "addressing_mode": "ZeroPage",
+      "cycles": 3,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#AND",
+        "http://www.6502.org/users/obelisk/6502/reference.html#AND",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#AND"
+      ]
+    },
+    {
+      "name": "ROL",
+      "name_long": "Rotate left",
+      "opcode": 38,
+      "opcode_hex": "0x26",
+      "addressing_mode": "ZeroPage",
+      "cycles": 5,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#ROL",
+        "http://www.6502.org/users/obelisk/6502/reference.html#ROL",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#ROL"
+      ]
+    },
+    {
+      "name": "RLA",
+      "name_long": "",
+      "opcode": 39,
+      "opcode_hex": "0x27",
+      "addressing_mode": "ZeroPage",
+      "cycles": 5,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [
+        "RLA"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#RLA"
+      ]
+    },
+    {
+      "name": "PLP",
+      "name_long": "Pull processor status",
+      "opcode": 40,
+      "opcode_hex": "0x28",
+      "addressing_mode": "Implied",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "C",
+        "Z",
+        "I",
+        "D",
+        "B",
+        "V",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#PLP",
+        "http://www.6502.org/users/obelisk/6502/reference.html#PLP",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#PLP"
+      ]
+    },
+    {
+      "name": "AND",
+      "name_long": "Logical AND",
+      "opcode": 41,
+      "opcode_hex": "0x29",
+      "addressing_mode": "Immediate",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#AND",
+        "http://www.6502.org/users/obelisk/6502/reference.html#AND",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#AND"
+      ]
+    },
+    {
+      "name": "ROL",
+      "name_long": "Rotate left",
+      "opcode": 42,
+      "opcode_hex": "0x2a",
+      "addressing_mode": "Accumulator",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#ROL",
+        "http://www.6502.org/users/obelisk/6502/reference.html#ROL",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#ROL"
+      ]
+    },
+    {
+      "name": "ANC",
+      "name_long": "",
+      "opcode": 43,
+      "opcode_hex": "0x2b",
+      "addressing_mode": "Immediate",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "ANC",
+        "ANC2"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#ANC"
+      ]
+    },
+    {
+      "name": "BIT",
+      "name_long": "Bit test",
+      "opcode": 44,
+      "opcode_hex": "0x2c",
+      "addressing_mode": "Absolute",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "V",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#BIT",
+        "http://www.6502.org/users/obelisk/6502/reference.html#BIT",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#BIT"
+      ]
+    },
+    {
+      "name": "AND",
+      "name_long": "Logical AND",
+      "opcode": 45,
+      "opcode_hex": "0x2d",
+      "addressing_mode": "Absolute",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#AND",
+        "http://www.6502.org/users/obelisk/6502/reference.html#AND",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#AND"
+      ]
+    },
+    {
+      "name": "ROL",
+      "name_long": "Rotate left",
+      "opcode": 46,
+      "opcode_hex": "0x2e",
+      "addressing_mode": "Absolute",
+      "cycles": 6,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#ROL",
+        "http://www.6502.org/users/obelisk/6502/reference.html#ROL",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#ROL"
+      ]
+    },
+    {
+      "name": "RLA",
+      "name_long": "",
+      "opcode": 47,
+      "opcode_hex": "0x2f",
+      "addressing_mode": "Absolute",
+      "cycles": 6,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [
+        "RLA"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#RLA"
+      ]
+    },
+    {
+      "name": "BMI",
+      "name_long": "Branch if minus",
+      "opcode": 48,
+      "opcode_hex": "0x30",
+      "addressing_mode": "Relative",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#BMI",
+        "http://www.6502.org/users/obelisk/6502/reference.html#BMI",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#BMI"
+      ]
+    },
+    {
+      "name": "AND",
+      "name_long": "Logical AND",
+      "opcode": 49,
+      "opcode_hex": "0x31",
+      "addressing_mode": "IndirectY",
+      "cycles": 5,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#AND",
+        "http://www.6502.org/users/obelisk/6502/reference.html#AND",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#AND"
+      ]
+    },
+    {
+      "name": "JAM",
+      "name_long": "",
+      "opcode": 50,
+      "opcode_hex": "0x32",
+      "addressing_mode": "Implied",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "JAM",
+        "KIL",
+        "HLT"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#JAM"
+      ]
+    },
+    {
+      "name": "RLA",
+      "name_long": "",
+      "opcode": 51,
+      "opcode_hex": "0x33",
+      "addressing_mode": "IndirectY",
+      "cycles": 8,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [
+        "RLA"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#RLA"
+      ]
+    },
+    {
+      "name": "NOP",
+      "name_long": "No operation",
+      "opcode": 52,
+      "opcode_hex": "0x34",
+      "addressing_mode": "ZeroPageX",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "NOP"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#NOP"
+      ]
+    },
+    {
+      "name": "AND",
+      "name_long": "Logical AND",
+      "opcode": 53,
+      "opcode_hex": "0x35",
+      "addressing_mode": "ZeroPageX",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#AND",
+        "http://www.6502.org/users/obelisk/6502/reference.html#AND",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#AND"
+      ]
+    },
+    {
+      "name": "ROL",
+      "name_long": "Rotate left",
+      "opcode": 54,
+      "opcode_hex": "0x36",
+      "addressing_mode": "ZeroPageX",
+      "cycles": 6,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#ROL",
+        "http://www.6502.org/users/obelisk/6502/reference.html#ROL",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#ROL"
+      ]
+    },
+    {
+      "name": "RLA",
+      "name_long": "",
+      "opcode": 55,
+      "opcode_hex": "0x37",
+      "addressing_mode": "ZeroPageX",
+      "cycles": 6,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [
+        "RLA"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#RLA"
+      ]
+    },
+    {
+      "name": "SEC",
+      "name_long": "Set carry",
+      "opcode": 56,
+      "opcode_hex": "0x38",
+      "addressing_mode": "Implied",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "C"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#SEC",
+        "http://www.6502.org/users/obelisk/6502/reference.html#SEC",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#SEC"
+      ]
+    },
+    {
+      "name": "AND",
+      "name_long": "Logical AND",
+      "opcode": 57,
+      "opcode_hex": "0x39",
+      "addressing_mode": "AbsoluteY",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#AND",
+        "http://www.6502.org/users/obelisk/6502/reference.html#AND",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#AND"
+      ]
+    },
+    {
+      "name": "NOP",
+      "name_long": "No operation",
+      "opcode": 58,
+      "opcode_hex": "0x3a",
+      "addressing_mode": "Implied",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "NOP"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#NOP"
+      ]
+    },
+    {
+      "name": "RLA",
+      "name_long": "",
+      "opcode": 59,
+      "opcode_hex": "0x3b",
+      "addressing_mode": "AbsoluteY",
+      "cycles": 7,
+      "dummy_reads": true,
+      "dummy_writes": true,
+      "all_names": [
+        "RLA"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#RLA"
+      ]
+    },
+    {
+      "name": "NOP",
+      "name_long": "No operation",
+      "opcode": 60,
+      "opcode_hex": "0x3c",
+      "addressing_mode": "AbsoluteX",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "NOP"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#NOP"
+      ]
+    },
+    {
+      "name": "AND",
+      "name_long": "Logical AND",
+      "opcode": 61,
+      "opcode_hex": "0x3d",
+      "addressing_mode": "AbsoluteX",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#AND",
+        "http://www.6502.org/users/obelisk/6502/reference.html#AND",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#AND"
+      ]
+    },
+    {
+      "name": "ROL",
+      "name_long": "Rotate left",
+      "opcode": 62,
+      "opcode_hex": "0x3e",
+      "addressing_mode": "AbsoluteX",
+      "cycles": 7,
+      "dummy_reads": true,
+      "dummy_writes": true,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#ROL",
+        "http://www.6502.org/users/obelisk/6502/reference.html#ROL",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#ROL"
+      ]
+    },
+    {
+      "name": "RLA",
+      "name_long": "",
+      "opcode": 63,
+      "opcode_hex": "0x3f",
+      "addressing_mode": "AbsoluteX",
+      "cycles": 7,
+      "dummy_reads": true,
+      "dummy_writes": true,
+      "all_names": [
+        "RLA"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#RLA"
+      ]
+    },
+    {
+      "name": "RTI",
+      "name_long": "Return from interrupt",
+      "opcode": 64,
+      "opcode_hex": "0x40",
+      "addressing_mode": "Implied",
+      "cycles": 6,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "C",
+        "Z",
+        "I",
+        "D",
+        "B",
+        "V",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#RTI",
+        "http://www.6502.org/users/obelisk/6502/reference.html#RTI",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#RTI"
+      ]
+    },
+    {
+      "name": "EOR",
+      "name_long": "Logical Exclusive OR (XOR)",
+      "opcode": 65,
+      "opcode_hex": "0x41",
+      "addressing_mode": "IndirectX",
+      "cycles": 6,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#EOR",
+        "http://www.6502.org/users/obelisk/6502/reference.html#EOR",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#EOR"
+      ]
+    },
+    {
+      "name": "JAM",
+      "name_long": "",
+      "opcode": 66,
+      "opcode_hex": "0x42",
+      "addressing_mode": "Implied",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "JAM",
+        "KIL",
+        "HLT"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#JAM"
+      ]
+    },
+    {
+      "name": "SRE",
+      "name_long": "",
+      "opcode": 67,
+      "opcode_hex": "0x43",
+      "addressing_mode": "IndirectX",
+      "cycles": 8,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [
+        "SRE",
+        "LSE"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#SRE"
+      ]
+    },
+    {
+      "name": "NOP",
+      "name_long": "No operation",
+      "opcode": 68,
+      "opcode_hex": "0x44",
+      "addressing_mode": "ZeroPage",
+      "cycles": 3,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "NOP"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#NOP"
+      ]
+    },
+    {
+      "name": "EOR",
+      "name_long": "Logical Exclusive OR (XOR)",
+      "opcode": 69,
+      "opcode_hex": "0x45",
+      "addressing_mode": "ZeroPage",
+      "cycles": 3,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#EOR",
+        "http://www.6502.org/users/obelisk/6502/reference.html#EOR",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#EOR"
+      ]
+    },
+    {
+      "name": "LSR",
+      "name_long": "Logical shift right",
+      "opcode": 70,
+      "opcode_hex": "0x46",
+      "addressing_mode": "ZeroPage",
+      "cycles": 5,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [],
+      "status_flags": [
+        "C",
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#LSR",
+        "http://www.6502.org/users/obelisk/6502/reference.html#LSR",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#LSR"
+      ]
+    },
+    {
+      "name": "SRE",
+      "name_long": "",
+      "opcode": 71,
+      "opcode_hex": "0x47",
+      "addressing_mode": "ZeroPage",
+      "cycles": 5,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [
+        "SRE",
+        "LSE"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#SRE"
+      ]
+    },
+    {
+      "name": "PHA",
+      "name_long": "Push accumulator",
+      "opcode": 72,
+      "opcode_hex": "0x48",
+      "addressing_mode": "Implied",
+      "cycles": 3,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#PHA",
+        "http://www.6502.org/users/obelisk/6502/reference.html#PHA",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#PHA"
+      ]
+    },
+    {
+      "name": "EOR",
+      "name_long": "Logical Exclusive OR (XOR)",
+      "opcode": 73,
+      "opcode_hex": "0x49",
+      "addressing_mode": "Immediate",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#EOR",
+        "http://www.6502.org/users/obelisk/6502/reference.html#EOR",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#EOR"
+      ]
+    },
+    {
+      "name": "LSR",
+      "name_long": "Logical shift right",
+      "opcode": 74,
+      "opcode_hex": "0x4a",
+      "addressing_mode": "Accumulator",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [],
+      "status_flags": [
+        "C",
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#LSR",
+        "http://www.6502.org/users/obelisk/6502/reference.html#LSR",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#LSR"
+      ]
+    },
+    {
+      "name": "ALR",
+      "name_long": "",
+      "opcode": 75,
+      "opcode_hex": "0x4b",
+      "addressing_mode": "Immediate",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "ALR",
+        "ASR"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#ALR"
+      ]
+    },
+    {
+      "name": "JMP",
+      "name_long": "Unconditional Jump",
+      "opcode": 76,
+      "opcode_hex": "0x4c",
+      "addressing_mode": "Absolute",
+      "cycles": 3,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#JMP",
+        "http://www.6502.org/users/obelisk/6502/reference.html#JMP",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#JMP"
+      ]
+    },
+    {
+      "name": "EOR",
+      "name_long": "Logical Exclusive OR (XOR)",
+      "opcode": 77,
+      "opcode_hex": "0x4d",
+      "addressing_mode": "Absolute",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#EOR",
+        "http://www.6502.org/users/obelisk/6502/reference.html#EOR",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#EOR"
+      ]
+    },
+    {
+      "name": "LSR",
+      "name_long": "Logical shift right",
+      "opcode": 78,
+      "opcode_hex": "0x4e",
+      "addressing_mode": "Absolute",
+      "cycles": 6,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [],
+      "status_flags": [
+        "C",
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#LSR",
+        "http://www.6502.org/users/obelisk/6502/reference.html#LSR",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#LSR"
+      ]
+    },
+    {
+      "name": "SRE",
+      "name_long": "",
+      "opcode": 79,
+      "opcode_hex": "0x4f",
+      "addressing_mode": "Absolute",
+      "cycles": 6,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [
+        "SRE",
+        "LSE"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#SRE"
+      ]
+    },
+    {
+      "name": "BVC",
+      "name_long": "Branch if overflow clear",
+      "opcode": 80,
+      "opcode_hex": "0x50",
+      "addressing_mode": "Relative",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#BVC",
+        "http://www.6502.org/users/obelisk/6502/reference.html#BVC",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#BVC"
+      ]
+    },
+    {
+      "name": "EOR",
+      "name_long": "Logical Exclusive OR (XOR)",
+      "opcode": 81,
+      "opcode_hex": "0x51",
+      "addressing_mode": "IndirectY",
+      "cycles": 5,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#EOR",
+        "http://www.6502.org/users/obelisk/6502/reference.html#EOR",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#EOR"
+      ]
+    },
+    {
+      "name": "JAM",
+      "name_long": "",
+      "opcode": 82,
+      "opcode_hex": "0x52",
+      "addressing_mode": "Implied",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "JAM",
+        "KIL",
+        "HLT"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#JAM"
+      ]
+    },
+    {
+      "name": "SRE",
+      "name_long": "",
+      "opcode": 83,
+      "opcode_hex": "0x53",
+      "addressing_mode": "IndirectY",
+      "cycles": 8,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [
+        "SRE",
+        "LSE"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#SRE"
+      ]
+    },
+    {
+      "name": "NOP",
+      "name_long": "No operation",
+      "opcode": 84,
+      "opcode_hex": "0x54",
+      "addressing_mode": "ZeroPageX",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "NOP"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#NOP"
+      ]
+    },
+    {
+      "name": "EOR",
+      "name_long": "Logical Exclusive OR (XOR)",
+      "opcode": 85,
+      "opcode_hex": "0x55",
+      "addressing_mode": "ZeroPageX",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#EOR",
+        "http://www.6502.org/users/obelisk/6502/reference.html#EOR",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#EOR"
+      ]
+    },
+    {
+      "name": "LSR",
+      "name_long": "Logical shift right",
+      "opcode": 86,
+      "opcode_hex": "0x56",
+      "addressing_mode": "ZeroPageX",
+      "cycles": 6,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [],
+      "status_flags": [
+        "C",
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#LSR",
+        "http://www.6502.org/users/obelisk/6502/reference.html#LSR",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#LSR"
+      ]
+    },
+    {
+      "name": "SRE",
+      "name_long": "",
+      "opcode": 87,
+      "opcode_hex": "0x57",
+      "addressing_mode": "ZeroPageX",
+      "cycles": 6,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [
+        "SRE",
+        "LSE"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#SRE"
+      ]
+    },
+    {
+      "name": "CLI",
+      "name_long": "Clear interrupt disable",
+      "opcode": 88,
+      "opcode_hex": "0x58",
+      "addressing_mode": "Implied",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "I"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#CLI",
+        "http://www.6502.org/users/obelisk/6502/reference.html#CLI",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#CLI"
+      ]
+    },
+    {
+      "name": "EOR",
+      "name_long": "Logical Exclusive OR (XOR)",
+      "opcode": 89,
+      "opcode_hex": "0x59",
+      "addressing_mode": "AbsoluteY",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#EOR",
+        "http://www.6502.org/users/obelisk/6502/reference.html#EOR",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#EOR"
+      ]
+    },
+    {
+      "name": "NOP",
+      "name_long": "No operation",
+      "opcode": 90,
+      "opcode_hex": "0x5a",
+      "addressing_mode": "Implied",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "NOP"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#NOP"
+      ]
+    },
+    {
+      "name": "SRE",
+      "name_long": "",
+      "opcode": 91,
+      "opcode_hex": "0x5b",
+      "addressing_mode": "AbsoluteY",
+      "cycles": 7,
+      "dummy_reads": true,
+      "dummy_writes": true,
+      "all_names": [
+        "SRE",
+        "LSE"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#SRE"
+      ]
+    },
+    {
+      "name": "NOP",
+      "name_long": "No operation",
+      "opcode": 92,
+      "opcode_hex": "0x5c",
+      "addressing_mode": "AbsoluteX",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "NOP"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#NOP"
+      ]
+    },
+    {
+      "name": "EOR",
+      "name_long": "Logical Exclusive OR (XOR)",
+      "opcode": 93,
+      "opcode_hex": "0x5d",
+      "addressing_mode": "AbsoluteX",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#EOR",
+        "http://www.6502.org/users/obelisk/6502/reference.html#EOR",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#EOR"
+      ]
+    },
+    {
+      "name": "LSR",
+      "name_long": "Logical shift right",
+      "opcode": 94,
+      "opcode_hex": "0x5e",
+      "addressing_mode": "AbsoluteX",
+      "cycles": 7,
+      "dummy_reads": true,
+      "dummy_writes": true,
+      "all_names": [],
+      "status_flags": [
+        "C",
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#LSR",
+        "http://www.6502.org/users/obelisk/6502/reference.html#LSR",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#LSR"
+      ]
+    },
+    {
+      "name": "SRE",
+      "name_long": "",
+      "opcode": 95,
+      "opcode_hex": "0x5f",
+      "addressing_mode": "AbsoluteX",
+      "cycles": 7,
+      "dummy_reads": true,
+      "dummy_writes": true,
+      "all_names": [
+        "SRE",
+        "LSE"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#SRE"
+      ]
+    },
+    {
+      "name": "RTS",
+      "name_long": "Return from subroutine",
+      "opcode": 96,
+      "opcode_hex": "0x60",
+      "addressing_mode": "Implied",
+      "cycles": 6,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#RTS",
+        "http://www.6502.org/users/obelisk/6502/reference.html#RTS",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#RTS"
+      ]
+    },
+    {
+      "name": "ADC",
+      "name_long": "Add with carry",
+      "opcode": 97,
+      "opcode_hex": "0x61",
+      "addressing_mode": "IndirectX",
+      "cycles": 6,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "C",
+        "Z",
+        "V",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#ADC",
+        "http://www.6502.org/users/obelisk/6502/reference.html#ADC",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#ADC"
+      ]
+    },
+    {
+      "name": "JAM",
+      "name_long": "",
+      "opcode": 98,
+      "opcode_hex": "0x62",
+      "addressing_mode": "Implied",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "JAM",
+        "KIL",
+        "HLT"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#JAM"
+      ]
+    },
+    {
+      "name": "RRA",
+      "name_long": "",
+      "opcode": 99,
+      "opcode_hex": "0x63",
+      "addressing_mode": "IndirectX",
+      "cycles": 8,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [
+        "RRA"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#RRA"
+      ]
+    },
+    {
+      "name": "NOP",
+      "name_long": "No operation",
+      "opcode": 100,
+      "opcode_hex": "0x64",
+      "addressing_mode": "ZeroPage",
+      "cycles": 3,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "NOP"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#NOP"
+      ]
+    },
+    {
+      "name": "ADC",
+      "name_long": "Add with carry",
+      "opcode": 101,
+      "opcode_hex": "0x65",
+      "addressing_mode": "ZeroPage",
+      "cycles": 3,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "C",
+        "Z",
+        "V",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#ADC",
+        "http://www.6502.org/users/obelisk/6502/reference.html#ADC",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#ADC"
+      ]
+    },
+    {
+      "name": "ROR",
+      "name_long": "Rotate right",
+      "opcode": 102,
+      "opcode_hex": "0x66",
+      "addressing_mode": "ZeroPage",
+      "cycles": 5,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#ROR",
+        "http://www.6502.org/users/obelisk/6502/reference.html#ROR",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#ROR"
+      ]
+    },
+    {
+      "name": "RRA",
+      "name_long": "",
+      "opcode": 103,
+      "opcode_hex": "0x67",
+      "addressing_mode": "ZeroPage",
+      "cycles": 5,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [
+        "RRA"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#RRA"
+      ]
+    },
+    {
+      "name": "PLA",
+      "name_long": "Pull accumulator",
+      "opcode": 104,
+      "opcode_hex": "0x68",
+      "addressing_mode": "Implied",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#PLA",
+        "http://www.6502.org/users/obelisk/6502/reference.html#PLA",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#PLA"
+      ]
+    },
+    {
+      "name": "ADC",
+      "name_long": "Add with carry",
+      "opcode": 105,
+      "opcode_hex": "0x69",
+      "addressing_mode": "Immediate",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "C",
+        "Z",
+        "V",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#ADC",
+        "http://www.6502.org/users/obelisk/6502/reference.html#ADC",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#ADC"
+      ]
+    },
+    {
+      "name": "ROR",
+      "name_long": "Rotate right",
+      "opcode": 106,
+      "opcode_hex": "0x6a",
+      "addressing_mode": "Accumulator",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#ROR",
+        "http://www.6502.org/users/obelisk/6502/reference.html#ROR",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#ROR"
+      ]
+    },
+    {
+      "name": "ARR",
+      "name_long": "",
+      "opcode": 107,
+      "opcode_hex": "0x6b",
+      "addressing_mode": "Immediate",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "ARR"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#ARR"
+      ]
+    },
+    {
+      "name": "JMP",
+      "name_long": "Unconditional Jump",
+      "opcode": 108,
+      "opcode_hex": "0x6c",
+      "addressing_mode": "Indirect",
+      "cycles": 5,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#JMP",
+        "http://www.6502.org/users/obelisk/6502/reference.html#JMP",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#JMP"
+      ]
+    },
+    {
+      "name": "ADC",
+      "name_long": "Add with carry",
+      "opcode": 109,
+      "opcode_hex": "0x6d",
+      "addressing_mode": "Absolute",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "C",
+        "Z",
+        "V",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#ADC",
+        "http://www.6502.org/users/obelisk/6502/reference.html#ADC",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#ADC"
+      ]
+    },
+    {
+      "name": "ROR",
+      "name_long": "Rotate right",
+      "opcode": 110,
+      "opcode_hex": "0x6e",
+      "addressing_mode": "Absolute",
+      "cycles": 6,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#ROR",
+        "http://www.6502.org/users/obelisk/6502/reference.html#ROR",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#ROR"
+      ]
+    },
+    {
+      "name": "RRA",
+      "name_long": "",
+      "opcode": 111,
+      "opcode_hex": "0x6f",
+      "addressing_mode": "Absolute",
+      "cycles": 6,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [
+        "RRA"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#RRA"
+      ]
+    },
+    {
+      "name": "BVS",
+      "name_long": "Branch if overflow set",
+      "opcode": 112,
+      "opcode_hex": "0x70",
+      "addressing_mode": "Relative",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#BVS",
+        "http://www.6502.org/users/obelisk/6502/reference.html#BVS",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#BVS"
+      ]
+    },
+    {
+      "name": "ADC",
+      "name_long": "Add with carry",
+      "opcode": 113,
+      "opcode_hex": "0x71",
+      "addressing_mode": "IndirectY",
+      "cycles": 5,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "C",
+        "Z",
+        "V",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#ADC",
+        "http://www.6502.org/users/obelisk/6502/reference.html#ADC",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#ADC"
+      ]
+    },
+    {
+      "name": "JAM",
+      "name_long": "",
+      "opcode": 114,
+      "opcode_hex": "0x72",
+      "addressing_mode": "Implied",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "JAM",
+        "KIL",
+        "HLT"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#JAM"
+      ]
+    },
+    {
+      "name": "RRA",
+      "name_long": "",
+      "opcode": 115,
+      "opcode_hex": "0x73",
+      "addressing_mode": "IndirectY",
+      "cycles": 8,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [
+        "RRA"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#RRA"
+      ]
+    },
+    {
+      "name": "NOP",
+      "name_long": "No operation",
+      "opcode": 116,
+      "opcode_hex": "0x74",
+      "addressing_mode": "ZeroPageX",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "NOP"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#NOP"
+      ]
+    },
+    {
+      "name": "ADC",
+      "name_long": "Add with carry",
+      "opcode": 117,
+      "opcode_hex": "0x75",
+      "addressing_mode": "ZeroPageX",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "C",
+        "Z",
+        "V",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#ADC",
+        "http://www.6502.org/users/obelisk/6502/reference.html#ADC",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#ADC"
+      ]
+    },
+    {
+      "name": "ROR",
+      "name_long": "Rotate right",
+      "opcode": 118,
+      "opcode_hex": "0x76",
+      "addressing_mode": "ZeroPageX",
+      "cycles": 6,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#ROR",
+        "http://www.6502.org/users/obelisk/6502/reference.html#ROR",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#ROR"
+      ]
+    },
+    {
+      "name": "RRA",
+      "name_long": "",
+      "opcode": 119,
+      "opcode_hex": "0x77",
+      "addressing_mode": "ZeroPageX",
+      "cycles": 6,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [
+        "RRA"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#RRA"
+      ]
+    },
+    {
+      "name": "SEI",
+      "name_long": "Set interrupt disable",
+      "opcode": 120,
+      "opcode_hex": "0x78",
+      "addressing_mode": "Implied",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "I"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#SEI",
+        "http://www.6502.org/users/obelisk/6502/reference.html#SEI",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#SEI"
+      ]
+    },
+    {
+      "name": "ADC",
+      "name_long": "Add with carry",
+      "opcode": 121,
+      "opcode_hex": "0x79",
+      "addressing_mode": "AbsoluteY",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "C",
+        "Z",
+        "V",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#ADC",
+        "http://www.6502.org/users/obelisk/6502/reference.html#ADC",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#ADC"
+      ]
+    },
+    {
+      "name": "NOP",
+      "name_long": "No operation",
+      "opcode": 122,
+      "opcode_hex": "0x7a",
+      "addressing_mode": "Implied",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "NOP"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#NOP"
+      ]
+    },
+    {
+      "name": "RRA",
+      "name_long": "",
+      "opcode": 123,
+      "opcode_hex": "0x7b",
+      "addressing_mode": "AbsoluteY",
+      "cycles": 7,
+      "dummy_reads": true,
+      "dummy_writes": true,
+      "all_names": [
+        "RRA"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#RRA"
+      ]
+    },
+    {
+      "name": "NOP",
+      "name_long": "No operation",
+      "opcode": 124,
+      "opcode_hex": "0x7c",
+      "addressing_mode": "AbsoluteX",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "NOP"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#NOP"
+      ]
+    },
+    {
+      "name": "ADC",
+      "name_long": "Add with carry",
+      "opcode": 125,
+      "opcode_hex": "0x7d",
+      "addressing_mode": "AbsoluteX",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "C",
+        "Z",
+        "V",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#ADC",
+        "http://www.6502.org/users/obelisk/6502/reference.html#ADC",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#ADC"
+      ]
+    },
+    {
+      "name": "ROR",
+      "name_long": "Rotate right",
+      "opcode": 126,
+      "opcode_hex": "0x7e",
+      "addressing_mode": "AbsoluteX",
+      "cycles": 7,
+      "dummy_reads": true,
+      "dummy_writes": true,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#ROR",
+        "http://www.6502.org/users/obelisk/6502/reference.html#ROR",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#ROR"
+      ]
+    },
+    {
+      "name": "RRA",
+      "name_long": "",
+      "opcode": 127,
+      "opcode_hex": "0x7f",
+      "addressing_mode": "AbsoluteX",
+      "cycles": 7,
+      "dummy_reads": true,
+      "dummy_writes": true,
+      "all_names": [
+        "RRA"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#RRA"
+      ]
+    },
+    {
+      "name": "NOP",
+      "name_long": "No operation",
+      "opcode": 128,
+      "opcode_hex": "0x80",
+      "addressing_mode": "Immediate",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "NOP"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#NOP"
+      ]
+    },
+    {
+      "name": "STA",
+      "name_long": "Store accumulator",
+      "opcode": 129,
+      "opcode_hex": "0x81",
+      "addressing_mode": "IndirectX",
+      "cycles": 6,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#STA",
+        "http://www.6502.org/users/obelisk/6502/reference.html#STA",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#STA"
+      ]
+    },
+    {
+      "name": "NOP",
+      "name_long": "No operation",
+      "opcode": 130,
+      "opcode_hex": "0x82",
+      "addressing_mode": "Immediate",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "NOP"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#NOP"
+      ]
+    },
+    {
+      "name": "SAX",
+      "name_long": "",
+      "opcode": 131,
+      "opcode_hex": "0x83",
+      "addressing_mode": "IndirectX",
+      "cycles": 6,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "SAX",
+        "AXS",
+        "AAX"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#SAX"
+      ]
+    },
+    {
+      "name": "STY",
+      "name_long": "Store Y register",
+      "opcode": 132,
+      "opcode_hex": "0x84",
+      "addressing_mode": "ZeroPage",
+      "cycles": 3,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#STY",
+        "http://www.6502.org/users/obelisk/6502/reference.html#STY",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#STY"
+      ]
+    },
+    {
+      "name": "STA",
+      "name_long": "Store accumulator",
+      "opcode": 133,
+      "opcode_hex": "0x85",
+      "addressing_mode": "ZeroPage",
+      "cycles": 3,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#STA",
+        "http://www.6502.org/users/obelisk/6502/reference.html#STA",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#STA"
+      ]
+    },
+    {
+      "name": "STX",
+      "name_long": "Store X register",
+      "opcode": 134,
+      "opcode_hex": "0x86",
+      "addressing_mode": "ZeroPage",
+      "cycles": 3,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#STX",
+        "http://www.6502.org/users/obelisk/6502/reference.html#STX",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#STX"
+      ]
+    },
+    {
+      "name": "SAX",
+      "name_long": "",
+      "opcode": 135,
+      "opcode_hex": "0x87",
+      "addressing_mode": "ZeroPage",
+      "cycles": 3,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "SAX",
+        "AXS",
+        "AAX"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#SAX"
+      ]
+    },
+    {
+      "name": "DEY",
+      "name_long": "Decrement Y register",
+      "opcode": 136,
+      "opcode_hex": "0x88",
+      "addressing_mode": "Implied",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#DEY",
+        "http://www.6502.org/users/obelisk/6502/reference.html#DEY",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#DEY"
+      ]
+    },
+    {
+      "name": "NOP",
+      "name_long": "No operation",
+      "opcode": 137,
+      "opcode_hex": "0x89",
+      "addressing_mode": "Immediate",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "NOP"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#NOP"
+      ]
+    },
+    {
+      "name": "TXA",
+      "name_long": "Transfer X to acc",
+      "opcode": 138,
+      "opcode_hex": "0x8a",
+      "addressing_mode": "Implied",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#TXA",
+        "http://www.6502.org/users/obelisk/6502/reference.html#TXA",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#TXA"
+      ]
+    },
+    {
+      "name": "ANE",
+      "name_long": "",
+      "opcode": 139,
+      "opcode_hex": "0x8b",
+      "addressing_mode": "Immediate",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "ANE",
+        "XAA"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#ANE"
+      ]
+    },
+    {
+      "name": "STY",
+      "name_long": "Store Y register",
+      "opcode": 140,
+      "opcode_hex": "0x8c",
+      "addressing_mode": "Absolute",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#STY",
+        "http://www.6502.org/users/obelisk/6502/reference.html#STY",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#STY"
+      ]
+    },
+    {
+      "name": "STA",
+      "name_long": "Store accumulator",
+      "opcode": 141,
+      "opcode_hex": "0x8d",
+      "addressing_mode": "Absolute",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#STA",
+        "http://www.6502.org/users/obelisk/6502/reference.html#STA",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#STA"
+      ]
+    },
+    {
+      "name": "STX",
+      "name_long": "Store X register",
+      "opcode": 142,
+      "opcode_hex": "0x8e",
+      "addressing_mode": "Absolute",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#STX",
+        "http://www.6502.org/users/obelisk/6502/reference.html#STX",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#STX"
+      ]
+    },
+    {
+      "name": "SAX",
+      "name_long": "",
+      "opcode": 143,
+      "opcode_hex": "0x8f",
+      "addressing_mode": "Absolute",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "SAX",
+        "AXS",
+        "AAX"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#SAX"
+      ]
+    },
+    {
+      "name": "BCC",
+      "name_long": "Branch if carry clear",
+      "opcode": 144,
+      "opcode_hex": "0x90",
+      "addressing_mode": "Relative",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#BCC",
+        "http://www.6502.org/users/obelisk/6502/reference.html#BCC",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#BCC"
+      ]
+    },
+    {
+      "name": "STA",
+      "name_long": "Store accumulator",
+      "opcode": 145,
+      "opcode_hex": "0x91",
+      "addressing_mode": "IndirectY",
+      "cycles": 6,
+      "dummy_reads": true,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#STA",
+        "http://www.6502.org/users/obelisk/6502/reference.html#STA",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#STA"
+      ]
+    },
+    {
+      "name": "JAM",
+      "name_long": "",
+      "opcode": 146,
+      "opcode_hex": "0x92",
+      "addressing_mode": "Implied",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "JAM",
+        "KIL",
+        "HLT"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#JAM"
+      ]
+    },
+    {
+      "name": "SHA",
+      "name_long": "",
+      "opcode": 147,
+      "opcode_hex": "0x93",
+      "addressing_mode": "IndirectY",
+      "cycles": 6,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "SHA",
+        "AHX",
+        "AXA"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#SHA"
+      ]
+    },
+    {
+      "name": "STY",
+      "name_long": "Store Y register",
+      "opcode": 148,
+      "opcode_hex": "0x94",
+      "addressing_mode": "ZeroPageX",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#STY",
+        "http://www.6502.org/users/obelisk/6502/reference.html#STY",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#STY"
+      ]
+    },
+    {
+      "name": "STA",
+      "name_long": "Store accumulator",
+      "opcode": 149,
+      "opcode_hex": "0x95",
+      "addressing_mode": "ZeroPageX",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#STA",
+        "http://www.6502.org/users/obelisk/6502/reference.html#STA",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#STA"
+      ]
+    },
+    {
+      "name": "STX",
+      "name_long": "Store X register",
+      "opcode": 150,
+      "opcode_hex": "0x96",
+      "addressing_mode": "ZeroPageY",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#STX",
+        "http://www.6502.org/users/obelisk/6502/reference.html#STX",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#STX"
+      ]
+    },
+    {
+      "name": "SAX",
+      "name_long": "",
+      "opcode": 151,
+      "opcode_hex": "0x97",
+      "addressing_mode": "ZeroPageY",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "SAX",
+        "AXS",
+        "AAX"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#SAX"
+      ]
+    },
+    {
+      "name": "TYA",
+      "name_long": "Transfer Y to acc",
+      "opcode": 152,
+      "opcode_hex": "0x98",
+      "addressing_mode": "Implied",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#TYA",
+        "http://www.6502.org/users/obelisk/6502/reference.html#TYA",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#TYA"
+      ]
+    },
+    {
+      "name": "STA",
+      "name_long": "Store accumulator",
+      "opcode": 153,
+      "opcode_hex": "0x99",
+      "addressing_mode": "AbsoluteY",
+      "cycles": 5,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#STA",
+        "http://www.6502.org/users/obelisk/6502/reference.html#STA",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#STA"
+      ]
+    },
+    {
+      "name": "TXS",
+      "name_long": "",
+      "opcode": 154,
+      "opcode_hex": "0x9a",
+      "addressing_mode": "Implied",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#TXS",
+        "http://www.6502.org/users/obelisk/6502/reference.html#TXS",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#TXS"
+      ]
+    },
+    {
+      "name": "TAS",
+      "name_long": "",
+      "opcode": 155,
+      "opcode_hex": "0x9b",
+      "addressing_mode": "AbsoluteY",
+      "cycles": 5,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "TAS",
+        "XAS",
+        "SHS"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#TAS"
+      ]
+    },
+    {
+      "name": "SHY",
+      "name_long": "",
+      "opcode": 156,
+      "opcode_hex": "0x9c",
+      "addressing_mode": "AbsoluteX",
+      "cycles": 5,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "SHY",
+        "A11",
+        "SYA",
+        "SAY"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#SHY"
+      ]
+    },
+    {
+      "name": "STA",
+      "name_long": "Store accumulator",
+      "opcode": 157,
+      "opcode_hex": "0x9d",
+      "addressing_mode": "AbsoluteX",
+      "cycles": 5,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#STA",
+        "http://www.6502.org/users/obelisk/6502/reference.html#STA",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#STA"
+      ]
+    },
+    {
+      "name": "SHX",
+      "name_long": "",
+      "opcode": 158,
+      "opcode_hex": "0x9e",
+      "addressing_mode": "AbsoluteY",
+      "cycles": 5,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "SHX",
+        "A11",
+        "SXA",
+        "XAS"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#SHX"
+      ]
+    },
+    {
+      "name": "SHA",
+      "name_long": "",
+      "opcode": 159,
+      "opcode_hex": "0x9f",
+      "addressing_mode": "AbsoluteY",
+      "cycles": 5,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "SHA",
+        "AHX",
+        "AXA"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#SHA"
+      ]
+    },
+    {
+      "name": "LDY",
+      "name_long": "Load Y register",
+      "opcode": 160,
+      "opcode_hex": "0xa0",
+      "addressing_mode": "Immediate",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#LDY",
+        "http://www.6502.org/users/obelisk/6502/reference.html#LDY",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#LDY"
+      ]
+    },
+    {
+      "name": "LDA",
+      "name_long": "Load accumulator",
+      "opcode": 161,
+      "opcode_hex": "0xa1",
+      "addressing_mode": "IndirectX",
+      "cycles": 6,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#LDA",
+        "http://www.6502.org/users/obelisk/6502/reference.html#LDA",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#LDA"
+      ]
+    },
+    {
+      "name": "LDX",
+      "name_long": "Load X register",
+      "opcode": 162,
+      "opcode_hex": "0xa2",
+      "addressing_mode": "Immediate",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#LDX",
+        "http://www.6502.org/users/obelisk/6502/reference.html#LDX",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#LDX"
+      ]
+    },
+    {
+      "name": "LAX",
+      "name_long": "",
+      "opcode": 163,
+      "opcode_hex": "0xa3",
+      "addressing_mode": "IndirectX",
+      "cycles": 6,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "LAX"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#LAX"
+      ]
+    },
+    {
+      "name": "LDY",
+      "name_long": "Load Y register",
+      "opcode": 164,
+      "opcode_hex": "0xa4",
+      "addressing_mode": "ZeroPage",
+      "cycles": 3,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#LDY",
+        "http://www.6502.org/users/obelisk/6502/reference.html#LDY",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#LDY"
+      ]
+    },
+    {
+      "name": "LDA",
+      "name_long": "Load accumulator",
+      "opcode": 165,
+      "opcode_hex": "0xa5",
+      "addressing_mode": "ZeroPage",
+      "cycles": 3,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#LDA",
+        "http://www.6502.org/users/obelisk/6502/reference.html#LDA",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#LDA"
+      ]
+    },
+    {
+      "name": "LDX",
+      "name_long": "Load X register",
+      "opcode": 166,
+      "opcode_hex": "0xa6",
+      "addressing_mode": "ZeroPage",
+      "cycles": 3,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#LDX",
+        "http://www.6502.org/users/obelisk/6502/reference.html#LDX",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#LDX"
+      ]
+    },
+    {
+      "name": "LAX",
+      "name_long": "",
+      "opcode": 167,
+      "opcode_hex": "0xa7",
+      "addressing_mode": "ZeroPage",
+      "cycles": 3,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "LAX"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#LAX"
+      ]
+    },
+    {
+      "name": "TAY",
+      "name_long": "Transfer acc to Y",
+      "opcode": 168,
+      "opcode_hex": "0xa8",
+      "addressing_mode": "Implied",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#TAY",
+        "http://www.6502.org/users/obelisk/6502/reference.html#TAY",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#TAY"
+      ]
+    },
+    {
+      "name": "LDA",
+      "name_long": "Load accumulator",
+      "opcode": 169,
+      "opcode_hex": "0xa9",
+      "addressing_mode": "Immediate",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#LDA",
+        "http://www.6502.org/users/obelisk/6502/reference.html#LDA",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#LDA"
+      ]
+    },
+    {
+      "name": "TAX",
+      "name_long": "Transfer acc to X",
+      "opcode": 170,
+      "opcode_hex": "0xaa",
+      "addressing_mode": "Implied",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#TAX",
+        "http://www.6502.org/users/obelisk/6502/reference.html#TAX",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#TAX"
+      ]
+    },
+    {
+      "name": "LXA",
+      "name_long": "",
+      "opcode": 171,
+      "opcode_hex": "0xab",
+      "addressing_mode": "Immediate",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "LXA",
+        "LAX",
+        "immediate"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#LXA"
+      ]
+    },
+    {
+      "name": "LDY",
+      "name_long": "Load Y register",
+      "opcode": 172,
+      "opcode_hex": "0xac",
+      "addressing_mode": "Absolute",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#LDY",
+        "http://www.6502.org/users/obelisk/6502/reference.html#LDY",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#LDY"
+      ]
+    },
+    {
+      "name": "LDA",
+      "name_long": "Load accumulator",
+      "opcode": 173,
+      "opcode_hex": "0xad",
+      "addressing_mode": "Absolute",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#LDA",
+        "http://www.6502.org/users/obelisk/6502/reference.html#LDA",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#LDA"
+      ]
+    },
+    {
+      "name": "LDX",
+      "name_long": "Load X register",
+      "opcode": 174,
+      "opcode_hex": "0xae",
+      "addressing_mode": "Absolute",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#LDX",
+        "http://www.6502.org/users/obelisk/6502/reference.html#LDX",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#LDX"
+      ]
+    },
+    {
+      "name": "LAX",
+      "name_long": "",
+      "opcode": 175,
+      "opcode_hex": "0xaf",
+      "addressing_mode": "Absolute",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "LAX"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#LAX"
+      ]
+    },
+    {
+      "name": "BCS",
+      "name_long": "Branch if carry set",
+      "opcode": 176,
+      "opcode_hex": "0xb0",
+      "addressing_mode": "Relative",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#BCS",
+        "http://www.6502.org/users/obelisk/6502/reference.html#BCS",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#BCS"
+      ]
+    },
+    {
+      "name": "LDA",
+      "name_long": "Load accumulator",
+      "opcode": 177,
+      "opcode_hex": "0xb1",
+      "addressing_mode": "IndirectY",
+      "cycles": 5,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#LDA",
+        "http://www.6502.org/users/obelisk/6502/reference.html#LDA",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#LDA"
+      ]
+    },
+    {
+      "name": "JAM",
+      "name_long": "",
+      "opcode": 178,
+      "opcode_hex": "0xb2",
+      "addressing_mode": "Implied",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "JAM",
+        "KIL",
+        "HLT"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#JAM"
+      ]
+    },
+    {
+      "name": "LAX",
+      "name_long": "",
+      "opcode": 179,
+      "opcode_hex": "0xb3",
+      "addressing_mode": "IndirectY",
+      "cycles": 5,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "LAX"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#LAX"
+      ]
+    },
+    {
+      "name": "LDY",
+      "name_long": "Load Y register",
+      "opcode": 180,
+      "opcode_hex": "0xb4",
+      "addressing_mode": "ZeroPageX",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#LDY",
+        "http://www.6502.org/users/obelisk/6502/reference.html#LDY",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#LDY"
+      ]
+    },
+    {
+      "name": "LDA",
+      "name_long": "Load accumulator",
+      "opcode": 181,
+      "opcode_hex": "0xb5",
+      "addressing_mode": "ZeroPageX",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#LDA",
+        "http://www.6502.org/users/obelisk/6502/reference.html#LDA",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#LDA"
+      ]
+    },
+    {
+      "name": "LDX",
+      "name_long": "Load X register",
+      "opcode": 182,
+      "opcode_hex": "0xb6",
+      "addressing_mode": "ZeroPageY",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#LDX",
+        "http://www.6502.org/users/obelisk/6502/reference.html#LDX",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#LDX"
+      ]
+    },
+    {
+      "name": "LAX",
+      "name_long": "",
+      "opcode": 183,
+      "opcode_hex": "0xb7",
+      "addressing_mode": "ZeroPageY",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "LAX"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#LAX"
+      ]
+    },
+    {
+      "name": "CLV",
+      "name_long": "Clear overflow flag",
+      "opcode": 184,
+      "opcode_hex": "0xb8",
+      "addressing_mode": "Implied",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "V"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#CLV",
+        "http://www.6502.org/users/obelisk/6502/reference.html#CLV",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#CLV"
+      ]
+    },
+    {
+      "name": "LDA",
+      "name_long": "Load accumulator",
+      "opcode": 185,
+      "opcode_hex": "0xb9",
+      "addressing_mode": "AbsoluteY",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#LDA",
+        "http://www.6502.org/users/obelisk/6502/reference.html#LDA",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#LDA"
+      ]
+    },
+    {
+      "name": "TSX",
+      "name_long": "Transfer stack pointer to X",
+      "opcode": 186,
+      "opcode_hex": "0xba",
+      "addressing_mode": "Implied",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#TSX",
+        "http://www.6502.org/users/obelisk/6502/reference.html#TSX",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#TSX"
+      ]
+    },
+    {
+      "name": "LAS",
+      "name_long": "",
+      "opcode": 187,
+      "opcode_hex": "0xbb",
+      "addressing_mode": "AbsoluteY",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "LAS",
+        "LAR"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#LAS"
+      ]
+    },
+    {
+      "name": "LDY",
+      "name_long": "Load Y register",
+      "opcode": 188,
+      "opcode_hex": "0xbc",
+      "addressing_mode": "AbsoluteX",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#LDY",
+        "http://www.6502.org/users/obelisk/6502/reference.html#LDY",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#LDY"
+      ]
+    },
+    {
+      "name": "LDA",
+      "name_long": "Load accumulator",
+      "opcode": 189,
+      "opcode_hex": "0xbd",
+      "addressing_mode": "AbsoluteX",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#LDA",
+        "http://www.6502.org/users/obelisk/6502/reference.html#LDA",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#LDA"
+      ]
+    },
+    {
+      "name": "LDX",
+      "name_long": "Load X register",
+      "opcode": 190,
+      "opcode_hex": "0xbe",
+      "addressing_mode": "AbsoluteY",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#LDX",
+        "http://www.6502.org/users/obelisk/6502/reference.html#LDX",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#LDX"
+      ]
+    },
+    {
+      "name": "LAX",
+      "name_long": "",
+      "opcode": 191,
+      "opcode_hex": "0xbf",
+      "addressing_mode": "AbsoluteY",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "LAX"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#LAX"
+      ]
+    },
+    {
+      "name": "CPY",
+      "name_long": "Compare Y register",
+      "opcode": 192,
+      "opcode_hex": "0xc0",
+      "addressing_mode": "Immediate",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "C",
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#CPY",
+        "http://www.6502.org/users/obelisk/6502/reference.html#CPY",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#CPY"
+      ]
+    },
+    {
+      "name": "CMP",
+      "name_long": "Compare",
+      "opcode": 193,
+      "opcode_hex": "0xc1",
+      "addressing_mode": "IndirectX",
+      "cycles": 6,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "C",
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#CMP",
+        "http://www.6502.org/users/obelisk/6502/reference.html#CMP",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#CMP"
+      ]
+    },
+    {
+      "name": "NOP",
+      "name_long": "No operation",
+      "opcode": 194,
+      "opcode_hex": "0xc2",
+      "addressing_mode": "Immediate",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "NOP"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#NOP"
+      ]
+    },
+    {
+      "name": "DCP",
+      "name_long": "",
+      "opcode": 195,
+      "opcode_hex": "0xc3",
+      "addressing_mode": "IndirectX",
+      "cycles": 8,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [
+        "DCP",
+        "DCM"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#DCP"
+      ]
+    },
+    {
+      "name": "CPY",
+      "name_long": "Compare Y register",
+      "opcode": 196,
+      "opcode_hex": "0xc4",
+      "addressing_mode": "ZeroPage",
+      "cycles": 3,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "C",
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#CPY",
+        "http://www.6502.org/users/obelisk/6502/reference.html#CPY",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#CPY"
+      ]
+    },
+    {
+      "name": "CMP",
+      "name_long": "Compare",
+      "opcode": 197,
+      "opcode_hex": "0xc5",
+      "addressing_mode": "ZeroPage",
+      "cycles": 3,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "C",
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#CMP",
+        "http://www.6502.org/users/obelisk/6502/reference.html#CMP",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#CMP"
+      ]
+    },
+    {
+      "name": "DEC",
+      "name_long": "Decrement memory",
+      "opcode": 198,
+      "opcode_hex": "0xc6",
+      "addressing_mode": "ZeroPage",
+      "cycles": 5,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#DEC",
+        "http://www.6502.org/users/obelisk/6502/reference.html#DEC",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#DEC"
+      ]
+    },
+    {
+      "name": "DCP",
+      "name_long": "",
+      "opcode": 199,
+      "opcode_hex": "0xc7",
+      "addressing_mode": "ZeroPage",
+      "cycles": 5,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [
+        "DCP",
+        "DCM"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#DCP"
+      ]
+    },
+    {
+      "name": "INY",
+      "name_long": "Increment Y register",
+      "opcode": 200,
+      "opcode_hex": "0xc8",
+      "addressing_mode": "Implied",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#INY",
+        "http://www.6502.org/users/obelisk/6502/reference.html#INY",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#INY"
+      ]
+    },
+    {
+      "name": "CMP",
+      "name_long": "Compare",
+      "opcode": 201,
+      "opcode_hex": "0xc9",
+      "addressing_mode": "Immediate",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "C",
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#CMP",
+        "http://www.6502.org/users/obelisk/6502/reference.html#CMP",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#CMP"
+      ]
+    },
+    {
+      "name": "DEX",
+      "name_long": "Decrement X register",
+      "opcode": 202,
+      "opcode_hex": "0xca",
+      "addressing_mode": "Implied",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#DEX",
+        "http://www.6502.org/users/obelisk/6502/reference.html#DEX",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#DEX"
+      ]
+    },
+    {
+      "name": "SBX",
+      "name_long": "",
+      "opcode": 203,
+      "opcode_hex": "0xcb",
+      "addressing_mode": "Immediate",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "SBX",
+        "AXS",
+        "SAX"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#SBX"
+      ]
+    },
+    {
+      "name": "CPY",
+      "name_long": "Compare Y register",
+      "opcode": 204,
+      "opcode_hex": "0xcc",
+      "addressing_mode": "Absolute",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "C",
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#CPY",
+        "http://www.6502.org/users/obelisk/6502/reference.html#CPY",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#CPY"
+      ]
+    },
+    {
+      "name": "CMP",
+      "name_long": "Compare",
+      "opcode": 205,
+      "opcode_hex": "0xcd",
+      "addressing_mode": "Absolute",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "C",
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#CMP",
+        "http://www.6502.org/users/obelisk/6502/reference.html#CMP",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#CMP"
+      ]
+    },
+    {
+      "name": "DEC",
+      "name_long": "Decrement memory",
+      "opcode": 206,
+      "opcode_hex": "0xce",
+      "addressing_mode": "Absolute",
+      "cycles": 6,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#DEC",
+        "http://www.6502.org/users/obelisk/6502/reference.html#DEC",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#DEC"
+      ]
+    },
+    {
+      "name": "DCP",
+      "name_long": "",
+      "opcode": 207,
+      "opcode_hex": "0xcf",
+      "addressing_mode": "Absolute",
+      "cycles": 6,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [
+        "DCP",
+        "DCM"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#DCP"
+      ]
+    },
+    {
+      "name": "BNE",
+      "name_long": "Branch if not equal",
+      "opcode": 208,
+      "opcode_hex": "0xd0",
+      "addressing_mode": "Relative",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#BNE",
+        "http://www.6502.org/users/obelisk/6502/reference.html#BNE",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#BNE"
+      ]
+    },
+    {
+      "name": "CMP",
+      "name_long": "Compare",
+      "opcode": 209,
+      "opcode_hex": "0xd1",
+      "addressing_mode": "IndirectY",
+      "cycles": 5,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "C",
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#CMP",
+        "http://www.6502.org/users/obelisk/6502/reference.html#CMP",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#CMP"
+      ]
+    },
+    {
+      "name": "JAM",
+      "name_long": "",
+      "opcode": 210,
+      "opcode_hex": "0xd2",
+      "addressing_mode": "Implied",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "JAM",
+        "KIL",
+        "HLT"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#JAM"
+      ]
+    },
+    {
+      "name": "DCP",
+      "name_long": "",
+      "opcode": 211,
+      "opcode_hex": "0xd3",
+      "addressing_mode": "IndirectY",
+      "cycles": 8,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [
+        "DCP",
+        "DCM"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#DCP"
+      ]
+    },
+    {
+      "name": "NOP",
+      "name_long": "No operation",
+      "opcode": 212,
+      "opcode_hex": "0xd4",
+      "addressing_mode": "ZeroPageX",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "NOP"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#NOP"
+      ]
+    },
+    {
+      "name": "CMP",
+      "name_long": "Compare",
+      "opcode": 213,
+      "opcode_hex": "0xd5",
+      "addressing_mode": "ZeroPageX",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "C",
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#CMP",
+        "http://www.6502.org/users/obelisk/6502/reference.html#CMP",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#CMP"
+      ]
+    },
+    {
+      "name": "DEC",
+      "name_long": "Decrement memory",
+      "opcode": 214,
+      "opcode_hex": "0xd6",
+      "addressing_mode": "ZeroPageX",
+      "cycles": 6,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#DEC",
+        "http://www.6502.org/users/obelisk/6502/reference.html#DEC",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#DEC"
+      ]
+    },
+    {
+      "name": "DCP",
+      "name_long": "",
+      "opcode": 215,
+      "opcode_hex": "0xd7",
+      "addressing_mode": "ZeroPageX",
+      "cycles": 6,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [
+        "DCP",
+        "DCM"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#DCP"
+      ]
+    },
+    {
+      "name": "CLD",
+      "name_long": "Clear decimal mode",
+      "opcode": 216,
+      "opcode_hex": "0xd8",
+      "addressing_mode": "Implied",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "D"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#CLD",
+        "http://www.6502.org/users/obelisk/6502/reference.html#CLD",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#CLD"
+      ]
+    },
+    {
+      "name": "CMP",
+      "name_long": "Compare",
+      "opcode": 217,
+      "opcode_hex": "0xd9",
+      "addressing_mode": "AbsoluteY",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "C",
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#CMP",
+        "http://www.6502.org/users/obelisk/6502/reference.html#CMP",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#CMP"
+      ]
+    },
+    {
+      "name": "NOP",
+      "name_long": "No operation",
+      "opcode": 218,
+      "opcode_hex": "0xda",
+      "addressing_mode": "Implied",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "NOP"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#NOP"
+      ]
+    },
+    {
+      "name": "DCP",
+      "name_long": "",
+      "opcode": 219,
+      "opcode_hex": "0xdb",
+      "addressing_mode": "AbsoluteY",
+      "cycles": 7,
+      "dummy_reads": true,
+      "dummy_writes": true,
+      "all_names": [
+        "DCP",
+        "DCM"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#DCP"
+      ]
+    },
+    {
+      "name": "NOP",
+      "name_long": "No operation",
+      "opcode": 220,
+      "opcode_hex": "0xdc",
+      "addressing_mode": "AbsoluteX",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "NOP"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#NOP"
+      ]
+    },
+    {
+      "name": "CMP",
+      "name_long": "Compare",
+      "opcode": 221,
+      "opcode_hex": "0xdd",
+      "addressing_mode": "AbsoluteX",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "C",
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#CMP",
+        "http://www.6502.org/users/obelisk/6502/reference.html#CMP",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#CMP"
+      ]
+    },
+    {
+      "name": "DEC",
+      "name_long": "Decrement memory",
+      "opcode": 222,
+      "opcode_hex": "0xde",
+      "addressing_mode": "AbsoluteX",
+      "cycles": 7,
+      "dummy_reads": true,
+      "dummy_writes": true,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#DEC",
+        "http://www.6502.org/users/obelisk/6502/reference.html#DEC",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#DEC"
+      ]
+    },
+    {
+      "name": "DCP",
+      "name_long": "",
+      "opcode": 223,
+      "opcode_hex": "0xdf",
+      "addressing_mode": "AbsoluteX",
+      "cycles": 7,
+      "dummy_reads": true,
+      "dummy_writes": true,
+      "all_names": [
+        "DCP",
+        "DCM"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#DCP"
+      ]
+    },
+    {
+      "name": "CPX",
+      "name_long": "Compare X register",
+      "opcode": 224,
+      "opcode_hex": "0xe0",
+      "addressing_mode": "Immediate",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "C",
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#CPX",
+        "http://www.6502.org/users/obelisk/6502/reference.html#CPX",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#CPX"
+      ]
+    },
+    {
+      "name": "SBC",
+      "name_long": "Subtract with carry",
+      "opcode": 225,
+      "opcode_hex": "0xe1",
+      "addressing_mode": "IndirectX",
+      "cycles": 6,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "C",
+        "Z",
+        "V",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#SBC",
+        "http://www.6502.org/users/obelisk/6502/reference.html#SBC",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#SBC"
+      ]
+    },
+    {
+      "name": "NOP",
+      "name_long": "No operation",
+      "opcode": 226,
+      "opcode_hex": "0xe2",
+      "addressing_mode": "Immediate",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "NOP"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#NOP"
+      ]
+    },
+    {
+      "name": "ISC",
+      "name_long": "",
+      "opcode": 227,
+      "opcode_hex": "0xe3",
+      "addressing_mode": "IndirectX",
+      "cycles": 8,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "ISC",
+        "ISB",
+        "INS"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#ISC"
+      ]
+    },
+    {
+      "name": "CPX",
+      "name_long": "Compare X register",
+      "opcode": 228,
+      "opcode_hex": "0xe4",
+      "addressing_mode": "ZeroPage",
+      "cycles": 3,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "C",
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#CPX",
+        "http://www.6502.org/users/obelisk/6502/reference.html#CPX",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#CPX"
+      ]
+    },
+    {
+      "name": "SBC",
+      "name_long": "Subtract with carry",
+      "opcode": 229,
+      "opcode_hex": "0xe5",
+      "addressing_mode": "ZeroPage",
+      "cycles": 3,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "C",
+        "Z",
+        "V",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#SBC",
+        "http://www.6502.org/users/obelisk/6502/reference.html#SBC",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#SBC"
+      ]
+    },
+    {
+      "name": "INC",
+      "name_long": "Increment memory",
+      "opcode": 230,
+      "opcode_hex": "0xe6",
+      "addressing_mode": "ZeroPage",
+      "cycles": 5,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#INC",
+        "http://www.6502.org/users/obelisk/6502/reference.html#INC",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#INC"
+      ]
+    },
+    {
+      "name": "ISC",
+      "name_long": "",
+      "opcode": 231,
+      "opcode_hex": "0xe7",
+      "addressing_mode": "ZeroPage",
+      "cycles": 5,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "ISC",
+        "ISB",
+        "INS"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#ISC"
+      ]
+    },
+    {
+      "name": "INX",
+      "name_long": "Increment X register",
+      "opcode": 232,
+      "opcode_hex": "0xe8",
+      "addressing_mode": "Implied",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#INX",
+        "http://www.6502.org/users/obelisk/6502/reference.html#INX",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#INX"
+      ]
+    },
+    {
+      "name": "SBC",
+      "name_long": "Subtract with carry",
+      "opcode": 233,
+      "opcode_hex": "0xe9",
+      "addressing_mode": "Immediate",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "C",
+        "Z",
+        "V",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#SBC",
+        "http://www.6502.org/users/obelisk/6502/reference.html#SBC",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#SBC"
+      ]
+    },
+    {
+      "name": "NOP",
+      "name_long": "No operation",
+      "opcode": 234,
+      "opcode_hex": "0xea",
+      "addressing_mode": "Implied",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#NOP",
+        "http://www.6502.org/users/obelisk/6502/reference.html#NOP",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#NOP"
+      ]
+    },
+    {
+      "name": "USBC",
+      "name_long": "",
+      "opcode": 235,
+      "opcode_hex": "0xeb",
+      "addressing_mode": "Immediate",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "USBC",
+        "SBC"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#USBC"
+      ]
+    },
+    {
+      "name": "CPX",
+      "name_long": "Compare X register",
+      "opcode": 236,
+      "opcode_hex": "0xec",
+      "addressing_mode": "Absolute",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "C",
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#CPX",
+        "http://www.6502.org/users/obelisk/6502/reference.html#CPX",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#CPX"
+      ]
+    },
+    {
+      "name": "SBC",
+      "name_long": "Subtract with carry",
+      "opcode": 237,
+      "opcode_hex": "0xed",
+      "addressing_mode": "Absolute",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "C",
+        "Z",
+        "V",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#SBC",
+        "http://www.6502.org/users/obelisk/6502/reference.html#SBC",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#SBC"
+      ]
+    },
+    {
+      "name": "INC",
+      "name_long": "Increment memory",
+      "opcode": 238,
+      "opcode_hex": "0xee",
+      "addressing_mode": "Absolute",
+      "cycles": 6,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#INC",
+        "http://www.6502.org/users/obelisk/6502/reference.html#INC",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#INC"
+      ]
+    },
+    {
+      "name": "ISC",
+      "name_long": "",
+      "opcode": 239,
+      "opcode_hex": "0xef",
+      "addressing_mode": "Absolute",
+      "cycles": 6,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "ISC",
+        "ISB",
+        "INS"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#ISC"
+      ]
+    },
+    {
+      "name": "BEQ",
+      "name_long": "Branch if equal",
+      "opcode": 240,
+      "opcode_hex": "0xf0",
+      "addressing_mode": "Relative",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#BEQ",
+        "http://www.6502.org/users/obelisk/6502/reference.html#BEQ",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#BEQ"
+      ]
+    },
+    {
+      "name": "SBC",
+      "name_long": "Subtract with carry",
+      "opcode": 241,
+      "opcode_hex": "0xf1",
+      "addressing_mode": "IndirectY",
+      "cycles": 5,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "C",
+        "Z",
+        "V",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#SBC",
+        "http://www.6502.org/users/obelisk/6502/reference.html#SBC",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#SBC"
+      ]
+    },
+    {
+      "name": "JAM",
+      "name_long": "",
+      "opcode": 242,
+      "opcode_hex": "0xf2",
+      "addressing_mode": "Implied",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "JAM",
+        "KIL",
+        "HLT"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#JAM"
+      ]
+    },
+    {
+      "name": "ISC",
+      "name_long": "",
+      "opcode": 243,
+      "opcode_hex": "0xf3",
+      "addressing_mode": "IndirectY",
+      "cycles": 8,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "ISC",
+        "ISB",
+        "INS"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#ISC"
+      ]
+    },
+    {
+      "name": "NOP",
+      "name_long": "No operation",
+      "opcode": 244,
+      "opcode_hex": "0xf4",
+      "addressing_mode": "ZeroPageX",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "NOP"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#NOP"
+      ]
+    },
+    {
+      "name": "SBC",
+      "name_long": "Subtract with carry",
+      "opcode": 245,
+      "opcode_hex": "0xf5",
+      "addressing_mode": "ZeroPageX",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "C",
+        "Z",
+        "V",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#SBC",
+        "http://www.6502.org/users/obelisk/6502/reference.html#SBC",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#SBC"
+      ]
+    },
+    {
+      "name": "INC",
+      "name_long": "Increment memory",
+      "opcode": 246,
+      "opcode_hex": "0xf6",
+      "addressing_mode": "ZeroPageX",
+      "cycles": 6,
+      "dummy_reads": false,
+      "dummy_writes": true,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#INC",
+        "http://www.6502.org/users/obelisk/6502/reference.html#INC",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#INC"
+      ]
+    },
+    {
+      "name": "ISC",
+      "name_long": "",
+      "opcode": 247,
+      "opcode_hex": "0xf7",
+      "addressing_mode": "ZeroPageX",
+      "cycles": 6,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "ISC",
+        "ISB",
+        "INS"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#ISC"
+      ]
+    },
+    {
+      "name": "SED",
+      "name_long": "Set decimal flag",
+      "opcode": 248,
+      "opcode_hex": "0xf8",
+      "addressing_mode": "Implied",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "D"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#SED",
+        "http://www.6502.org/users/obelisk/6502/reference.html#SED",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#SED"
+      ]
+    },
+    {
+      "name": "SBC",
+      "name_long": "Subtract with carry",
+      "opcode": 249,
+      "opcode_hex": "0xf9",
+      "addressing_mode": "AbsoluteY",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "C",
+        "Z",
+        "V",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#SBC",
+        "http://www.6502.org/users/obelisk/6502/reference.html#SBC",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#SBC"
+      ]
+    },
+    {
+      "name": "NOP",
+      "name_long": "No operation",
+      "opcode": 250,
+      "opcode_hex": "0xfa",
+      "addressing_mode": "Implied",
+      "cycles": 2,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "NOP"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#NOP"
+      ]
+    },
+    {
+      "name": "ISC",
+      "name_long": "",
+      "opcode": 251,
+      "opcode_hex": "0xfb",
+      "addressing_mode": "AbsoluteY",
+      "cycles": 7,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "ISC",
+        "ISB",
+        "INS"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#ISC"
+      ]
+    },
+    {
+      "name": "NOP",
+      "name_long": "No operation",
+      "opcode": 252,
+      "opcode_hex": "0xfc",
+      "addressing_mode": "AbsoluteX",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "NOP"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#NOP"
+      ]
+    },
+    {
+      "name": "SBC",
+      "name_long": "Subtract with carry",
+      "opcode": 253,
+      "opcode_hex": "0xfd",
+      "addressing_mode": "AbsoluteX",
+      "cycles": 4,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [],
+      "status_flags": [
+        "C",
+        "Z",
+        "V",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#SBC",
+        "http://www.6502.org/users/obelisk/6502/reference.html#SBC",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#SBC"
+      ]
+    },
+    {
+      "name": "INC",
+      "name_long": "Increment memory",
+      "opcode": 254,
+      "opcode_hex": "0xfe",
+      "addressing_mode": "AbsoluteX",
+      "cycles": 7,
+      "dummy_reads": true,
+      "dummy_writes": true,
+      "all_names": [],
+      "status_flags": [
+        "Z",
+        "N"
+      ],
+      "illegal": false,
+      "online_documentation": [
+        "https://www.nesdev.org/wiki/Instruction_reference#INC",
+        "http://www.6502.org/users/obelisk/6502/reference.html#INC",
+        "https://www.masswerk.at/6502/6502_instruction_set.html#INC"
+      ]
+    },
+    {
+      "name": "ISC",
+      "name_long": "",
+      "opcode": 255,
+      "opcode_hex": "0xff",
+      "addressing_mode": "AbsoluteX",
+      "cycles": 7,
+      "dummy_reads": false,
+      "dummy_writes": false,
+      "all_names": [
+        "ISC",
+        "ISB",
+        "INS"
+      ],
+      "status_flags": [],
+      "illegal": true,
+      "online_documentation": [
+        "https://www.masswerk.at/6502/6502_instruction_set.html#ISC"
+      ]
+    }
+  ]
+}

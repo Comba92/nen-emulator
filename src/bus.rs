@@ -1,9 +1,5 @@
 use crate::{
-  banks::MemConfig,
-  cart::{self, CartHeader, ConsoleTiming},
-  dma::Dma,
-  mapper::{self, DummyMapper, Mapper},
-  SharedCtx,
+  banks::MemConfig, cart::{self, CartHeader, ConsoleTiming}, dma::Dma, fds::{DiskHeader, FDS}, mapper::{self, DummyMapper, Mapper}, SharedCtx
 };
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -101,53 +97,97 @@ impl Default for Bus {
 
 impl Bus {
   pub fn new(rom: &[u8]) -> Result<Self, String> {
-    let header =
-      CartHeader::new(&rom).map_err(|e| format!("Not a valid iNES/Nes2.0 rom: {e}"))?;
+    // let header =
+    //   CartHeader::new(&rom).map_err(|e| format!("Not a valid iNES/Nes2.0 rom: {e}"))?;
 
-    println!("Loaded NES ROM: {:#?}", header);
+    let header = CartHeader::new(&rom);
 
-    let mut cfg = MemConfig::new(&header);
-    let mapper = mapper::new_mapper(&header, &mut cfg)?;
+    match header {
+      Ok(header) => {
+        println!("Loaded NES ROM: {:#?}", header);
 
-    let prg_start = cart::HEADER_SIZE + if header.has_trainer { 512 } else { 0 };
-    let chr_start = prg_start + header.prg_size;
+        let mut cfg = MemConfig::new(&header);
+        let mapper = mapper::new_mapper(&header, &mut cfg)?;
 
-    let prg = rom[prg_start..chr_start].to_vec().into_boxed_slice();
-    let chr = if header.uses_chr_ram {
-      vec![0; header.chr_ram_size]
-    } else {
-      rom[chr_start..chr_start + header.chr_size].to_vec()
+        let prg_start = cart::HEADER_SIZE + if header.has_trainer { 512 } else { 0 };
+        let chr_start = prg_start + header.prg_size;
+
+        let prg = rom[prg_start..chr_start].to_vec().into_boxed_slice();
+        let chr = if header.uses_chr_ram {
+          vec![0; header.chr_ram_size]
+        } else {
+          rom[chr_start..chr_start + header.chr_size].to_vec()
+        }
+        .into_boxed_slice();
+
+        let sram_size = header.sram_real_size();
+        let sram = vec![0; sram_size].into_boxed_slice();
+
+        let vram_size = if header.has_alt_mirroring {
+          4 * 1024
+        } else {
+          2 * 1024
+        };
+        let vram = vec![0; vram_size].into_boxed_slice();
+
+        let mut ram = vec![0; 2 * 1024].into_boxed_slice();
+        let _ = getrandom::fill(&mut ram)
+          .inspect_err(|e| eprintln!("Couldn't initialize RAM with random values: {e}"));
+
+        let ppu_timing = header.timing.into();
+
+        Ok(Self {
+          cart: header,
+          prg,
+          chr,
+          vram,
+          sram,
+          ram,
+          mapper,
+          cfg,
+          ppu_timing,
+          ..Default::default()
+        })
+      }
+
+      Err(e) => {
+        if !e.contains("valid") {
+          return Err(e.to_string());
+        }
+
+        // try booting fds file
+        let disk = DiskHeader::new(rom)?;
+        
+        let mut cfg = MemConfig::default();
+        let mut mapper = FDS::new(&Default::default(), &mut cfg);
+        mapper.disk = disk;
+
+        // TODO: load bios dynamically
+        let prg = include_bytes!("../fds/disksys.rom").to_vec().into_boxed_slice();
+        let chr = vec![0; 8 * 1024].into_boxed_slice();
+        let sram = vec![0; 32 * 1024].into_boxed_slice();
+        let vram = vec![0; 2 * 1024].into_boxed_slice();
+
+        let mut ram = vec![0; 2 * 1024].into_boxed_slice();
+        let _ = getrandom::fill(&mut ram)
+          .inspect_err(|e| eprintln!("Couldn't initialize RAM with random values: {e}"));
+
+        let ppu_timing = ConsoleTiming::default().into();
+
+        Ok(Self {
+          cart: Default::default(),
+          prg,
+          chr,
+          vram,
+          sram,
+          ram,
+          mapper,
+          cfg,
+          ppu_timing,
+          ..Default::default()
+        })
+      }
     }
-    .into_boxed_slice();
-
-    let sram_size = header.sram_real_size();
-    let sram = vec![0; sram_size].into_boxed_slice();
-
-    let vram_size = if header.has_alt_mirroring {
-      4 * 1024
-    } else {
-      2 * 1024
-    };
-    let vram = vec![0; vram_size].into_boxed_slice();
-
-    let mut ram = vec![0; 2 * 1024].into_boxed_slice();
-    let _ = getrandom::fill(&mut ram)
-      .inspect_err(|e| eprintln!("Couldn't initialize RAM with random values: {e}"));
-
-    let ppu_timing = header.timing.into();
-
-    Ok(Self {
-      cart: header,
-      prg,
-      chr,
-      vram,
-      sram,
-      ram,
-      mapper,
-      cfg,
-      ppu_timing,
-      ..Default::default()
-    })
   }
 }
 

@@ -149,7 +149,7 @@ impl CartHeader {
     let mut header = CartHeader::default();
 
     if !is_nes_rom(rom) {
-      return Err("Nintendo header magic values not found");
+      return Err("Not a valid iNes/Nes2.0 rom file");
     }
 
     if rom.len() < HEADER_SIZE {
