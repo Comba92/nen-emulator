@@ -104,7 +104,7 @@ impl Bus {
 
     match header {
       Ok(header) => {
-        println!("Loaded NES ROM: {:#?}", header);
+        println!("Loaded cart ROM: {:#?}", header);
 
         let mut cfg = MemConfig::new(&header);
         let mapper = mapper::new_mapper(&header, &mut cfg)?;
@@ -160,6 +160,7 @@ impl Bus {
         
         let mut cfg = MemConfig::default();
         let mut mapper = FDS::new(&Default::default(), &mut cfg);
+        println!("Loaded disk ROM: {:#?}", disk);
         mapper.disk = disk;
 
         // TODO: load bios dynamically

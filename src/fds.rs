@@ -6,15 +6,20 @@ pub struct DiskHeader {
   sides: Vec<DiskSide>,
 }
 
-#[derive(Default, Debug )]
+#[derive(Default)]
 pub struct DiskSide {
   raw: Vec<u8>,
-  game_name: String,
   face: SideFace,
+  game_name: String,
   disk_number: usize,
   boot_file_id: usize,
   files_count: usize,
   files: Vec<DiskFile>,
+}
+impl std::fmt::Debug for DiskSide {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      f.debug_struct("DiskSide").field("face", &self.face).field("game_name", &self.game_name).field("disk_number", &self.disk_number).field("boot_file_id", &self.boot_file_id).field("files_count", &self.files_count).field("files", &self.files).finish()
+  }
 }
 
 #[derive(Default, Debug)]
@@ -55,7 +60,7 @@ fn add_gaps(buf: &mut Vec<u8>, bits_size: usize) {
   buf.push(0xef);
 
   let buf_len = buf.len();
-  buf.resize(buf_len + (bits_size / 8) - 1, 0);
+  buf.resize(buf_len + (bits_size / 8), 0);
   // gap terminator
   buf.push(0x80);
 }
@@ -95,6 +100,8 @@ impl DiskHeader {
 
     for disk_side in disk_sides {
       let mut raw = vec![0; 28300 / 8];
+      raw.push(0x80);
+
       let mut side = DiskSide::default();
 
       // side header block
@@ -212,46 +219,43 @@ impl DiskHeader {
       header.sides.push(side);
     }
 
+    println!("{:x?}", &header.sides[0].raw[..=28300 / 8 + SIDE_HEADER_SIZE + 10]);
     return Ok(header)
   }
 }
 
-bitflags::bitflags! {
-  #[derive(Default)]
-  struct DriveStat: u8 {
-    const DiskFlag = 1;
-    const ReadyFlag = 2;
-    const ProtectFlag = 4;
-  }
+#[derive(Default)]
+enum DiskState {
+  NotInserted,
+  #[default]
+  AtStart,
+  Scanning,
+  Rewinding,
+  AtEnd
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct FDS {
-  disk_tx_reset: bool,              // Ctrl: TxReset
-  disk_motor_enabed: bool,         // Ctrl: DriveMotorCtrl
-  disk_read_mode: bool,          // Ctrl: TxMode
-  disk_crc_tx: bool,                // Ctrl: CRCTxCtrl
-  disk_crc_enabled: bool,           // Ctrl: CRCEnabled
-  disk_irq_enabled: bool,         // Ctrl: InterruptEnabled
-  disk_irq_flag: bool,
-  
-  disk_byte_tx: bool,     // Stat: ByteTx
-  disk_completed: bool,   // Stat: EndOfHead
-  disk_avaible: bool,     // Stat: DiskRWEnable
-  
-  disk_inserted: bool,
-  disk_ready: bool,
-
-  disk_changing: bool,
-  disk_scanning: bool,
-  disk_rewinding: bool,
-
-  disk_pos: u16,
-  disk_offset: usize,
-  disk_not_in_gap: bool,
-  disk_data: u8,
-  
+  // Ctrl
+  disk_scan_reset: bool,            // Ctrl: TxReset
+  disk_motor_enabled: bool,         // Ctrl: DriveMotorCtrl -> its important for at_end
+  disk_read_mode: bool,             // Ctrl: TxMode
   mirroring: Mirroring,
+  disk_crc_enabled: bool,           // Ctrl: CRCEnabled -> its important for gaps
+  disk_irq_enabled: bool,           // Ctrl: InterruptEnabled
+  disk_irq_flag: Option<()>,
+  
+  disk_transferred: bool,         // Stat: ByteTx
+  disk_at_end: bool,              // Stat: EndOfHead
+
+  disk_inserted: bool,
+  disk_scanning: bool,
+  disk_pos: usize,
+  disk_delay: usize,
+  disk_in_gap: bool,
+
+  disk_data_read: u8,
+  disk_data_write: u8,
 
   disk_io_enable: bool,
   sound_io_enable: bool,
@@ -278,29 +282,29 @@ impl FDS {
     }
   }
 
-  fn disk_read(&mut self) {
-    self.disk_data = self.disk.sides[0].raw[self.disk_offset as usize];
-    self.disk_offset += 1;
+  // fn disk_read(&mut self) {
+  //   self.disk_data = self.disk.sides[0].raw[self.disk_offset as usize];
+  //   self.disk_offset += 1;
     
-    if self.disk_crc_enabled {
-      self.disk_not_in_gap = true;
-      return;
-    }
+  //   if self.disk_crc_enabled {
+  //     self.disk_not_in_gap = true;
+  //     return;
+  //   }
 
-    if self.disk_not_in_gap {
-      // are we at the 0x80 byte?
-      self.disk_not_in_gap = (self.disk_data >> 7) & 1 == 0;
-    } else {
-      self.disk_byte_tx = true;
-      self.timer_irq_flag = None;
-      self.disk_irq_flag = false;
-    }
-  }
+  //   if self.disk_not_in_gap {
+  //     // are we at the 0x80 byte?
+  //     self.disk_not_in_gap = (self.disk_data >> 7) & 1 == 0;
+  //   } else {
+  //     self.disk_byte_tx = true;
+  //     self.timer_irq_flag = None;
+  //     self.disk_irq_flag = None;
+  //   }
+  // }
 
-  fn disk_write(&mut self) {
-    self.disk_avaible = true;
-    self.disk_byte_tx = true;
-  }
+  // fn disk_write(&mut self) {
+  //   self.disk_rw_enabled = true;
+  //   self.disk_byte_tx = true;
+  // }
 }
 
 impl Mapper for FDS {
@@ -313,12 +317,8 @@ impl Mapper for FDS {
     banks.mapping.cpu_writes[7] = |_, _, _| {}; // can't write to bios
 
     Box::new(Self {
-      disk_io_enable: true,
       disk_inserted: true,
-      disk_not_in_gap: true,
-      disk_read_mode: true,
-      disk_avaible: true,
-      disk_motor_enabed: true,
+      disk_io_enable: true,
       ..Default::default()
     })
   }
@@ -326,37 +326,41 @@ impl Mapper for FDS {
   fn prg_write(&mut self, _: &mut MemConfig, _: usize, _: u8) {}
 
   fn cart_read(&mut self, addr: usize) -> u8 {
+    if !self.disk_io_enable {
+      return 0xff;
+    }
+
     match addr {
       0x4030 => {
         let mut res = 0;
-        res |= self.poll_irq() as u8;
-        res |= (self.disk_byte_tx as u8) << 1;
+        res |= self.disk_irq_flag.is_some() as u8;
+        res |= (self.disk_transferred as u8) << 1;
         res |= match self.mirroring {
           Mirroring::Vertical => 0,
           _ => 1,
         } << 3;
 
-        res |= (self.disk_completed as u8) << 6;
-        res |= (self.disk_avaible as u8) <<  7;
+        res |= (self.disk_at_end as u8) << 6;
+        // res |= (self.disk_rw_enabled as u8) <<  7;
+        res |= 1 << 7;
 
-        self.disk_byte_tx = false;
+        self.disk_transferred = false;
         self.timer_irq_flag = None;
-        self.disk_irq_flag = false;
+        self.disk_irq_flag = None;
 
         res
       }
       0x4031 => {
-        self.disk_byte_tx = false;
-        self.disk_irq_flag = false;
-
-        self.disk_data
+        self.disk_transferred = false;
+        self.disk_irq_flag = None;
+        self.disk_data_read
       }
       0x4032 => {
         let mut res = 0;
         res |= !self.disk_inserted as u8;
-        res |= (!self.disk_inserted || !self.disk_scanning) as u8 >> 1;
-        res |= !self.disk_inserted as u8 >> 2;
-        res |= 1 >> 6;
+        res |= ((!self.disk_inserted && !self.disk_scanning) as u8) << 1;
+        res |= (!self.disk_inserted as u8) <<  2;
+        res |= 1 << 6;
         res
       }
       
@@ -384,15 +388,16 @@ impl Mapper for FDS {
 
         if !self.disk_io_enable {
           self.timer_irq_enabled = false;
+          self.disk_irq_enabled = false;
           self.timer_irq_flag = None;
-          self.disk_irq_flag = false;
+          self.disk_irq_flag = None;
         }
       }
       0x4024 => {
         if !self.disk_io_enable { return; }
-        self.disk_data = val;
-        self.disk_byte_tx = false;
-        self.disk_irq_flag = false;
+        self.disk_data_write = val;
+        self.disk_transferred = false;
+        self.disk_irq_flag = None;
       }
       0x4025 => {
         if !self.disk_io_enable { return; }
@@ -403,16 +408,16 @@ impl Mapper for FDS {
         };
         banks.vram.update(self.mirroring);
 
-        self.disk_tx_reset = val & 1 != 0;
-        self.disk_motor_enabed = (val >> 1) & 1 != 0;
+        // self.disk_scan_reset = val & 1 != 0;
+        // self.disk_motor_enabled = (val >> 1) & 1 == 0;
+        self.disk_motor_enabled = val & 1 != 0;
+        self.disk_scan_reset = (val >> 1) & 1 != 0;
         self.disk_read_mode = (val >> 2) & 1 != 0;
-        self.disk_crc_tx = (val >> 4) & 1 != 0;
-        self.disk_ready = (val >> 6) & 1 != 0;
+        // self.disk_crc_tx = (val >> 4) & 1 != 0;
+        self.disk_crc_enabled = (val >> 6) & 1 != 0;
         self.disk_irq_enabled = (val >> 7) & 1 != 0;
 
-        self.timer_irq_flag = None;
-
-        if !self.disk_tx_reset { self.disk_rewinding = false; }
+        self.disk_irq_flag = None;
       }
       _ => {}
     }
@@ -421,138 +426,73 @@ impl Mapper for FDS {
   fn notify_cpu_cycle(&mut self) {
     self.handle_timer_irq();
 
-    // if !self.disk_scan 
-    //   && self.disk_power 
-    //   && self.disk_crc_write 
-    // {
-    //   if self.disk_counter > 0 {
-    //     self.disk_counter -= 1;
-    //   } else {
-    //     if self.disk_offset == self.disk.sides[0].raw.len() {
-    //       self.disk_power = false;
-    //       self.disk_completed = true;
-    //     } else {
-    //       self.disk_counter = 2000;
-    //       self.disk_data = self.disk.sides[0].raw[self.disk_offset];
-    //       self.disk_offset += 1;
-
-    //       if self.disk_gap {
-    //         self.disk_gap = (self.disk_data >> 7) & 1 != 0;
-    //       } else {
-    //         self.disk_pending = true;
-    //         if self.disk_irq {
-    //           self.irq_flag = Some(());
-    //         }
-    //       }
-    //     }
-    //   }
-    // }
-
-    // // change disk
-    // if self.disk_changing {
-    //   self.disk_counter = 0;
-    //   self.disk_changing = false;
-    // }
-
-    // if !self.disk_tx_reset {
-    //   return;
-    // }
-
-    // // turn on motor
-    // if !self.disk_ready {
-    //   self.disk_counter += 1;
-    //   if self.disk_counter >= 17500 {
-    //     self.disk_counter = 0;
-    //     self.disk_ready = true;
-    //     self.disk_rewinding = true;
-    //     self.disk_scanning = false;
-    //   }
-    // }
-
-    // // rewind head to start
-    // if self.disk_rewinding {
-    //   self.disk_counter += 1;
-    //   if self.disk_offset > 0 && self.disk_counter >= 175 {
-    //     self.disk_counter = 0;
-    //     self.disk_offset -= 1;
-    //   }
-      
-    //   if self.disk_offset == 0 {
-    //     self.disk_rewinding = false;
-    //     self.disk_completed = false;
-    //     self.disk_scanning = self.disk_motor_enabed;
-    //   }
-    // }
-
-    // // move the head periodically
-    // if self.disk_scanning {
-    //   self.disk_counter += 1;
-    //   if self.disk_counter >= 1750 {
-    //     self.disk_counter = 0;
-    //     if self.disk_read_mode {
-    //       self.disk_read();
-    //     } else {
-    //       self.disk_write();
-    //     }
-
-    //     if self.disk_offset >= self.disk.sides[0].raw.len() {
-    //       self.disk_rewinding = true;
-    //       self.disk_scanning = false;
-    //       self.disk_completed = true;
-    //     }
-    //   }
-    // }
-    
-    if !self.disk_motor_enabed {
-      self.disk_completed = true;
+    if !self.disk_motor_enabled {
+      self.disk_at_end = true;
       self.disk_scanning = false;
       return;
     }
-    
-    if self.disk_tx_reset && !self.disk_scanning {
+
+    if self.disk_scan_reset && !self.disk_scanning {
       return;
     }
 
-    if self.disk_completed {
-      self.disk_completed = false;
-      self.disk_not_in_gap = false;
+    if self.disk_at_end {
+      self.disk_delay = 50000;
+      self.disk_at_end = false;
+      self.disk_in_gap = true;
       self.disk_pos = 0;
       return;
     }
 
-    self.disk_scanning = true;
-    let mut irq = self.disk_irq_enabled;
+    if self.disk_delay > 0 {
+      self.disk_delay -= 1;
+      return;
+    }
+
     if self.disk_read_mode {
-      let data = self.disk.sides[0].raw[self.disk_pos as usize];
+      self.disk_scanning = true;
 
-      if !self.disk_ready {
-        self.disk_not_in_gap = false;
-      } else if !self.disk_not_in_gap {
-        self.disk_not_in_gap = true;
-        irq = false;
+      let data = self.disk.sides[0].raw[self.disk_pos];
+      let mut should_irq = true;
+
+      if !self.disk_crc_enabled {
+        // we are in a gap
+        self.disk_in_gap = true;
+      } else if data == 0x80 && self.disk_in_gap {
+        // we reached end of a gap (found a bit set)
+        self.disk_in_gap = false;
+        should_irq = false;
       }
-
-      if self.disk_not_in_gap {
-        self.disk_tx_reset = true;
-        self.disk_data = data;
-        if irq {
-          self.disk_irq_flag = true;
+      
+      if !self.disk_in_gap && should_irq {
+        // we can read bytes
+        self.disk_transferred = true;
+        self.disk_data_read = data;
+        
+        if self.disk_irq_enabled {
+          self.disk_irq_flag = Some(())
         }
       }
     } else {
-      // TODO: write
+      self.disk_transferred = true;
+      if self.disk_irq_enabled {
+        self.disk_irq_flag = Some(());
+      }
+
+      println!("Writing crc");
+      self.disk.sides[0].raw[self.disk_pos] = 0xbb;
+      self.disk_in_gap = false;
     }
 
     self.disk_pos += 1;
-    if self.disk_pos as usize >= self.disk.sides[0].raw.len() {
-      self.disk_motor_enabed = false;
-      if self.disk_irq_enabled {
-        self.disk_irq_flag = true;
-      }
+    if self.disk_pos >= self.disk.sides[0].raw.len() {
+      self.disk_motor_enabled = false;
+      println!("Rewinging disk");
+      println!("{:#?}", self);
     }
   }
 
   fn poll_irq(&mut self) -> bool {
-    self.timer_irq_flag.is_some() || self.disk_irq_flag
+    self.timer_irq_flag.is_some() || self.disk_irq_flag.is_some()
   }
 }
