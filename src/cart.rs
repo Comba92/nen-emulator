@@ -1,5 +1,6 @@
 use crate::emu::Mirroring;
 
+#[derive(Default)]
 pub struct Cart {
   pub header: CartHeader,
   pub prg: Vec<u8>,

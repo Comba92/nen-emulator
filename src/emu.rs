@@ -1,16 +1,25 @@
-use crate::{bus::NesMemHandler, cart::Cart, cpu::{self, Cpu6502}};
+use std::sync::LazyLock;
+
+use crate::{bus::MemHandler, cart::Cart, cpu::{self, Cpu6502}, ppu::Ppu2C02};
 
 bitflags::bitflags! {
+  #[derive(Debug)]
   pub struct Interrupts: u8 {
     const NMI = 1 << 0;
     const IRQ = 1 << 1;
   }
 }
 
-pub struct Emu<T: Mem> {
+pub struct Emu {
   pub cpu: Cpu6502,
-  pub mem: T,
+  pub ppu: Ppu2C02,
+  pub mem: MemHandler,
+  #[cfg(feature = "ram64kb")]
+  pub ram: [u8; 64 * 1024],
   pub interrupts: Interrupts,
+
+  pub framebuf: [u8; 256 * 240],
+  pub frame_ready: Option<()>,
 }
 
 #[derive(Debug, Default)]
@@ -22,55 +31,65 @@ pub enum Mirroring {
   FourScreens
 }
 
-pub trait Mem {
-  fn read(&mut self, addr: u16) -> u8;
-  fn write(&mut self, addr: u16, val: u8);
-}
-
-pub struct Ram64kb {
-  pub mem: [u8; 64 * 1024],
-}
-impl Ram64kb {
-  pub fn new() -> Self {
-    Self { mem: [0; 64 * 1024] }
-  }
-}
-
-impl Mem for Ram64kb {
-  fn read(&mut self, addr: u16) -> u8 {
-    self.mem[addr as usize]
-  }
-
-  fn write(&mut self, addr: u16, val: u8) {
-    self.mem[addr as usize] = val;
-  }
-}
-
-impl Emu<Ram64kb> {
-  pub fn with_ram64kb() -> Self {
-    Self {
-      cpu: Cpu6502::new(),
-      mem: Ram64kb::new(),
-      interrupts: Interrupts::empty(),
-    }
-  }
-}
-
-impl Emu<NesMemHandler> {
+impl Emu {
   pub fn new(cart: Cart) -> Self {
     let mut emu = Self {
       cpu: Cpu6502::new(),
-      mem: NesMemHandler::new(cart),
+      ppu: Ppu2C02::new(),
+      mem: MemHandler::new(cart),
+      #[cfg(feature = "ram64kb")]
+      ram: [0; 64 * 1024],
       interrupts: Interrupts::empty(),
+      framebuf: [0; 256 * 240],
+      frame_ready: None,
     };
 
-    emu.cpu.pc = emu.read16(cpu::RST_VECTOR);
+    emu.cpu.pc = emu.cpu_read16(cpu::RST_VECTOR);
     emu
   }
-}
 
-impl<T: Mem> Emu<T> {
+
+  #[cfg(not(feature = "ram64kb"))]
+  pub fn step(&mut self) {
+    let cycles = self.cpu.cycles;
+    self.cpu_step();
+    
+    let cycles_run = self.cpu.cycles - cycles;
+    for _ in 0..cycles_run {
+      self.ppu_step();
+      self.ppu_step();
+      self.ppu_step();
+      // self.ppu_step_simple();
+      // self.ppu_step_simple();
+      // self.ppu_step_simple();
+    }
+  }
+  
+  #[cfg(feature = "ram64kb")]
   pub fn step(&mut self) {
     self.cpu_step();
   }
+
+  pub fn step_until_vblank(&mut self) {
+    while self.cpu.cycles < 133 {
+      self.step();
+    }
+    
+    self.cpu.cycles -= 133;
+  }
 }
+
+#[derive(Debug)]
+pub struct RGBColor(pub u8, pub u8, pub u8);
+pub static SYS_COLORS: LazyLock<[RGBColor; 64]> = LazyLock::new(|| {
+  let bytes = include_bytes!("../utils/2C02G_wiki.pal");
+
+  let colors: Vec<RGBColor> = bytes
+    .chunks(3)
+    // we take only the first palette set of 64 colors, more might be in a .pal file
+    .take(64)
+    .map(|rgb| RGBColor(rgb[0], rgb[1], rgb[2]))
+    .collect();
+
+  colors.try_into().unwrap()
+});

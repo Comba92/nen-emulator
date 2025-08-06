@@ -3,7 +3,11 @@ name = "nes-emulator"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+ram64kb = []
+
 [dependencies]
+bitfields = "1.0.0"
 bitflags = "2.9.1"
 sdl3 = "0.14.36"
 

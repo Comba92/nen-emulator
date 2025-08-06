@@ -32,7 +32,7 @@ enum AddressingMode {
   
 
 bitflags::bitflags! {
-  #[derive(Debug, Default, Clone, Copy)]
+  #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
   pub struct Status: u8 {
     const Carry = 1 << 0;
     const Zero = 1 << 1;
@@ -69,46 +69,61 @@ impl Cpu6502 {
   pub fn new() -> Self {
     Self {
       sp: 0xfd,
-      p: Status::Unused & Status::IrqDisable,
+      p: Status::Unused | Status::IrqDisable,
       ..Default::default()
     }
   }
 }
 
-impl<T: emu::Mem> Emu<T> {
-  pub fn read8(&mut self, addr: u16) -> u8 {
-    self.mem.read(addr)
+impl Emu {
+  #[cfg(not(feature = "ram64kb"))]
+  fn cpu_read8(&mut self, addr: u16) -> u8 {
+    let res = self.cpu_dispatch_read(addr);
+    // println!("Reading {addr:4x}, got {res:2x}");
+    res
   }
 
-  pub fn write8(&mut self, addr: u16, val: u8) {
-    self.mem.write(addr, val);
+  #[cfg(not(feature = "ram64kb"))]
+  fn cpu_write8(&mut self, addr: u16, val: u8) {
+    // println!("Writing {addr:4x}, got {val:2x}");
+    self.cpu_dispatch_write(addr, val);
   }
 
-  pub fn read16(&mut self, addr: u16) -> u16 {
-    let lo = self.read8(addr);
-    let hi = self.read8(addr.wrapping_add(1));
+  #[cfg(feature = "ram64kb")]
+  fn cpu_read8(&mut self, addr: u16) -> u8 {
+    self.ram[addr as usize]
+  }
+
+  #[cfg(feature = "ram64kb")]
+  fn cpu_write8(&mut self, addr: u16, val: u8) {
+    self.ram[addr as usize] = val;
+  }
+
+  pub fn cpu_read16(&mut self, addr: u16) -> u16 {
+    let lo = self.cpu_read8(addr);
+    let hi = self.cpu_read8(addr.wrapping_add(1));
     u16::from_le_bytes([lo, hi]) 
   }
 
-  fn wrapping_read16(&mut self, addr: u16) -> u16 {
+  fn wrapping_cpu_read16(&mut self, addr: u16) -> u16 {
     if addr & 0x00ff == 0x0ff {
       let page = addr & 0xff00;
-      let lo = self.read8(page | 0xff);
-      let hi = self.read8(page | 0x00);
+      let lo = self.cpu_read8(page | 0xff);
+      let hi = self.cpu_read8(page | 0x00);
       u16::from_le_bytes([lo, hi])
     } else {
-      self.read16(addr)
+      self.cpu_read16(addr)
     }
   }
 
   fn pc_fetch8(&mut self) -> u8 {
-    let val = self.read8(self.cpu.pc);
+    let val = self.cpu_read8(self.cpu.pc);
     self.cpu.pc = self.cpu.pc.wrapping_add(1);
     val
   }
 
   fn pc_fetch16(&mut self) -> u16 {
-    let val = self.read16(self.cpu.pc);
+    let val = self.cpu_read16(self.cpu.pc);
     self.cpu.pc = self.cpu.pc.wrapping_add(2);
     val
   }
@@ -119,7 +134,10 @@ impl<T: emu::Mem> Emu<T> {
 
   pub fn cpu_step(&mut self) {
     self.poll_interrupts();
+    
     let opcode = self.pc_fetch8();
+    // println!("Opcode: ${opcode:2x}");
+
     self.fetch_operand(opcode);
     self.decode_n_exec(opcode);
 
@@ -130,10 +148,12 @@ impl<T: emu::Mem> Emu<T> {
   fn poll_interrupts(&mut self) {
     // https://www.nesdev.org/wiki/CPU_interrupts#IRQ_and_NMI_tick-by-tick_execution
     if self.interrupts.contains(emu::Interrupts::NMI) {
+      self.interrupts.remove(emu::Interrupts::NMI);
       self.handle_interrupt(NMI_VECTOR);
     } else if self.interrupts.contains(emu::Interrupts::IRQ) 
       && !self.cpu.p.contains(Status::IrqDisable)
     {
+      self.interrupts.remove(emu::Interrupts::IRQ);
       self.handle_interrupt(IRQ_VECTOR);
     }
   }
@@ -145,21 +165,24 @@ impl<T: emu::Mem> Emu<T> {
     self.stack_push16(self.cpu.pc);
     self.stack_push8(self.cpu.p.bits());
     self.cpu.p.insert(Status::IrqDisable);
-    self.cpu.pc = self.read16(int_vector);
+    self.cpu.pc = self.cpu_read16(int_vector);
   }
 
   fn fetch_zeropage_op(&mut self, offset: u8) {
     let zero_addr = self.pc_fetch8();
-    self.cpu_tick();
+    // self.cpu_tick();
     self.cpu.op_addr = zero_addr.wrapping_add(offset) as u16;
   }
 
-  fn fetch_absolute_op(&mut self, offset: u8) {
+
+  const RW: &[u8] = &[0x1e, 0xde, 0xfe, 0x5e, 0x3e, 0x7e, 0x9d, 0x99];
+
+  fn fetch_absolute_op(&mut self, offset: u8, opcode: u8) {
     let addr_base = self.pc_fetch16();
     let addr_effective = addr_base.wrapping_add(offset as u16);
 
     // page crossing check
-    if addr_effective & 0xff0 != addr_base & 0xff00 {
+    if addr_effective & 0xff00 != addr_base & 0xff00 && !Self::RW.contains(&opcode) {
       self.cpu_tick();
     }
 
@@ -171,9 +194,10 @@ impl<T: emu::Mem> Emu<T> {
     self.cpu.op_val = None;
     
     match mode {
-      Implied => { self.cpu_tick(); },
+      // Implied => { self.cpu_tick(); },
+      Implied => {},
       Accumulator => {
-        self.cpu_tick();
+        // self.cpu_tick();
         self.cpu.op_val = Some(self.cpu.a);
       }
       Immediate | Relative => self.cpu.op_val = Some(self.pc_fetch8()),
@@ -181,25 +205,25 @@ impl<T: emu::Mem> Emu<T> {
       ZeroPageX => self.fetch_zeropage_op(self.cpu.x),
       ZeroPageY => self.fetch_zeropage_op(self.cpu.y),
       Absolute => self.cpu.op_addr = self.pc_fetch16(),
-      AbsoluteX => self.fetch_absolute_op(self.cpu.x),
-      AbsoluteY => self.fetch_absolute_op(self.cpu.y),
+      AbsoluteX => self.fetch_absolute_op(self.cpu.x, opcode),
+      AbsoluteY => self.fetch_absolute_op(self.cpu.y, opcode),
       Indirect => {
         let addr = self.pc_fetch16();
-        self.cpu.op_addr = self.wrapping_read16(addr);
+        self.cpu.op_addr = self.wrapping_cpu_read16(addr);
       }
       IndirectX => {
         // important to keep it as u8
         let zero_addr = self.pc_fetch8();
         let addr = zero_addr.wrapping_add(self.cpu.x) as u16;
-        self.cpu.op_addr = self.wrapping_read16(addr);
+        self.cpu.op_addr = self.wrapping_cpu_read16(addr);
       },
       IndirectY => {
         let zero_addr = self.pc_fetch8() as u16;
-        let base_addr = self.wrapping_read16(zero_addr);
+        let base_addr = self.wrapping_cpu_read16(zero_addr);
         self.cpu.op_addr = base_addr.wrapping_add(self.cpu.y as u16);
 
         // page crossing check
-        if base_addr & 0xff0 != self.cpu.op_addr & 0xff00 {
+        if base_addr & 0xff0 != self.cpu.op_addr & 0xff00 && opcode != 0x91 {
           self.cpu_tick();
         }
       }
@@ -207,8 +231,8 @@ impl<T: emu::Mem> Emu<T> {
   }
 
   fn set_zn(&mut self, res: u8) {
-    // self.cpu.p = bit_set_with(self.cpu.p, flags::Zero, res == 0);
-    // self.cpu.p = bit_set_with(self.cpu.p, flags::Negative, bit_get(res, 7));
+    // self.cpu.p = bit_change(self.cpu.p, flags::Zero, res == 0);
+    // self.cpu.p = bit_change(self.cpu.p, flags::Negative, bit_get(res, 7));
     self.cpu.p.set(Status::Zero, res == 0);
     self.cpu.p.set(Status::Negative, res & 0x80 != 0);
   }
@@ -216,14 +240,14 @@ impl<T: emu::Mem> Emu<T> {
   fn get_op_val(&mut self) -> u8 {
     match self.cpu.op_val {
       Some(val) => val,
-      None => self.read8(self.cpu.op_addr)
+      None => self.cpu_read8(self.cpu.op_addr)
     }
   }
 
   fn set_op_res(&mut self, res: u8) {
     match self.cpu.op_val {
       Some(_) => self.cpu.a = res,
-      None => self.write8(self.cpu.op_addr, res),
+      None => self.cpu_write8(self.cpu.op_addr, res),
     }
   }
 
@@ -232,12 +256,12 @@ impl<T: emu::Mem> Emu<T> {
   }
 
   fn stack_push8(&mut self, val: u8) {
-    self.write8(self.stack_curr(), val);
+    self.cpu_write8(self.stack_curr(), val);
     self.cpu.sp = self.cpu.sp.wrapping_sub(1);
   }
   fn stack_pop8(&mut self) -> u8 {
     self.cpu.sp = self.cpu.sp.wrapping_add(1);
-    self.read8(self.stack_curr())
+    self.cpu_read8(self.stack_curr())
   }
   fn stack_push16(&mut self, val: u16) {
     let [lo, hi] = val.to_le_bytes();
@@ -267,13 +291,13 @@ impl<T: emu::Mem> Emu<T> {
   }
 
   fn sta(&mut self) {
-    self.write8(self.cpu.op_addr, self.cpu.a);
+    self.cpu_write8(self.cpu.op_addr, self.cpu.a);
   }
   fn stx(&mut self) {
-    self.write8(self.cpu.op_addr, self.cpu.x);
+    self.cpu_write8(self.cpu.op_addr, self.cpu.x);
   }
   fn sty(&mut self) {
-    self.write8(self.cpu.op_addr, self.cpu.y);
+    self.cpu_write8(self.cpu.op_addr, self.cpu.y);
   }
 
   fn tax(&mut self) {
@@ -338,9 +362,9 @@ impl<T: emu::Mem> Emu<T> {
   fn bit(&mut self) {
     let val = self.get_op_val();
     let res = self.cpu.a & val;
-    // self.cpu.p = bit_set_with(self.cpu.p, flags::Zero, res == 0);
-    // self.cpu.p = bit_set_with(self.cpu.p, flags::Overflow, bit_get(val, 6));
-    // self.cpu.p = bit_set_with(self.cpu.p, flags::Negative, bit_get(val, 7));
+    // self.cpu.p = bit_change(self.cpu.p, flags::Zero, res == 0);
+    // self.cpu.p = bit_change(self.cpu.p, flags::Overflow, bit_get(val, 6));
+    // self.cpu.p = bit_change(self.cpu.p, flags::Negative, bit_get(val, 7));
     self.cpu.p.set(Status::Zero, res == 0);
     self.cpu.p.set(Status::Overflow, val & 0x40 != 0);
     self.cpu.p.set(Status::Negative, val & 0x80 != 0);
@@ -352,13 +376,13 @@ impl<T: emu::Mem> Emu<T> {
       // + bit_get(self.cpu.p, flags::Carry) as u16;
       + self.cpu.p.contains(Status::Carry) as u16;
 
-    // self.cpu.p = bit_set_with(self.cpu.p, flags::Carry, res > u8::MAX as u16);
+    // self.cpu.p = bit_change(self.cpu.p, flags::Carry, res > u8::MAX as u16);
     self.cpu.p.set(Status::Carry, res > u8::MAX as u16);
     self.set_zn(res as u8);
 
     // https://www.righto.com/2012/12/the-6502-overflow-flag-explained.html
     let overflow = (self.cpu.a ^ res as u8) & (val ^ res as u8) & 0x80 != 0;  
-    // self.cpu.p = bit_set_with(self.cpu.p, flags::Overflow, overflow);
+    // self.cpu.p = bit_change(self.cpu.p, flags::Overflow, overflow);
     self.cpu.p.set(Status::Overflow, overflow);
     
     self.cpu.a = res as u8;
@@ -378,7 +402,7 @@ impl<T: emu::Mem> Emu<T> {
     let b = self.get_op_val();
     let res = a.wrapping_sub(b);
 
-    // self.cpu.p = bit_set_with(self.cpu.p, flags::Carry, a >= b);
+    // self.cpu.p = bit_change(self.cpu.p, flags::Carry, a >= b);
     self.cpu.p.set(Status::Carry, a >= b);
     self.set_zn(res);
   }
@@ -395,7 +419,7 @@ impl<T: emu::Mem> Emu<T> {
 
   fn inc(&mut self) {
     let res = self.get_op_val().wrapping_add(1);
-    self.write8(self.cpu.op_addr, res);
+    self.cpu_write8(self.cpu.op_addr, res);
     self.set_zn(res);
   }
   fn inx(&mut self) {
@@ -411,7 +435,7 @@ impl<T: emu::Mem> Emu<T> {
 
   fn dec(&mut self) {
     let res = self.get_op_val().wrapping_sub(1);
-    self.write8(self.cpu.op_addr, res);
+    self.cpu_write8(self.cpu.op_addr, res);
     self.set_zn(res);
   }
   fn dex(&mut self) {
@@ -428,7 +452,7 @@ impl<T: emu::Mem> Emu<T> {
   fn shift<F: FnOnce(u8) -> u8>(&mut self, op: F, carry_bit: u8) {
     let val = self.get_op_val();
     let res = op(val);
-    // self.cpu.p = bit_set_with(self.cpu.p, flags::Carry, bit_get(val, carry_bit));
+    // self.cpu.p = bit_change(self.cpu.p, flags::Carry, bit_get(val, carry_bit));
     self.cpu.p.set(Status::Carry, val.shr(carry_bit) & 1 == 1);
     self.set_zn(res);
     self.set_op_res(res);
@@ -548,7 +572,7 @@ impl<T: emu::Mem> Emu<T> {
     self.php();
     // self.cpu.p = bit_set(self.cpu.p, flags::IrqDisable);
     self.cpu.p.insert(Status::IrqDisable);
-    self.cpu.pc = self.read16(IRQ_VECTOR);
+    self.cpu.pc = self.cpu_read16(IRQ_VECTOR);
   }
   fn rti(&mut self) {
     self.plp();
@@ -822,7 +846,7 @@ const CYCLES_TABLE: &[usize] = &[
   7, 6, 2, 8, 3, 3, 5, 5, 3, 2, 2, 2, 4, 4, 6, 6, 2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, 6, 6, 2, 8, 3, 3, 5, 5, 4, 2, 2, 2, 4, 4, 6, 6, 2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, 6, 6, 2, 8, 3, 3, 5, 5, 3, 2, 2, 2, 3, 4, 6, 6, 2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, 6, 6, 2, 8, 3, 3, 5, 5, 4, 2, 2, 2, 5, 4, 6, 6, 2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, 2, 6, 2, 6, 3, 3, 3, 3, 2, 2, 2, 2, 4, 4, 4, 4, 2, 6, 2, 6, 4, 4, 4, 4, 2, 5, 2, 5, 5, 5, 5, 5, 2, 6, 2, 6, 3, 3, 3, 3, 2, 2, 2, 2, 4, 4, 4, 4, 2, 5, 2, 5, 4, 4, 4, 4, 2, 4, 2, 4, 4, 4, 4, 4, 2, 6, 2, 8, 3, 3, 5, 5, 2, 2, 2, 2, 4, 4, 6, 6, 2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, 2, 6, 2, 8, 3, 3, 5, 5, 2, 2, 2, 2, 4, 4, 6, 6, 2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7
 ];
 
-impl<T: emu::Mem> Emu<T> {
+impl Emu {
   fn decode_n_exec(&mut self, opcode: u8) {
     match opcode {
       0x00 => self.brk(),

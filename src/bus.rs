@@ -1,10 +1,12 @@
-use crate::{cart::Cart, emu::{Mem, Mirroring}, mapper::{Mapper, NROM}};
+use crate::{cart::Cart, emu::{Emu, Mirroring}, mapper::{Mapper, NROM}};
 
-pub struct NesMemHandler {
+pub struct MemHandler {
   ram: [u8; 2 * 1024],
   prg: Vec<u8>,
   chr: Vec<u8>,
-  vram: [u8; 2 * 1024],
+  pub vram: [u8; 2 * 1024],
+  pub palettes: [u8; 32],
+
   bankings: BankingHandler,
   mapper: Box<dyn Mapper>
 }
@@ -19,7 +21,7 @@ impl Default for BankingHandler {
     Self {
       prg: Banking::new(32 * 1024, 0x8000, 16 * 1024, 2),
       chr: Banking::new(8 * 1024, 0, 8 * 1024, 1),
-      vram: Banking::new(2 * 1024, 0x2000, 1024, 2),
+      vram: Banking::new(2 * 1024, 0x2000, 1024, 4),
     }
   }
 }
@@ -86,30 +88,28 @@ impl<T> Banking<T> {
       Mirroring::Horizontal => {
         self.set_page(0, 0);
         self.set_page(1, 0);
-        // self.set_page(2, 1);
-        // self.set_page(3, 1);
+        self.set_page(2, 1);
+        self.set_page(3, 1);
       }
       Mirroring::Vertical => {
         self.set_page(0, 0);
         self.set_page(1, 1);
-        // self.set_page(2, 0);
-        // self.set_page(3, 1);
+        self.set_page(2, 0);
+        self.set_page(3, 1);
       }
       Mirroring::SingleScreenA => {
-        for i in 0..2 {
-        // for i in 0..4 {
+        for i in 0..4 {
           self.set_page(i, 0);
         }
       }
       Mirroring::SingleScreenB => {
-        for i in 0..2 {
-        // for i in 0..4 {
+        for i in 0..4 {
           self.set_page(i, 1);
         }
       }
       Mirroring::FourScreens => {
-        for i in 0..2 {
-        // for i in 0..4 {
+        todo!("four screens mirroring");
+        for i in 0..4 {
           self.set_page(i, i);
         }
       }
@@ -117,7 +117,7 @@ impl<T> Banking<T> {
   }
 }
 
-impl NesMemHandler {
+impl MemHandler {
   pub fn new(cart: Cart) -> Self {
     let mut banks = BankingHandler::default();
     banks.vram.mirror(&cart.header.mirroring);
@@ -128,6 +128,8 @@ impl NesMemHandler {
       prg: cart.prg,
       chr: cart.chr,
       vram: [0; 2 * 1024],
+      palettes: [0; 32],
+      
       // TODO: make banking based on mapper
       bankings: banks,
       mapper: mapper,
@@ -135,23 +137,95 @@ impl NesMemHandler {
   }
 }
 
-impl Mem for NesMemHandler {
-  fn read(&mut self, addr: u16) -> u8 {
-    // println!("[DEBUG] Reading {addr:x}");
+impl Emu {
+  pub fn cpu_dispatch_read(&mut self, addr: u16) -> u8 {
+    // println!("[DEBUG CPU] Reading {addr:x}");
+    
+    let mem = &mut self.mem;
     match addr {
-      0x0000..=0x1fff => self.ram[addr as usize & 0x07ff],
-      // 0x2000..=0x3fff => todo!("ppu regs"),
-      0x8000..=0xffff => self.prg[self.bankings.prg.translate(addr)],
+      0x0000..=0x1fff => mem.ram[addr as usize & 0x07ff],
+      0x2000..=0x3fff => {
+        // println!("[DEBUG CPU] Reading {addr:x}");
+        self.ppu_reg_read(addr & 0x2007)
+      }
+      0x4016 => {
+        0xff
+      }
+      // 0x8000..=0xffff => mem.prg[mem.bankings.prg.translate(addr)],
+      0x8000..=0xbfff => mem.prg[addr as usize - 0x8000],
+      0xc000..=0xffff => mem.prg[(addr as usize & 0xbfff) - 0x8000],
+      // TODO: open bus
       _ => 0,
     }
   }
 
-  fn write(&mut self, addr: u16, val: u8) {
-    // println!("[DEBUG] Writing {addr:x}");
+  pub fn cpu_dispatch_write(&mut self, addr: u16, val: u8) {
+    // println!("[DEBUG CPU] Writing {val:02x} to {addr:04x}");
+    
+    let mem = &mut self.mem;
     match addr {
-      0x0000..=0x1fff => self.ram[addr as usize & 0x07ff] = val,
-      // 0x2000..=0x3fff => todo!("ppu regs"),
-      0x8000..=0xffff => self.prg[self.bankings.prg.translate(addr)] = val,
+      0x0000..=0x1fff => mem.ram[addr as usize & 0x07ff] = val,
+      0x2000..=0x3fff => {
+        // println!("[DEBUG CPU] Writing {val:02x} to {addr:04x}");
+        self.ppu_reg_write(addr & 0x2007, val);
+      }
+      0x4016 => {
+        // TODO: joystick
+      }
+      0x8000..=0xbfff => mem.prg[addr as usize - 0x8000] = val,
+      0xc000..=0xffff => mem.prg[(addr as usize - 0x8000) & 0xbfff] = val,
+
+      // 0x8000..=0xffff => mem.prg[mem.bankings.prg.translate(addr)] = val,
+      _ => {},
+    }
+  }
+
+  pub fn ppu_dispatch_read(&mut self, addr: u16) -> u8 {
+    // println!("[DEBUG PPU] Reading {addr:x}");
+
+    let mem = &mut self.mem;
+    match addr {
+      // 0x0000..=0x1fff => mem.chr[mem.bankings.chr.translate(addr)],
+      // 0x2000..=0x2fff => mem.vram[mem.bankings.vram.translate(addr)],
+      0x0000..=0x1fff => mem.chr[addr as usize],
+      0x2000..=0x23ff => mem.vram[addr as usize - 0x2000],
+      0x2400..=0x27ff => mem.vram[addr as usize - 0x2000],
+      0x2800..=0x2bff => mem.vram[(addr as usize & 0x27ff) - 0x2000],
+      0x2c00..=0x2fff => mem.vram[(addr as usize & 0x27ff) - 0x2000],
+      0x3f00..=0x3fff => mem.palettes[(addr as usize & 0x3f1f) - 0x3f00],
+      // TODO: open bus
+      _ => 0,
+    }
+  }
+
+  pub fn ppu_dispatch_write(&mut self, addr: u16, val: u8) {
+    // println!("[DEBUG PPU] Writing {addr:x}");
+
+    let mem = &mut self.mem;
+    match addr {
+      // 0x0000..=0x1fff => mem.chr[mem.bankings.chr.translate(addr)] = val,
+      // 0x2000..=0x2fff => mem.vram[mem.bankings.vram.translate(addr)] = val,
+      0x0000..=0x1fff => mem.chr[addr as usize] = val,
+      0x2000..=0x23ff => mem.vram[addr as usize - 0x2000] = val,
+      0x2400..=0x27ff => mem.vram[addr as usize - 0x2000] = val,
+      0x2800..=0x2bff => mem.vram[(addr as usize & 0x27ff) - 0x2000] = val,
+      0x2c00..=0x2fff => mem.vram[(addr as usize & 0x27ff) - 0x2000] = val,
+      0x3f00..=0x3fff => {
+        let addr = (addr as usize & 0x3f1f) - 0x3f00;
+        let val = val & 0b1_1111;
+
+        // println!("Writing {} to palette {}", val, addr);
+
+        if addr % 4 == 0 {
+          // write all backdrop colors
+          for i in (0..mem.palettes.len()).step_by(4) {
+            mem.palettes[i] = val;
+          }
+        } else {
+          // write palette color
+          mem.palettes[addr] = val;
+        }
+      }
       _ => {},
     }
   }
