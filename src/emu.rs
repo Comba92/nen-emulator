@@ -19,7 +19,7 @@ pub struct Emu {
   pub interrupts: Interrupts,
 
   pub framebuf: [u8; 256 * 240],
-  pub frame_ready: Option<()>,
+  pub frame_ready: bool,
 }
 
 #[derive(Debug, Default)]
@@ -41,7 +41,7 @@ impl Emu {
       ram: [0; 64 * 1024],
       interrupts: Interrupts::empty(),
       framebuf: [0; 256 * 240],
-      frame_ready: None,
+      frame_ready: false,
     };
 
     emu.cpu.pc = emu.cpu_read16(cpu::RST_VECTOR);
@@ -71,18 +71,18 @@ impl Emu {
   }
 
   pub fn step_until_vblank(&mut self) {
-    while self.cpu.cycles < 133 {
+    while !self.frame_ready {
       self.step();
     }
     
-    self.cpu.cycles -= 133;
+    self.frame_ready = false;
   }
 }
 
 #[derive(Debug)]
 pub struct RGBColor(pub u8, pub u8, pub u8);
 pub static SYS_COLORS: LazyLock<[RGBColor; 64]> = LazyLock::new(|| {
-  let bytes = include_bytes!("../utils/2C02G_wiki.pal");
+  let bytes = include_bytes!("../utils/Composite_wiki.pal");
 
   let colors: Vec<RGBColor> = bytes
     .chunks(3)

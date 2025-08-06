@@ -151,9 +151,9 @@ impl Emu {
       0x4016 => {
         0xff
       }
-      // 0x8000..=0xffff => mem.prg[mem.bankings.prg.translate(addr)],
-      0x8000..=0xbfff => mem.prg[addr as usize - 0x8000],
-      0xc000..=0xffff => mem.prg[(addr as usize & 0xbfff) - 0x8000],
+      0x8000..=0xffff => mem.prg[mem.bankings.prg.translate(addr)],
+      // 0x8000..=0xbfff => mem.prg[addr as usize - 0x8000],
+      // 0xc000..=0xffff => mem.prg[(addr as usize & 0xbfff) - 0x8000],
       // TODO: open bus
       _ => 0,
     }
@@ -172,10 +172,10 @@ impl Emu {
       0x4016 => {
         // TODO: joystick
       }
-      0x8000..=0xbfff => mem.prg[addr as usize - 0x8000] = val,
-      0xc000..=0xffff => mem.prg[(addr as usize - 0x8000) & 0xbfff] = val,
+      // 0x8000..=0xbfff => mem.prg[addr as usize - 0x8000] = val,
+      // 0xc000..=0xffff => mem.prg[(addr as usize - 0x8000) & 0xbfff] = val,
 
-      // 0x8000..=0xffff => mem.prg[mem.bankings.prg.translate(addr)] = val,
+      0x8000..=0xffff => mem.prg[mem.bankings.prg.translate(addr)] = val,
       _ => {},
     }
   }
@@ -185,14 +185,14 @@ impl Emu {
 
     let mem = &mut self.mem;
     match addr {
-      // 0x0000..=0x1fff => mem.chr[mem.bankings.chr.translate(addr)],
-      // 0x2000..=0x2fff => mem.vram[mem.bankings.vram.translate(addr)],
-      0x0000..=0x1fff => mem.chr[addr as usize],
-      0x2000..=0x23ff => mem.vram[addr as usize - 0x2000],
-      0x2400..=0x27ff => mem.vram[addr as usize - 0x2000],
-      0x2800..=0x2bff => mem.vram[(addr as usize & 0x27ff) - 0x2000],
-      0x2c00..=0x2fff => mem.vram[(addr as usize & 0x27ff) - 0x2000],
-      0x3f00..=0x3fff => mem.palettes[(addr as usize & 0x3f1f) - 0x3f00],
+      0x0000..=0x1fff => mem.chr[mem.bankings.chr.translate(addr)],
+      0x2000..=0x2fff => mem.vram[mem.bankings.vram.translate(addr)],
+      // 0x0000..=0x1fff => mem.chr[addr as usize],
+      // 0x2000..=0x23ff => mem.vram[addr as usize - 0x2000],
+      // 0x2400..=0x27ff => mem.vram[addr as usize - 0x2000],
+      // 0x2800..=0x2bff => mem.vram[(addr as usize & 0x27ff) - 0x2000],
+      // 0x2c00..=0x2fff => mem.vram[(addr as usize & 0x27ff) - 0x2000],
+      0x3f00..=0x3fff => mem.palettes[(addr as usize - 0x3f00) & 31],
       // TODO: open bus
       _ => 0,
     }
@@ -203,24 +203,26 @@ impl Emu {
 
     let mem = &mut self.mem;
     match addr {
-      // 0x0000..=0x1fff => mem.chr[mem.bankings.chr.translate(addr)] = val,
-      // 0x2000..=0x2fff => mem.vram[mem.bankings.vram.translate(addr)] = val,
-      0x0000..=0x1fff => mem.chr[addr as usize] = val,
-      0x2000..=0x23ff => mem.vram[addr as usize - 0x2000] = val,
-      0x2400..=0x27ff => mem.vram[addr as usize - 0x2000] = val,
-      0x2800..=0x2bff => mem.vram[(addr as usize & 0x27ff) - 0x2000] = val,
-      0x2c00..=0x2fff => mem.vram[(addr as usize & 0x27ff) - 0x2000] = val,
+      0x0000..=0x1fff => mem.chr[mem.bankings.chr.translate(addr)] = val,
+      0x2000..=0x2fff => mem.vram[mem.bankings.vram.translate(addr)] = val,
+      // 0x0000..=0x1fff => mem.chr[addr as usize] = val,
+      // 0x2000..=0x23ff => mem.vram[addr as usize - 0x2000] = val,
+      // 0x2400..=0x27ff => mem.vram[addr as usize - 0x2000] = val,
+      // 0x2800..=0x2bff => mem.vram[(addr as usize & 0x27ff) - 0x2000] = val,
+      // 0x2c00..=0x2fff => mem.vram[(addr as usize & 0x27ff) - 0x2000] = val,
       0x3f00..=0x3fff => {
-        let addr = (addr as usize & 0x3f1f) - 0x3f00;
-        let val = val & 0b1_1111;
+        let addr = (addr as usize - 0x3f00) & 31;
+        let val = val & 0b11_1111;
 
         // println!("Writing {} to palette {}", val, addr);
 
         if addr % 4 == 0 {
           // write all backdrop colors
-          for i in (0..mem.palettes.len()).step_by(4) {
-            mem.palettes[i] = val;
-          }
+          // for i in (0..mem.palettes.len()).step_by(4) {
+          //   mem.palettes[i] = val;
+          // }
+          mem.palettes[0] = val;
+          mem.palettes[8] = val;
         } else {
           // write palette color
           mem.palettes[addr] = val;

@@ -1,22 +1,29 @@
 use nes_emulator::{cart::Cart, emu::{Emu, SYS_COLORS}};
-use sdl3::{event::Event, pixels::{PixelFormat, PixelFormatEnum}, sys::render::{SDL_RendererLogicalPresentation, SDL_LOGICAL_PRESENTATION_LETTERBOX}};
+use sdl2::{event::Event, pixels::PixelFormatEnum};
 
 fn main() {
-    let sdl = sdl3::init().unwrap();
+    let sdl = sdl2::init().unwrap();
     let video = sdl.video().unwrap();
     let window = video.window("NesEmu", 800, 600)
         .position_centered()
+        .resizable()
         .build().unwrap();
 
-    let mut canvas = window.into_canvas();
-    canvas.set_logical_size(256, 240, SDL_RendererLogicalPresentation::LETTERBOX);
+    let mut canvas = window.into_canvas()
+        .present_vsync()
+        .accelerated()
+        .build().unwrap();
+    canvas.set_logical_size(256, 240).unwrap();
+
     let mut events = sdl.event_pump().unwrap();
 
     let texture_creator  = canvas.texture_creator();
         
     let mut tex = texture_creator
-        .create_texture_streaming(None, 256, 240)
+        .create_texture_streaming(PixelFormatEnum::RGBA32, 256, 240)
         .unwrap();
+
+    tex.set_scale_mode(sdl2::render::ScaleMode::Nearest);
 
     let rom = include_bytes!("../roms/donkey kong.nes");
     let cart = Cart::new(rom).unwrap();
@@ -31,6 +38,7 @@ fn main() {
         }
 
         emu.step_until_vblank();
+        // emu.render_nametbl0();
 
         let mut pixel_data = Vec::new();
         for byte in emu.framebuf {
@@ -51,7 +59,6 @@ fn main() {
     }
 
     // println!("{:?}", emu.framebuf);
-    println!("{:?}", emu.interrupts);
     println!("{:x?}", emu.mem.vram);
-    println!("{:?}", emu.mem.palettes);
+    println!("{:x?}", emu.mem.palettes);
 }

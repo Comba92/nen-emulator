@@ -9,7 +9,7 @@ ram64kb = []
 [dependencies]
 bitfields = "1.0.0"
 bitflags = "2.9.1"
-sdl3 = "0.14.36"
+sdl2 = "0.38.0"
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"
