@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, sync::LazyLock};
+use std::sync::LazyLock;
 
 use crate::{bus::MemHandler, cart::Cart, cpu::{self, Cpu6502}, ppu::Ppu2C02};
 

@@ -5,6 +5,8 @@ pub struct MemHandler {
   prg: Vec<u8>,
   chr: Vec<u8>,
   pub vram: [u8; 2 * 1024],
+
+  // consider keeping this in PPU
   pub palettes: [u8; 32],
 
   bankings: BankingHandler,
@@ -188,7 +190,14 @@ impl Emu {
     match addr {
       0x0000..=0x1fff => mem.chr[mem.bankings.chr.translate(addr)],
       0x2000..=0x2fff => mem.vram[mem.bankings.vram.translate(addr)],
-      0x3f00..=0x3fff => mem.palettes[(addr as usize - 0x3f00) & 31],
+      0x3f00..=0x3fff => {
+        let addr = (addr as usize - 0x3f00) & 31;
+        if addr % 4 == 0 {
+          mem.palettes[0]
+        } else {
+          mem.palettes[addr]
+        }
+      }
       // TODO: open bus
       _ => 0,
     }
@@ -203,19 +212,25 @@ impl Emu {
         let addr = (addr as usize - 0x3f00) & 31;
         let val = val & 0b11_1111;
 
-        // TODO: make this work
-
+        // if we're writing a transparent color
         if addr % 4 == 0 {
-          // write all backdrop colors
-          // for i in (0..mem.palettes.len()).step_by(4) {
-          //   mem.palettes[i] = val;
+          // if addr == 0x3f00 || addr == 0x3f1f {
+            // write all backdrop colors
+            // for i in 0..8 {
+            //   mem.palettes[i*4] = val;
+            // }
+            mem.palettes[addr & 0xf] = val;
+            mem.palettes[addr & 0xf + 8] = val;
           // }
-          mem.palettes[0] = val;
-          mem.palettes[8] = val;
+          // else ignore
+
         } else {
-          // write palette color
+          // write palette color as is
           mem.palettes[addr] = val;
         }
+
+        mem.palettes[addr] = val;
+
       }
       _ => {},
     }

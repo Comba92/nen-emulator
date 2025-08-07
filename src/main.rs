@@ -25,7 +25,7 @@ fn main() {
 
     tex.set_scale_mode(sdl2::render::ScaleMode::Nearest);
 
-    let rom = include_bytes!("../roms/donkey kong.nes");
+    let rom = include_bytes!("../roms/super mario.nes");
     let cart = Cart::new(rom).unwrap();
     let mut emu = Emu::new(cart);
 
@@ -59,8 +59,6 @@ fn main() {
         canvas.present();
     }
 
-    // println!("{:?}", emu.framebuf);
-    println!("{:x?}", emu.mem.vram);
+
     println!("{:x?}", emu.mem.palettes);
-    println!("{:x?}", emu.ppu.oam.0);
 }
