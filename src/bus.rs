@@ -1,4 +1,4 @@
-use crate::{cart::Cart, emu::{Emu, Mirroring}, mapper::{Mapper, NROM}};
+use crate::{cart::Cart, emu::{self, Emu, Mirroring}, mapper::{Mapper, NROM}};
 
 pub struct MemHandler {
   ram: [u8; 2 * 1024],
@@ -138,42 +138,45 @@ impl MemHandler {
 }
 
 impl Emu {
-  pub fn cpu_dispatch_read(&mut self, addr: u16) -> u8 {
-    // println!("[DEBUG CPU] Reading {addr:x}");
-    
+  pub fn cpu_dispatch_read(&mut self, addr: u16) -> u8 {    
     let mem = &mut self.mem;
     match addr {
       0x0000..=0x1fff => mem.ram[addr as usize & 0x07ff],
       0x2000..=0x3fff => {
-        // println!("[DEBUG CPU] Reading {addr:x}");
         self.ppu_reg_read(addr & 0x2007)
       }
       0x4016 => {
-        0xff
+        0
       }
       0x8000..=0xffff => mem.prg[mem.bankings.prg.translate(addr)],
-      // 0x8000..=0xbfff => mem.prg[addr as usize - 0x8000],
-      // 0xc000..=0xffff => mem.prg[(addr as usize & 0xbfff) - 0x8000],
       // TODO: open bus
       _ => 0,
     }
   }
 
-  pub fn cpu_dispatch_write(&mut self, addr: u16, val: u8) {
-    // println!("[DEBUG CPU] Writing {val:02x} to {addr:04x}");
-    
+  pub fn cpu_dispatch_write(&mut self, addr: u16, val: u8) {    
     let mem = &mut self.mem;
     match addr {
       0x0000..=0x1fff => mem.ram[addr as usize & 0x07ff] = val,
-      0x2000..=0x3fff => {
-        // println!("[DEBUG CPU] Writing {val:02x} to {addr:04x}");
-        self.ppu_reg_write(addr & 0x2007, val);
+      0x2000..=0x3fff => self.ppu_reg_write(addr & 0x2007, val),
+      0x4014 => {
+        // https://www.nesdev.org/wiki/PPU_registers#OAMDMA_-_Sprite_DMA_($4014_write)
+        self.cpu_tick();
+        // TODO: +1 cycle on odd cpu cyles
+
+        let mut addr = (val as u16) << 8;
+
+        // optimize this, as we always know we're writing to OAM
+        for _ in 0..256 {
+          let byte = self.cpu_dispatch_read(addr);
+          addr += 1;
+          self.cpu_tick();
+          self.ppu_reg_write(0x2004, byte);
+        }
       }
       0x4016 => {
         // TODO: joystick
       }
-      // 0x8000..=0xbfff => mem.prg[addr as usize - 0x8000] = val,
-      // 0xc000..=0xffff => mem.prg[(addr as usize - 0x8000) & 0xbfff] = val,
 
       0x8000..=0xffff => mem.prg[mem.bankings.prg.translate(addr)] = val,
       _ => {},
@@ -181,17 +184,10 @@ impl Emu {
   }
 
   pub fn ppu_dispatch_read(&mut self, addr: u16) -> u8 {
-    // println!("[DEBUG PPU] Reading {addr:x}");
-
     let mem = &mut self.mem;
     match addr {
       0x0000..=0x1fff => mem.chr[mem.bankings.chr.translate(addr)],
       0x2000..=0x2fff => mem.vram[mem.bankings.vram.translate(addr)],
-      // 0x0000..=0x1fff => mem.chr[addr as usize],
-      // 0x2000..=0x23ff => mem.vram[addr as usize - 0x2000],
-      // 0x2400..=0x27ff => mem.vram[addr as usize - 0x2000],
-      // 0x2800..=0x2bff => mem.vram[(addr as usize & 0x27ff) - 0x2000],
-      // 0x2c00..=0x2fff => mem.vram[(addr as usize & 0x27ff) - 0x2000],
       0x3f00..=0x3fff => mem.palettes[(addr as usize - 0x3f00) & 31],
       // TODO: open bus
       _ => 0,
@@ -199,22 +195,15 @@ impl Emu {
   }
 
   pub fn ppu_dispatch_write(&mut self, addr: u16, val: u8) {
-    // println!("[DEBUG PPU] Writing {addr:x}");
-
     let mem = &mut self.mem;
     match addr {
       0x0000..=0x1fff => mem.chr[mem.bankings.chr.translate(addr)] = val,
       0x2000..=0x2fff => mem.vram[mem.bankings.vram.translate(addr)] = val,
-      // 0x0000..=0x1fff => mem.chr[addr as usize] = val,
-      // 0x2000..=0x23ff => mem.vram[addr as usize - 0x2000] = val,
-      // 0x2400..=0x27ff => mem.vram[addr as usize - 0x2000] = val,
-      // 0x2800..=0x2bff => mem.vram[(addr as usize & 0x27ff) - 0x2000] = val,
-      // 0x2c00..=0x2fff => mem.vram[(addr as usize & 0x27ff) - 0x2000] = val,
       0x3f00..=0x3fff => {
         let addr = (addr as usize - 0x3f00) & 31;
         let val = val & 0b11_1111;
 
-        // println!("Writing {} to palette {}", val, addr);
+        // TODO: make this work
 
         if addr % 4 == 0 {
           // write all backdrop colors

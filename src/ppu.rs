@@ -1,4 +1,4 @@
-use std::ops::{Shl, Shr};
+use std::{collections::HashMap, hash::Hash, ops::{Shl, Shr}, sync::LazyLock};
 
 use bitflags::Flags;
 
@@ -35,7 +35,7 @@ struct CtrlStrut {
   vram_addr_inc: u16,
   spr_pttrntbl_addr: u16,
   bg_pttrntbl_addr: u16,
-  spr_size: u8,
+  spr_size: u16,
   vblank_nmi_enabled: bool,
 }
 
@@ -73,18 +73,18 @@ impl WriteToggle {
 struct FetcherData {
   nametbl: u8,
   attribute: u8,
-  pattern_lo: u8,
-  pattern_hi: u8,
+  pttrn_lo: u8,
+  pttrn_hi: u8,
 }
 
-#[derive(Default)]
-enum FetcherState {
-  #[default]
-  Nametable,
-  Attribute,
-  PatternLo,
-  PatternHi,
-}
+// #[derive(Default)]
+// enum FetcherState {
+//   #[default]
+//   Nametable,
+//   Attribute,
+//   PatternLo,
+//   PatternHi,
+// }
 
 #[derive(Default)]
 struct ShifterData {
@@ -93,21 +93,83 @@ struct ShifterData {
   // we simulate the 1bit latch by always pushing 8 bytes (thus having a 16bit shifter)
   shift_attr_lo: u16,
   shift_attr_hi: u16,
+
+  spr_pttrn_lo: [u8; 8],
+  spr_pttrn_hi: [u8; 8],
+}
+
+// TODO: get rid of this
+#[derive(Default, Clone)]
+struct Sprite {
+  index: u8,
+  spr0: bool,
+  y: u8,
+  x: u8,
+  nametbl: u8,
+  palette: u8,
+  priority: bool,
+  flip_vert: bool,
+  flip_hori: bool,
+}
+impl Sprite {
+  pub fn new(index: u8, bytes: &[u8]) -> Self {
+    Self {
+      index,
+      spr0: index == 0,
+      y: bytes[0],
+      x: bytes[3],
+      nametbl: bytes[1],
+      palette: bytes[2] & 0b11,
+      // 0: in front of background; 1: behind background
+      priority: bytes[2] & 0x20 == 0,
+      flip_hori: bytes[2] & 0x40 != 0,
+      flip_vert: bytes[2] & 0x80 != 0,
+    }
+  }
+
+  pub fn empty() -> Self {
+    Self {
+      nametbl: 0xff,
+      ..Default::default()
+    }
+  }
+}
+
+// #[derive(Default)]
+// enum RenderState {
+//   #[default]
+//   PreRenderScanline,
+//   FirstIdleCycle,
+//   RenderingBg,
+//   RenderingUnusedBg,
+//   RenderingSpr,
+//   RenderingEnd,
+//   PostRenderScanline,
+//   Vblank,
+// }
+
+
+pub struct Oam(pub [u8; 256]);
+impl Default for Oam {
+  fn default() -> Self { Self([0; 256]) }
+}
+
+#[bitfields::bitfield(u8)]
+#[derive(Clone, Copy)]
+struct SprScanlineData {
+  #[bits(5)]
+  index: u8,
+  priority: bool,
+  #[bits(2)]
+  pixel: u8,
+}
+
+struct SprScanline([SprScanlineData; 256]);
+impl Default for SprScanline {
+  fn default() -> Self { Self([SprScanlineData::default(); 256]) }
 }
 
 #[derive(Default)]
-enum RenderState {
-  #[default]
-  PreRenderScanline,
-  FirstIdleCycle,
-  RenderingBg,
-  RenderingUnusedBg,
-  RenderingSpr,
-  RenderingEnd,
-  PostRenderScanline,
-  Vblank,
-}
-
 pub struct Ppu2C02 {
   ctrl: CtrlStrut,
   mask: Mask,
@@ -121,23 +183,23 @@ pub struct Ppu2C02 {
   oam_addr: u8,
   ppu_data: u8,
 
-  oam: [u8; 256],
+  pub oam: Oam,
+  oam_line: Vec<Sprite>,
+  spr_scanline: SprScanline,
 
-  state: RenderState,
   pub cycle: i16,
   pub scanline: i16,
-  pixels_count: usize,
   odd_frame: bool,
 
   fetcher: FetcherData,
   shifter: ShifterData,
 }
 
-impl Default for Ppu2C02 {
-  fn default() -> Self {
-    Self { ctrl: Default::default(), mask: Default::default(), stat: Default::default(), v: Default::default(), t: Default::default(), x: Default::default(), w: Default::default(), oam_addr: Default::default(), ppu_data: Default::default(), oam: [0; 256], state: Default::default(), cycle: Default::default(), scanline: Default::default(), pixels_count: Default::default(), odd_frame: Default::default(), fetcher: Default::default(), shifter: Default::default() }
-  }
-}
+// impl Default for Ppu2C02 {
+//   fn default() -> Self {
+//     Self { ctrl: Default::default(), mask: Default::default(), stat: Default::default(), v: Default::default(), t: Default::default(), x: Default::default(), w: Default::default(), oam_addr: Default::default(), ppu_data: Default::default(), oam: [0; 256], oam_line: Default::default(), cycle: Default::default(), scanline: Default::default(), odd_frame: Default::default(), fetcher: Default::default(), shifter: Default::default() }
+//   }
+// }
 
 impl Ppu2C02 {
   pub fn new() -> Self {
@@ -163,20 +225,20 @@ impl Ppu2C02 {
   fn scroll_y_inc(&mut self) {
     if self.rendering_enabled() {
       let v = &mut self.v;
-      if v.fine_y() < 7 {        // if fine Y < 7
+      if v.fine_y() < 7 {                            // if fine Y < 7
         v.set_fine_y(v.fine_y() + 1);          // increment fine Y
       } else {                  
-        v.set_fine_y(0);                    // fine Y = 0
-        let mut y = v.coarse_y();        // let y = coarse Y
+        v.set_fine_y(0);                       // fine Y = 0
+        let mut y = v.coarse_y();               // let y = coarse Y
         if y == 29 {
-          y = 0;                         // coarse Y = 0
+          y = 0;                                    // coarse Y = 0
           v.set_nametbl_y(!v.nametbl_y());    // switch vertical nametable
         } else if y == 31 {
-          y = 0;                        // coarse Y = 0, nametable not switched
+          y = 0;                                   // coarse Y = 0, nametable not switched
         } else {
           y += 1;
-        }                         // increment coarse Y
-        v.set_coarse_y(y);     // put coarse Y back into v
+        }                                         // increment coarse Y
+        v.set_coarse_y(y);                  // put coarse Y back into v
       }
     }
   }
@@ -206,8 +268,8 @@ impl Ppu2C02 {
     let shifter = &mut self.shifter;
 
     // For the pattern data, these transfers are into the high 8 bits of two 16-bit shift registers.
-    shifter.shift_ptrn_lo = byte_set_hi(shifter.shift_ptrn_lo, fetcher.pattern_lo);
-    shifter.shift_ptrn_hi = byte_set_hi(shifter.shift_ptrn_hi, fetcher.pattern_hi);
+    shifter.shift_ptrn_lo = byte_set_hi(shifter.shift_ptrn_lo, fetcher.pttrn_lo);
+    shifter.shift_ptrn_hi = byte_set_hi(shifter.shift_ptrn_hi, fetcher.pttrn_hi);
     
     //  For the attributes data, only 2 bits are transferred and into two 1-bit latches that feed 8-bit shift registers. 
     let attr_lo = if fetcher.attribute & 0b01 != 0 { 0xff } else { 0 };
@@ -245,10 +307,10 @@ impl Emu {
         // TODO: reading edge cases
         ppu.stat.remove(Status::Vblank);
 
-        0xff
+        res
       }
       // OamData
-      0x2004 => ppu.oam[ppu.oam_addr as usize],
+      0x2004 => ppu.oam.0[ppu.oam_addr as usize],
       // PpuData
       0x2007 => self.ppu_read8(),
 
@@ -269,12 +331,13 @@ impl Emu {
 
         // Changing NMI enable from 0 to 1 while the vblank flag in PPUSTATUS is 1 will immediately trigger an NMI.
         if !old_nmi_enabled && new_nmi_enabled && ppu.stat.contains(Status::Vblank) {
-          self.interrupts.insert(emu::Interrupts::NMI);
+          self.events.insert(emu::Events::NMI);
         }
         ppu.ctrl.vblank_nmi_enabled = new_nmi_enabled;
         
         ppu.t.set_nametbl_x(val & 1);
         ppu.t.set_nametbl_y((val >> 1) & 1);
+
         ppu.ctrl.vram_addr_inc = if val & 0x4 == 0 { 1 } else { 32 };
         ppu.ctrl.spr_pttrntbl_addr = if val & 0x8 == 0 { 0 } else { 0x1000 };
         ppu.ctrl.bg_pttrntbl_addr = if val & 0x10 == 0 { 0 } else { 0x1000 };
@@ -286,7 +349,7 @@ impl Emu {
       0x2003 => ppu.oam_addr = val,
       // OamData
       0x2004 => {
-        ppu.oam[ppu.oam_addr as usize] = val;
+        ppu.oam.0[ppu.oam_addr as usize] = val;
         ppu.oam_addr = ppu.oam_addr.wrapping_add(1);
       }
       // Scroll
@@ -355,10 +418,11 @@ impl Emu {
     self.ppu.increase_addr();
   }
 
+  #[deprecated]
   pub fn ppu_step_simple(&mut self) {
     if self.ppu.scanline == 241 && self.ppu.cycle == 1 {
       if self.ppu.ctrl.vblank_nmi_enabled {
-        self.interrupts.insert(emu::Interrupts::NMI);
+        self.events.insert(emu::Events::NMI);
       }
     }
     
@@ -373,155 +437,40 @@ impl Emu {
     self.ppu.cycle += 1;
   }
 
-  // pub fn ppu_step(&mut self) {
-  //   // TODO: lookup table handlers?
-  //   match self.ppu.state {
-  //     RenderState::PreRenderScanline => {
-  //       // no drawing occurs here
-  //       self.fetch_step();
-
-  //       let ppu = &mut self.ppu;
-        
-  //       if ppu.cycle == 304 {
-  //         ppu.v.set_nametbl_y(ppu.t.nametbl_y());
-  //         ppu.v.set_coarse_y(ppu.t.coarse_y());
-  //         ppu.v.set_fine_y(ppu.t.fine_y());
-  //       }
-
-  //       else if (ppu.odd_frame && ppu.cycle == 339) 
-  //         || (!ppu.odd_frame && ppu.cycle == 340) 
-  //       {
-  //         ppu.state = RenderState::FirstIdleCycle;
-  //         ppu.scanline = 0;
-  //         ppu.cycle = -1;
-  //         ppu.odd_frame = !ppu.odd_frame;
-  //         self.frame_ready = true;
-  //       }
-  //     }
-  //     RenderState::FirstIdleCycle => self.ppu.state = RenderState::RenderingBg,
-  //     RenderState::RenderingBg => {
-  //       self.push_pixel();
-  //       self.fetch_step();
-        
-  //       let ppu = &mut self.ppu;
-  //       if ppu.cycle == 240 {
-  //         // wrap coarse x here
-  //         ppu.v.set_coarse_x(0);
-  //         ppu.v.set_nametbl_x(ppu.v.nametbl_x() ^ 1);
-          
-  //         // unused tile fetch
-  //         ppu.state = RenderState::RenderingUnusedBg;
-  //       }
-  //     }
-  //     RenderState::RenderingUnusedBg => {
-  //       let ppu = &mut self.ppu;
-        
-  //       if ppu.cycle == 256 {
-  //         // y increment
-  //         let v = &mut ppu.v;
-  //         if v.fine_y() < 7 {        // if fine Y < 7
-  //           v.set_fine_y(v.fine_y() + 1);          // increment fine Y
-  //         } else {                  
-  //           v.set_fine_y(0);                    // fine Y = 0
-  //           let mut y = v.coarse_y();        // let y = coarse Y
-  //           if y == 29 {
-  //             y = 0;                         // coarse Y = 0
-  //             v.set_nametbl_y(v.nametbl_y() ^ 1);    // switch vertical nametable
-  //           } else if y == 31 {
-  //             y = 0;                        // coarse Y = 0, nametable not switched
-  //           } else {
-  //             y += 1;
-  //           }                         // increment coarse Y
-  //           v.set_coarse_y(y);     // put coarse Y back into v
-  //         }
-
-  //         ppu.v.set_coarse_x(ppu.t.coarse_x());
-  //         ppu.v.set_nametbl_x(ppu.t.nametbl_x());
-
-  //         // TODO: sprite evaluation for next scanline
-  //         ppu.state = RenderState::RenderingSpr;
-  //       }
-  //     }
-  //     RenderState::RenderingSpr => {
-  //       // TODO: sprites fetchin and drawing
-
-  //       if self.ppu.cycle == 320 {
-  //         self.ppu.state = RenderState::RenderingEnd;
-  //       }
-  //     }
-  //     RenderState::RenderingEnd => {
-  //       // no drawing here, only fetches to the first two tiles for next scanline
-  //       self.fetch_step();
-
-  //       let ppu= &mut self.ppu;
-  //       if ppu.cycle == 340 {
-  //         if ppu.scanline == 239 {
-  //           ppu.state = RenderState::PostRenderScanline;
-  //           ppu.pixels_count = 0;
-  //         } else {
-  //           ppu.state = RenderState::FirstIdleCycle;
-  //         }
-  //         ppu.cycle = -1;
-  //         ppu.scanline += 1;
-  //       }
-  //     }
-  //     RenderState::PostRenderScanline => {
-  //       // do nothing
-
-  //       let ppu = &mut self.ppu;
-  //       if ppu.scanline == 241 && ppu.cycle == 1 {
-  //         ppu.state = RenderState::Vblank;
-          
-  //         ppu.stat.insert(Status::Vblank);
-  //         self.interrupts.insert(emu::Interrupts::NMI);
-  //       }
-  //     }
-  //     RenderState::Vblank => {
-  //       // do nothing
-
-  //       let ppu = &mut self.ppu;
-  //       if ppu.scanline == 261 && ppu.cycle == 1 {
-  //         ppu.state = RenderState::PreRenderScanline;
-  //         ppu.stat.clear();
-  //         // first pre render line fetch
-  //         self.fetch_step();
-  //       }
-  //     }
-  //   }
-
-  //   if self.ppu.cycle == 340 {
-  //     self.ppu.scanline += 1;
-  //     self.ppu.cycle = -1;
-  //   }
-  //   self.ppu.cycle += 1;
-  // }
-
+  // TODO: clean up this
   pub fn ppu_step(&mut self) {
     let ppu = &mut self.ppu;
 
-    if ppu.scanline == 261 || (ppu.scanline >= 0 && ppu.scanline < 240) {
+    if ppu.scanline == 261 || ppu.scanline <= 239 {
       if ppu.scanline == 261 && ppu.cycle == 1 {
+        // PostRender Line
         ppu.stat.clear();
-      } else if ppu.scanline == 261 && ppu.cycle == 280 {
-        ppu.scroll_y_tx(); 
+      } else if ppu.scanline == 261 && (ppu.cycle == 280 || ppu.cycle == 304) {
+        ppu.scroll_y_tx();
+      } else if ppu.cycle == 0 {
+        self.compute_sprite_scanline();
       } else if (ppu.cycle >= 1 && ppu.cycle < 256) || (ppu.cycle >= 321 && ppu.cycle <= 336) {
-        self.fetch_step();
+        self.fetch_step_bg();
       } else if ppu.cycle == 256 {
         ppu.scroll_y_inc();
+        self.evaluate_sprites();
       } else if ppu.cycle == 257 {
         ppu.scroll_x_tx();
+        self.fetch_step_spr();
+      } else if ppu.cycle >= 257 && ppu.cycle <= 320 {
+        self.fetch_step_spr();
       }
     } else if ppu.scanline >= 241 && ppu.scanline < 261 {
       if ppu.scanline == 241 && ppu.cycle == 1 {
         ppu.stat.insert(Status::Vblank);
         
         if ppu.ctrl.vblank_nmi_enabled {
-          self.interrupts.insert(emu::Interrupts::NMI);
+          self.events.insert(emu::Events::NMI);
         }
       }
     }
 
-    if self.ppu.mask.contains(Mask::EnableBg) && self.ppu.cycle >= 1 && self.ppu.cycle < 257 && self.ppu.scanline < 240 { 
+    if self.ppu.rendering_enabled() && self.ppu.cycle >= 1 && self.ppu.cycle < 257 && self.ppu.scanline < 240 { 
       self.push_pixel();
     }
 
@@ -532,12 +481,12 @@ impl Emu {
       ppu.scanline += 1;
       if ppu.scanline > 261 {
         ppu.scanline = 0;
-        self.frame_ready = true; 
+        self.events.insert(emu::Events::FRAME);
       }
     }
   }
 
-  fn fetch_step(&mut self) {
+  fn fetch_step_bg(&mut self) {
     self.ppu.shifter_update();
     
     // we do cycle - 1 as we skip the idle cycle to be aligned to 8
@@ -545,6 +494,8 @@ impl Emu {
       // https://www.nesdev.org/wiki/PPU_scrolling#Tile_and_attribute_fetching
       0 => {
         self.ppu.shifter_load();
+
+        // TODO. optimize this read (ends always in vram)
         let nametbl = self.fetching_read(0x2000 | (self.ppu.v.0 & 0x0fff));
         self.ppu.fetcher.nametbl = nametbl;
       }
@@ -557,6 +508,7 @@ impl Emu {
         //   | (((v.coarse_y() as u16) >> 2) << 3)
         //   | ((v.coarse_x() as u16) >> 2);
         
+        // TODO. optimize this read (ends always in vram)
         let attr = self.fetching_read(addr);
         // we fetched the attribute, now we have to extract the correct 2 bits
         self.ppu.fetcher.attribute = self.palette_from_attribute(attr);
@@ -567,7 +519,8 @@ impl Emu {
           | ((self.ppu.fetcher.nametbl as u16) << 4)
           | self.ppu.v.fine_y() as u16;
 
-        self.ppu.fetcher.pattern_lo = self.fetching_read(addr);
+        // TODO. optimize this read (ends always in chr)
+        self.ppu.fetcher.pttrn_lo = self.fetching_read(addr);
       }
       6 => {
         let addr = self.ppu.ctrl.bg_pttrntbl_addr
@@ -575,7 +528,8 @@ impl Emu {
           | 0x8
           | self.ppu.v.fine_y() as u16;
 
-        self.ppu.fetcher.pattern_hi = self.fetching_read(addr);
+        // TODO. optimize this read (ends always in chr)
+        self.ppu.fetcher.pttrn_hi = self.fetching_read(addr);
         
         // IMPORTANT: increase v by one
         // self.ppu.v.set_coarse_x(self.ppu.v.coarse_x().wrapping_add(1));
@@ -602,10 +556,16 @@ impl Emu {
     self.fetching_read(0x3f00 | addr as u16)
   }
 
-  fn push_pixel(&mut self) {
+  fn spr_color_from_palette(&mut self, palette: u8, pixel: u8) -> u8 {
+    let addr = (palette << 2) | pixel;
+    // TODO: we know we will fetch from palette, optimize this so we dont have to check for all addresses
+    self.fetching_read(0x3f10 | addr as u16)
+  }
+
+  fn push_pixel(&mut self) {    
     // On every dot in these background fetch regions, a 4-bit pixel is selected by the fine x register from the low 8 bits of the pattern and attributes shift registers, which are then shifted. 
     let shift_mask = 0x8000 >> self.ppu.x;
-    let shifter = &self.ppu.shifter;
+    let shifter = &mut self.ppu.shifter;
     
     let pixel_lo = shifter.shift_ptrn_lo & shift_mask > 0;
     let pixel_hi = shifter.shift_ptrn_hi & shift_mask > 0;
@@ -615,38 +575,124 @@ impl Emu {
     let palette_hi = shifter.shift_attr_hi & shift_mask > 0;
     let palette = ((palette_hi as u8) << 1) | (palette_lo as u8);
 
-    let color_id = self.bg_color_from_palette(palette, pixel);
+    let spr_pixel = &self.ppu.spr_scanline.0[self.ppu.cycle as usize - 1];
+    let color_id = if spr_pixel.pixel() > 0 && spr_pixel.priority() {
+      self.spr_color_from_palette(self.ppu.oam.0[spr_pixel.index() as usize], spr_pixel.pixel())
+    } else {
+      self.bg_color_from_palette(palette, pixel)
+    };
 
     let pos = self.ppu.scanline as usize * 256 + (self.ppu.cycle as usize - 1);
     self.framebuf[pos] = color_id;
-    self.ppu.pixels_count = (self.ppu.pixels_count + 1) % (256 * 240);
   }
 
-  pub fn render_nametbl0(&mut self) {
-    self.framebuf.fill(0);
+  fn evaluate_sprites(&mut self) {
+    let ppu = &mut self.ppu;
+    ppu.oam_line.clear();
+    ppu.spr_scanline.0.fill(SprScanlineData(0));
 
-    for y in 0..240 {
-      for x in 0..256 {
-        let nametbl_id = y/8 * 32 + x/8;
-        let nametbl = self.fetching_read(0x2000 + nametbl_id);
-        let attr_id = 0x23c0 | (((y/4) & 0b111) << 3) | ((x/4) & 0b111);
-        let mut attr = self.fetching_read(attr_id);
+    let shifter = &mut ppu.shifter;
+    shifter.spr_pttrn_hi.fill(0);
+    shifter.spr_pttrn_lo.fill(0);
 
-        // can this be done without ifs?
-        if (x/8) & 0x2 != 0 { attr >>= 4; }
-        if (x/8) & 0x2 != 0 { attr >>= 2; }
+    let scanline = ppu.scanline;
+    for (i, y) in ppu.oam.0.iter().copied().enumerate().step_by(4) {
+      // Sprite data is delayed by one scanline; you must subtract 1 from the sprite's Y coordinate 
+      // let y = y.wrapping_sub(1) as i16;
 
-        let attr = attr & 0b11;
-        let palette = self.palette_from_attribute(attr);
-
-        let ptrn_id = (nametbl << 4) as u16 + (y%8);
-        let ptrn_lo = self.fetching_read(ptrn_id as u16);
-        let ptrn_hi = self.fetching_read(ptrn_id as u16 + 8);
-        
-        let pixel = (((ptrn_hi >> (x % 8)) & 1) << 1) | ((ptrn_lo >> (x % 8)) & 1);
-        let pos =  y * 256 + x;
-        self.framebuf[pos as usize] = self.bg_color_from_palette(palette, pixel);
+      let dist = ppu.scanline - y as i16;
+      if dist >= 0 && dist < ppu.ctrl.spr_size as i16 {
+        let sprite = Sprite::new(i as u8, &ppu.oam.0[i..i+4]);
+        ppu.oam_line.push(sprite);
       }
+    }
+
+    ppu.stat.set(Status::SprOverflow, ppu.oam_line.len() > 8);
+    ppu.oam_line.resize_with(8, || Sprite::empty());
+  }
+
+  fn compute_sprite_scanline(&mut self) {
+    let ppu = &mut self.ppu;
+
+    for (i, sprite) in ppu.oam_line.iter().enumerate() {
+      for col in 0..8 {
+        let mask = 0x80 >> col;
+        let curr_pixel_lo = ppu.shifter.spr_pttrn_lo[i] & mask > 0;
+        let curr_pixel_hi = ppu.shifter.spr_pttrn_hi[i] & mask > 0;
+        let curr_pixel = ((curr_pixel_hi as u8) << 1) | curr_pixel_lo as u8;
+
+        let x = sprite.x.wrapping_add(col) as usize;
+        let scanline_pixel =  &ppu.spr_scanline.0[x];
+        
+        // if scanline_pixel.pixel() == 0 || scanline_pixel.index() > i as u8 {
+        if scanline_pixel.pixel() == 0 {
+          // pixel is transparent, draw curr pixel, or higher index wins
+          let new_pixel = SprScanlineDataBuilder::new()
+            .with_index(i as u8)
+            .with_priority(sprite.priority)
+            .with_pixel(curr_pixel)
+            .build();
+
+          ppu.spr_scanline.0[x] = new_pixel;
+        }
+      }
+    }
+  }
+
+  fn fetch_step_spr(&mut self) {
+    let ppu = &mut self.ppu;
+    
+    match (ppu.cycle - 257) % 8 {
+      4 => {
+        let spr_id = (ppu.cycle - 257) / 8;
+        let sprite = &ppu.oam_line[spr_id as usize];
+        let dist = ppu.scanline - sprite.y as i16;
+        let fine_y = if sprite.flip_vert {
+          7 - dist
+        } else {
+          dist
+        };
+
+        let pttrn_addr = ppu.ctrl.spr_pttrntbl_addr 
+          | ((sprite.nametbl as u16) << 4)
+          | (fine_y & 0b111) as u16;
+        
+        let flip_hori = sprite.flip_hori;
+
+        // TODO. optimize this read (ends always in chr)
+        let mut pttrn = self.fetching_read(pttrn_addr);
+        if flip_hori {
+          pttrn = pttrn.reverse_bits();
+        }
+
+        self.ppu.shifter.spr_pttrn_lo[spr_id as usize] = pttrn;
+      }
+      6 => {
+        let spr_id = (ppu.cycle - 257) / 8;
+        let sprite = &ppu.oam_line[spr_id as usize];
+        let dist = ppu.scanline - sprite.y as i16;
+        let fine_y = if sprite.flip_vert {
+          7 - dist
+        } else {
+          dist
+        };
+
+        let pttrn_addr = ppu.ctrl.spr_pttrntbl_addr 
+          | ((sprite.nametbl as u16) << 4)
+          | 0x8
+          | (fine_y & 0b111) as u16;
+
+        let flip_hori = sprite.flip_hori;
+
+        // TODO. optimize this read (ends always in chr)
+        let mut pttrn = self.fetching_read(pttrn_addr);
+        if flip_hori {
+          pttrn = pttrn.reverse_bits();
+        }
+
+        self.ppu.shifter.spr_pttrn_hi[spr_id as usize] = pttrn;
+      }
+      _ => {}
     }
   }
 }

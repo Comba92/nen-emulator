@@ -128,7 +128,7 @@ impl Emu {
     val
   }
 
-  fn cpu_tick(&mut self) {
+  pub fn cpu_tick(&mut self) {
     self.cpu.cycles += 1;
   }
 
@@ -147,13 +147,13 @@ impl Emu {
 
   fn poll_interrupts(&mut self) {
     // https://www.nesdev.org/wiki/CPU_interrupts#IRQ_and_NMI_tick-by-tick_execution
-    if self.interrupts.contains(emu::Interrupts::NMI) {
-      self.interrupts.remove(emu::Interrupts::NMI);
+    if self.events.contains(emu::Events::NMI) {
+      self.events.remove(emu::Events::NMI);
       self.handle_interrupt(NMI_VECTOR);
-    } else if self.interrupts.contains(emu::Interrupts::IRQ) 
+    } else if self.events.contains(emu::Events::IRQ) 
       && !self.cpu.p.contains(Status::IrqDisable)
     {
-      self.interrupts.remove(emu::Interrupts::IRQ);
+      self.events.remove(emu::Events::IRQ);
       self.handle_interrupt(IRQ_VECTOR);
     }
   }

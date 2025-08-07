@@ -49,6 +49,7 @@ fn main() {
             pixel_data.push(255);
         }
         
+        canvas.set_draw_color(sdl2::pixels::Color::RED);
         canvas.clear();
         tex.with_lock(None, |pixels, _| {
             pixels.copy_from_slice(&pixel_data);
@@ -61,4 +62,5 @@ fn main() {
     // println!("{:?}", emu.framebuf);
     println!("{:x?}", emu.mem.vram);
     println!("{:x?}", emu.mem.palettes);
+    println!("{:x?}", emu.ppu.oam.0);
 }

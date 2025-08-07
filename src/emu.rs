@@ -1,12 +1,13 @@
-use std::sync::LazyLock;
+use std::{collections::VecDeque, sync::LazyLock};
 
 use crate::{bus::MemHandler, cart::Cart, cpu::{self, Cpu6502}, ppu::Ppu2C02};
 
 bitflags::bitflags! {
   #[derive(Debug)]
-  pub struct Interrupts: u8 {
-    const NMI = 1 << 0;
-    const IRQ = 1 << 1;
+  pub struct Events: u8 {
+    const IRQ = 1 << 0;
+    const NMI = 1 << 1;
+    const FRAME  = 1 << 7;
   }
 }
 
@@ -16,10 +17,9 @@ pub struct Emu {
   pub mem: MemHandler,
   #[cfg(feature = "ram64kb")]
   pub ram: [u8; 64 * 1024],
-  pub interrupts: Interrupts,
+  pub events: Events,
 
   pub framebuf: [u8; 256 * 240],
-  pub frame_ready: bool,
 }
 
 #[derive(Debug, Default)]
@@ -39,9 +39,9 @@ impl Emu {
       mem: MemHandler::new(cart),
       #[cfg(feature = "ram64kb")]
       ram: [0; 64 * 1024],
-      interrupts: Interrupts::empty(),
+      events: Events::empty(),
+
       framebuf: [0; 256 * 240],
-      frame_ready: false,
     };
 
     emu.cpu.pc = emu.cpu_read16(cpu::RST_VECTOR);
@@ -59,9 +59,6 @@ impl Emu {
       self.ppu_step();
       self.ppu_step();
       self.ppu_step();
-      // self.ppu_step_simple();
-      // self.ppu_step_simple();
-      // self.ppu_step_simple();
     }
   }
   
@@ -71,11 +68,11 @@ impl Emu {
   }
 
   pub fn step_until_vblank(&mut self) {
-    while !self.frame_ready {
+    while !self.events.contains(Events::FRAME) {
       self.step();
     }
     
-    self.frame_ready = false;
+    self.events.remove(Events::FRAME);
   }
 }
 
