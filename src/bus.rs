@@ -1,4 +1,4 @@
-use crate::{cart::Cart, emu::{self, Emu, Mirroring}, mapper::{Mapper, NROM}};
+use crate::{cart::{Cart, CartHeader}, emu::{Emu, Mirroring}, mapper::{Mapper, NROM}};
 
 pub struct MemHandler {
   ram: [u8; 2 * 1024],
@@ -9,8 +9,13 @@ pub struct MemHandler {
   // consider keeping this in PPU
   pub palettes: [u8; 32],
 
+  cpu_addr_bus: u16,
+  cpu_data_bus: u8,
+  ppu_addr_bus: u16,
+
+  cart: CartHeader,
   bankings: BankingHandler,
-  mapper: Box<dyn Mapper>
+  pub mapper: Box<dyn Mapper>
 }
 
 pub struct BankingHandler {
@@ -131,7 +136,12 @@ impl MemHandler {
       chr: cart.chr,
       vram: [0; 2 * 1024],
       palettes: [0; 32],
+
+      cpu_addr_bus: 0,
+      cpu_data_bus: 0,
+      ppu_addr_bus: 0,
       
+      cart: cart.header,
       // TODO: make banking based on mapper
       bankings: banks,
       mapper: mapper,
@@ -140,24 +150,26 @@ impl MemHandler {
 }
 
 impl Emu {
-  pub fn cpu_dispatch_read(&mut self, addr: u16) -> u8 {    
+  pub fn cpu_dispatch_read(&mut self, addr: u16) -> u8 {
     let mem = &mut self.mem;
-    match addr {
+    
+    mem.cpu_addr_bus = addr;
+    let res = match addr {
       0x0000..=0x1fff => mem.ram[addr as usize & 0x07ff],
-      0x2000..=0x3fff => {
-        self.ppu_reg_read(addr & 0x2007)
-      }
-      0x4016 => {
-        0
-      }
+      0x2000..=0x3fff => self.ppu_reg_read(addr & 0x2007),
+      0x4016 => self.joypad.read() | (self.mem.cpu_data_bus & 0xe0),
       0x8000..=0xffff => mem.prg[mem.bankings.prg.translate(addr)],
-      // TODO: open bus
-      _ => 0,
-    }
+      _ => mem.cpu_data_bus,
+    };
+
+    self.mem.cpu_data_bus = res;
+    res
   }
 
   pub fn cpu_dispatch_write(&mut self, addr: u16, val: u8) {    
     let mem = &mut self.mem;
+
+    mem.cpu_addr_bus = addr;
     match addr {
       0x0000..=0x1fff => mem.ram[addr as usize & 0x07ff] = val,
       0x2000..=0x3fff => self.ppu_reg_write(addr & 0x2007, val),
@@ -176,10 +188,7 @@ impl Emu {
           self.ppu_reg_write(0x2004, byte);
         }
       }
-      0x4016 => {
-        // TODO: joystick
-      }
-
+      0x4016 => self.joypad.write(val),
       0x8000..=0xffff => mem.prg[mem.bankings.prg.translate(addr)] = val,
       _ => {},
     }
@@ -187,24 +196,38 @@ impl Emu {
 
   pub fn ppu_dispatch_read(&mut self, addr: u16) -> u8 {
     let mem = &mut self.mem;
+
+    mem.ppu_addr_bus = addr;
     match addr {
-      0x0000..=0x1fff => mem.chr[mem.bankings.chr.translate(addr)],
-      0x2000..=0x2fff => mem.vram[mem.bankings.vram.translate(addr)],
-      0x3f00..=0x3fff => {
-        let addr = (addr as usize - 0x3f00) & 31;
-        if addr % 4 == 0 {
-          mem.palettes[0]
-        } else {
-          mem.palettes[addr]
-        }
-      }
-      // TODO: open bus
-      _ => 0,
+      0x0000..=0x1fff => self.ppu_chr_read(addr),
+      0x2000..=0x2fff => self.ppu_vram_read(addr),
+      0x3f00..=0x3fff => self.ppu_palette_read(addr),
+      // Video memory's data bus is multiplexed with the low byte of the address bus on pins 31 through 38. Thus a read from an address with no memory connected will usually return the low byte of the address.
+      _ => mem.ppu_addr_bus as u8,
+    }
+  }
+
+  pub fn ppu_chr_read(&self, addr: u16) -> u8 {
+    self.mem.chr[self.mem.bankings.chr.translate(addr)]
+  }
+
+  pub fn ppu_vram_read(&self, addr: u16) -> u8 {
+    self.mem.vram[self.mem.bankings.vram.translate(addr)]
+  }
+
+  pub fn ppu_palette_read(&self, addr: u16) -> u8 {
+    let addr = (addr as usize - 0x3f00) & 31;
+    if addr % 4 == 0 {
+      self.mem.palettes[0]
+    } else {
+      self.mem.palettes[addr]
     }
   }
 
   pub fn ppu_dispatch_write(&mut self, addr: u16, val: u8) {
     let mem = &mut self.mem;
+
+    mem.ppu_addr_bus = addr;
     match addr {
       0x0000..=0x1fff => mem.chr[mem.bankings.chr.translate(addr)] = val,
       0x2000..=0x2fff => mem.vram[mem.bankings.vram.translate(addr)] = val,
@@ -221,16 +244,12 @@ impl Emu {
             // }
             mem.palettes[addr & 0xf] = val;
             mem.palettes[addr & 0xf + 8] = val;
-          // }
-          // else ignore
-
         } else {
           // write palette color as is
           mem.palettes[addr] = val;
         }
 
         mem.palettes[addr] = val;
-
       }
       _ => {},
     }

@@ -1,6 +1,6 @@
 use std::sync::LazyLock;
 
-use crate::{bus::MemHandler, cart::Cart, cpu::{self, Cpu6502}, ppu::Ppu2C02};
+use crate::{bus::MemHandler, cart::Cart, cpu::{self, Cpu6502}, joypad::Joypad, ppu::Ppu2C02};
 
 bitflags::bitflags! {
   #[derive(Debug)]
@@ -14,6 +14,7 @@ bitflags::bitflags! {
 pub struct Emu {
   pub cpu: Cpu6502,
   pub ppu: Ppu2C02,
+  pub joypad: Joypad,
   pub mem: MemHandler,
   #[cfg(feature = "ram64kb")]
   pub ram: [u8; 64 * 1024],
@@ -36,6 +37,7 @@ impl Emu {
     let mut emu = Self {
       cpu: Cpu6502::new(),
       ppu: Ppu2C02::new(),
+      joypad: Joypad::default(),
       mem: MemHandler::new(cart),
       #[cfg(feature = "ram64kb")]
       ram: [0; 64 * 1024],
@@ -59,6 +61,8 @@ impl Emu {
       self.ppu_step();
       self.ppu_step();
       self.ppu_step();
+
+      self.mem.mapper.step();
     }
   }
   

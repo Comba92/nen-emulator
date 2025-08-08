@@ -90,32 +90,21 @@ struct ShifterData {
   shift_attr_hi: u16,
 }
 
-// TODO: get rid of this, it is wasted memory
 #[derive(Default, Clone)]
 struct Sprite {
-  index: u8,
-  spr0: bool,
   y: u8,
-  x: u8,
   nametbl: u8,
-  palette: u8,
-  priority: bool,
-  flip_vert: bool,
-  flip_hori: bool,
+  attr: u8,
+  x: u8,
 }
 impl Sprite {
   pub fn new(index: u8, bytes: &[u8]) -> Self {
     Self {
-      index,
-      spr0: index == 0,
       y: bytes[0],
-      x: bytes[3],
       nametbl: bytes[1],
-      palette: bytes[2] & 0b11,
-      // 0: in front of background; 1: behind background
-      priority: bytes[2] & 0x20 == 0,
-      flip_hori: bytes[2] & 0x40 != 0,
-      flip_vert: bytes[2] & 0x80 != 0,
+      // bits 2-4 of attribute are empty, we can use them to store spr0hit
+      attr: bytes[2] | (((index == 0) as u8) << 2),
+      x: bytes[3],
     }
   }
 
@@ -125,6 +114,14 @@ impl Sprite {
       ..Default::default()
     }
   }
+
+  pub fn palette(&self) -> u8 { self.attr & 0b11 }
+  // we stored spr0 in unused bits of attribute for saving memory
+  pub fn spr0(&self) -> bool { self.attr & 0x4 != 0 }
+  // 0: in front of background; 1: behind background
+  pub fn priority(&self) -> bool { self.attr & 0x20 == 0 }
+  pub fn flip_hori(&self) -> bool { self.attr & 0x40 != 0 }
+  pub fn flip_vert(&self) -> bool { self.attr & 0x80 != 0 }
 }
 
 pub struct Oam(pub [u8; 256]);
@@ -161,16 +158,19 @@ pub struct Ppu2C02 {
   x: u8,
   w: WriteToggle,
 
+  open_bus: u8,
   oam_addr: u8,
   ppu_data: u8,
 
   pub oam: Oam,
   oam_tmp: Vec<Sprite>,
+  oam_tmp_count: u8,
   spr_scanline: SprScanline,
 
   pub cycle: i16,
   pub scanline: i16,
   // https://www.nesdev.org/wiki/PPU_frame_timing
+  // TODO: odd frame handling
   odd_frame: bool,
 
   fetcher: FetcherData,
@@ -273,29 +273,30 @@ impl Emu {
   pub fn ppu_reg_read(&mut self, addr: u16) -> u8 {
     let ppu = &mut self.ppu;
     
-    match addr {
+    let res = match addr {
       // Status
       0x2002 => {
         // Reading this register has the side effect of clearing the PPU's internal w register.
         ppu.w = WriteToggle::default();
 
-        // TODO: open bus
         let res = ppu.stat.bits();
         // Reading PPUSTATUS will return the current state of this flag and then clear it.
         
         // TODO: reading edge cases
         ppu.stat.remove(Status::Vblank);
 
-        res
+        res | (ppu.open_bus & 0x1f)
       }
       // OamData
       0x2004 => ppu.oam.0[ppu.oam_addr as usize],
       // PpuData
       0x2007 => self.ppu_read8(),
 
-      // TODO: open bus
-      _ => 0,
-    }
+      _ => ppu.open_bus,
+    };
+
+    self.ppu.open_bus = res;
+    res
   }
 
   // https://www.nesdev.org/wiki/PPU_registers
@@ -409,15 +410,13 @@ impl Emu {
 
   fn bg_color_from_palette(&mut self, palette: u8, pixel: u8) -> u8 {
     let addr = (palette << 2) | pixel;
-    // TODO: we know we will fetch from palette, optimize this so we dont have to check for all addresses
-    self.fetching_read(0x3f00 | addr as u16)
+    self.ppu_palette_read(0x3f00 | addr as u16)
   }
 
   fn spr_color_from_palette(&mut self, palette: u8, pixel: u8) -> u8 {
     let addr = (palette << 2) | pixel;
-    // TODO: we know we will fetch from palette, optimize this so we dont have to check for all addresses
-    self.fetching_read(0x3f10 | addr as u16)
-  } 
+    self.ppu_palette_read(0x3f10 | addr as u16)
+  }
 
   #[deprecated]
   pub fn ppu_step_simple(&mut self) {
@@ -446,9 +445,7 @@ impl Emu {
       // https://www.nesdev.org/wiki/PPU_scrolling#Tile_and_attribute_fetching
       0 => {
         self.ppu.shifter_load();
-        // TODO. optimize this read (ends always in vram)
-        let nametbl = self.fetching_read(0x2000 | (self.ppu.v.0 & 0x0fff));
-        self.ppu.fetcher.nametbl = nametbl;
+        self.ppu.fetcher.nametbl = self.ppu_vram_read(0x2000 | (self.ppu.v.0 & 0x0fff));
       }
       2 => {
         let v = &self.ppu.v.0;
@@ -459,8 +456,8 @@ impl Emu {
         //   | (((v.coarse_y() as u16) >> 2) << 3)
         //   | ((v.coarse_x() as u16) >> 2);
         
-        // TODO. optimize this read (ends always in vram)
-        let attr = self.fetching_read(addr);
+        let attr = self.ppu_vram_read(addr);
+
         // we fetched the attribute, now we have to extract the correct 2 bits
         self.ppu.fetcher.attribute = self.palette_from_attribute(attr);
       }
@@ -470,8 +467,7 @@ impl Emu {
           | ((self.ppu.fetcher.nametbl as u16) << 4)
           | self.ppu.v.fine_y() as u16;
 
-        // TODO. optimize this read (ends always in chr)
-        self.ppu.fetcher.pttrn_lo = self.fetching_read(addr);
+        self.ppu.fetcher.pttrn_lo = self.ppu_chr_read(addr);
       }
       6 => {
         let addr = self.ppu.ctrl.bg_pttrntbl_addr
@@ -479,11 +475,9 @@ impl Emu {
           | 0x8
           | self.ppu.v.fine_y() as u16;
 
-        // TODO. optimize this read (ends always in chr)
-        self.ppu.fetcher.pttrn_hi = self.fetching_read(addr);
-        
+        self.ppu.fetcher.pttrn_hi = self.ppu_chr_read(addr);
+
         // IMPORTANT: increase v by one
-        // self.ppu.v.set_coarse_x(self.ppu.v.coarse_x().wrapping_add(1));
         self.ppu.scroll_x_inc();
       }
 
@@ -513,6 +507,7 @@ impl Emu {
     }
 
     ppu.stat.set(Status::SprOverflow, ppu.oam_tmp.len() > 8);
+    ppu.oam_tmp_count = ppu.oam_tmp.len() as u8;
     ppu.oam_tmp.resize_with(8, || Sprite::empty());
   }
 
@@ -520,24 +515,24 @@ impl Emu {
   fn compute_sprite_scanline(&mut self) {
     let ppu = &mut self.ppu;
 
-    for (i, sprite) in ppu.oam_tmp.iter().enumerate() {
+    for (i, sprite) in ppu.oam_tmp.iter().enumerate().take(ppu.oam_tmp_count as usize) {
       for col in 0..8 {
-        let mask = 0x80 >> col;
-        let curr_pixel_lo = ppu.fetcher.spr_pttrn_lo[i] & mask > 0;
-        let curr_pixel_hi = ppu.fetcher.spr_pttrn_hi[i] & mask > 0;
-        let curr_pixel = ((curr_pixel_hi as u8) << 1) | curr_pixel_lo as u8;
-
-        let x = sprite.x.wrapping_add(col) as usize;
+        // X-scroll values of $F9-FF results in parts of the sprite to be past the right edge of the screen, thus invisible. It is not possible to have a sprite partially visible on the left edge.
+        let x = sprite.x.saturating_add(col) as usize;
         let scanline_pixel =  &ppu.spr_scanline.0[x];
         
-        // if scanline_pixel.pixel() == 0 || scanline_pixel.index() > i as u8 {
         if scanline_pixel.pixel() == 0 {
+          let mask = 0x80 >> col;
+          let curr_pixel_lo = ppu.fetcher.spr_pttrn_lo[i] & mask > 0;
+          let curr_pixel_hi = ppu.fetcher.spr_pttrn_hi[i] & mask > 0;
+          let curr_pixel = ((curr_pixel_hi as u8) << 1) | curr_pixel_lo as u8;
+
           // pixel is transparent, draw curr pixel
           let new_pixel = SprScanlineDataBuilder::new()
             .with_pixel(curr_pixel)
-            .with_palette(sprite.palette)
-            .with_priority(sprite.priority)
-            .with_spr0(sprite.index == 0)
+            .with_palette(sprite.palette())
+            .with_priority(sprite.priority())
+            .with_spr0(sprite.spr0())
             .build();
 
           ppu.spr_scanline.0[x] = new_pixel;
@@ -556,7 +551,7 @@ impl Emu {
 
         // after evaluation, we are 100% sure scanline is always bigger than y
         let dist = ppu.scanline - sprite.y as i16;
-        let fine_y = if sprite.flip_vert {
+        let fine_y = if sprite.flip_vert() {
           7 - dist
         } else {
           dist
@@ -566,10 +561,9 @@ impl Emu {
           | ((sprite.nametbl as u16) << 4)
           | (fine_y & 0b111) as u16;
         
-        let flip_hori = sprite.flip_hori;
+        let flip_hori = sprite.flip_hori();
 
-        // TODO. optimize this read (ends always in chr)
-        let mut pttrn = self.fetching_read(pttrn_addr);
+        let mut pttrn = self.ppu_chr_read(pttrn_addr);
         if flip_hori {
           pttrn = pttrn.reverse_bits();
         }
@@ -580,7 +574,7 @@ impl Emu {
         let spr_id = (ppu.cycle - 257) / 8;
         let sprite = &ppu.oam_tmp[spr_id as usize];
         let dist = ppu.scanline - sprite.y as i16;
-        let fine_y = if sprite.flip_vert {
+        let fine_y = if sprite.flip_vert() {
           7 - dist
         } else {
           dist
@@ -591,10 +585,9 @@ impl Emu {
           | 0x8
           | (fine_y & 0b111) as u16;
 
-        let flip_hori = sprite.flip_hori;
+        let flip_hori = sprite.flip_hori();
 
-        // TODO. optimize this read (ends always in chr)
-        let mut pttrn = self.fetching_read(pttrn_addr);
+        let mut pttrn = self.ppu_chr_read(pttrn_addr);
         if flip_hori {
           pttrn = pttrn.reverse_bits();
         }
@@ -626,9 +619,9 @@ impl Emu {
     let spr0_hit = self.ppu.rendering_enabled() && spr_pixel.pixel() > 0 && bg_pixel > 0 && spr_pixel.spr0() && cycle != 255;
     self.ppu.stat = Status::from_bits_retain(self.ppu.stat.bits() | ((spr0_hit as u8) << 6));
 
-    let color_id = if self.ppu.mask.contains(Mask::SprEnable) && spr_pixel.pixel() > 0 && spr_pixel.priority() {
+    let color_id = if self.ppu.mask.contains(Mask::SprEnable) && spr_pixel.pixel() > 0 && (spr_pixel.priority() || bg_pixel == 0) {
       self.spr_color_from_palette(spr_pixel.palette(), spr_pixel.pixel())
-    } else if self.ppu.mask.contains(Mask::BgEnable) {
+    } else if self.ppu.mask.contains(Mask::BgEnable) && bg_pixel > 0 {
       self.bg_color_from_palette(palette, bg_pixel)
     } else {
       self.bg_color_from_palette(0, 0)
@@ -687,6 +680,7 @@ impl Emu {
   //   }
   // }
 
+  // TODO: can be done better?
   pub fn ppu_step(&mut self) {
     // https://forums.nesdev.org/viewtopic.php?t=8066
     // https://forums.nesdev.org/viewtopic.php?t=10348
@@ -706,6 +700,7 @@ impl Emu {
       (0..240, 321..337) => self.fetch_step_bg(),
       (241, 1) => {
         self.ppu.stat.insert(Status::Vblank);
+        self.events.insert(emu::Events::FRAME);
         
         if self.ppu.ctrl.vblank_nmi_enabled {
           self.events.insert(emu::Events::NMI);
@@ -716,6 +711,11 @@ impl Emu {
         self.ppu.stat.clear();
       }
       (261, 1..257 | 321..341) => self.fetch_step_bg(),
+      (261, 257) => {
+        self.ppu.scroll_y_inc();
+        self.ppu.scroll_x_tx();
+        self.evaluate_sprites();
+      }
       (261, 280) => self.ppu.scroll_y_tx(),
       _ => {}
     }
@@ -726,7 +726,6 @@ impl Emu {
       self.ppu.scanline += 1;
       if self.ppu.scanline > 261 {
         self.ppu.scanline = 0;
-        self.events.insert(emu::Events::FRAME);
       }
     }
   }

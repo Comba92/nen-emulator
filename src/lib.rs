@@ -24,3 +24,48 @@ mod utils {
     (x & 0x00ff) | (hi as u16).shl(8)
   }
 }
+
+
+pub mod joypad {
+  bitflags::bitflags! {
+    #[derive(Default)]
+    pub struct NesButtons: u8 {
+      const A = 1 << 0;
+      const B = 1 << 1;
+      const Select = 1 << 2;
+      const Start = 1 << 3;
+      const Up = 1 << 4;
+      const Down = 1 << 5;
+      const Left = 1 << 6;
+      const Right = 1 << 7;
+    }
+  }
+  
+  #[derive(Default)]
+  pub struct Joypad {
+    polling: bool,
+    curr_btn: u8,
+    buttons: NesButtons,
+  }
+
+  impl Joypad {
+    pub fn read(&mut self) -> u8 {
+      if self.polling {
+        let res = (self.buttons.bits() >> self.curr_btn) & 1;
+        self.curr_btn = (self.curr_btn + 1) % 8;
+        res
+      } else {
+        self.buttons.contains(NesButtons::A) as u8
+      }
+    }
+
+    pub fn write(&mut self, val: u8) {
+      self.polling = val & 1 == 0;
+      self.curr_btn = if self.polling { 0 } else { self.curr_btn };
+    }
+
+    pub fn set_button(&mut self, btn: NesButtons, state: bool) {
+      self.buttons.set(btn, state);
+    }
+  }
+}

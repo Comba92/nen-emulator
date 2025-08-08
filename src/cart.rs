@@ -14,6 +14,7 @@ pub struct CartHeader {
   pub mirroring: Mirroring,
   pub mapper: u8,
   pub has_trainer: bool,
+  pub has_chr_ram: bool,
 }
 
 const MAGIC: &[u8] = &[0x4e, 0x45, 0x53, 0x1a];
@@ -27,8 +28,9 @@ impl Cart {
     let mut header = CartHeader::default();
     
     header.prg_size = bytes[4] as usize * 16 * 1024;
-    header.chr_size = if bytes[5] != 0 { bytes[5] as usize * 16 * 1024 } else { 8 * 1024 };
-    
+    header.chr_size = bytes[5] as usize * 16 * 1024;
+    header.has_chr_ram = header.chr_size == 0;
+
     header.mirroring = match bytes[6] & 1 {
       0 => Mirroring::Horizontal,
       _ => Mirroring::Vertical
@@ -38,7 +40,13 @@ impl Cart {
     
     let rom_start = if header.has_trainer { HEADER_SIZE + TRAINER_SIZE } else { HEADER_SIZE };
     let prg = bytes[rom_start..rom_start+header.prg_size].to_vec();
-    let chr = bytes[rom_start+header.prg_size..].to_vec();
+    let chr = if header.has_chr_ram {
+      vec![0; 8 * 1024]
+    } else {
+      bytes[rom_start+header.prg_size..].to_vec()
+    };
+
+    println!("{:?}", header);
 
     Ok(Self {
       header,

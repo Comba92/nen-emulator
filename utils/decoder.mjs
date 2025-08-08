@@ -3,13 +3,20 @@ import fs from 'fs'
 let file = fs.readFileSync('utils/6502_instructions.json')
 let json = JSON.parse(file)
 
-let res = json.opcodes
+let res1 = json.opcodes
   .filter(x => !x.illegal)
   .map(x => `${x.opcode_hex} => self.${x.name.toLowerCase()}(),`)
   .join('\n')
 
+let res2 = json.opcodes
+  .filter(x => x.illegal)
+  .map(x => `${x.opcode_hex} => self.${x.name.toLowerCase()}(),`)
+  .join('\n')
+
 console.log("Decoded:")
-console.log(res)
+console.log(res1)
+console.log()
+console.log(res2)
 
 let legals = json.opcodes
   .filter(x => !x.illegal)

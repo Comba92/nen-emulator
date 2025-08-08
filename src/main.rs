@@ -1,5 +1,5 @@
-use nes_emulator::{cart::Cart, emu::{Emu, SYS_COLORS}};
-use sdl2::{event::Event, pixels::PixelFormatEnum};
+use nes_emulator::{cart::Cart, emu::{Emu, SYS_COLORS}, joypad::NesButtons};
+use sdl2::{event::Event, keyboard::Keycode, pixels::PixelFormatEnum};
 
 fn main() {
     let sdl = sdl2::init().unwrap();
@@ -9,8 +9,8 @@ fn main() {
         .resizable()
         .build().unwrap();
 
+    let timer = sdl.timer().unwrap();
     let mut canvas = window.into_canvas()
-        .present_vsync()
         .accelerated()
         .build().unwrap();
     canvas.set_logical_size(256, 240).unwrap();
@@ -29,34 +29,85 @@ fn main() {
     let cart = Cart::new(rom).unwrap();
     let mut emu = Emu::new(cart);
 
+    let mut framebuf = Vec::new();
+
     'running: loop {
+        let frame_start = timer.ticks64();
+
         for event in events.poll_iter() {
             match event {
                 Event::Quit { .. } => break 'running,
+                Event::DropFile { filename, .. } => {
+                    let rom = std::fs::read(&filename).unwrap();
+                    let cart = Cart::new(&rom);
+
+                    match cart {
+                        Ok(res) => {
+                            emu = Emu::new(res);
+                        }
+                        Err (e) => eprintln!("{e}"),
+                    }
+                }
+                Event::KeyDown { keycode, .. } => {
+                    if let Some(keycode) = keycode {
+                        match keycode {
+                            Keycode::W => emu.joypad.set_button(NesButtons::Up, true),
+                            Keycode::A => emu.joypad.set_button(NesButtons::Left, true),
+                            Keycode::S => emu.joypad.set_button(NesButtons::Down, true),
+                            Keycode::D => emu.joypad.set_button(NesButtons::Right, true),
+                            Keycode::J => emu.joypad.set_button(NesButtons::A, true),
+                            Keycode::K => emu.joypad.set_button(NesButtons::B, true),
+                            Keycode::M => emu.joypad.set_button(NesButtons::Start, true),
+                            Keycode::N => emu.joypad.set_button(NesButtons::Select, true),
+                            _ => {}
+                        }
+                    }
+                }
+
+                Event::KeyUp { keycode, .. } => {
+                    if let Some(keycode) = keycode {
+                        match keycode {
+                            Keycode::W => emu.joypad.set_button(NesButtons::Up, false),
+                            Keycode::A => emu.joypad.set_button(NesButtons::Left, false),
+                            Keycode::S => emu.joypad.set_button(NesButtons::Down, false),
+                            Keycode::D => emu.joypad.set_button(NesButtons::Right, false),
+                            Keycode::J => emu.joypad.set_button(NesButtons::A, false),
+                            Keycode::K => emu.joypad.set_button(NesButtons::B, false),
+                            Keycode::M => emu.joypad.set_button(NesButtons::Start, false),
+                            Keycode::N => emu.joypad.set_button(NesButtons::Select, false),
+                            _ => {}
+                        }
+                    }
+                }
                 _ => {}
             }
         }
 
         emu.step_until_vblank();
-        // emu.render_nametbl0();
 
-        let mut pixel_data = Vec::new();
+        framebuf.clear();
         for byte in emu.framebuf {
             let color = &SYS_COLORS[byte as usize];
-            pixel_data.push(color.0);
-            pixel_data.push(color.1);
-            pixel_data.push(color.2);
-            pixel_data.push(255);
+            framebuf.push(color.0);
+            framebuf.push(color.1);
+            framebuf.push(color.2);
+            framebuf.push(255);
         }
         
-        canvas.set_draw_color(sdl2::pixels::Color::RED);
+        canvas.set_draw_color(sdl2::pixels::Color::GREY);
         canvas.clear();
         tex.with_lock(None, |pixels, _| {
-            pixels.copy_from_slice(&pixel_data);
+            pixels.copy_from_slice(&framebuf);
         }).unwrap();
 
         canvas.copy(&tex, None, None).unwrap();
         canvas.present();
+
+        let frame_duration = timer.ticks64() - frame_start;
+
+        if frame_duration < 17 {
+            timer.delay((17 - frame_duration) as u32);
+        }
     }
 
 

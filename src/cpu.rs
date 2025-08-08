@@ -579,7 +579,58 @@ impl Emu {
     self.cpu.pc = self.stack_pop16();
   }
 
+
   fn nop(&self) {}
+
+  fn lax(&mut self) {
+    self.lda();
+    self.ldx();
+  }
+
+  fn sax(&mut self) {
+    let res = self.cpu.a & self.cpu.x;
+    self.cpu_write8(self.cpu.op_addr, res);
+  }
+
+  fn dcp(&mut self) {
+    self.dec();
+    self.cmp();
+  }
+
+  fn isc(&mut self) {
+    self.inc();
+    self.sbc();
+  }
+
+  fn slo(&mut self) {
+    self.asl();
+    self.ora();
+  }
+
+  fn rla(&mut self) {
+    self.rol();
+    self.and();
+  }
+
+  fn sre(&mut self) {
+    self.lsr();
+    self.eor();
+  }
+
+  fn rra(&mut self) {
+    self.ror();
+    self.adc();
+  }
+
+  fn alr(&mut self) {
+    self.and();
+    self.lsr();
+  }
+
+  fn arr(&mut self) {
+    self.and();
+    self.ror();
+  }
 }
 
 use AddressingMode::*;
@@ -1000,6 +1051,112 @@ impl Emu {
       0xf9 => self.sbc(),
       0xfd => self.sbc(),
       0xfe => self.inc(),
+
+      // 0x02 => self.jam(),
+      0x03 => self.slo(),
+      0x04 => self.nop(),
+      0x07 => self.slo(),
+      // 0x0b => self.anc(),
+      0x0c => self.nop(),
+      0x0f => self.slo(),
+      // 0x12 => self.jam(),
+      0x13 => self.slo(),
+      0x14 => self.nop(),
+      0x17 => self.slo(),
+      0x1a => self.nop(),
+      0x1b => self.slo(),
+      0x1c => self.nop(),
+      0x1f => self.slo(),
+      // 0x22 => self.jam(),
+      0x23 => self.rla(),
+      0x27 => self.rla(),
+      // 0x2b => self.anc(),
+      0x2f => self.rla(),
+      // 0x32 => self.jam(),
+      0x33 => self.rla(),
+      0x34 => self.nop(),
+      0x37 => self.rla(),
+      0x3a => self.nop(),
+      0x3b => self.rla(),
+      0x3c => self.nop(),
+      0x3f => self.rla(),
+      // 0x42 => self.jam(),
+      0x43 => self.sre(),
+      0x44 => self.nop(),
+      0x47 => self.sre(),
+      0x4b => self.alr(),
+      0x4f => self.sre(),
+      // 0x52 => self.jam(),
+      0x53 => self.sre(),
+      0x54 => self.nop(),
+      0x57 => self.sre(),
+      0x5a => self.nop(),
+      0x5b => self.sre(),
+      0x5c => self.nop(),
+      0x5f => self.sre(),
+      // 0x62 => self.jam(),
+      0x63 => self.rra(),
+      0x64 => self.nop(),
+      0x67 => self.rra(),
+      0x6b => self.arr(),
+      0x6f => self.rra(),
+      // 0x72 => self.jam(),
+      0x73 => self.rra(),
+      0x74 => self.nop(),
+      0x77 => self.rra(),
+      0x7a => self.nop(),
+      0x7b => self.rra(),
+      0x7c => self.nop(),
+      0x7f => self.rra(),
+      0x80 => self.nop(),
+      0x82 => self.nop(),
+      0x83 => self.sax(),
+      0x87 => self.sax(),
+      0x89 => self.nop(),
+      // 0x8b => self.ane(),
+      0x8f => self.sax(),
+      // 0x92 => self.jam(),
+      // 0x93 => self.sha(),
+      0x97 => self.sax(),
+      // 0x9b => self.tas(),
+      // 0x9c => self.shy(),
+      // 0x9e => self.shx(),
+      // 0x9f => self.sha(),
+      0xa3 => self.lax(),
+      0xa7 => self.lax(),
+      // 0xab => self.lxa(),
+      0xaf => self.lax(),
+      // 0xb2 => self.jam(),
+      0xb3 => self.lax(),
+      0xb7 => self.lax(),
+      // 0xbb => self.las(),
+      0xbf => self.lax(),
+      0xc2 => self.nop(),
+      0xc3 => self.dcp(),
+      0xc7 => self.dcp(),
+      // 0xcb => self.sbx(),
+      0xcf => self.dcp(),
+      // 0xd2 => self.jam(),
+      0xd3 => self.dcp(),
+      0xd4 => self.nop(),
+      0xd7 => self.dcp(),
+      0xda => self.nop(),
+      0xdb => self.dcp(),
+      0xdc => self.nop(),
+      0xdf => self.dcp(),
+      0xe2 => self.nop(),
+      0xe3 => self.isc(),
+      0xe7 => self.isc(),
+      0xeb => self.sbc(),
+      0xef => self.isc(),
+      // 0xf2 => self.jam(),
+      0xf3 => self.isc(),
+      0xf4 => self.nop(),
+      0xf7 => self.isc(),
+      0xfa => self.nop(),
+      0xfb => self.isc(),
+      0xfc => self.nop(),
+      0xff => self.isc(),
       _ => unreachable!("illegal opcode reached")
       // _ => {}
     }
