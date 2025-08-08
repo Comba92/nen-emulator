@@ -116,7 +116,7 @@ impl Sprite {
   }
 
   pub fn palette(&self) -> u8 { self.attr & 0b11 }
-  // we stored spr0 in unused bits of attribute for saving memory
+  // we stored spr0 in unused bits of attribute to save memory
   pub fn spr0(&self) -> bool { self.attr & 0x4 != 0 }
   // 0: in front of background; 1: behind background
   pub fn priority(&self) -> bool { self.attr & 0x20 == 0 }
@@ -169,6 +169,8 @@ pub struct Ppu2C02 {
 
   pub cycle: i16,
   pub scanline: i16,
+  pub pixel: usize,
+
   // https://www.nesdev.org/wiki/PPU_frame_timing
   // TODO: odd frame handling
   odd_frame: bool,
@@ -241,16 +243,18 @@ impl Ppu2C02 {
     self.mask.contains(Mask::BgEnable) || self.mask.contains(Mask::SprEnable)  
   }
 
-  fn shifter_load(&mut self) {
+  fn shifter_load_from_fetcher(&mut self) {
     // On every 8th dot in these background fetch regions (the same dot on which the coarse x component of v is incremented), the pattern and attributes data are transferred into registers used for producing pixel data. 
     let fetcher = &self.fetcher;
     let shifter = &mut self.shifter;
 
-    // For the pattern data, these transfers are into the high 8 bits of two 16-bit shift registers.
+    // For the pattern data, these transfers are into the LOW 8 bits of two 16-bit shift registers.
+    // Wiki says high bits, but it is wrong (even the diagram in the same page shows it)
     shifter.shift_ptrn_lo = byte_set_lo(shifter.shift_ptrn_lo, fetcher.pttrn_lo);
     shifter.shift_ptrn_hi = byte_set_lo(shifter.shift_ptrn_hi, fetcher.pttrn_hi);
     
-    //  For the attributes data, only 2 bits are transferred and into two 1-bit latches that feed 8-bit shift registers. 
+    // For the attributes data, only 2 bits are transferred and into two 1-bit latches that feed 8-bit shift registers. 
+    // Here for conveniece, we use 16-bit shift registers too. 
     let attr_lo = if fetcher.attribute & 0b01 != 0 { 0xff } else { 0 };
     shifter.shift_attr_lo = byte_set_lo(shifter.shift_attr_lo, attr_lo);
     
@@ -266,6 +270,26 @@ impl Ppu2C02 {
       self.shifter.shift_attr_hi <<= 1;
     }
   }
+
+  fn shifter_get_pixel_n_palette(&mut self) -> (u8, u8) {
+    let shifter = &self.shifter;
+    let shift_mask = 0x8000 >> self.x;
+
+    let pixel_lo = shifter.shift_ptrn_lo & shift_mask > 0;
+    let pixel_hi = shifter.shift_ptrn_hi & shift_mask > 0;
+    let bg_pixel = ((pixel_hi as u8) << 1) | (pixel_lo as u8);
+
+    let palette_lo = shifter.shift_attr_lo & shift_mask > 0;
+    let palette_hi = shifter.shift_attr_hi & shift_mask > 0;
+    let palette = ((palette_hi as u8) << 1) | (palette_lo as u8);
+
+    (bg_pixel, palette)
+  }
+
+  pub fn oam_write(&mut self, val: u8) {
+    self.oam.0[self.oam_addr as usize] = val;
+    self.oam_addr = self.oam_addr.wrapping_add(1);
+  }
 }
 
 impl Emu {
@@ -277,7 +301,7 @@ impl Emu {
       // Status
       0x2002 => {
         // Reading this register has the side effect of clearing the PPU's internal w register.
-        ppu.w = WriteToggle::default();
+        ppu.w = WriteToggle::First;
 
         let res = ppu.stat.bits();
         // Reading PPUSTATUS will return the current state of this flag and then clear it.
@@ -328,10 +352,7 @@ impl Emu {
       // OamAddr
       0x2003 => ppu.oam_addr = val,
       // OamData
-      0x2004 => {
-        ppu.oam.0[ppu.oam_addr as usize] = val;
-        ppu.oam_addr = ppu.oam_addr.wrapping_add(1);
-      }
+      0x2004 => ppu.oam_write(val),
       // Scroll
       0x2005 => {
         match ppu.w {
@@ -375,6 +396,8 @@ impl Emu {
     }
   }
 
+  // do not use, prefer direct access instead
+  #[deprecated]
   fn fetching_read(&mut self, addr: u16) -> u8 {
     self.ppu_dispatch_read(addr)
   }
@@ -383,7 +406,6 @@ impl Emu {
     // This read buffer is updated on every PPUDATA read, but only after the previous contents have been returned to the CPU, effectively delaying PPUDATA reads by one. 
     let res = self.ppu.ppu_data;
     self.ppu.ppu_data = self.ppu_dispatch_read(self.ppu.v.0);
-    // println!("Read {res} from PPU {}", self.ppu.v.0);
     self.ppu.increase_addr();
 
     // TODO: palette ram read
@@ -394,14 +416,13 @@ impl Emu {
 
   fn ppu_write8(&mut self, val: u8) {
     self.ppu_dispatch_write(self.ppu.v.0, val);
-    // println!("Wrote {val} to PPU {}", self.ppu.v.0);
     self.ppu.increase_addr();
   }
 
   fn palette_from_attribute(&self, mut attr: u8) -> u8 {
     let v = &self.ppu.v;
     
-    // can this be done without ifs?
+    // TODO: can this be done without ifs?
     if v.coarse_y() & 0x2 != 0 { attr >>= 4; }
     if v.coarse_x() & 0x2 != 0 { attr >>= 2; }
 
@@ -444,7 +465,7 @@ impl Emu {
     match (self.ppu.cycle - 1) % 8 {
       // https://www.nesdev.org/wiki/PPU_scrolling#Tile_and_attribute_fetching
       0 => {
-        self.ppu.shifter_load();
+        self.ppu.shifter_load_from_fetcher();
         self.ppu.fetcher.nametbl = self.ppu_vram_read(0x2000 | (self.ppu.v.0 & 0x0fff));
       }
       2 => {
@@ -555,42 +576,63 @@ impl Emu {
           7 - dist
         } else {
           dist
-        };
+        } as u16;
 
-        let pttrn_addr = ppu.ctrl.spr_pttrntbl_addr 
+        let pttrn_addr = if ppu.ctrl.spr_size == 16 {
+          // 8x16 sprites
+
+          let mut bottom_tile = dist >= 8;
+          // In 8x16 mode, vertical flip flips each of the subtiles and also exchanges their position; the odd-numbered tile of a vertically flipped sprite is drawn on top.
+          if sprite.flip_vert() { bottom_tile = !bottom_tile; }
+          
+          // For 8x16 sprites (bit 5 of PPUCTRL set), the PPU ignores the pattern table selection and selects a pattern table from bit 0 of this number. 
+          (sprite.nametbl as u16 & 1) << 12
+          | (((sprite.nametbl & !1) as u16 | bottom_tile as u16) << 4)
+          | fine_y & 0b111
+        } else {
+          // 8x8 sprites
+          ppu.ctrl.spr_pttrntbl_addr 
           | ((sprite.nametbl as u16) << 4)
-          | (fine_y & 0b111) as u16;
+          | fine_y & 0b111
+        };
         
         let flip_hori = sprite.flip_hori();
 
         let mut pttrn = self.ppu_chr_read(pttrn_addr);
-        if flip_hori {
-          pttrn = pttrn.reverse_bits();
-        }
+        if flip_hori { pttrn = pttrn.reverse_bits(); }
 
         self.ppu.fetcher.spr_pttrn_lo[spr_id as usize] = pttrn;
       }
       6 => {
         let spr_id = (ppu.cycle - 257) / 8;
         let sprite = &ppu.oam_tmp[spr_id as usize];
+
         let dist = ppu.scanline - sprite.y as i16;
         let fine_y = if sprite.flip_vert() {
           7 - dist
         } else {
           dist
-        };
+        } as u16;
 
-        let pttrn_addr = ppu.ctrl.spr_pttrntbl_addr 
+        let pttrn_addr = if ppu.ctrl.spr_size == 16 {
+          let mut bottom_tile = dist >= 8;
+          if sprite.flip_vert() { bottom_tile = !bottom_tile; }
+          
+          (sprite.nametbl as u16 & 1) << 12
+          | (((sprite.nametbl & !1) as u16 | bottom_tile as u16) << 4)
+          | 0x8
+          | fine_y & 0b111
+        } else {
+          ppu.ctrl.spr_pttrntbl_addr 
           | ((sprite.nametbl as u16) << 4)
           | 0x8
-          | (fine_y & 0b111) as u16;
+          | fine_y & 0b111
+        };
 
         let flip_hori = sprite.flip_hori();
 
         let mut pttrn = self.ppu_chr_read(pttrn_addr);
-        if flip_hori {
-          pttrn = pttrn.reverse_bits();
-        }
+        if flip_hori { pttrn = pttrn.reverse_bits(); }
 
         self.ppu.fetcher.spr_pttrn_hi[spr_id as usize] = pttrn;
       }
@@ -599,37 +641,26 @@ impl Emu {
   }
 
   fn push_pixel(&mut self) {
-    let cycle = self.ppu.cycle as usize - 1;
-    let scanline = self.ppu.scanline as usize;
+    let pixel_col = self.ppu.cycle as usize - 1;
 
     // On every dot in these background fetch regions, a 4-bit pixel is selected by the fine x register from the low 8 bits of the pattern and attributes shift registers, which are then shifted. 
-    let shifter = &mut self.ppu.shifter;
-    let shift_mask = 0x8000 >> self.ppu.x;
+    let (bg_pixel, bg_palette) = self.ppu.shifter_get_pixel_n_palette();
+    let spr_pixel = &self.ppu.spr_scanline.0[pixel_col];
 
-    let pixel_lo = shifter.shift_ptrn_lo & shift_mask > 0;
-    let pixel_hi = shifter.shift_ptrn_hi & shift_mask > 0;
-    let bg_pixel = ((pixel_hi as u8) << 1) | (pixel_lo as u8);
-
-    let palette_lo = shifter.shift_attr_lo & shift_mask > 0;
-    let palette_hi = shifter.shift_attr_hi & shift_mask > 0;
-    let palette = ((palette_hi as u8) << 1) | (palette_lo as u8);
-
-    let spr_pixel = &self.ppu.spr_scanline.0[cycle];
-
-    let spr0_hit = self.ppu.rendering_enabled() && spr_pixel.pixel() > 0 && bg_pixel > 0 && spr_pixel.spr0() && cycle != 255;
+    let spr0_hit = self.ppu.rendering_enabled() && spr_pixel.pixel() > 0 && bg_pixel > 0 && spr_pixel.spr0() && pixel_col != 255;
     self.ppu.stat = Status::from_bits_retain(self.ppu.stat.bits() | ((spr0_hit as u8) << 6));
 
     let color_id = if self.ppu.mask.contains(Mask::SprEnable) && spr_pixel.pixel() > 0 && (spr_pixel.priority() || bg_pixel == 0) {
       self.spr_color_from_palette(spr_pixel.palette(), spr_pixel.pixel())
     } else if self.ppu.mask.contains(Mask::BgEnable) && bg_pixel > 0 {
-      self.bg_color_from_palette(palette, bg_pixel)
+      self.bg_color_from_palette(bg_palette, bg_pixel)
     } else {
       self.bg_color_from_palette(0, 0)
     };
 
-    let pos = (scanline * 256) + cycle;
     // TODO: mask greyscale and color emphasis
-    self.framebuf[pos] = color_id;
+    self.videobuf[self.ppu.pixel] = color_id;
+    self.ppu.pixel += 1;
   }
 
 
@@ -684,7 +715,11 @@ impl Emu {
   pub fn ppu_step(&mut self) {
     // https://forums.nesdev.org/viewtopic.php?t=8066
     // https://forums.nesdev.org/viewtopic.php?t=10348
+    // https://forums.nesdev.org/viewtopic.php?t=25833
 
+
+    // TODO: if on a visible scanline, and rendering is disabled, do nothing
+    
     match (self.ppu.scanline, self.ppu.cycle) {
       (0..240, 0) => self.compute_sprite_scanline(),
       (0..240, 1..257) => {
@@ -701,7 +736,8 @@ impl Emu {
       (241, 1) => {
         self.ppu.stat.insert(Status::Vblank);
         self.events.insert(emu::Events::FRAME);
-        
+        self.ppu.pixel = 0;
+
         if self.ppu.ctrl.vblank_nmi_enabled {
           self.events.insert(emu::Events::NMI);
         }

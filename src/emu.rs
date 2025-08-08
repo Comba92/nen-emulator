@@ -1,6 +1,6 @@
 use std::sync::LazyLock;
 
-use crate::{bus::MemHandler, cart::Cart, cpu::{self, Cpu6502}, joypad::Joypad, ppu::Ppu2C02};
+use crate::{apu::ApuRP2A, bus::MemHandler, cart::Cart, cpu::{self, Cpu6502}, joypad::Joypad, ppu::Ppu2C02};
 
 bitflags::bitflags! {
   #[derive(Debug)]
@@ -14,13 +14,15 @@ bitflags::bitflags! {
 pub struct Emu {
   pub cpu: Cpu6502,
   pub ppu: Ppu2C02,
+  pub apu: ApuRP2A,
   pub joypad: Joypad,
   pub mem: MemHandler,
   #[cfg(feature = "ram64kb")]
   pub ram: [u8; 64 * 1024],
   pub events: Events,
 
-  pub framebuf: [u8; 256 * 240],
+  pub videobuf: [u8; 256 * 240],
+  pub audiobuf: Vec<i16>,
 }
 
 #[derive(Debug, Default)]
@@ -32,24 +34,45 @@ pub enum Mirroring {
   FourScreens
 }
 
-impl Emu {
-  pub fn new(cart: Cart) -> Self {
-    let mut emu = Self {
+impl Default for Emu {
+  fn default() -> Self {
+    Self {
       cpu: Cpu6502::new(),
       ppu: Ppu2C02::new(),
+      apu: ApuRP2A::default(),
       joypad: Joypad::default(),
-      mem: MemHandler::new(cart),
+      mem: MemHandler::new(Cart::default()).unwrap(),
       #[cfg(feature = "ram64kb")]
       ram: [0; 64 * 1024],
       events: Events::empty(),
 
-      framebuf: [0; 256 * 240],
+      videobuf: [0; 256 * 240],
+      audiobuf: Vec::new(),
+    }
+  }
+}
+
+impl Emu {
+  pub fn new(rom: &[u8]) -> Result<Self, String> {
+    let cart = Cart::new(rom)?;
+    
+    let mut emu = Self {
+      cpu: Cpu6502::new(),
+      ppu: Ppu2C02::new(),
+      apu: ApuRP2A::default(),
+      joypad: Joypad::default(),
+      mem: MemHandler::new(cart)?,
+      #[cfg(feature = "ram64kb")]
+      ram: [0; 64 * 1024],
+      events: Events::empty(),
+
+      videobuf: [0; 256 * 240],
+      audiobuf: Vec::new(),
     };
 
     emu.cpu.pc = emu.cpu_read16(cpu::RST_VECTOR);
-    emu
+    Ok(emu)
   }
-
 
   #[cfg(not(feature = "ram64kb"))]
   pub fn step(&mut self) {
@@ -62,10 +85,21 @@ impl Emu {
       self.ppu_step();
       self.ppu_step();
 
+      // self.apu_step();
       self.mem.mapper.step();
     }
   }
   
+  fn ppu_catch_up(&mut self) {
+    for _ in 0..self.cpu.cycles {
+      self.ppu_step();
+      self.ppu_step();
+      self.ppu_step();
+    }
+
+    self.cpu.cycles = 0;
+  }
+
   #[cfg(feature = "ram64kb")]
   pub fn step(&mut self) {
     self.cpu_step();
@@ -82,7 +116,7 @@ impl Emu {
 
 #[derive(Debug)]
 pub struct RGBColor(pub u8, pub u8, pub u8);
-pub static SYS_COLORS: LazyLock<[RGBColor; 64]> = LazyLock::new(|| {
+pub static DEFAULT_PALETTE: LazyLock<[RGBColor; 64]> = LazyLock::new(|| {
   let bytes = include_bytes!("../utils/Composite_wiki.pal");
 
   let colors: Vec<RGBColor> = bytes

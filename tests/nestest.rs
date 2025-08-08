@@ -1,6 +1,4 @@
-use std::mem::take;
-
-use nes_emulator::{cart::Cart, cpu::Status, emu::Emu};
+use nes_emulator::{cpu::Status, emu::Emu};
 
 #[derive(Debug, Default, PartialEq, Eq)]
 struct LogLine {
@@ -56,12 +54,7 @@ use pretty_assertions::assert_eq;
 
 #[test]
 fn nestest_no_graphics() {
-  let rom = Cart::new(include_bytes!("../roms/nestest.nes"))
-    .unwrap();
-
-  println!("{:?}", rom.header);
-  
-  let mut emu = Emu::new(rom);
+  let mut emu = Emu::new(include_bytes!("../roms/nestest.nes")).unwrap();
   emu.cpu.pc = 0xc000;
   emu.cpu.cycles =  7;
   emu.ppu.cycle  = 21;

@@ -28,8 +28,8 @@ impl Cart {
     let mut header = CartHeader::default();
     
     header.prg_size = bytes[4] as usize * 16 * 1024;
-    header.chr_size = bytes[5] as usize * 16 * 1024;
-    header.has_chr_ram = header.chr_size == 0;
+    header.has_chr_ram = bytes[5] == 0;
+    header.chr_size = if header.has_chr_ram { 8 * 1024 } else { bytes[5] as usize * 16 * 1024 };
 
     header.mirroring = match bytes[6] & 1 {
       0 => Mirroring::Horizontal,

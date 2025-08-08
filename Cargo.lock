@@ -36,6 +36,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1b8e56985ec62d17e9c1001dc89c88ecd7dc08e47eba5ec7c29c7b5eeecde967"
 
 [[package]]
+name = "blip_buf"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d5f98f9570c511659ef3ea75294fd12ecbe94dced01c233736149ea4a1101ede"
+
+[[package]]
 name = "cfg-if"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -77,6 +83,7 @@ version = "0.1.0"
 dependencies = [
  "bitfields",
  "bitflags 2.9.1",
+ "blip_buf",
  "pretty_assertions",
  "sdl2",
  "serde",

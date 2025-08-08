@@ -1,9 +1,10 @@
 pub mod emu;
 pub mod cpu;
-mod bus;
 pub mod cart;
+mod bus;
 mod mapper;
 mod ppu;
+mod apu;
 
 mod utils {  
   // pub fn bit_get(x: u8, bit: u8) -> bool { (x >> bit) & 1 == 1 }

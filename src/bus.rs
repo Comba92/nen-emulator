@@ -1,4 +1,4 @@
-use crate::{cart::{Cart, CartHeader}, emu::{Emu, Mirroring}, mapper::{Mapper, NROM}};
+use crate::{cart::{Cart, CartHeader}, emu::{Emu, Mirroring}, mapper::{mapper_from_header, Mapper}};
 
 pub struct MemHandler {
   ram: [u8; 2 * 1024],
@@ -6,22 +6,23 @@ pub struct MemHandler {
   chr: Vec<u8>,
   pub vram: [u8; 2 * 1024],
 
-  // consider keeping this in PPU
+  // TODO: consider keeping this in PPU
   pub palettes: [u8; 32],
 
   cpu_addr_bus: u16,
   cpu_data_bus: u8,
   ppu_addr_bus: u16,
 
-  cart: CartHeader,
+  pub cart: CartHeader,
   bankings: BankingHandler,
   pub mapper: Box<dyn Mapper>
 }
 
+#[derive(Debug)]
 pub struct BankingHandler {
-  pub prg: Banking<()>,
-  pub chr: Banking<()>,
-  pub vram: Banking<()>,
+  pub prg:  Banking<PrgBank>,
+  pub chr:  Banking<ChrBank>,
+  pub vram: Banking<VramBank>,
 }
 impl Default for BankingHandler {
   fn default() -> Self {
@@ -32,8 +33,32 @@ impl Default for BankingHandler {
     }
   }
 }
+impl BankingHandler {
+  pub fn new(header: &CartHeader) -> Self {
+    Self {
+      prg: Banking::new_prg(header, 2),
+      chr: Banking::new_chr(header, 1),
+      vram: Banking::new_vram(header),
+    }
+  }
+}
 
-pub struct Banking<T> {
+pub trait BankCfg {}
+
+#[derive(Debug)]
+pub struct PrgBank;
+impl BankCfg for PrgBank {}
+
+#[derive(Debug)]
+pub struct ChrBank;
+impl BankCfg for ChrBank {}
+
+#[derive(Debug)]
+pub struct VramBank;
+impl BankCfg for VramBank {}
+
+#[derive(Debug)]
+pub struct Banking<T: BankCfg> {
   data_size: usize,
   data_start: u16,
   bank_size: u16,
@@ -44,7 +69,7 @@ pub struct Banking<T> {
   kind: std::marker::PhantomData<T>,
 }
 
-impl<T> Banking<T> {
+impl<T: BankCfg> Banking<T> {
   pub fn new(rom_size: usize, rom_start: u16, page_size: u16, pages_count: u16) -> Self {
     let bankings = vec![0; pages_count as usize];
     let bank_size = page_size;
@@ -89,6 +114,28 @@ impl<T> Banking<T> {
     // self.bankings[page] + (addr % self.bank_size)
     self.bankings[page as usize] + (addr & (self.bank_size - 1)) as usize
   }
+}
+
+impl Banking<PrgBank> {
+  pub fn new_prg(header: &CartHeader, pages_count: u16) -> Self {
+    let pages_size = 32 * 1024 / pages_count;
+    Self::new(header.prg_size, 0x8000, pages_size, pages_count)
+  }
+}
+
+impl Banking<ChrBank> {
+  pub fn new_chr(header: &CartHeader, pages_count: u16) -> Self {
+    let pages_size = 8 * 1024 / pages_count;
+    Self::new(header.chr_size, 0, pages_size, pages_count)
+  }
+}
+
+impl Banking<VramBank> {
+  pub fn new_vram(header: &CartHeader) -> Self {
+    let mut res = Self::new(2 * 1024, 0x2000, 1024, 4);
+    res.mirror(&header.mirroring);
+    res
+  }
 
   pub fn mirror(&mut self, mirroring: &Mirroring) {
     match mirroring {
@@ -116,21 +163,21 @@ impl<T> Banking<T> {
       }
       Mirroring::FourScreens => {
         todo!("four screens mirroring");
-        for i in 0..4 {
-          self.set_page(i, i);
-        }
+        // for i in 0..4 {
+        //   self.set_page(i, i);
+        // }
       }
     }
   }
 }
 
 impl MemHandler {
-  pub fn new(cart: Cart) -> Self {
-    let mut banks = BankingHandler::default();
+  pub fn new(cart: Cart) -> Result<Self, String> {
+    let mut banks = BankingHandler::new(&cart.header);
     banks.vram.mirror(&cart.header.mirroring);
-    let mapper = NROM::new(&cart.header, &mut banks);
+    let mapper = mapper_from_header(&cart.header, &mut banks)?;
 
-    Self {
+    Ok(Self {
       ram: [0; 2* 1024],
       prg: cart.prg,
       chr: cart.chr,
@@ -142,10 +189,9 @@ impl MemHandler {
       ppu_addr_bus: 0,
       
       cart: cart.header,
-      // TODO: make banking based on mapper
       bankings: banks,
       mapper: mapper,
-    }
+    })
   }
 }
 
@@ -156,7 +202,9 @@ impl Emu {
     mem.cpu_addr_bus = addr;
     let res = match addr {
       0x0000..=0x1fff => mem.ram[addr as usize & 0x07ff],
-      0x2000..=0x3fff => self.ppu_reg_read(addr & 0x2007),
+      0x2000..=0x3fff => {
+        self.ppu_reg_read(addr & 0x2007)
+      }
       0x4016 => self.joypad.read() | (self.mem.cpu_data_bus & 0xe0),
       0x8000..=0xffff => mem.prg[mem.bankings.prg.translate(addr)],
       _ => mem.cpu_data_bus,
@@ -172,24 +220,25 @@ impl Emu {
     mem.cpu_addr_bus = addr;
     match addr {
       0x0000..=0x1fff => mem.ram[addr as usize & 0x07ff] = val,
-      0x2000..=0x3fff => self.ppu_reg_write(addr & 0x2007, val),
-      0x4014 => {
+      0x2000..=0x3fff => {
+        self.ppu_reg_write(addr & 0x2007, val);
+      }
+      0x4014 => {        
         // https://www.nesdev.org/wiki/PPU_registers#OAMDMA_-_Sprite_DMA_($4014_write)
         self.cpu_tick();
         // TODO: +1 cycle on odd cpu cyles
 
         let mut addr = (val as u16) << 8;
 
-        // optimize this, as we always know we're writing to OAM
         for _ in 0..256 {
           let byte = self.cpu_dispatch_read(addr);
           addr += 1;
           self.cpu_tick();
-          self.ppu_reg_write(0x2004, byte);
+          self.ppu.oam_write(byte);
         }
       }
       0x4016 => self.joypad.write(val),
-      0x8000..=0xffff => mem.prg[mem.bankings.prg.translate(addr)] = val,
+      0x8000..=0xffff => mem.mapper.prg_write(&mut mem.bankings, addr, val),
       _ => {},
     }
   }
@@ -238,10 +287,11 @@ impl Emu {
         // if we're writing a transparent color
         if addr % 4 == 0 {
           // if addr == 0x3f00 || addr == 0x3f1f {
-            // write all backdrop colors
             // for i in 0..8 {
-            //   mem.palettes[i*4] = val;
-            // }
+              //   mem.palettes[i*4] = val;
+              // }
+
+            // write all backdrop colors
             mem.palettes[addr & 0xf] = val;
             mem.palettes[addr & 0xf + 8] = val;
         } else {

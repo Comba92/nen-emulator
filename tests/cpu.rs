@@ -21,7 +21,7 @@ struct CpuTestState {
 
 use std::{fs, io::{self, Read}};
 
-use nes_emulator::{cart::Cart, cpu::Status, emu};
+use nes_emulator::{cpu::Status, emu};
 
 fn cpu_to_mock(emu: &mut emu::Emu, mock: &CpuTestState) -> CpuTestState {
   let cpu = &emu.cpu;
@@ -74,7 +74,7 @@ fn exec_test() {
     ::from_str(include_str!("./SingleStepTests/a9.json"))
     .unwrap();
 
-  let mut emu = emu::Emu::new(Cart::default());
+  let mut emu = emu::Emu::default();
   println!("{:?}", emu.cpu);
 
   cpu_from_mock(&mut emu, &test[0].start);
@@ -93,7 +93,7 @@ fn exec_test() {
 use pretty_assertions::assert_eq;
 
 fn cpu_test(test: &CpuTest) -> bool {
-  let mut emu = emu::Emu::new(Cart::default());
+  let mut emu = emu::Emu::default();
   cpu_from_mock(&mut emu, &test.start);
 
   emu.step();

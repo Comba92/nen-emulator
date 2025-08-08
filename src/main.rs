@@ -1,4 +1,4 @@
-use nes_emulator::{cart::Cart, emu::{Emu, SYS_COLORS}, joypad::NesButtons};
+use nes_emulator::{emu::{Emu, DEFAULT_PALETTE}, joypad::NesButtons};
 use sdl2::{event::Event, keyboard::Keycode, pixels::PixelFormatEnum};
 
 fn main() {
@@ -25,11 +25,9 @@ fn main() {
 
     tex.set_scale_mode(sdl2::render::ScaleMode::Nearest);
 
-    let rom = include_bytes!("../roms/super mario.nes");
-    let cart = Cart::new(rom).unwrap();
-    let mut emu = Emu::new(cart);
+    let mut emu = Emu::new(include_bytes!("../roms/donkey kong.nes")).unwrap();
 
-    let mut framebuf = Vec::new();
+    let mut framebuf = [0; 256 * 240 * 4];
 
     'running: loop {
         let frame_start = timer.ticks64();
@@ -39,12 +37,10 @@ fn main() {
                 Event::Quit { .. } => break 'running,
                 Event::DropFile { filename, .. } => {
                     let rom = std::fs::read(&filename).unwrap();
-                    let cart = Cart::new(&rom);
+                    let new_emu = Emu::new(&rom);
 
-                    match cart {
-                        Ok(res) => {
-                            emu = Emu::new(res);
-                        }
+                    match new_emu {
+                        Ok(res) => emu = res,
                         Err (e) => eprintln!("{e}"),
                     }
                 }
@@ -85,17 +81,17 @@ fn main() {
 
         emu.step_until_vblank();
 
-        framebuf.clear();
-        for byte in emu.framebuf {
-            let color = &SYS_COLORS[byte as usize];
-            framebuf.push(color.0);
-            framebuf.push(color.1);
-            framebuf.push(color.2);
-            framebuf.push(255);
+        for (i, byte) in emu.videobuf.iter().enumerate() {
+            let color = &DEFAULT_PALETTE[*byte as usize];
+            framebuf[i * 4 + 0] = color.0;
+            framebuf[i * 4 + 1] = color.1;
+            framebuf[i * 4 + 2] = color.2;
+            framebuf[i * 4 + 3] = 255;
         }
         
         canvas.set_draw_color(sdl2::pixels::Color::GREY);
         canvas.clear();
+        
         tex.with_lock(None, |pixels, _| {
             pixels.copy_from_slice(&framebuf);
         }).unwrap();
@@ -109,7 +105,4 @@ fn main() {
             timer.delay((17 - frame_duration) as u32);
         }
     }
-
-
-    println!("{:x?}", emu.mem.palettes);
 }

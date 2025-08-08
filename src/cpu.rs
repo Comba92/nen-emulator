@@ -1,5 +1,4 @@
 use std::ops::{Shl, Shr};
-
 use crate::emu::{self, Emu};
 
 enum AddressingMode {
@@ -1157,7 +1156,7 @@ impl Emu {
       0xfb => self.isc(),
       0xfc => self.nop(),
       0xff => self.isc(),
-      _ => unreachable!("illegal opcode reached")
+      _ => unreachable!("illegal opcode {opcode:02x} at address {:04x} reached, system jammed", self.cpu.pc)
       // _ => {}
     }
   }
