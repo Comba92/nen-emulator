@@ -4,7 +4,7 @@ use sdl2::{event::Event, keyboard::Keycode, pixels::PixelFormatEnum};
 fn main() {
     let sdl = sdl2::init().unwrap();
     let video = sdl.video().unwrap();
-    let window = video.window("NesEmu", 800, 600)
+    let window = video.window("NesEmu", 256 * 3, 240 * 3)
         .position_centered()
         .resizable()
         .build().unwrap();
@@ -25,7 +25,7 @@ fn main() {
 
     tex.set_scale_mode(sdl2::render::ScaleMode::Nearest);
 
-    let mut emu = Emu::new(include_bytes!("../roms/donkey kong.nes")).unwrap();
+    let mut emu = Emu::new(include_bytes!("../roms/super mario.nes")).unwrap();
 
     let mut framebuf = [0; 256 * 240 * 4];
 

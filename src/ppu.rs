@@ -73,6 +73,7 @@ impl WriteToggle {
 #[derive(Default)]
 struct FetcherData {
   nametbl: u8,
+  pttrn_addr: u16,
   attribute: u8,
   pttrn_lo: u8,
   pttrn_hi: u8,
@@ -188,11 +189,11 @@ impl Ppu2C02 {
   }
 
   fn increase_addr(&mut self) {
-    self.v.0 = self.v.0
-      .wrapping_add(self.ctrl.vram_addr_inc);
+    // TODO: increase during rendering bug
+    self.v.0 = (self.v.0 + self.ctrl.vram_addr_inc) & 0x7fff;
   }
 
-  fn scroll_x_inc(&mut self) {
+  fn inc_scroll_x(&mut self) {
     if self.rendering_enabled() {
       if self.v.coarse_x() == 31 {
         self.v.set_coarse_x(0);
@@ -203,7 +204,7 @@ impl Ppu2C02 {
     }
   }
 
-  fn scroll_y_inc(&mut self) {
+  fn inc_scroll_y(&mut self) {
     if self.rendering_enabled() {
       let v = &mut self.v;
       if v.fine_y() < 7 {                            // if fine Y < 7
@@ -224,14 +225,14 @@ impl Ppu2C02 {
     }
   }
 
-  fn scroll_x_tx(&mut self) {
+  fn restore_scroll_x(&mut self) {
     if self.rendering_enabled() {
       self.v.set_nametbl_x(self.t.nametbl_x());
       self.v.set_coarse_x(self.t.coarse_x());
     }
   }
 
-  fn scroll_y_tx(&mut self) {
+  fn restore_scroll_y(&mut self) {
     if self.rendering_enabled() {
       self.v.set_nametbl_y(self.t.nametbl_y());
       self.v.set_coarse_y(self.t.coarse_y());
@@ -402,6 +403,14 @@ impl Emu {
     self.ppu_dispatch_read(addr)
   }
 
+  fn render_vram_read(&mut self, addr: u16) -> u8 {
+    todo!()
+  }
+
+  fn render_chr_read(&mut self, addr: u16) -> u8 {
+    todo!()
+  }
+
   fn ppu_read8(&mut self) -> u8 {
     // This read buffer is updated on every PPUDATA read, but only after the previous contents have been returned to the CPU, effectively delaying PPUDATA reads by one. 
     let res = self.ppu.ppu_data;
@@ -419,14 +428,14 @@ impl Emu {
     self.ppu.increase_addr();
   }
 
-  fn palette_from_attribute(&self, mut attr: u8) -> u8 {
-    let v = &self.ppu.v;
+  fn palette_from_attribute(&self, attr: u8) -> u8 {
+    let v = self.ppu.v.0;
     
-    // TODO: can this be done without ifs?
-    if v.coarse_y() & 0x2 != 0 { attr >>= 4; }
-    if v.coarse_x() & 0x2 != 0 { attr >>= 2; }
+    // if v.coarse_y() & 0x2 != 0 { attr >>= 4; }
+    // if v.coarse_x() & 0x2 != 0 { attr >>= 2; }
 
-    attr & 0b11
+    let shift = ((v & 0x40) >> 4) | (v & 0x02);
+    (attr >> shift) & 0b11
   }
 
   fn bg_color_from_palette(&mut self, palette: u8, pixel: u8) -> u8 {
@@ -460,7 +469,7 @@ impl Emu {
 
   fn fetch_step_bg(&mut self) {
     self.ppu.shifter_update();
-    
+
     // we do cycle - 1 as we skip the idle cycle to be aligned to 8
     match (self.ppu.cycle - 1) % 8 {
       // https://www.nesdev.org/wiki/PPU_scrolling#Tile_and_attribute_fetching
@@ -488,18 +497,15 @@ impl Emu {
           | ((self.ppu.fetcher.nametbl as u16) << 4)
           | self.ppu.v.fine_y() as u16;
 
+        self.ppu.fetcher.pttrn_addr = addr;
         self.ppu.fetcher.pttrn_lo = self.ppu_chr_read(addr);
       }
       6 => {
-        let addr = self.ppu.ctrl.bg_pttrntbl_addr
-          | ((self.ppu.fetcher.nametbl as u16) << 4)
-          | 0x8
-          | self.ppu.v.fine_y() as u16;
-
-        self.ppu.fetcher.pttrn_hi = self.ppu_chr_read(addr);
+        self.ppu.fetcher.pttrn_hi = self
+          .ppu_chr_read(self.ppu.fetcher.pttrn_addr + 8);
 
         // IMPORTANT: increase v by one
-        self.ppu.scroll_x_inc();
+        self.ppu.inc_scroll_x();
       }
 
       _ => {}
@@ -565,7 +571,18 @@ impl Emu {
   fn fetch_step_spr(&mut self) {
     let ppu = &mut self.ppu;
     
-    match (ppu.cycle - 257) % 8 {
+    // these are still aligned by 8
+    match (ppu.cycle - 1) % 8 {
+      0 => {
+        self.ppu.shifter_load_from_fetcher();
+        self.ppu.fetcher.nametbl = self.ppu_vram_read(0x2000 | (self.ppu.v.0 & 0x0fff));
+      }
+      2 => {
+        let v = &self.ppu.v.0;
+        let addr = 0x23c0 | (v & 0xc00) | ((v >> 4) & 0x38) | ((v >> 2) & 0x7);
+        let attr = self.ppu_vram_read(addr);
+        self.ppu.fetcher.attribute = self.palette_from_attribute(attr);
+      }
       4 => {
         let spr_id = (ppu.cycle - 257) / 8;
         let sprite = &ppu.oam_tmp[spr_id as usize];
@@ -578,7 +595,12 @@ impl Emu {
           dist
         } as u16;
 
-        let pttrn_addr = if ppu.ctrl.spr_size == 16 {
+        let pttrn_addr = if ppu.ctrl.spr_size == 8 {
+          // 8x8 sprites
+          ppu.ctrl.spr_pttrntbl_addr 
+          | ((sprite.nametbl as u16) << 4)
+          | fine_y & 0b111
+        } else {
           // 8x16 sprites
 
           let mut bottom_tile = dist >= 8;
@@ -589,12 +611,9 @@ impl Emu {
           (sprite.nametbl as u16 & 1) << 12
           | (((sprite.nametbl & !1) as u16 | bottom_tile as u16) << 4)
           | fine_y & 0b111
-        } else {
-          // 8x8 sprites
-          ppu.ctrl.spr_pttrntbl_addr 
-          | ((sprite.nametbl as u16) << 4)
-          | fine_y & 0b111
         };
+
+        ppu.fetcher.pttrn_addr = pttrn_addr;
         
         let flip_hori = sprite.flip_hori();
 
@@ -607,31 +626,10 @@ impl Emu {
         let spr_id = (ppu.cycle - 257) / 8;
         let sprite = &ppu.oam_tmp[spr_id as usize];
 
-        let dist = ppu.scanline - sprite.y as i16;
-        let fine_y = if sprite.flip_vert() {
-          7 - dist
-        } else {
-          dist
-        } as u16;
-
-        let pttrn_addr = if ppu.ctrl.spr_size == 16 {
-          let mut bottom_tile = dist >= 8;
-          if sprite.flip_vert() { bottom_tile = !bottom_tile; }
-          
-          (sprite.nametbl as u16 & 1) << 12
-          | (((sprite.nametbl & !1) as u16 | bottom_tile as u16) << 4)
-          | 0x8
-          | fine_y & 0b111
-        } else {
-          ppu.ctrl.spr_pttrntbl_addr 
-          | ((sprite.nametbl as u16) << 4)
-          | 0x8
-          | fine_y & 0b111
-        };
-
+        let pttrn_addr = ppu.fetcher.pttrn_addr;
         let flip_hori = sprite.flip_hori();
 
-        let mut pttrn = self.ppu_chr_read(pttrn_addr);
+        let mut pttrn = self.ppu_chr_read(pttrn_addr + 8);
         if flip_hori { pttrn = pttrn.reverse_bits(); }
 
         self.ppu.fetcher.spr_pttrn_hi[spr_id as usize] = pttrn;
@@ -721,18 +719,19 @@ impl Emu {
     // TODO: if on a visible scanline, and rendering is disabled, do nothing
     
     match (self.ppu.scanline, self.ppu.cycle) {
-      (0..240, 0) => self.compute_sprite_scanline(),
-      (0..240, 1..257) => {
+      // no sprites on first scanline
+      (1..=239, 0) => self.compute_sprite_scanline(),
+      (0..=239, 1..=256) => {
         self.fetch_step_bg();
         self.push_pixel();
       }
-      (0..240, 257) => {
-        self.ppu.scroll_y_inc();
-        self.ppu.scroll_x_tx();
+      (0..=239, 257) => {
+        self.ppu.inc_scroll_y();
+        self.ppu.restore_scroll_x();
         self.evaluate_sprites();
       }
-      (0..240, 257..321) => self.fetch_step_spr(),
-      (0..240, 321..337) => self.fetch_step_bg(),
+      (0..=239, 257..=320) => self.fetch_step_spr(),
+      (0..=239, 321..=336) => self.fetch_step_bg(),
       (241, 1) => {
         self.ppu.stat.insert(Status::Vblank);
         self.events.insert(emu::Events::FRAME);
@@ -746,13 +745,12 @@ impl Emu {
         self.fetch_step_bg();
         self.ppu.stat.clear();
       }
-      (261, 1..257 | 321..341) => self.fetch_step_bg(),
+      (261, 1..=256 | 321..=336) => self.fetch_step_bg(),
       (261, 257) => {
-        self.ppu.scroll_y_inc();
-        self.ppu.scroll_x_tx();
-        self.evaluate_sprites();
+        self.ppu.inc_scroll_y();
+        self.ppu.restore_scroll_x();
       }
-      (261, 280) => self.ppu.scroll_y_tx(),
+      (261, 280) => self.ppu.restore_scroll_y(),
       _ => {}
     }
 
