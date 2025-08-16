@@ -470,7 +470,7 @@ impl Emu {
 
   fn fetch_step_bg(&mut self) {
     self.ppu.shifter_update();
-    
+
     // we do cycle - 1 as we skip the idle cycle to be aligned to 8
     match (self.ppu.cycle - 1) % 8 {
       // https://www.nesdev.org/wiki/PPU_scrolling#Tile_and_attribute_fetching
@@ -574,7 +574,8 @@ impl Emu {
   fn fetch_step_spr(&mut self) {
     let ppu = &mut self.ppu;
     
-    match (ppu.cycle - 257) % 8 {
+    // these are still aligned by 8
+    match (ppu.cycle - 1) % 8 {
       0 => {
         self.ppu.shifter_load_from_fetcher();
         self.ppu.fetcher.nametbl = self.ppu_vram_read(0x2000 | (self.ppu.v.0 & 0x0fff));
@@ -721,18 +722,19 @@ impl Emu {
     // TODO: if on a visible scanline, and rendering is disabled, do nothing
     
     match (self.ppu.scanline, self.ppu.cycle) {
-      (0..240, 0) => self.compute_sprite_scanline(),
-      (0..240, 1..257) => {
+      // no sprites on first scanline
+      (1..=239, 0) => self.compute_sprite_scanline(),
+      (0..=239, 1..=256) => {
         self.fetch_step_bg();
         self.push_pixel();
       }
-      (0..240, 257) => {
+      (0..=239, 257) => {
         self.ppu.inc_scroll_y();
         self.ppu.restore_scroll_x();
         self.evaluate_sprites();
       }
-      (0..240, 257..321) => self.fetch_step_spr(),
-      (0..240, 321..337) => self.fetch_step_bg(),
+      (0..=239, 257..=320) => self.fetch_step_spr(),
+      (0..=239, 321..=336) => self.fetch_step_bg(),
       (241, 1) => {
         self.ppu.stat.insert(Status::Vblank);
         self.events.insert(emu::Events::PPU_FRAME);
@@ -746,11 +748,10 @@ impl Emu {
         self.fetch_step_bg();
         self.ppu.stat.clear();
       }
-      (261, 1..257 | 321..341) => self.fetch_step_bg(),
+      (261, 1..=256 | 321..=336) => self.fetch_step_bg(),
       (261, 257) => {
         self.ppu.inc_scroll_y();
         self.ppu.restore_scroll_x();
-        self.evaluate_sprites();
       }
       (261, 280) => self.ppu.restore_scroll_y(),
       _ => {}

@@ -102,6 +102,7 @@ struct MMC1 {
   shift_count: u8,
   prg_bank: u8,
   chr_bank: u8,
+  prg_mode: u8,
   chr_8kb_mode: bool,
   prg_bank_mask: u8,
   chr_bank_mask: u8,
@@ -119,8 +120,10 @@ impl Mapper for MMC1 {
     if val & 0x80 != 0 {
       self.shift_reg = 0;
       self.shift_count = 0;
-      banks.prg.change(1);
+      banks.prg.change(2);
       banks.prg.set_page(0, self.prg_bank);
+      self.prg_bank_mask = 0;
+      
       return;
     }
 
@@ -128,12 +131,11 @@ impl Mapper for MMC1 {
     self.shift_count += 1;
 
     if self.shift_count < 5 { return; }
-    else {
-      self.shift_reg = 0;
-      self.shift_count = 0;
-    }
 
     let val = self.shift_reg;
+    self.shift_reg = 0;
+    self.shift_count = 0;
+
     match addr {
       // 0x8000..0x9ffff
       0x8000..=0x9fff => {
@@ -145,14 +147,15 @@ impl Mapper for MMC1 {
         };
         banks.vram.mirror(&mirroring);
         
-        self.prg_bank_mask = match val & 0xc {
-          0x8 => {
+        self.prg_mode = (val >> 2) & 0b11;
+        self.prg_bank_mask = match self.prg_mode {
+          2 => {
             banks.prg.change(2);
             banks.prg.set_page(0, 0);
             banks.prg.set_page(1, self.prg_bank);
             0
           }
-          0xc => {
+          3 => {
             banks.prg.change(2);
             banks.prg.set_page(0, self.prg_bank);
             banks.prg.set_page_to_last_bank(1);
@@ -185,9 +188,13 @@ impl Mapper for MMC1 {
         banks.chr.set_page(1, self.chr_bank);
       }
       // 0xe000..0xffff
-      0xe000..=0xffff => {
+      0xe000..=0xffff => { 
         self.prg_bank = val & !self.prg_bank_mask;
-        banks.prg.set_page(self.prg_bank_mask as usize, self.prg_bank);
+        match self.prg_mode {
+          2 => banks.prg.set_page(1, self.prg_bank),
+          3 => banks.prg.set_page(0, self.prg_bank),
+          _ => banks.prg.set_page(0 as usize, self.prg_bank),
+        }
       }
       _ => {}
     } 

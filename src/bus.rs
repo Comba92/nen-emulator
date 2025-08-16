@@ -123,6 +123,12 @@ impl<T: BankCfg> Banking<T> {
     self.bankings[page] = bank << self.bank_size_shift;
   }
 
+  pub fn set_page2(&mut self, page: usize, bank: u8) {
+    let page = page & !1;
+    self.set_page(page, bank);
+    self.set_page(page + 1, bank + 1);
+  }
+
   pub fn set_page_to_last_bank(&mut self, page: usize) {
     self.set_page(page, self.banks_count as u8-1);
   }
