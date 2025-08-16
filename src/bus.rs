@@ -3,6 +3,7 @@ use crate::{cart::{Cart, CartHeader}, emu::{Emu, Mirroring}, mapper::{mapper_fro
 pub struct MemHandler {
   ram: [u8; 2 * 1024],
   prg: Vec<u8>,
+  sram: Vec<u8>,
   chr: Vec<u8>,
   pub vram: [u8; 2 * 1024],
 
@@ -22,6 +23,7 @@ pub struct MemHandler {
 pub struct BankingHandler {
   pub prg:  Banking<PrgBank>,
   pub chr:  Banking<ChrBank>,
+  pub sram: Banking<SramBank>,
   pub vram: Banking<VramBank>,
 }
 impl Default for BankingHandler {
@@ -29,6 +31,7 @@ impl Default for BankingHandler {
     Self {
       prg: Banking::new(32 * 1024, 0x8000, 16 * 1024, 2),
       chr: Banking::new(8 * 1024, 0, 8 * 1024, 1),
+      sram: Banking::new(8* 1024, 0x6000, 8 * 1024, 1),
       vram: Banking::new(2 * 1024, 0x2000, 1024, 4),
     }
   }
@@ -38,6 +41,7 @@ impl BankingHandler {
     Self {
       prg: Banking::new_prg(header, 2),
       chr: Banking::new_chr(header, 1),
+      sram: Banking::new_sram(),
       vram: Banking::new_vram(header),
     }
   }
@@ -54,13 +58,19 @@ pub struct ChrBank;
 impl BankCfg for ChrBank {}
 
 #[derive(Debug)]
+pub struct SramBank;
+impl BankCfg for SramBank {}
+
+#[derive(Debug)]
 pub struct VramBank;
 impl BankCfg for VramBank {}
 
 #[derive(Debug)]
 pub struct Banking<T: BankCfg> {
+  // TODO: if i don't use this, consider removing it
   data_size: usize,
   data_start: u16,
+  pages_size: u16,
   bank_size: u16,
   bank_size_shift: usize,
   banks_count: usize,
@@ -70,9 +80,9 @@ pub struct Banking<T: BankCfg> {
 }
 
 impl<T: BankCfg> Banking<T> {
-  pub fn new(rom_size: usize, rom_start: u16, page_size: u16, pages_count: u16) -> Self {
+  pub fn new(rom_size: usize, rom_start: u16, pages_size: u16, pages_count: u16) -> Self {
     let bankings = vec![0; pages_count as usize];
-    let bank_size = page_size;
+    let bank_size = pages_size / pages_count;
     let banks_count = rom_size.checked_div(bank_size as usize).unwrap_or_default();
     // https://stackoverflow.com/questions/25787613/division-and-multiplication-by-power-of-2
     let bank_size_shift = bank_size.checked_ilog2().unwrap_or_default() as usize;
@@ -83,6 +93,7 @@ impl<T: BankCfg> Banking<T> {
       bank_size,
       bank_size_shift,
       banks_count,
+      pages_size,
 
       bankings,
       kind: std::marker::PhantomData::<T>,
@@ -93,17 +104,27 @@ impl<T: BankCfg> Banking<T> {
     self.bankings.len()
   }
 
-  pub fn set_page(&mut self, page: usize, bank: usize) {
+  pub fn change(&mut self, pages_count: u16) {
+    assert!(pages_count as usize <= self.bankings.len());
+
+    // we change the parameters, leaving banks array as is
+    // thus we cannot change to a bigger bank size than the original
+    self.bank_size = self.pages_size / pages_count;
+    self.banks_count = self.data_size.checked_div(self.bank_size as usize).unwrap_or_default();
+    self.bank_size_shift = self.bank_size.ilog2() as usize;
+  }
+
+  pub fn set_page(&mut self, page: usize, bank: u8) {
     // some games might write bigger bank numbers than really avaible
     // let bank = bank % self.banks_count;
-    let bank = bank & (self.banks_count - 1);
+    let bank = bank as usize & (self.banks_count - 1);
     // i do not expect to write outside the slots array.
     // self.bankings[page] = bank * self.bank_size;
     self.bankings[page] = bank << self.bank_size_shift;
   }
 
   pub fn set_page_to_last_bank(&mut self, page: usize) {
-    self.set_page(page, self.banks_count-1);
+    self.set_page(page, self.banks_count as u8-1);
   }
 
   pub fn translate(&self, addr: u16) -> usize {
@@ -118,21 +139,25 @@ impl<T: BankCfg> Banking<T> {
 
 impl Banking<PrgBank> {
   pub fn new_prg(header: &CartHeader, pages_count: u16) -> Self {
-    let pages_size = 32 * 1024 / pages_count;
-    Self::new(header.prg_size, 0x8000, pages_size, pages_count)
+    Self::new(header.prg_size, 0x8000, 32 * 1024, pages_count)
   }
 }
 
 impl Banking<ChrBank> {
   pub fn new_chr(header: &CartHeader, pages_count: u16) -> Self {
-    let pages_size = 8 * 1024 / pages_count;
-    Self::new(header.chr_size, 0, pages_size, pages_count)
+    Self::new(header.chr_size, 0, 8 * 1024, pages_count)
+  }
+}
+
+impl Banking<SramBank> {
+  pub fn new_sram() -> Self {
+    Self::new(8 * 1024, 0x6000, 8 * 1024, 1)
   }
 }
 
 impl Banking<VramBank> {
   pub fn new_vram(header: &CartHeader) -> Self {
-    let mut res = Self::new(2 * 1024, 0x2000, 1024, 4);
+    let mut res = Self::new(2 * 1024, 0x2000, 4 * 1024, 4);
     res.mirror(&header.mirroring);
     res
   }
@@ -182,6 +207,7 @@ impl MemHandler {
       prg: cart.prg,
       chr: cart.chr,
       vram: [0; 2 * 1024],
+      sram: vec![0; 8 * 1024],
       palettes: [0; 32],
 
       cpu_addr_bus: 0,
@@ -205,7 +231,9 @@ impl Emu {
       0x2000..=0x3fff => {
         self.ppu_reg_read(addr & 0x2007)
       }
+      0x4000..=0x4013 | 0x4015 | 0x4017 => self.apu_reg_read(addr),
       0x4016 => self.joypad.read() | (self.mem.cpu_data_bus & 0xe0),
+      0x6000..=0x7fff => mem.sram[(addr as usize & 0x7fff) - 0x6000],
       0x8000..=0xffff => mem.prg[mem.bankings.prg.translate(addr)],
       _ => mem.cpu_data_bus,
     };
@@ -223,6 +251,7 @@ impl Emu {
       0x2000..=0x3fff => {
         self.ppu_reg_write(addr & 0x2007, val);
       }
+      0x4000..=0x4013 | 0x4015 | 0x4017 => self.apu_reg_write(addr, val),
       0x4014 => {        
         // https://www.nesdev.org/wiki/PPU_registers#OAMDMA_-_Sprite_DMA_($4014_write)
         self.cpu_tick();
@@ -238,6 +267,7 @@ impl Emu {
         }
       }
       0x4016 => self.joypad.write(val),
+      0x6000..=0x7fff => mem.sram[(addr as usize & 0x7fff) - 0x6000] = val,
       0x8000..=0xffff => mem.mapper.prg_write(&mut mem.bankings, addr, val),
       _ => {},
     }

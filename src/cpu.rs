@@ -78,13 +78,11 @@ impl Emu {
   #[cfg(not(feature = "ram64kb"))]
   fn cpu_read8(&mut self, addr: u16) -> u8 {
     let res = self.cpu_dispatch_read(addr);
-    // println!("Reading {addr:4x}, got {res:2x}");
     res
   }
 
   #[cfg(not(feature = "ram64kb"))]
   fn cpu_write8(&mut self, addr: u16, val: u8) {
-    // println!("Writing {addr:4x}, got {val:2x}");
     self.cpu_dispatch_write(addr, val);
   }
 
@@ -135,7 +133,6 @@ impl Emu {
     self.poll_interrupts();
     
     let opcode = self.pc_fetch8();
-    // println!("Opcode: ${opcode:2x}");
 
     self.fetch_operand(opcode);
     self.decode_n_exec(opcode);
@@ -149,10 +146,9 @@ impl Emu {
     if self.events.contains(emu::Events::NMI) {
       self.events.remove(emu::Events::NMI);
       self.handle_interrupt(NMI_VECTOR);
-    } else if self.events.contains(emu::Events::IRQ) 
+    } else if self.events.contains_irq()
       && !self.cpu.p.contains(Status::IrqDisable)
     {
-      self.events.remove(emu::Events::IRQ);
       self.handle_interrupt(IRQ_VECTOR);
     }
   }

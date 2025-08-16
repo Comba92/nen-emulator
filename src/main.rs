@@ -4,16 +4,25 @@ use sdl2::{event::Event, keyboard::Keycode, pixels::PixelFormatEnum};
 fn main() {
     let sdl = sdl2::init().unwrap();
     let video = sdl.video().unwrap();
-    let window = video.window("NesEmu", 800, 600)
+    let window = video.window("NesEmu", 256 * 3, 240 * 3)
         .position_centered()
         .resizable()
         .build().unwrap();
+    let audio = sdl.audio().unwrap();
 
     let timer = sdl.timer().unwrap();
     let mut canvas = window.into_canvas()
         .accelerated()
         .build().unwrap();
     canvas.set_logical_size(256, 240).unwrap();
+
+    let audiospec = sdl2::audio::AudioSpecDesired {
+        channels: Some(1),
+        freq: Some(48000),
+        samples: Some(2048),
+    };
+    let audiodev = audio.open_queue(None, &audiospec).unwrap();
+    audiodev.resume();
 
     let mut events = sdl.event_pump().unwrap();
 
@@ -25,10 +34,15 @@ fn main() {
 
     tex.set_scale_mode(sdl2::render::ScaleMode::Nearest);
 
-    let mut emu = Emu::new(include_bytes!("../roms/donkey kong.nes")).unwrap();
+    let mut emu = Emu::new(include_bytes!("../roms/super mario.nes")).unwrap();
 
     let mut framebuf = [0; 256 * 240 * 4];
 
+    println!("{:?}", audiodev.spec());
+
+    let mut avg_missed = 0;
+    let mut frames_missed = 0;
+    let mut frames_count = 0;
     'running: loop {
         let frame_start = timer.ticks64();
 
@@ -80,7 +94,27 @@ fn main() {
         }
 
         emu.step_until_vblank();
+        audiodev.queue_audio(emu.get_audio()).unwrap();
 
+        if audiodev.size() < audiodev.spec().samples as u32 {
+            // run for another frame
+            // println!("Running another frame for filling the audio queue... {}", audiodev.size());
+
+            emu.step_until_vblank();
+            audiodev.queue_audio(emu.get_audio()).unwrap();
+            // println!("Are we filled? {}", audiodev.size());
+
+            frames_missed += 1;
+        }
+
+        frames_count += 1;
+        if frames_count % 60 == 0 {
+            // println!("Missed this second: {frames_missed}");
+            avg_missed += frames_missed / 60;
+            frames_missed = 0;
+        }
+
+        // TODO: refactor this inside emu
         for (i, byte) in emu.videobuf.iter().enumerate() {
             let color = &DEFAULT_PALETTE[*byte as usize];
             framebuf[i * 4 + 0] = color.0;
