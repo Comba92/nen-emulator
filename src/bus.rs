@@ -16,6 +16,8 @@ pub struct MemHandler {
 
   pub cart: CartHeader,
   bankings: BankingHandler,
+
+  // TODO: consider moving this to upper emu struct
   pub mapper: Box<dyn Mapper>
 }
 
@@ -73,9 +75,9 @@ pub struct Banking<T: BankCfg> {
   pages_size: u16,
   bank_size: u16,
   bank_size_shift: usize,
-  banks_count: usize,
+  pub banks_count: usize,
 
-  bankings: Vec<usize>,
+  pub bankings: Vec<usize>,
   kind: std::marker::PhantomData<T>,
 }
 
@@ -262,6 +264,7 @@ impl Emu {
         // https://www.nesdev.org/wiki/PPU_registers#OAMDMA_-_Sprite_DMA_($4014_write)
         self.cpu_tick();
         // TODO: +1 cycle on odd cpu cyles
+        // TODO: correct DMA behaviour
 
         let mut addr = (val as u16) << 8;
 
@@ -281,7 +284,7 @@ impl Emu {
 
   pub fn ppu_dispatch_read(&mut self, addr: u16) -> u8 {
     let mem = &mut self.mem;
-
+    
     mem.ppu_addr_bus = addr;
     match addr {
       0x0000..=0x1fff => self.ppu_chr_read(addr),
@@ -292,7 +295,8 @@ impl Emu {
     }
   }
 
-  pub fn ppu_chr_read(&self, addr: u16) -> u8 {
+  pub fn ppu_chr_read(&mut self, addr: u16) -> u8 {
+    self.mem.mapper.notify_chr_access(addr, &mut self.mem.bankings);
     self.mem.chr[self.mem.bankings.chr.translate(addr)]
   }
 

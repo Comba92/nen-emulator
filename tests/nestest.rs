@@ -58,16 +58,21 @@ fn nestest_no_graphics() {
   emu.cpu.pc = 0xc000;
   emu.cpu.cycles =  7;
   emu.ppu.cycle  = 21;
+  emu.ppu.scanline = 0;
   // emu.cpu.p = Status::IrqDisable | Status::Unused;
 
   let log = include_str!("./nestest.log");
 
+  let mut cycles = 0;
   log.lines().enumerate().for_each(|(i, line)| {
-    println!("Line {} OK", i+1);
     let good = parse_logline(line);
     let mine = logline_from_emu(&emu);
     
-    assert_eq!(good, mine, "[Wrong line {}]\n{}", i+1, line);
+    assert_eq!(good, mine, "(log == mine) [Wrong line = {}]\nLast op cycles = {}\n{}", 
+    i+1, emu.cpu.cycles - cycles, line);
+    println!("Line {} OK", i+1);
+    
+    cycles = emu.cpu.cycles;
     emu.step();
   });
 

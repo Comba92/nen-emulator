@@ -44,11 +44,9 @@ pub enum Mirroring {
   FourScreens
 }
 
+// TODO: control all default implementations
 impl Default for Emu {
   fn default() -> Self {
-    let mut blip = BlipBuf::new(48000 / 60);
-    blip.set_rates(1789773.0, 48000.0);
-
     Self {
       cpu: Cpu6502::new(),
       ppu: Ppu2C02::new(),
@@ -68,8 +66,6 @@ impl Default for Emu {
 impl Emu {
   pub fn new(rom: &[u8]) -> Result<Self, String> {
     let cart = Cart::new(rom)?;
-    let mut blip = BlipBuf::new(48000 / 60);
-    blip.set_rates(1789773.0, 48000.0);
 
     let mut emu = Self {
       cpu: Cpu6502::new(),
@@ -144,6 +140,8 @@ impl Emu {
   }
 }
 
+
+// TODO: palette setting
 #[derive(Debug)]
 pub struct RGBColor(pub u8, pub u8, pub u8);
 pub static DEFAULT_PALETTE: LazyLock<[RGBColor; 64]> = LazyLock::new(|| {

@@ -13,18 +13,18 @@ bitflags::bitflags! {
 
   #[derive(Default)]
   struct Status: u8 {
-    const SprOverflow = 1 << 5;
+    const SprOvfl = 1 << 5;
     const Spr0Hit = 1 << 6;
     const Vblank  = 1 << 7;
   }
 
   #[derive(Default)]
   struct Mask: u8 {
-    const GreyScale = 1 << 0;
-    const LstripBg  = 1 << 1;
-    const LstripSpr = 1 << 2;
-    const BgEnable  = 1 << 3;
-    const SprEnable = 1 << 4;
+    const GreyScale   = 1 << 0;
+    const ShowBgLeft  = 1 << 1;
+    const ShowSprLeft = 1 << 2;
+    const BgEnable    = 1 << 3;
+    const SprEnable   = 1 << 4;
     const RedEmphasis   = 1 << 5;
     const GreenEmphasis = 1 << 6;
     const BlueEmphasis  = 1 << 7;
@@ -534,7 +534,7 @@ impl Emu {
       }
     }
 
-    ppu.stat.set(Status::SprOverflow, ppu.oam_tmp.len() > 8);
+    ppu.stat.set(Status::SprOvfl, ppu.oam_tmp.len() > 8);
     ppu.oam_tmp_count = ppu.oam_tmp.len() as u8;
     ppu.oam_tmp.resize_with(8, || Sprite::empty());
   }
@@ -641,19 +641,38 @@ impl Emu {
     }
   }
 
-  fn push_pixel(&mut self) {
-    let pixel_col = self.ppu.cycle as usize - 1;
+  fn render_pixel(&mut self) {
+    let ppu = &mut self.ppu;
+    
+    // TODO: make 2 different functions, one for the first 8 pixels of screen, one for the other (without lstrip checks)
+    let in_lstrip = ppu.pixel % 256 < 8;
+    let pixel_col = ppu.cycle as usize - 1;
 
     // On every dot in these background fetch regions, a 4-bit pixel is selected by the fine x register from the low 8 bits of the pattern and attributes shift registers, which are then shifted. 
-    let (bg_pixel, bg_palette) = self.ppu.shifter_get_pixel_n_palette();
-    let spr_pixel = &self.ppu.spr_scanline.0[pixel_col];
+    
+    // TODO: lstrip check can be done by simply using a 2bit mask on the pixel
+    let (bg_pixel, bg_palette) = if in_lstrip && !ppu.mask.contains(Mask::ShowBgLeft) {
+      (0, 0)
+    } else {
+      ppu.shifter_get_pixel_n_palette()
+    };
 
-    let spr0_hit = self.ppu.rendering_enabled() && spr_pixel.pixel() > 0 && bg_pixel > 0 && spr_pixel.spr0() && pixel_col != 255;
-    self.ppu.stat = Status::from_bits_retain(self.ppu.stat.bits() | ((spr0_hit as u8) << 6));
+    // TODO: lstrip check can be done by simply using a 2bit mask on the pixel
+    let spr_pixel = if in_lstrip && !ppu.mask.contains(Mask::ShowSprLeft) {
+      SprScanlineData::new()
+    } else {
+      ppu.spr_scanline.0[pixel_col]
+    };
 
-    let color_id = if self.ppu.mask.contains(Mask::SprEnable) && spr_pixel.pixel() > 0 && (spr_pixel.priority() || bg_pixel == 0) {
+    // TODO: is if better than having to always set?
+    if !ppu.stat.contains(Status::Spr0Hit) {
+      let spr0_hit = ppu.rendering_enabled() && spr_pixel.pixel() > 0 && bg_pixel > 0 && spr_pixel.spr0() && pixel_col != 255;
+      ppu.stat = Status::from_bits_retain(ppu.stat.bits() | ((spr0_hit as u8) << 6));
+    }
+
+    let color_id = if ppu.mask.contains(Mask::SprEnable) && spr_pixel.pixel() > 0 && (spr_pixel.priority() || bg_pixel == 0) {
       self.spr_color_from_palette(spr_pixel.palette(), spr_pixel.pixel())
-    } else if self.ppu.mask.contains(Mask::BgEnable) && bg_pixel > 0 {
+    } else if ppu.mask.contains(Mask::BgEnable) && bg_pixel > 0 {
       self.bg_color_from_palette(bg_palette, bg_pixel)
     } else {
       self.bg_color_from_palette(0, 0)
@@ -663,54 +682,6 @@ impl Emu {
     self.videobuf[self.ppu.pixel] = color_id;
     self.ppu.pixel += 1;
   }
-
-
-  // pub fn ppu_step(&mut self) {
-  //   let ppu = &mut self.ppu;
-
-  //   if ppu.scanline == 261 || ppu.scanline <= 239 {
-  //     if ppu.scanline == 261 && ppu.cycle == 1 {
-  //       ppu.stat.clear();
-  //     } else if ppu.scanline == 261 && (ppu.cycle >= 280 && ppu.cycle <= 304) {
-  //       ppu.scroll_y_tx();
-  //     } else if ppu.cycle == 0 {
-  //       self.compute_sprite_scanline();
-  //     } else if (ppu.cycle >= 1 && ppu.cycle < 256) || (ppu.cycle >= 321 && ppu.cycle <= 336) {
-  //       self.fetch_step_bg();
-  //     } else if ppu.cycle == 256 {
-  //       ppu.scroll_y_inc();
-  //       self.evaluate_sprites();
-  //     } else if ppu.cycle == 257 {
-  //       ppu.scroll_x_tx();
-  //       self.fetch_step_spr();
-  //     } else if ppu.cycle >= 257 && ppu.cycle <= 320 {
-  //       self.fetch_step_spr();
-  //     }
-
-  //     if self.ppu.scanline != 261 && self.ppu.rendering_enabled() && self.ppu.cycle >= 1 && self.ppu.cycle < 257 { 
-  //       self.push_pixel();
-  //     }
-  //   } else if ppu.scanline >= 241 && ppu.scanline < 261 {
-  //     if ppu.scanline == 241 && ppu.cycle == 1 {
-  //       ppu.stat.insert(Status::Vblank);
-        
-  //       if ppu.ctrl.vblank_nmi_enabled {
-  //         self.events.insert(emu::Events::NMI);
-  //       }
-  //     }
-  //   }
-
-  //   let ppu = &mut self.ppu;
-  //   ppu.cycle += 1;
-  //   if ppu.cycle > 340 {
-  //     ppu.cycle = 0;
-  //     ppu.scanline += 1;
-  //     if ppu.scanline > 261 {
-  //       ppu.scanline = 0;
-  //       self.events.insert(emu::Events::FRAME);
-  //     }
-  //   }
-  // }
 
   // TODO: can be done better?
   pub fn ppu_step(&mut self) {
@@ -726,7 +697,7 @@ impl Emu {
       (1..=239, 0) => self.compute_sprite_scanline(),
       (0..=239, 1..=256) => {
         self.fetch_step_bg();
-        self.push_pixel();
+        self.render_pixel();
       }
       (0..=239, 257) => {
         self.ppu.inc_scroll_y();
@@ -734,7 +705,7 @@ impl Emu {
         self.evaluate_sprites();
       }
       (0..=239, 257..=320) => self.fetch_step_spr(),
-      (0..=239, 321..=336) => self.fetch_step_bg(),
+      (0..=239, 321..=340) => self.fetch_step_bg(),
       (241, 1) => {
         self.ppu.stat.insert(Status::Vblank);
         self.events.insert(emu::Events::PPU_FRAME);
@@ -748,7 +719,7 @@ impl Emu {
         self.fetch_step_bg();
         self.ppu.stat.clear();
       }
-      (261, 1..=256 | 321..=336) => self.fetch_step_bg(),
+      (261, 1..=256 | 321..=340) => self.fetch_step_bg(),
       (261, 257) => {
         self.ppu.inc_scroll_y();
         self.ppu.restore_scroll_x();

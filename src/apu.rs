@@ -179,20 +179,18 @@ impl Pulse {
     let sweep = &mut self.sweep;
 
     sweep.div.step(|| {
-      if sweep.enabled && sweep.shift > 0 {
+      if sweep.enabled && sweep.shift > 0 && !is_muted {
         let period = self.div.period;
 
-        if !is_muted {
-          let change_amt = period >> sweep.shift;
-          if sweep.negate {
-            sweep.target_period = period.saturating_sub(change_amt);
-            sweep.target_period -= complement as u16;
-          }
-          else {
-            sweep.target_period = period + change_amt;
-          }
-          self.div.period = sweep.target_period;
+        let change_amt = period >> sweep.shift;
+        if sweep.negate {
+          sweep.target_period = period.saturating_sub(change_amt);
+          sweep.target_period -= complement as u16;
         }
+        else {
+          sweep.target_period = period + change_amt;
+        }
+        self.div.period = sweep.target_period;
       }
     });
 
@@ -224,7 +222,7 @@ struct Triangle {
 }
 
 impl Triangle {
-  const TABLE: &[u8] = &[
+  const TABLE: [u8; 32] = [
     15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0,
     0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
   ];
@@ -312,7 +310,28 @@ impl Noise {
 
 #[derive(Default)]
 struct Dmc {
+  div: DividerCounter,
+  irq_disable: bool,
+  looping: bool,
+  rate: u8,
+  sample_addr: u16,
+  sample_len: u8,
+}
 
+impl Dmc {
+  const RATES: [u16; 16] = [
+    428, 380, 340, 320, 286, 254, 226, 214,
+    190, 160, 142, 128, 106,  84,  72,  54
+  ];
+
+  pub fn step_divider(&mut self) {
+
+  }
+
+  pub fn sample(&mut self) -> u8 {
+    // TODO
+    0
+  }
 }
 
 #[repr(u8)]
@@ -337,6 +356,7 @@ pub struct ApuRP2A {
   p1: Pulse,
   tri: Triangle,
   noise: Noise,
+  dmc: Dmc,
 
   frame_count: u16,
   frame_irq_disable: bool,
@@ -366,9 +386,11 @@ impl Emu {
         res |= ((apu.p1.len.count  > 0) as u8) << 1;
         res |= ((apu.tri.len.count > 0) as u8) << 2;
         res |= ((apu.noise.len.count > 0) as u8) << 3;
+        // res |= ((apu.dmc) as u8) << 4;
         res |= (self.events.contains(emu::Events::APU_FRAME) as u8) << 6;
-        // TODO: If an interrupt flag was set at the same m\oment of the read, it will read back as 1 but it will not be cleared.
+        res |= (self.events.contains(emu::Events::DMC) as u8) << 7;
 
+        // TODO: If an interrupt flag was set at the same moment of the read, it will read back as 1 but it will not be cleared.
         self.events.remove(emu::Events::APU_FRAME);
         res
       }
@@ -413,12 +435,25 @@ impl Emu {
         apu.noise.len.load(val);
         apu.noise.env.start = true;
       }
+      0x4010 => {
+
+      }
+      0x4011 => {}
+      0x4012 => {}
+      0x4013 => {}
 
       0x4015 => {
         apu.p0.len.enable ((val >> 0) & 1 == 1);
         apu.p1.len.enable ((val >> 1) & 1 == 1);
         apu.tri.enable((val >> 2) & 1 == 1);
         apu.noise.len.enable((val >> 3) & 1 == 1);
+        // apu.dmc(val >> 4) 1 & == 1);
+
+        // TODO:
+        // If the DMC bit is clear, the DMC bytes remaining will be set to 0 and the DMC will silence when it empties.
+        // If the DMC bit is set, the DMC sample will be restarted only if its bytes remaining is 0. If there are bits remaining in the 1-byte sample buffer, these will finish playing before the next sample is fetched.
+      
+        self.events.remove(emu::Events::DMC);
       }
 
       0x4017 => {
@@ -451,13 +486,14 @@ impl Emu {
       self.apu.noise.step_divider();
     }
 
+    // TODO: lookup table method
     let pulse = 0.00752 * (self.apu.p0.sample() + self.apu.p1.sample()) as f32;
     let tnd = 
       0.00851 * self.apu.tri.sample() as f32
-      + 0.00494 * self.apu.noise.sample() as f32;
+      + 0.00494 * self.apu.noise.sample() as f32
+      + 0.00335 * self.apu.dmc.sample() as f32;
 
     let sample = (pulse + tnd) * 80000.0;
-    // let sample = 100.0 * (self.apu.p0.sample() + self.apu.p1.sample()) as f32;
     let delta = sample - self.apu.prev_sample;
 
     self.apu.blip.0.add_delta(self.apu.cycles as u32, delta as i32);

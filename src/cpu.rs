@@ -77,12 +77,14 @@ impl Cpu6502 {
 impl Emu {
   #[cfg(not(feature = "ram64kb"))]
   fn cpu_read8(&mut self, addr: u16) -> u8 {
+    self.cpu_tick();
     let res = self.cpu_dispatch_read(addr);
     res
   }
 
   #[cfg(not(feature = "ram64kb"))]
   fn cpu_write8(&mut self, addr: u16, val: u8) {
+    self.cpu_tick();
     self.cpu_dispatch_write(addr, val);
   }
 
@@ -136,9 +138,6 @@ impl Emu {
 
     self.fetch_operand(opcode);
     self.decode_n_exec(opcode);
-
-    // TODO: temporary solution
-    self.cpu.cycles += CYCLES_TABLE[opcode as usize];
   }
 
   fn poll_interrupts(&mut self) {
@@ -165,34 +164,38 @@ impl Emu {
 
   fn fetch_zeropage_op(&mut self, offset: u8) {
     let zero_addr = self.pc_fetch8();
-    // self.cpu_tick();
+    // 3   address   R  read from address, add index register to it
+    self.cpu_read8(zero_addr as u16);
     self.cpu.op_addr = zero_addr.wrapping_add(offset) as u16;
   }
 
-
-  const RW: &[u8] = &[0x1e, 0xde, 0xfe, 0x5e, 0x3e, 0x7e, 0x9d, 0x99];
+  const RMW: &[u8] = &[0x1e, 0xde, 0xfe, 0x5e, 0x3e, 0x7e, 0x9d, 0x99];
 
   fn fetch_absolute_op(&mut self, offset: u8, opcode: u8) {
-    let addr_base = self.pc_fetch16();
-    let addr_effective = addr_base.wrapping_add(offset as u16);
+    let base_addr = self.pc_fetch16();
+    self.cpu.op_addr = base_addr.wrapping_add(offset as u16);
 
     // page crossing check
-    if addr_effective & 0xff00 != addr_base & 0xff00 && !Self::RW.contains(&opcode) {
-      self.cpu_tick();
+    println!("addr_wrong = {base_addr:04X}, addr_effective = {:04X}", self.cpu.op_addr);
+    if (base_addr & 0xff00 != self.cpu.op_addr & 0xff00) 
+      // Read-Modify-Instructions ALWAYS do this dummy read.
+      || Self::RMW.contains(&opcode)
+    {
+      println!("got a page cross, pc = {:04X}", self.cpu.pc);
+      self.cpu_read8(base_addr);
     }
-
-    self.cpu.op_addr = addr_effective;
   }
 
   fn fetch_operand(&mut self, opcode: u8) {
     let mode = &MODES_TABLE[opcode as usize];
     self.cpu.op_val = None;
     
+
+    // https://www.nesdev.org/6502_cpu.txt
     match mode {
-      // Implied => { self.cpu_tick(); },
-      Implied => {},
-      Accumulator => {
-        // self.cpu_tick();
+      // 2    PC     R  read next instruction byte (and throw it away) 
+      Implied | Accumulator => {
+        self.cpu_tick();
         self.cpu.op_val = Some(self.cpu.a);
       }
       Immediate | Relative => self.cpu.op_val = Some(self.pc_fetch8()),
@@ -209,6 +212,9 @@ impl Emu {
       IndirectX => {
         // important to keep it as u8
         let zero_addr = self.pc_fetch8();
+        // 3    pointer    R  read from the address, add X to it
+        self.cpu_read8(zero_addr as u16);
+
         let addr = zero_addr.wrapping_add(self.cpu.x) as u16;
         self.cpu.op_addr = self.wrapping_cpu_read16(addr);
       },
@@ -218,8 +224,9 @@ impl Emu {
         self.cpu.op_addr = base_addr.wrapping_add(self.cpu.y as u16);
 
         // page crossing check
-        if base_addr & 0xff0 != self.cpu.op_addr & 0xff00 && opcode != 0x91 {
-          self.cpu_tick();
+        // STA is the only exception, it ALWAYS does this dummy read.
+        if (base_addr & 0xff0 != self.cpu.op_addr & 0xff00) || opcode == 0x91 {
+          self.cpu_read8(base_addr);
         }
       }
     }
@@ -239,10 +246,15 @@ impl Emu {
     }
   }
 
-  fn set_op_res(&mut self, res: u8) {
+  fn set_op_res(&mut self, old: u8, res: u8) {
     match self.cpu.op_val {
       Some(_) => self.cpu.a = res,
-      None => self.cpu_write8(self.cpu.op_addr, res),
+      None => {
+        // Read-modify-write instructions perform a dummy write during the "modify" stage and thus take 1 extra cycle.
+        self.cpu_write8(self.cpu.op_addr, old);
+        self.cpu_write8(self.cpu.op_addr, res);
+        println!("Two dummy writes done, next pc = {:04X}", self.cpu.pc);
+      }
     }
   }
 
@@ -319,6 +331,8 @@ impl Emu {
   fn txs(&mut self) {
     self.cpu.sp = self.cpu.x;
   }
+
+
   fn pha(&mut self) {
     self.stack_push8(self.cpu.a);
   }
@@ -327,11 +341,17 @@ impl Emu {
     self.stack_push8((self.cpu.p | Status::Brk).bits());
   }
   fn pla(&mut self) {
+    // Instructions that pop data from the stack take 2 extra cycles, since they also need to pre-increment the stack pointer.
+    self.cpu_tick();
+    
     let res = self.stack_pop8();
     self.set_zn(res);
     self.cpu.a = res;
   }
   fn plp(&mut self) {
+    // Instructions that pop data from the stack take 2 extra cycles, since they also need to pre-increment the stack pointer.
+    self.cpu_tick();
+    
     // https://www.nesdev.org/wiki/Instruction_reference#PLP
     // TODO: The effect of changing IrqDisable flag is delayed 1 instruction. 
     let res = self.stack_pop8();
@@ -413,9 +433,10 @@ impl Emu {
   }
 
   fn inc(&mut self) {
-    let res = self.get_op_val().wrapping_add(1);
-    self.cpu_write8(self.cpu.op_addr, res);
+    let val = self.get_op_val();
+    let res = val.wrapping_add(1);
     self.set_zn(res);
+    self.set_op_res(val, res);
   }
   fn inx(&mut self) {
     let res = self.cpu.x.wrapping_add(1);
@@ -429,9 +450,10 @@ impl Emu {
   }
 
   fn dec(&mut self) {
-    let res = self.get_op_val().wrapping_sub(1);
-    self.cpu_write8(self.cpu.op_addr, res);
+    let val = self.get_op_val();
+    let res = val.wrapping_sub(1);
     self.set_zn(res);
+    self.set_op_res(val, res);
   }
   fn dex(&mut self) {
     let res = self.cpu.x.wrapping_sub(1);
@@ -450,7 +472,7 @@ impl Emu {
     // self.cpu.p = bit_change(self.cpu.p, flags::Carry, bit_get(val, carry_bit));
     self.cpu.p.set(Status::Carry, val.shr(carry_bit) & 1 == 1);
     self.set_zn(res);
-    self.set_op_res(res);
+    self.set_op_res(val, res);
   }
 
   fn asl(&mut self) {
@@ -472,11 +494,23 @@ impl Emu {
     self.cpu.pc = self.cpu.op_addr;
   }
   fn jsr(&mut self) {
+    // this has an extra cycle for internal operation (done for last here)
+    // 3  $0100,S  R  internal operation (predecrement S?)
+
     self.stack_push16(self.cpu.pc.wrapping_sub(1));
     self.jmp();
+
+    self.cpu_tick();
   }
   fn rts(&mut self) {
+    // Instructions that pop data from the stack take 2 extra cycles, since they also need to pre-increment the stack pointer.
+    self.cpu_tick();
+    
     self.cpu.pc = self.stack_pop16().wrapping_add(1);
+
+    // https://www.nesdev.org/wiki/Cycle_counting#Instruction_timings
+    // plus 1 cycle to post-increment the program counter (to compensate for the off-by-1 address pushed by JSR).
+    self.cpu_tick();
   }
 
   fn branch(&mut self, cond: bool) {
@@ -484,9 +518,12 @@ impl Emu {
       // if branch is taken, costs 1 cycle more
       self.cpu_tick();
 
+      // this is always Some
+      let val = self.cpu.op_val.unwrap();
       let res = self.cpu.pc
-        .wrapping_add_signed((self.get_op_val() as i8) as i16);
+        .wrapping_add_signed((val as i8) as i16);
 
+      // if branch occurs to different page, costs 1 cycle more
       if res & 0xff00 != self.cpu.pc & 0xff00 {
         self.cpu_tick();
       }
@@ -570,13 +607,19 @@ impl Emu {
     self.cpu.pc = self.cpu_read16(IRQ_VECTOR);
   }
   fn rti(&mut self) {
+    // extra pull cycle is done in plp
     self.plp();
     self.cpu.pc = self.stack_pop16();
   }
 
 
-  fn nop(&self) {}
+  fn nop(&mut self) {
+    // NOP reads from effective address with zeropage, absolute and indexed addressing
+    self.get_op_val();
+  }
 
+  // TODO: reimplement these as unique instructions (for timing porpuoses)
+  
   fn lax(&mut self) {
     self.lda();
     self.ldx();
@@ -592,7 +635,7 @@ impl Emu {
     self.cmp();
   }
 
-  fn isc(&mut self) {
+  fn isb(&mut self) {
     self.inc();
     self.sbc();
   }
@@ -1140,18 +1183,18 @@ impl Emu {
       0xdc => self.nop(),
       0xdf => self.dcp(),
       0xe2 => self.nop(),
-      0xe3 => self.isc(),
-      0xe7 => self.isc(),
+      0xe3 => self.isb(),
+      0xe7 => self.isb(),
       0xeb => self.sbc(),
-      0xef => self.isc(),
+      0xef => self.isb(),
       // 0xf2 => self.jam(),
-      0xf3 => self.isc(),
+      0xf3 => self.isb(),
       0xf4 => self.nop(),
-      0xf7 => self.isc(),
+      0xf7 => self.isb(),
       0xfa => self.nop(),
-      0xfb => self.isc(),
+      0xfb => self.isb(),
       0xfc => self.nop(),
-      0xff => self.isc(),
+      0xff => self.isb(),
       _ => unreachable!("illegal opcode {opcode:02x} at address {:04x} reached, system jammed", self.cpu.pc)
       // _ => {}
     }

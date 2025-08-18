@@ -96,7 +96,7 @@ fn main() {
         emu.step_until_vblank();
         audiodev.queue_audio(emu.get_audio()).unwrap();
 
-        if audiodev.size() < audiodev.spec().samples as u32 {
+        while audiodev.size() < audiodev.spec().samples as u32 * 4 {
             // run for another frame
             // println!("Running another frame for filling the audio queue... {}", audiodev.size());
 
@@ -104,15 +104,15 @@ fn main() {
             audiodev.queue_audio(emu.get_audio()).unwrap();
             // println!("Are we filled? {}", audiodev.size());
 
-            frames_missed += 1;
+            // frames_missed += 1;
         }
 
-        frames_count += 1;
-        if frames_count % 60 == 0 {
-            // println!("Missed this second: {frames_missed}");
-            avg_missed += frames_missed / 60;
-            frames_missed = 0;
-        }
+        // frames_count += 1;
+        // if frames_count % 60 == 0 {
+        //     println!("Missed this second: {frames_missed}");
+        //     avg_missed += frames_missed / 60;
+        //     frames_missed = 0;
+        // }
 
         // TODO: refactor this inside emu
         for (i, byte) in emu.videobuf.iter().enumerate() {
