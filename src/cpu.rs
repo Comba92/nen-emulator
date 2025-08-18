@@ -169,19 +169,18 @@ impl Emu {
     self.cpu.op_addr = zero_addr.wrapping_add(offset) as u16;
   }
 
-  const RMW: &[u8] = &[0x1e, 0xde, 0xfe, 0x5e, 0x3e, 0x7e, 0x9d, 0x99];
+  // (ASL, LSR, ROL, ROR, INC, DEC, SLO, SRE, RLA, RRA, ISB, DCP)
+  const RMW: &[u8] = &[0x1e, 0xde, 0xfe, 0x5e, 0x3e, 0x7e, 0x9d, 0x99, 0x1f, 0x1b, 0x5f, 0x5b, 0x3f, 0x3b, 0x7f, 0x7b, 0xff, 0xfb, 0xdf, 0xdb];
 
   fn fetch_absolute_op(&mut self, offset: u8, opcode: u8) {
     let base_addr = self.pc_fetch16();
     self.cpu.op_addr = base_addr.wrapping_add(offset as u16);
 
     // page crossing check
-    println!("addr_wrong = {base_addr:04X}, addr_effective = {:04X}", self.cpu.op_addr);
     if (base_addr & 0xff00 != self.cpu.op_addr & 0xff00) 
       // Read-Modify-Instructions ALWAYS do this dummy read.
       || Self::RMW.contains(&opcode)
     {
-      println!("got a page cross, pc = {:04X}", self.cpu.pc);
       self.cpu_read8(base_addr);
     }
   }
@@ -225,7 +224,7 @@ impl Emu {
 
         // page crossing check
         // STA is the only exception, it ALWAYS does this dummy read.
-        if (base_addr & 0xff0 != self.cpu.op_addr & 0xff00) || opcode == 0x91 {
+        if (base_addr & 0xff00 != self.cpu.op_addr & 0xff00) || opcode == 0x91 {
           self.cpu_read8(base_addr);
         }
       }
@@ -253,7 +252,6 @@ impl Emu {
         // Read-modify-write instructions perform a dummy write during the "modify" stage and thus take 1 extra cycle.
         self.cpu_write8(self.cpu.op_addr, old);
         self.cpu_write8(self.cpu.op_addr, res);
-        println!("Two dummy writes done, next pc = {:04X}", self.cpu.pc);
       }
     }
   }
@@ -466,28 +464,54 @@ impl Emu {
     self.set_zn(res);
   }
 
-  fn shift<F: FnOnce(u8) -> u8>(&mut self, op: F, carry_bit: u8) {
-    let val = self.get_op_val();
+  fn shift<F: FnOnce(u8) -> u8>(&mut self, val: u8, op: F, carry_bit: u8) -> u8 {
     let res = op(val);
     // self.cpu.p = bit_change(self.cpu.p, flags::Carry, bit_get(val, carry_bit));
     self.cpu.p.set(Status::Carry, val.shr(carry_bit) & 1 == 1);
     self.set_zn(res);
     self.set_op_res(val, res);
+    res
   }
 
+  fn asl_base(&mut self, val: u8) -> u8 {
+    self.shift(val, |x| x.shl(1), 7)
+  }
+  fn lsr_base(&mut self, val: u8) -> u8 {
+    self.shift(val, |x| x.shr(1), 0)
+  }
+  fn rol_base(&mut self, val: u8) -> u8 {
+    let carry = self.cpu.p.contains(Status::Carry) as u8;
+    self.shift(val, |x| x.shl(1) | carry, 7)
+  }
+  fn ror_base(&mut self, val: u8) -> u8 {
+    let carry = self.cpu.p.contains(Status::Carry) as u8;
+    self.shift(val, |x| x.shr(1) | (carry << 7), 0)
+  }
+
+  // fn shift<F: FnOnce(u8) -> u8>(&mut self, op: F, carry_bit: u8) {
+  //   let val = self.get_op_val();
+  //   let res = op(val);
+  //   // self.cpu.p = bit_change(self.cpu.p, flags::Carry, bit_get(val, carry_bit));
+  //   self.cpu.p.set(Status::Carry, val.shr(carry_bit) & 1 == 1);
+  //   self.set_zn(res);
+  //   self.set_op_res(val, res);
+  // }
+
   fn asl(&mut self) {
-    self.shift( |x| x.shl(1), 7);
+    let val = self.get_op_val();
+    self.asl_base(val);
   }
   fn lsr(&mut self) {
-    self.shift( |x| x.shr(1), 0);
+    let val = self.get_op_val();
+    self.lsr_base(val);
   }
   fn rol(&mut self) {
-    let carry = self.cpu.p.contains(Status::Carry) as u8;
-    self.shift( |x| x.shl(1) | carry, 7);
+    let val = self.get_op_val();
+    self.rol_base(val);
   }
   fn ror(&mut self) {
-    let carry = self.cpu.p.contains(Status::Carry) as u8;
-    self.shift( |x| x.shr(1) | (carry << 7), 0);
+    let val = self.get_op_val();
+    self.ror_base(val);
   }
 
   fn jmp(&mut self) {
@@ -618,56 +642,100 @@ impl Emu {
     self.get_op_val();
   }
 
-  // TODO: reimplement these as unique instructions (for timing porpuoses)
   
   fn lax(&mut self) {
-    self.lda();
-    self.ldx();
+    // self.lda();
+    // self.ldx();
+
+    // A <- M, X <- M
+    let res = self.get_op_val();
+    self.set_zn(res);
+    self.cpu.a = res;
+    self.cpu.x = res;
   }
 
   fn sax(&mut self) {
+    // M <- A AND X
     let res = self.cpu.a & self.cpu.x;
     self.cpu_write8(self.cpu.op_addr, res);
   }
 
   fn dcp(&mut self) {
-    self.dec();
-    self.cmp();
+    // self.dec();
+    // self.cmp();
+
+    // M <- M - 1, then A - M
+    let val = self.get_op_val();
+    let res = val.wrapping_sub(1);
+    self.set_op_res(val, res);
+
+    let res = self.cpu.a.wrapping_sub(res);
+
+    // self.cpu.p = bit_change(self.cpu.p, flags::Carry, a >= b);
+    self.cpu.p.set(Status::Carry, self.cpu.a >= res);
+    self.set_zn(res);
   }
 
   fn isb(&mut self) {
-    self.inc();
-    self.sbc();
+    // self.inc();
+    // self.sbc();
+
+    // M <- M + 1, then A <- A - M - C-
+    let val = self.get_op_val();
+    let res = val.wrapping_add(1);
+    self.set_op_res(val, res);
+
+    self.addition(!res);
   }
 
   fn slo(&mut self) {
-    self.asl();
-    self.ora();
+    // self.asl();
+    // self.ora();
+
+    // M = C <- [76543210] <- 0, A OR M -> A
+    let val = self.get_op_val();
+    let res = self.asl_base(val);
+
+    let res = self.cpu.a | res;
+    self.set_zn(res);
+    self.cpu.a = res;
   }
 
   fn rla(&mut self) {
-    self.rol();
-    self.and();
+    // self.rol();
+    // self.and();
+
+    // M = C <- [76543210] <- C, A AND M -> A
+    let val = self.get_op_val();
+    let res = self.rol_base(val);
+
+    let res = self.cpu.a & res;
+    self.set_zn(res);
+    self.cpu.a = res;
   }
 
   fn sre(&mut self) {
-    self.lsr();
-    self.eor();
+    // self.lsr();
+    // self.eor();
+
+    // M = 0 -> [76543210] -> C, A EOR M -> A
+    let val = self.get_op_val();
+    let res = self.lsr_base(val);
+
+    let res = self.cpu.a ^ res;
+    self.set_zn(res);
+    self.cpu.a = res;
   }
 
   fn rra(&mut self) {
-    self.ror();
-    self.adc();
-  }
+    // self.ror();
+    // self.adc();
 
-  fn alr(&mut self) {
-    self.and();
-    self.lsr();
-  }
+    // M = C -> [76543210] -> C, A + M + C -> A, C
+    let val = self.get_op_val();
+    let res = self.ror_base(val);
 
-  fn arr(&mut self) {
-    self.and();
-    self.ror();
+    self.addition(res);
   }
 }
 
@@ -1122,7 +1190,7 @@ impl Emu {
       0x43 => self.sre(),
       0x44 => self.nop(),
       0x47 => self.sre(),
-      0x4b => self.alr(),
+      // 0x4b => self.alr(),
       0x4f => self.sre(),
       // 0x52 => self.jam(),
       0x53 => self.sre(),
@@ -1136,7 +1204,7 @@ impl Emu {
       0x63 => self.rra(),
       0x64 => self.nop(),
       0x67 => self.rra(),
-      0x6b => self.arr(),
+      // 0x6b => self.arr(),
       0x6f => self.rra(),
       // 0x72 => self.jam(),
       0x73 => self.rra(),

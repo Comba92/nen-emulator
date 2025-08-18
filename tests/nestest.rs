@@ -70,11 +70,11 @@ fn nestest_no_graphics() {
     
     assert_eq!(good, mine, "(log == mine) [Wrong line = {}]\nLast op cycles = {}\n{}", 
     i+1, emu.cpu.cycles - cycles, line);
-    println!("Line {} OK", i+1);
+    // println!("Line {} OK", i+1);
     
     cycles = emu.cpu.cycles;
     emu.step();
   });
 
-  println!("{} {}", emu.cpu_dispatch_read(0x2), emu.cpu_dispatch_read(0x3));
+  println!("Result: {} {}", emu.cpu_dispatch_read(0x2), emu.cpu_dispatch_read(0x3));
 }
