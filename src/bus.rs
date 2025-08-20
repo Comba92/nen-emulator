@@ -235,6 +235,9 @@ impl Emu {
   pub fn cpu_dispatch_read(&mut self, addr: u16) -> u8 {
     let mem = &mut self.mem;
     
+    // TODO: cpu tick here
+    // Be sure to remove ticks in dma and cpu reads
+
     mem.cpu_addr_bus = addr;
     let res = match addr {
       0x0000..=0x1fff => mem.ram[addr as usize & 0x07ff],
@@ -255,29 +258,15 @@ impl Emu {
   pub fn cpu_dispatch_write(&mut self, addr: u16, val: u8) {    
     let mem = &mut self.mem;
 
+    // TODO: cpu tick here
+    // Be sure to remove ticks in dma and cpu reads
+
     mem.cpu_addr_bus = addr;
     match addr {
       0x0000..=0x1fff => mem.ram[addr as usize & 0x07ff] = val,
-      0x2000..=0x3fff => {
-        self.ppu_reg_write(addr & 0x2007, val);
-      }
+      0x2000..=0x3fff => self.ppu_reg_write(addr & 0x2007, val),
       0x4000..=0x4013 | 0x4015 | 0x4017 => self.apu_reg_write(addr, val),
-      0x4014 => {        
-        // https://www.nesdev.org/wiki/PPU_registers#OAMDMA_-_Sprite_DMA_($4014_write)
-        self.cpu_tick();
-        // TODO: +1 cycle on odd cpu cyles
-        // TODO: correct DMA behaviour
-
-        let mut addr = (val as u16) << 8;
-
-        for _ in 0..256 {
-          self.cpu_tick();
-          let byte = self.cpu_dispatch_read(addr);
-          addr += 1;
-          self.cpu_tick();
-          self.ppu.oam_write(byte);
-        }
-      }
+      0x4014 => self.ppu.dma.load((val as u16) << 8, 256),
       0x4016 => self.joypad.write(val),
       0x6000..=0x7fff => mem.sram[(addr as usize - 0x6000) & 0x1fff] = val,
       0x8000..=0xffff => mem.mapper.prg_write(&mut mem.bankings, addr, val),

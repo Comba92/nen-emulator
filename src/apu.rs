@@ -1,6 +1,6 @@
 use blip_buf::BlipBuf;
 
-use crate::{emu::{self, Emu}, utils::{byte_set_hi, byte_set_lo}};
+use crate::{dma::Dma, emu::{Emu, IrqFlags}, utils::{byte_set_hi, byte_set_lo}};
 
 #[derive(Default)]
 struct DividerCounter {
@@ -110,16 +110,6 @@ struct Sweep {
   target_period: u16,
 }
 
-impl Sweep {
-  fn set(&mut self, val: u8) {
-    self.enabled = val & 0x80 != 0;
-    self.div.period = ((val as u16) >> 4) & 0b111;
-    self.negate = val & 0x8 != 0;
-    self.shift = val & 0b111;
-    self.reload = true;
-  }
-}
-
 // https://www.nesdev.org/wiki/APU_Pulse
 #[derive(Default)]
 struct Pulse {
@@ -146,7 +136,13 @@ impl Pulse {
   }
 
   fn write_sweep(&mut self, val: u8) {
-    self.sweep.set(val);
+    let sweep = &mut self.sweep;
+
+    sweep.enabled = val & 0x80 != 0;
+    sweep.div.period = ((val as u16) >> 4) & 0b111;
+    sweep.negate = val & 0x8 != 0;
+    sweep.shift = val & 0b111;
+    sweep.reload = true;
   }
 
   fn write_timer_lo(&mut self, val: u8) {
@@ -309,14 +305,20 @@ impl Noise {
 }
 
 #[derive(Default)]
-struct Dmc {
+pub struct Dmc {
   div: DividerCounter,
-  irq_disable: bool,
+  irq_enabled: bool,
   looping: bool,
-  rate: u8,
   output: u8,
   sample_addr: u16,
-  sample_len: u8,
+  sample_len: u16,
+  
+  pub dma: Dma,
+  pub buffer: Option<u8>,
+
+  shift: u8,
+  bits_remaining: u8,
+  silence: bool,
 }
 
 impl Dmc {
@@ -325,13 +327,60 @@ impl Dmc {
     190, 160, 142, 128, 106,  84,  72,  54
   ];
 
-  pub fn step_divider(&mut self) {
+  pub fn new() -> Self {
+    Self {
+      silence: true,
+      ..Default::default()
+    }
+  }
 
+  pub fn step_divider(&mut self) {
+    // https://www.nesdev.org/wiki/APU_DMC#Output_unit
+
+    self.div.step(|| {
+      if !self.silence {
+        if self.shift & 1 == 1 && self.output <= 125 {
+          self.output += 2;
+        } else if self.output >= 2 {
+          self.output -= 2;
+        }
+      }
+      
+      self.shift >>= 1;
+      
+      if self.bits_remaining > 0 {
+        self.bits_remaining -= 1;
+      } else {
+        self.bits_remaining = 8;
+
+        match self.buffer.take() {
+          Some(val) => {
+            self.silence = false;
+            self.shift = val;
+          }
+          None => self.silence = true,
+        }
+      }
+    });
+  }
+
+  fn restart_sample(&mut self) {
+    // When a sample is (re)started, the current address is set to the sample address, and bytes remaining is set to the sample length. 
+    self.dma.load(self.sample_addr, self.sample_len);
+  }
+
+  fn enable(&mut self, cond: bool) {
+    if cond {
+      // If the DMC bit is set, the DMC sample will be restarted only if its bytes remaining is 0. If there are bits remaining in the 1-byte sample buffer, these will finish playing before the next sample is fetched.
+      if self.dma.remaining == 0 { self.restart_sample(); }
+    } else {
+      // If the DMC bit is clear, the DMC bytes remaining will be set to 0 and the DMC will silence when it empties.
+      self.dma.remaining = 0;
+    }
   }
 
   pub fn sample(&mut self) -> u8 {
-    // TODO
-    0
+    self.output
   }
 }
 
@@ -359,7 +408,7 @@ pub struct ApuRP2A {
   p1: Pulse,
   tri: Triangle,
   noise: Noise,
-  dmc: Dmc,
+  pub dmc: Dmc,
 
   frame_count: u16,
   frame_irq_disable: bool,
@@ -374,8 +423,29 @@ impl ApuRP2A {
   pub fn new() -> Self {
     Self {
       noise: Noise::new(),
+      dmc: Dmc::new(),
       ..Default::default()
     }
+  }
+
+  fn frame_quarter_step(&mut self) {
+    self.p0.env.step();
+    self.p1.env.step();
+    self.tri.linear_step();
+    self.noise.env.step();
+  }
+
+  fn frame_half_step(&mut self) {
+    self.frame_quarter_step();
+
+    self.p0.len.step();
+    self.p1.len.step();
+
+    self.p0.step_sweep(true);
+    self.p1.step_sweep(false);
+
+    self.tri.len.step();
+    self.noise.len.step();
   }
 }
 
@@ -389,14 +459,16 @@ impl Emu {
         res |= ((apu.p1.len.count  > 0) as u8) << 1;
         res |= ((apu.tri.len.count > 0) as u8) << 2;
         res |= ((apu.noise.len.count > 0) as u8) << 3;
-        // res |= ((apu.dmc) as u8) << 4;
-        res |= (self.events.contains(emu::Events::APU_FRAME) as u8) << 6;
-        res |= (self.events.contains(emu::Events::DMC) as u8) << 7;
+        res |= ((apu.dmc.dma.remaining > 0) as u8) << 4;
+        res |= (self.irq.contains(IrqFlags::FRAME) as u8) << 6;
+        res |= (self.irq.contains(IrqFlags::DMC) as u8) << 7;
 
         // TODO: If an interrupt flag was set at the same moment of the read, it will read back as 1 but it will not be cleared.
-        self.events.remove(emu::Events::APU_FRAME);
+        self.irq.remove(IrqFlags::FRAME);
+        // TODO: bit 5 open bus
         res
       }
+      // TODO: open bus
       _ => 0,
     }
   }
@@ -441,24 +513,24 @@ impl Emu {
       0x4010 => {
         apu.dmc.div.period = Dmc::RATES[val as usize & 0xf];
         apu.dmc.looping = val & 0x40 != 0;
-        apu.dmc.irq_disable = val & 0x80 != 0;
+        apu.dmc.irq_enabled = val & 0x80 != 0;
+
+        if !apu.dmc.irq_enabled {
+          self.irq.remove(IrqFlags::DMC);
+        }
       }
-      0x4011 => {}
-      0x4012 => {}
-      0x4013 => {}
+      0x4011 => apu.dmc.output = val & 0x7f,
+      0x4012 => apu.dmc.sample_addr = 0xc000 | ((val as u16) << 6),
+      0x4013 => apu.dmc.sample_len = ((val as u16) << 4) + 1,
 
       0x4015 => {
-        apu.p0.len.enable ((val >> 0) & 1 == 1);
-        apu.p1.len.enable ((val >> 1) & 1 == 1);
-        apu.tri.enable((val >> 2) & 1 == 1);
-        apu.noise.len.enable((val >> 3) & 1 == 1);
-        // apu.dmc(val >> 4) 1 & == 1);
-
-        // TODO:
-        // If the DMC bit is clear, the DMC bytes remaining will be set to 0 and the DMC will silence when it empties.
-        // If the DMC bit is set, the DMC sample will be restarted only if its bytes remaining is 0. If there are bits remaining in the 1-byte sample buffer, these will finish playing before the next sample is fetched.
+        apu.p0.len.enable (val & 0x1 != 0);
+        apu.p1.len.enable (val & 0x2 != 0);
+        apu.tri.enable(val & 0x4 != 0);
+        apu.noise.len.enable(val & 0x8 != 0);
+        apu.dmc.enable(val & 0x10 != 0);
       
-        self.events.remove(emu::Events::DMC);
+        self.irq.remove(IrqFlags::DMC);
       }
 
       0x4017 => {
@@ -470,80 +542,84 @@ impl Emu {
 
         if val & 0x80 == 1 {
           // Writing to $4017 with bit 7 set ($80) will immediately clock all of its controlled units at the beginning of the 5-step sequence; with bit 7 clear, only the sequence is reset without clocking any of its units. 
-          self.frame_half_step();
+          apu.frame_half_step();
         }
 
-        self.apu.frame_irq_disable = val & 0x40 != 0;
-        self.apu.frame_count = 0;
+        apu.frame_irq_disable = val & 0x40 != 0;
+        apu.frame_count = 0;
+
         // TODO: Writing to $4017 resets the frame counter and the quarter/half frame triggers happen simultaneously, but only on "odd" cycles (and only after the first "even" cycle after the write occurs) – thus, it happens either 2 or 3 cycles after the write (i.e. on the 2nd or 3rd cycle of the next instruction). After 2 or 3 clock cycles (depending on when the write is performed), the timer is reset. 
       }
         _ => {}
     }
   }
 
-  pub fn apu_step(&mut self) {
-    self.apu.tri.step_divider();
-    self.frame_count_step();
+  pub fn read_dmc_sample(&mut self, sample: u8) {
+    let dmc = &mut self.apu.dmc;
+    
+    dmc.buffer = Some(sample);
+    dmc.bits_remaining = 8;
 
-    if self.apu.cycles % 2 == 1 {
-      self.apu.p0.step_divider();
-      self.apu.p1.step_divider();
-      self.apu.noise.step_divider();
+    dmc.dma.addr = dmc.dma.addr.wrapping_add(1);
+    if dmc.dma.addr == 0 { dmc.dma.addr = 0x8000; }
+
+    if dmc.dma.remaining > 0 {
+      dmc.dma.remaining -= 1;
+    } else {
+      if dmc.looping {
+        dmc.restart_sample();
+      } else if dmc.irq_enabled {
+        self.irq.insert(IrqFlags::DMC);
+      }
+    }
+  }
+
+  pub fn apu_step(&mut self) {
+    self.frame_count_step();
+    let apu = &mut self.apu;
+    
+    // The triangle channel's timer is clocked on every CPU cycle, but the pulse, noise, and DMC timers are clocked only on every second CPU cycle and thus produce only even periods.
+    apu.tri.step_divider();
+    apu.dmc.step_divider();
+    
+    if apu.cycles % 2 == 1 {
+      apu.p0.step_divider();
+      apu.p1.step_divider();
+      apu.noise.step_divider();
     }
 
     // TODO: lookup table method
-    let pulse = 0.00752 * (self.apu.p0.sample() + self.apu.p1.sample()) as f32;
+    let pulse = 0.00752 * (apu.p0.sample() + apu.p1.sample()) as f32;
     let tnd = 
-      0.00851 * self.apu.tri.sample() as f32
-      + 0.00494 * self.apu.noise.sample() as f32
-      + 0.00335 * self.apu.dmc.sample() as f32;
+      0.00851 * apu.tri.sample() as f32
+      + 0.00494 * apu.noise.sample() as f32
+      + 0.00335 * apu.dmc.sample() as f32;
 
     let sample = (pulse + tnd) * 80000.0;
-    let delta = sample - self.apu.prev_sample;
+    let delta = sample - apu.prev_sample;
 
-    self.apu.blip.0.add_delta(self.apu.cycles as u32, delta as i32);
-    self.apu.prev_sample = sample;
+    apu.blip.0.add_delta(apu.cycles as u32, delta as i32);
+    apu.prev_sample = sample;
 
-    self.apu.cycles += 1;
-  }
-
-  fn frame_quarter_step(&mut self) {
-    self.apu.p0.env.step();
-    self.apu.p1.env.step();
-    self.apu.tri.linear_step();
-    self.apu.noise.env.step();
-  }
-
-  fn frame_half_step(&mut self) {
-    self.frame_quarter_step();
-
-    self.apu.p0.len.step();
-    self.apu.p1.len.step();
-
-    self.apu.p0.step_sweep(true);
-    self.apu.p1.step_sweep(false);
-
-    self.apu.tri.len.step();
-    self.apu.noise.len.step();
+    apu.cycles += 1;
   }
 
   fn frame_count_step(&mut self) {
     // The sequencer is clocked on every other CPU cycle, so 2 CPU cycles = 1 APU cycle
-    // Every step is counted for cycle*2
     
     let apu = &mut self.apu;
     match (apu.frame_count, &apu.frame_mode) {
-      (3728 | 11185, _) => self.frame_quarter_step(),
-      (7456, _) => self.frame_half_step(),
+      (3728 | 11185, _) => apu.frame_quarter_step(),
+      (7456, _) => apu.frame_half_step(),
       (14914, FrameMode::Step4) => {
-        self.events.set(emu::Events::APU_FRAME, !apu.frame_irq_disable);
+        self.irq.set(IrqFlags::FRAME, !apu.frame_irq_disable);
         
         apu.frame_count = 0;
-        self.frame_half_step();
+        apu.frame_half_step();
       }
       (18640, FrameMode::Step5) => {
         apu.frame_count = 0;
-        self.frame_half_step();
+        apu.frame_half_step();
       }
       _ => {}
     }

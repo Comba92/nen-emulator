@@ -1,5 +1,5 @@
 use bitflags::Flags;
-use crate::{emu::{self, Emu}, utils::{byte_set_hi, byte_set_lo}};
+use crate::{dma::Dma, emu::{self, Emu}, utils::{byte_set_hi, byte_set_lo}};
 
 bitflags::bitflags! {
   #[derive(Default, Debug)]
@@ -163,7 +163,8 @@ pub struct Ppu2C02 {
   oam_tmp: Vec<Sprite>,
   oam_tmp_count: u8,
   spr_scanline: SprScanline,
-  
+  pub dma: Dma,
+
   pub cycle: i16,
   pub scanline: i16,
   pub pixel: usize,
@@ -190,10 +191,10 @@ impl Ppu2C02 {
 
   fn increase_addr(&mut self) {
     // https://www.nesdev.org/wiki/PPU_scrolling#$2007_(PPUDATA)_reads_and_writes
-    if self.scanline <= 239 && self.rendering_enabled() {
-      self.inc_scroll_x();
-      self.inc_scroll_y();
-    }
+    // if self.scanline <= 239 && self.rendering_enabled() {
+    //   self.inc_scroll_x();
+    //   self.inc_scroll_y();
+    // }
 
     self.v.0 = (self.v.0.wrapping_add(self.ctrl.vram_addr_inc)) & 0x7fff;
   }
@@ -399,7 +400,7 @@ impl Emu {
             ppu.stat.insert(Status::Vblank);
           }
           
-          self.events.remove(emu::Events::NMI);
+          self.nmi = false;
           ppu.nmi_suppress = true;
         }
 
@@ -430,7 +431,7 @@ impl Emu {
 
         // Changing NMI enable from 0 to 1 while the vblank flag in PPUSTATUS is 1 will immediately trigger an NMI.
         if !old_nmi_enabled && new_nmi_enabled && ppu.stat.contains(Status::Vblank) {
-          self.events.insert(emu::Events::NMI);
+          self.nmi = true;
         }
         ppu.ctrl.vblank_nmi_enabled = new_nmi_enabled;
 
@@ -739,7 +740,7 @@ impl Emu {
       
       240..=260 => if self.ppu.scanline == 241 && self.ppu.cycle == 1 {
         self.ppu.stat.set(Status::Vblank, !self.ppu.vblank_suppress);
-        self.events.set(emu::Events::NMI, self.ppu.ctrl.vblank_nmi_enabled && !self.ppu.nmi_suppress);       
+        self.nmi = self.ppu.ctrl.vblank_nmi_enabled && !self.ppu.nmi_suppress;       
         self.ppu.pixel = 0;
       }
       _ => {}
@@ -752,8 +753,9 @@ impl Emu {
       if self.ppu.scanline > 261 {
         self.ppu.scanline = 0;
 
+        self.frame_ready = true;
+        
         self.ppu.odd_frame = !self.ppu.odd_frame;
-        self.events.insert(emu::Events::PPU_FRAME);
         self.ppu.vblank_suppress = false;
         self.ppu.nmi_suppress = false;
       }
@@ -762,7 +764,8 @@ impl Emu {
 
   fn render_step(&mut self) {
     let ppu = &mut self.ppu;
-    if !ppu.rendering_enabled() { return; }
+    // TODO: is this correct??
+    // if !ppu.rendering_enabled() { return; }
 
     match ppu.cycle {
       0 => self.spr_compute_scanline(),

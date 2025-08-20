@@ -34,7 +34,7 @@ fn main() {
 
     tex.set_scale_mode(sdl2::render::ScaleMode::Nearest);
 
-    let mut emu = Emu::new(include_bytes!("../roms/super mario.nes")).unwrap();
+    let mut emu = Emu::new(include_bytes!("../roms/prince of persia.nes")).unwrap();
 
     let mut framebuf = [0; 256 * 240 * 4];
 
@@ -112,15 +112,8 @@ fn main() {
         //     frames_missed = 0;
         // }
 
-        // TODO: refactor this inside emu
-        for (i, byte) in emu.videobuf.iter().enumerate() {
-            let color = &DEFAULT_PALETTE[*byte as usize];
-            framebuf[i * 4 + 0] = color.0;
-            framebuf[i * 4 + 1] = color.1;
-            framebuf[i * 4 + 2] = color.2;
-            framebuf[i * 4 + 3] = 255;
-        }
         
+        emu.get_video_rgba(&mut framebuf);
         canvas.set_draw_color(sdl2::pixels::Color::GREY);
         canvas.clear();
         

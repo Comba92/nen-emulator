@@ -70,3 +70,18 @@ pub mod joypad {
     }
   }
 }
+
+pub mod dma {
+  #[derive(Default)]
+  pub struct Dma {
+    pub addr: u16,
+    pub remaining: u16,
+  }
+
+  impl Dma {
+    pub fn load(&mut self, addr: u16, count: u16) {
+      self.addr = addr;
+      self.remaining = count;
+    }
+  }
+}
