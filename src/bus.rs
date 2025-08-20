@@ -21,6 +21,8 @@ pub struct MemHandler {
   pub mapper: Box<dyn Mapper>
 }
 
+// TODO: access prg, chr, sram, vram with unsafe uncheked get, as index bounds cannot be optimized
+
 #[derive(Debug)]
 pub struct BankingHandler {
   pub prg:  Banking<PrgBank>,
@@ -241,7 +243,7 @@ impl Emu {
       }
       0x4000..=0x4013 | 0x4015 | 0x4017 => self.apu_reg_read(addr),
       0x4016 => self.joypad.read() | (self.mem.cpu_data_bus & 0xe0),
-      0x6000..=0x7fff => mem.sram[(addr as usize & 0x7fff) - 0x6000],
+      0x6000..=0x7fff => mem.sram[(addr as usize - 0x6000) & 0x1fff],
       0x8000..=0xffff => mem.prg[mem.bankings.prg.translate(addr)],
       _ => mem.cpu_data_bus,
     };
@@ -269,6 +271,7 @@ impl Emu {
         let mut addr = (val as u16) << 8;
 
         for _ in 0..256 {
+          self.cpu_tick();
           let byte = self.cpu_dispatch_read(addr);
           addr += 1;
           self.cpu_tick();
@@ -276,7 +279,7 @@ impl Emu {
         }
       }
       0x4016 => self.joypad.write(val),
-      0x6000..=0x7fff => mem.sram[(addr as usize & 0x7fff) - 0x6000] = val,
+      0x6000..=0x7fff => mem.sram[(addr as usize - 0x6000) & 0x1fff] = val,
       0x8000..=0xffff => mem.mapper.prg_write(&mut mem.bankings, addr, val),
       _ => {},
     }
@@ -285,10 +288,11 @@ impl Emu {
   pub fn ppu_dispatch_read(&mut self, addr: u16) -> u8 {
     let mem = &mut self.mem;
     
+    let addr = addr & 0x3fff;
     mem.ppu_addr_bus = addr;
     match addr {
       0x0000..=0x1fff => self.ppu_chr_read(addr),
-      0x2000..=0x2fff => self.ppu_vram_read(addr),
+      0x2000..=0x3eff => self.ppu_vram_read(addr & 0x2fff),
       0x3f00..=0x3fff => self.ppu_palette_read(addr),
       // Video memory's data bus is multiplexed with the low byte of the address bus on pins 31 through 38. Thus a read from an address with no memory connected will usually return the low byte of the address.
       _ => mem.ppu_addr_bus as u8,
@@ -316,30 +320,24 @@ impl Emu {
   pub fn ppu_dispatch_write(&mut self, addr: u16, val: u8) {
     let mem = &mut self.mem;
 
+    let addr = addr & 0x3fff;
     mem.ppu_addr_bus = addr;
     match addr {
       0x0000..=0x1fff => mem.chr[mem.bankings.chr.translate(addr)] = val,
-      0x2000..=0x2fff => mem.vram[mem.bankings.vram.translate(addr)] = val,
+      0x2000..=0x3eff => mem.vram[mem.bankings.vram.translate(addr & 0x2fff)] = val,
       0x3f00..=0x3fff => {
         let addr = (addr as usize - 0x3f00) & 31;
         let val = val & 0b11_1111;
 
         // if we're writing a transparent color
         if addr % 4 == 0 {
-          // if addr == 0x3f00 || addr == 0x3f1f {
-            // for i in 0..8 {
-              //   mem.palettes[i*4] = val;
-              // }
-
-            // write all backdrop colors
-            mem.palettes[addr & 0xf] = val;
-            mem.palettes[addr & 0xf + 8] = val;
+          // write both backdrop colors
+          mem.palettes[addr & 0xf] = val;
+          mem.palettes[addr & 0xf + 16] = val;
         } else {
           // write palette color as is
           mem.palettes[addr] = val;
         }
-
-        mem.palettes[addr] = val;
       }
       _ => {},
     }

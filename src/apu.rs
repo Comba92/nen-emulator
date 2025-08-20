@@ -314,6 +314,7 @@ struct Dmc {
   irq_disable: bool,
   looping: bool,
   rate: u8,
+  output: u8,
   sample_addr: u16,
   sample_len: u8,
 }
@@ -344,6 +345,8 @@ pub struct AudioBuf(pub BlipBuf);
 impl Default for AudioBuf {
   fn default() -> Self {
     // TODO: make sample rate configurable
+
+    // TODO: custom BlipBuf implementation (saw some fiddly stuff in there)
     let mut blip = BlipBuf::new(48000);
     blip.set_rates(1789773.0, 48000.0);
     Self(blip)
@@ -436,7 +439,9 @@ impl Emu {
         apu.noise.env.start = true;
       }
       0x4010 => {
-
+        apu.dmc.div.period = Dmc::RATES[val as usize & 0xf];
+        apu.dmc.looping = val & 0x40 != 0;
+        apu.dmc.irq_disable = val & 0x80 != 0;
       }
       0x4011 => {}
       0x4012 => {}

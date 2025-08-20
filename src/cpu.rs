@@ -75,17 +75,23 @@ impl Cpu6502 {
 }
 
 impl Emu {
+  pub fn cpu_reset(&mut self) {
+    self.cpu.pc = self.cpu_read16(RST_VECTOR);
+    self.cpu.p |= Status::IrqDisable;
+    self.cpu.sp -= 3;
+  }
+
   #[cfg(not(feature = "ram64kb"))]
   fn cpu_read8(&mut self, addr: u16) -> u8 {
-    self.cpu_tick();
     let res = self.cpu_dispatch_read(addr);
+    self.cpu_tick();
     res
   }
 
   #[cfg(not(feature = "ram64kb"))]
   fn cpu_write8(&mut self, addr: u16, val: u8) {
-    self.cpu_tick();
     self.cpu_dispatch_write(addr, val);
+    self.cpu_tick();
   }
 
   #[cfg(feature = "ram64kb")]
@@ -127,10 +133,6 @@ impl Emu {
     val
   }
 
-  pub fn cpu_tick(&mut self) {
-    self.cpu.cycles += 1;
-  }
-
   pub fn cpu_step(&mut self) {
     self.poll_interrupts();
     
@@ -170,18 +172,48 @@ impl Emu {
   }
 
   // (ASL, LSR, ROL, ROR, INC, DEC, SLO, SRE, RLA, RRA, ISB, DCP)
+  // (STA, STX, STY)
   const RMW: &[u8] = &[0x1e, 0xde, 0xfe, 0x5e, 0x3e, 0x7e, 0x9d, 0x99, 0x1f, 0x1b, 0x5f, 0x5b, 0x3f, 0x3b, 0x7f, 0x7b, 0xff, 0xfb, 0xdf, 0xdb];
+  
+  // TODO: temporary solution, definetely too over engineered for this
+  fn is_rmw_op(opcode: u8) -> bool {
+    // we are interested in b, e, f
+    // precondition: we will never get any opcode with a here
+    // a 1010
+    // b 1011
+    // c 1100
+    // d 1101
+    // e 1110
+    // f 1111
+
+    // the mask is: 1010 (this excludes c, d, we are ok with a)
+
+    // lo nibble 0x0b, 0x0e, 0x0f
+    let is_rmw = 
+      // (opcode & 0x0f >= 0x0e || opcode & 0x0f == 0x0b) 
+      opcode & 0b1010 == 0b1010
+      // all odds hi nipple
+      && opcode & 0x10 != 0 
+      // except 0xbe (LDX)
+      && opcode != 0xbe;
+
+    // STA, hi nipple == 0x9
+    let is_w = opcode & 0xf0 == 0x90;
+    is_rmw || is_w
+  }
+
+
 
   fn fetch_absolute_op(&mut self, offset: u8, opcode: u8) {
     let base_addr = self.pc_fetch16();
     self.cpu.op_addr = base_addr.wrapping_add(offset as u16);
 
     // page crossing check
-    if (base_addr & 0xff00 != self.cpu.op_addr & 0xff00) 
+    if (base_addr & 0xff00 != self.cpu.op_addr & 0xff00)
       // Read-Modify-Instructions ALWAYS do this dummy read.
-      || Self::RMW.contains(&opcode)
+      || Self::is_rmw_op(opcode)
     {
-      self.cpu_read8(base_addr);
+      self.cpu_read8(base_addr & 0xff00 | self.cpu.op_addr & 0xff);
     }
   }
 
@@ -225,7 +257,7 @@ impl Emu {
         // page crossing check
         // STA is the only exception, it ALWAYS does this dummy read.
         if (base_addr & 0xff00 != self.cpu.op_addr & 0xff00) || opcode == 0x91 {
-          self.cpu_read8(base_addr);
+          self.cpu_read8(base_addr & 0xff00 | self.cpu.op_addr & 0xff);
         }
       }
     }
@@ -999,10 +1031,6 @@ const MODES_TABLE: [AddressingMode; 256] = [
   AbsoluteX,
 ];
 
-const CYCLES_TABLE: &[usize] = &[
-  7, 6, 2, 8, 3, 3, 5, 5, 3, 2, 2, 2, 4, 4, 6, 6, 2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, 6, 6, 2, 8, 3, 3, 5, 5, 4, 2, 2, 2, 4, 4, 6, 6, 2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, 6, 6, 2, 8, 3, 3, 5, 5, 3, 2, 2, 2, 3, 4, 6, 6, 2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, 6, 6, 2, 8, 3, 3, 5, 5, 4, 2, 2, 2, 5, 4, 6, 6, 2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, 2, 6, 2, 6, 3, 3, 3, 3, 2, 2, 2, 2, 4, 4, 4, 4, 2, 6, 2, 6, 4, 4, 4, 4, 2, 5, 2, 5, 5, 5, 5, 5, 2, 6, 2, 6, 3, 3, 3, 3, 2, 2, 2, 2, 4, 4, 4, 4, 2, 5, 2, 5, 4, 4, 4, 4, 2, 4, 2, 4, 4, 4, 4, 4, 2, 6, 2, 8, 3, 3, 5, 5, 2, 2, 2, 2, 4, 4, 6, 6, 2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, 2, 6, 2, 8, 3, 3, 5, 5, 2, 2, 2, 2, 4, 4, 6, 6, 2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7
-];
-
 impl Emu {
   fn decode_n_exec(&mut self, opcode: u8) {
     match opcode {
@@ -1263,7 +1291,7 @@ impl Emu {
       0xfb => self.isb(),
       0xfc => self.nop(),
       0xff => self.isb(),
-      _ => unreachable!("illegal opcode {opcode:02x} at address {:04x} reached, system jammed", self.cpu.pc)
+      _ => unreachable!("illegal opcode 0x{opcode:02X} at address 0x{:04X} reached, system jammed", self.cpu.pc)
       // _ => {}
     }
   }

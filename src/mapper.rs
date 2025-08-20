@@ -19,6 +19,7 @@ pub fn mapper_from_header(header: &CartHeader, banks: &mut BankingHandler) -> Re
     7 => AxROM::new(header, banks),
     9 => MMC2::new(header, banks),
     66 => GxROM::new(header, banks),
+    71 => Codemasters::new(header, banks),
     _ => return Err(format!("mapper {} not implemented", header.mapper)),
   };
 
@@ -44,25 +45,29 @@ impl Mapper for NROM {
 // https://www.nesdev.org/wiki/UxROM
 struct UxROM; 
 impl Mapper for UxROM {
-  fn new(_: &CartHeader, banks: &mut BankingHandler) -> Box<Self> {
+  fn new(header: &CartHeader, banks: &mut BankingHandler) -> Box<Self> {
+    banks.prg = Banking::new_prg(header, 2);
     banks.prg.set_page_to_last_bank(1);
+    banks.chr = Banking::new_chr(header, 1);
     Box::new(Self)
   }
 
   fn prg_write(&mut self, banks: &mut BankingHandler, _: u16, val: u8) {
-    banks.prg.set_page(0, val);
+    banks.prg.set_page(0, val & 0b111);
   }
 }
 
 // https://www.nesdev.org/wiki/CNROM
 struct CNROM;
 impl Mapper for CNROM {
-  fn new(_: &CartHeader, _: &mut BankingHandler) -> Box<Self> {
+  fn new(header: &CartHeader, banks: &mut BankingHandler) -> Box<Self> {
+    banks.prg = Banking::new_prg(header, 1);
+    banks.chr = Banking::new_chr(header, 1);
     Box::new(Self)
   }
 
   fn prg_write(&mut self, banks: &mut BankingHandler, _: u16, val: u8) {
-    banks.chr.set_page(0, val);
+    banks.chr.set_page(0, val & 0b11);
   }
 }
 
@@ -271,6 +276,23 @@ impl Mapper for MMC2 {
     match self.latch1 {
       MMC2Latch::FD => banks.chr.bankings[1] = self.bank_fd.bankings[1],
       MMC2Latch::FE => banks.chr.bankings[1] = self.bank_fe.bankings[1],
+    }
+  }
+}
+
+struct Codemasters;
+impl Mapper for Codemasters {
+  fn new(header: &CartHeader, banks: &mut BankingHandler) -> Box<Self> {
+    banks.prg = Banking::new_prg(header, 2);
+    banks.prg.set_page_to_last_bank(1);
+
+    Box::new(Self)
+  }
+
+  fn prg_write(&mut self, banks: &mut BankingHandler, addr: u16, val: u8) {
+    match addr {
+      0xc000..=0xffff => banks.prg.set_page(0, val & 0b1111),
+      _ => {}
     }
   }
 }

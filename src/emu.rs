@@ -95,10 +95,10 @@ impl Emu {
       self.ppu_step();
       self.ppu_step();
       self.ppu_step();
-
-      self.apu_step();
-      self.mem.mapper.step();
     }
+
+    for _ in 0..cycles_run { self.apu_step();}
+    for _ in 0..cycles_run { self.mem.mapper.step();}
   }
 
   #[cfg(feature = "ram64kb")]
@@ -106,12 +106,23 @@ impl Emu {
     self.cpu_step();
   }
 
+  pub fn cpu_tick(&mut self) {
+    self.cpu.cycles += 1;
+
+    // self.ppu_step();
+    // self.ppu_step();
+    // self.ppu_step();
+
+    // self.apu_step();
+    // self.mem.mapper.step();
+  }
+
   pub fn step_until_vblank(&mut self) {
     let cycles = self.cpu.cycles;
     while !self.events.contains(Events::PPU_FRAME) {
       self.step();
     }
-    let cycles_run = self.cpu.cycles - cycles;
+    let cycles_run: usize = self.cpu.cycles - cycles;
 
     self.events.remove(Events::PPU_FRAME);
 

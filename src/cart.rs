@@ -7,6 +7,7 @@ pub struct Cart {
   pub chr: Vec<u8>,
 }
 
+// https://www.nesdev.org/wiki/INES
 #[derive(Default, Debug)]
 pub struct CartHeader {
   pub prg_size: usize,
@@ -15,6 +16,7 @@ pub struct CartHeader {
   pub mapper: u8,
   pub has_trainer: bool,
   pub has_chr_ram: bool,
+  pub has_battery: bool,
 }
 
 const MAGIC: &[u8] = &[0x4e, 0x45, 0x53, 0x1a];
@@ -36,6 +38,7 @@ impl Cart {
       _ => Mirroring::Vertical
     };
     header.mapper = (bytes[7] & 0xf0) | (bytes[6] >> 4);
+    header.has_battery = bytes[6] & 0x2 != 0;
     header.has_trainer = bytes[6] & 0x4 != 0;
     
     let rom_start = if header.has_trainer { HEADER_SIZE + TRAINER_SIZE } else { HEADER_SIZE };

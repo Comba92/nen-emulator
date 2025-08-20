@@ -38,8 +38,6 @@ fn main() {
 
     let mut framebuf = [0; 256 * 240 * 4];
 
-    println!("{:?}", audiodev.spec());
-
     let mut avg_missed = 0;
     let mut frames_missed = 0;
     let mut frames_count = 0;
@@ -135,8 +133,10 @@ fn main() {
 
         let frame_duration = timer.ticks64() - frame_start;
 
-        if frame_duration < 17 {
-            timer.delay((17 - frame_duration) as u32);
+        if frame_duration < 16 {
+            timer.delay((16 - frame_duration) as u32);
         }
     }
+
+    println!("{:02X?}", emu.mem.palettes);
 }
