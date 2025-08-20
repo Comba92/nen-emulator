@@ -96,7 +96,7 @@ impl Sprite {
       y: bytes[0],
       nametbl: bytes[1],
       // bits 2-4 of attribute are empty, we can use them to store spr0hit
-      attr: bytes[2] | (((index == 0) as u8) << 2),
+      attr: (bytes[2] & !0x1c) | (((index == 0) as u8) << 2),
       x: bytes[3],
       ..Default::default()
     }
@@ -425,8 +425,6 @@ impl Emu {
     match addr {
       // Ctrl
       0x2000 => {
-        let ctrl = Ctrl::from_bits_retain(val);
-
         let old_nmi_enabled = ppu.ctrl.vblank_nmi_enabled;
         let new_nmi_enabled = val & 0x80 != 0;
 
@@ -701,18 +699,9 @@ impl Emu {
     let spr_data = ppu.spr_scanline.0[pixel_x];
     let spr_pixel = spr_data.pixel() & lstrip_spr_mask;
 
-    // TODO: is having if better than having to always set?
-    // if !ppu.stat.contains(Status::Spr0Hit) {
+    if !ppu.stat.contains(Status::Spr0Hit) {
       // https://www.nesdev.org/wiki/PPU_OAM#Sprite_0_hits
       // https://www.nesdev.org/wiki/PPU_registers#Sprite_0_hit_flag
-
-    //   let spr0_hit = ppu.rendering_enabled() && spr_data.spr0() && spr_data.pixel() > 0 && bg_pixel > 0 && pixel_x != 255;
-    //   ppu.stat = Status::from_bits_retain(ppu.stat.bits() | ((spr0_hit as u8) << 6));
-    //   // ppu.stat.set(Status::Spr0Hit, spr0_hit);
-    // // }
-
-
-    if !ppu.stat.contains(Status::Spr0Hit) {
       let spr0_hit = 
         spr_data.spr0() &&
         ppu.mask.contains(Mask::BgEnable) &&
@@ -722,7 +711,6 @@ impl Emu {
 
       ppu.stat.set(Status::Spr0Hit, spr0_hit);
     }
-
 
     // TODO: can do this without ifs?
     let color_id = if ppu.mask.contains(Mask::SprEnable) && spr_pixel > 0 && (spr_data.priority() || bg_pixel == 0) {
@@ -803,8 +791,10 @@ impl Emu {
       }
       1..=256 | 321..=336 => self.bg_fetch_step(),
       257 => {
+        // next scanline shouldn't render any sprite
         ppu.oam_tmp.clear();
         ppu.spr_scanline.0.fill(0.into());
+
         ppu.inc_scroll_y();
         ppu.restore_scroll_x();
       }
@@ -816,7 +806,6 @@ impl Emu {
     }
   }
 
-  // TODO: can be done better?
   // pub fn ppu_step(&mut self) {
   //   // https://forums.nesdev.org/viewtopic.php?t=8066
   //   // https://forums.nesdev.org/viewtopic.php?t=10348
