@@ -13,10 +13,12 @@ pub struct CartHeader {
   pub prg_size: usize,
   pub chr_size: usize,
   pub mirroring: Mirroring,
+  pub alt_mirroring: bool,
   pub mapper: u8,
   pub has_trainer: bool,
   pub has_chr_ram: bool,
   pub has_battery: bool,
+  pub is_nes2_0: bool,
 }
 
 const MAGIC: &[u8] = &[0x4e, 0x45, 0x53, 0x1a];
@@ -40,6 +42,10 @@ impl Cart {
     header.mapper = (bytes[7] & 0xf0) | (bytes[6] >> 4);
     header.has_battery = bytes[6] & 0x2 != 0;
     header.has_trainer = bytes[6] & 0x4 != 0;
+    header.alt_mirroring = bytes[6] & 0x8 != 0;
+    header.is_nes2_0 = bytes[7] & 0b1100 == 0b1000;
+
+    // TODO: parse nes2.0 fields
     
     let rom_start = if header.has_trainer { HEADER_SIZE + TRAINER_SIZE } else { HEADER_SIZE };
     let prg = bytes[rom_start..rom_start+header.prg_size].to_vec();

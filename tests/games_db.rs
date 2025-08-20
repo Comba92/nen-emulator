@@ -1,4 +1,4 @@
-use std::{fs, io::Write};
+use std::{fs, io::{Read, Write}};
 
 #[derive(serde::Serialize, serde::Deserialize)]
 struct Root {
@@ -66,7 +66,7 @@ struct RomData {
 }
 
 
-#[derive(Default, Debug, serde::Serialize, bitcode::Encode, bincode::Encode)]
+#[derive(Default, Debug, serde::Serialize, bitcode::Encode, bitcode::Decode, bincode::Encode)]
 struct RomSection {
   size: usize,
   crc32: String,
@@ -85,7 +85,7 @@ impl From<&RomData> for RomSection {
 }
 
 #[repr(u8)]
-#[derive(Default, Debug, serde::Serialize, bitcode::Encode, bincode::Encode)]
+#[derive(Default, Debug, serde::Serialize, bitcode::Encode, bitcode::Decode, bincode::Encode)]
 enum Mirroring {
   #[default]
   Horizontal,
@@ -105,7 +105,7 @@ impl From<&str> for Mirroring {
   }
 }
 
-#[derive(Default, Debug, serde::Serialize, bitcode::Encode, bincode::Encode)]
+#[derive(Default, Debug, serde::Serialize, bitcode::Encode, bitcode::Decode, bincode::Encode)]
 enum Region {
   #[default] NTSC,
   PAL,
@@ -123,11 +123,12 @@ impl From<usize> for Region {
   }
 }
 
-#[derive(Default, Debug, serde::Serialize, bitcode::Encode, bincode::Encode)]
+#[derive(Default, Debug, serde::Serialize, bincode::Encode, bitcode::Encode, bitcode::Decode)]
 struct FinalEntry {
   title: String,
   category: String,
 
+  // TODO: to save memoryy could ignore prg and chr checksum
   rom: RomSection,
   prg: RomSection,
   chr: Option<RomSection>,
@@ -198,7 +199,7 @@ fn parse_db() {
     final_entries.push(final_entry);
   }
 
-  fs::create_dir("./tests/db_tests").unwrap();
+  fs::create_dir("./db_tests").unwrap();
 
   let create_file = |name: &str| {
     let file = std::fs::File::create(format!("./db_tests/nes20db_good{}", name)).unwrap();
@@ -231,4 +232,16 @@ fn parse_db() {
   let gzip = gzip.finish().unwrap();
   let mut out = create_file(".bitcode.gzip");
   out.write_all(&gzip).unwrap();
+}
+
+#[test]
+fn decode_db() {
+  let file = include_bytes!("../db_tests/nes20db_good.bitcode.gzip").as_slice();
+
+  let mut decode = flate2::read::GzDecoder::new(file);
+  let mut buf = Vec::new();
+  decode.read_to_end(&mut buf).unwrap();
+
+  let parsed: Vec<FinalEntry> = bitcode::decode(&buf).unwrap();
+  println!("{:#?}", &parsed[0..10]);
 }

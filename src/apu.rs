@@ -10,9 +10,8 @@ struct DividerCounter {
 
 impl DividerCounter {
   fn step<F: FnOnce()>(&mut self, callback: F){
-    if self.count > 0 {
-      self.count -= 1;
-    } else {
+    self.count -= 1;
+    if self.count == 0 {
       self.reload();
       callback();
     }
@@ -181,7 +180,7 @@ impl Pulse {
         let change_amt = period >> sweep.shift;
         if sweep.negate {
           sweep.target_period = period.saturating_sub(change_amt);
-          sweep.target_period -= complement as u16;
+          sweep.target_period = period.saturating_sub(complement as u16);
         }
         else {
           sweep.target_period = period + change_amt;
@@ -344,9 +343,9 @@ impl Dmc {
         } else if self.output >= 2 {
           self.output -= 2;
         }
+        self.shift >>= 1;
       }
       
-      self.shift >>= 1;
       
       if self.bits_remaining > 0 {
         self.bits_remaining -= 1;
@@ -520,8 +519,8 @@ impl Emu {
         }
       }
       0x4011 => apu.dmc.output = val & 0x7f,
-      0x4012 => apu.dmc.sample_addr = 0xc000 | ((val as u16) << 6),
-      0x4013 => apu.dmc.sample_len = ((val as u16) << 4) + 1,
+      0x4012 => apu.dmc.sample_addr = 0xc000 + ((val as u16) * 64),
+      0x4013 => apu.dmc.sample_len = ((val as u16) * 16) + 1,
 
       0x4015 => {
         apu.p0.len.enable (val & 0x1 != 0);
@@ -563,9 +562,9 @@ impl Emu {
     dmc.dma.addr = dmc.dma.addr.wrapping_add(1);
     if dmc.dma.addr == 0 { dmc.dma.addr = 0x8000; }
 
-    if dmc.dma.remaining > 0 {
-      dmc.dma.remaining -= 1;
-    } else {
+    // EXTREMELY IMPORTANT to subtract this BEFORE, or else last byte won't be handled next tick
+    dmc.dma.remaining -= 1;
+    if dmc.dma.remaining == 0 {
       if dmc.looping {
         dmc.restart_sample();
       } else if dmc.irq_enabled {

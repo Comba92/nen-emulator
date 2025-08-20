@@ -38,6 +38,11 @@ pub enum Mirroring {
   FourScreens
 }
 
+#[derive(Debug, Default)]
+enum Region {
+  #[default] NTSC, PAL, World, Dendy
+}
+
 // TODO: control all default implementations
 impl Default for Emu {
   fn default() -> Self {
