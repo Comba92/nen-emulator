@@ -25,6 +25,8 @@ const MAGIC: &[u8] = &[0x4e, 0x45, 0x53, 0x1a];
 const HEADER_SIZE: usize = 16;
 const TRAINER_SIZE: usize = 16;
 
+// TODO: UNIF support
+
 impl Cart {
   pub fn new(bytes: &[u8]) -> Result<Self, &'static str> {
     if bytes.len() < HEADER_SIZE || &bytes[0..4] != MAGIC { return Err("not a valid iNES ROM"); }

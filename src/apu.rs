@@ -1,6 +1,6 @@
 use blip_buf::BlipBuf;
 
-use crate::{bus::IrqFlags, dma::Dma, emu::Emu, utils::{byte_set_hi, byte_set_lo}};
+use crate::{bus::{self, IrqFlags}, dma::Dma, emu::Emu, utils::{byte_set_hi, byte_set_lo}};
 
 #[derive(Default)]
 struct DividerCounter {
@@ -546,7 +546,11 @@ impl Emu {
           apu.frame_half_step();
         }
 
+        // Interrupt inhibit flag. If set, the frame interrupt flag is cleared, otherwise it is unaffected. 
         apu.frame_irq_disable = val & 0x40 != 0;
+        if apu.frame_irq_disable {
+          self.mem.irq.remove(bus::IrqFlags::FRAME);
+        }
         apu.frame_count = 0;
 
         // TODO: Writing to $4017 resets the frame counter and the quarter/half frame triggers happen simultaneously, but only on "odd" cycles (and only after the first "even" cycle after the write occurs) – thus, it happens either 2 or 3 cycles after the write (i.e. on the 2nd or 3rd cycle of the next instruction). After 2 or 3 clock cycles (depending on when the write is performed), the timer is reset. 
@@ -613,7 +617,9 @@ impl Emu {
       (3728 | 11185, _) => apu.frame_quarter_step(),
       (7456, _) => apu.frame_half_step(),
       (14914, FrameMode::Step4) => {
-        self.mem.irq.set(IrqFlags::FRAME, !apu.frame_irq_disable);
+        if !apu.frame_irq_disable {
+          self.mem.irq.insert(IrqFlags::FRAME);
+        }
         
         apu.frame_count = 0;
         apu.frame_half_step();
