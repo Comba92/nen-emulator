@@ -134,7 +134,7 @@ impl Emu {
   }
 
   pub fn cpu_step(&mut self) {
-    self.handle_dma();
+    if self.handle_dma() { return; }
     self.poll_interrupts();
     let opcode = self.pc_fetch8();
 
@@ -142,43 +142,47 @@ impl Emu {
     self.decode_n_exec(opcode);
   }
 
-  fn handle_dma(&mut self) {
-    loop {
-      if self.apu.dmc.buffer.is_none() && self.apu.dmc.dma.remaining > 0 {
-        // halting cycle
-        self.cpu_tick();
+  fn handle_dma(&mut self) -> bool {
+    if self.apu.dmc.buffer.is_none() && self.apu.dmc.dma.remaining > 0 {
+      // TODO: do not do halting cycles here
+      // // halting cycle
+      // self.cpu_tick();
 
-        // dummy cycle
-        self.cpu_tick();
-        // TODO: +1 cycle on odd cpu cyles
+      // dummy cycle
+      self.cpu_tick();
+      // TODO: +1 cycle on odd cpu cyles
 
-        self.cpu_tick();
-        let byte = self.cpu_dispatch_read(self.apu.dmc.dma.addr);
-        self.read_dmc_sample(byte);
-      } else if self.ppu.dma.remaining > 0 {
-        // https://www.nesdev.org/wiki/PPU_registers#OAMDMA_-_Sprite_DMA_($4014_write)
-      
-        // halting cycle
-        self.cpu_tick();
-        // TODO: +1 cycle on odd cpu cyles
-
-        self.cpu_tick();
-        let byte = self.cpu_dispatch_read(self.ppu.dma.addr);
-        self.ppu.dma.addr += 1;
-        self.ppu.dma.remaining -= 1;
-
-        self.cpu_tick();
-        self.ppu.oam_write(byte);
-      } else { break; }
+      self.cpu_tick();
+      let byte = self.cpu_dispatch_read(self.apu.dmc.dma.addr);
+      self.read_dmc_sample(byte);
     }
+    
+    if self.ppu.dma.remaining > 0 {
+      // https://www.nesdev.org/wiki/PPU_registers#OAMDMA_-_Sprite_DMA_($4014_write)
+    
+      // TODO: do not do halting cycles here
+      // // halting cycle
+      // self.cpu_tick();
+      // TODO: +1 cycle on odd cpu cyles
+
+      self.cpu_tick();
+      let byte = self.cpu_dispatch_read(self.ppu.dma.addr);
+      self.ppu.dma.addr += 1;
+      self.ppu.dma.remaining -= 1;
+
+      self.cpu_tick();
+      self.ppu.oam_write(byte);
+    }
+
+    self.ppu.dma.remaining > 0 || (self.apu.dmc.buffer.is_none() && self.apu.dmc.dma.remaining > 0)
   }
 
   fn poll_interrupts(&mut self) {
     // https://www.nesdev.org/wiki/CPU_interrupts#IRQ_and_NMI_tick-by-tick_execution
-    if self.nmi {
-      self.nmi = false;
+    if self.mem.nmi {
+      self.mem.nmi = false;
       self.handle_interrupt(NMI_VECTOR);
-    } else if !self.irq.is_empty()
+    } else if !self.mem.irq.is_empty()
       && !self.cpu.p.contains(Status::IrqDisable)
     {
       self.handle_interrupt(IRQ_VECTOR);

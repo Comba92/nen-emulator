@@ -82,7 +82,7 @@ fn exec_test() {
   println!("{:?}", test[0]);
 
   while emu.cpu.cycles < test[0].cycles.len() {
-    emu.step();
+    emu.emu_step();
   }
 
   let res = cpu_to_mock(&mut emu, &test[0].end);
@@ -96,7 +96,7 @@ fn cpu_test(test: &CpuTest) -> bool {
   let mut emu = emu::Emu::default();
   cpu_from_mock(&mut emu, &test.start);
 
-  emu.step();
+  emu.emu_step();
 
   let res = cpu_to_mock(&mut emu, &test.end);
   assert_eq!(res, test.end, "{}", test.name);

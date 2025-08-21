@@ -1,3 +1,4 @@
 /tests/SingleStepTests
 /target
+/db_tests
 *.nes

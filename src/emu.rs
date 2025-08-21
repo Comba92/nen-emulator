@@ -1,15 +1,6 @@
 use std::{collections::VecDeque, sync::LazyLock};
 
-use crate::{apu::ApuRP2A, bus::MemHandler, cart::Cart, cpu::{self, Cpu6502}, dma::Dma, joypad::Joypad, ppu::Ppu2C02};
-
-bitflags::bitflags! {
-  #[derive(Debug, Default, Clone)]
-  pub struct IrqFlags: u8 {
-    const FRAME = 1 << 0;
-    const DMC = 1 << 2;
-    const MAPPER = 1 << 3;
-  }
-}
+use crate::{apu::ApuRP2A, bus::MemHandler, cart::{Cart, CartHeader}, cpu::{self, Cpu6502}, dma::Dma, joypad::Joypad, mapper::{mapper_from_header, Mapper, NROM}, ppu::Ppu2C02};
 
 pub struct Emu {
   pub cpu: Cpu6502,
@@ -17,11 +8,12 @@ pub struct Emu {
   pub apu: ApuRP2A,
   pub joypad: Joypad,
   pub mem: MemHandler,
+  pub mapper: Box<dyn Mapper>,
+
   #[cfg(feature = "ram64kb")]
   pub ram: [u8; 64 * 1024],
 
-  pub nmi: bool,
-  pub irq: IrqFlags,
+  rom_header: CartHeader,
 
   pub frame_ready: bool,
 
@@ -29,7 +21,7 @@ pub struct Emu {
   audiobuf: [i16; 1024],
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub enum Mirroring {
   #[default] Horizontal,
   Vertical,
@@ -52,11 +44,12 @@ impl Default for Emu {
       apu: ApuRP2A::new(),
       joypad: Joypad::default(),
       mem: MemHandler::new(Cart::default()).unwrap(),
+      mapper: Box::new(NROM),
+      
       #[cfg(feature = "ram64kb")]
       ram: [0; 64 * 1024],
-      
-      nmi: false,
-      irq: IrqFlags::empty(),
+
+      rom_header: Default::default(),
       frame_ready: false,
 
       videobuf: [0; 256 * 240],
@@ -69,14 +62,22 @@ impl Emu {
   pub fn new(rom: &[u8]) -> Result<Self, String> {
     let cart = Cart::new(rom)?;
 
+    let rom_header = cart.header.clone();
+    let mut mem = MemHandler::new(cart)?;
+    let mapper = mapper_from_header(&rom_header, &mut mem)?;
+    
     let mut emu = Self {
       cpu: Cpu6502::new(),
       ppu: Ppu2C02::new(),
       apu: ApuRP2A::new(),
       joypad: Joypad::default(),
-      mem: MemHandler::new(cart)?,
+      mem,
+      mapper,
+
       #[cfg(feature = "ram64kb")]
       ram: [0; 64 * 1024],
+
+      rom_header,
 
       videobuf: [0; 256 * 240],
       audiobuf: [0; 1024],
@@ -88,7 +89,7 @@ impl Emu {
   }
 
   #[cfg(not(feature = "ram64kb"))]
-  pub fn step(&mut self) {
+  pub fn emu_step(&mut self) {
     let cycles = self.cpu.cycles;
     self.cpu_step();
     
@@ -100,7 +101,7 @@ impl Emu {
     }
 
     for _ in 0..cycles_run { self.apu_step();}
-    for _ in 0..cycles_run { self.mem.mapper.step();}
+    for _ in 0..cycles_run { self.mapper.step(&mut self.mem);}
   }
 
   #[cfg(feature = "ram64kb")]
@@ -111,18 +112,18 @@ impl Emu {
   pub fn cpu_tick(&mut self) {
     self.cpu.cycles += 1;
 
-    self.ppu_step();
-    self.ppu_step();
-    self.ppu_step();
+    // self.ppu_step();
+    // self.ppu_step();
+    // self.ppu_step();
 
-    self.apu_step();
-    self.mem.mapper.step();
+    // self.apu_step();
+    // self.mem.mapper.step();
   }
 
   pub fn step_until_vblank(&mut self) {
     let cycles = self.cpu.cycles;
     while !self.frame_ready {
-      self.cpu_step();
+      self.emu_step();
     }
     let cycles_run: usize = self.cpu.cycles - cycles;
 
@@ -144,6 +145,7 @@ impl Emu {
     }
   }
 
+  // TODO: if audio isn't read, the buffer will overflow and panic
   pub fn get_audio(&mut self) -> &[i16] {
     let read = self.apu.blip.0.read_samples(&mut self.audiobuf, false);
     &self.audiobuf[..read]

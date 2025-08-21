@@ -1,6 +1,6 @@
 use blip_buf::BlipBuf;
 
-use crate::{dma::Dma, emu::{Emu, IrqFlags}, utils::{byte_set_hi, byte_set_lo}};
+use crate::{bus::IrqFlags, dma::Dma, emu::Emu, utils::{byte_set_hi, byte_set_lo}};
 
 #[derive(Default)]
 struct DividerCounter {
@@ -10,8 +10,9 @@ struct DividerCounter {
 
 impl DividerCounter {
   fn step<F: FnOnce()>(&mut self, callback: F){
-    self.count -= 1;
-    if self.count == 0 {
+    if self.count > 0 {
+      self.count -= 1;
+    } else {
       self.reload();
       callback();
     }
@@ -179,8 +180,9 @@ impl Pulse {
 
         let change_amt = period >> sweep.shift;
         if sweep.negate {
+          // TODO: not sure about this
           sweep.target_period = period.saturating_sub(change_amt);
-          sweep.target_period = period.saturating_sub(complement as u16);
+          sweep.target_period -= complement as u16;
         }
         else {
           sweep.target_period = period + change_amt;
@@ -459,11 +461,11 @@ impl Emu {
         res |= ((apu.tri.len.count > 0) as u8) << 2;
         res |= ((apu.noise.len.count > 0) as u8) << 3;
         res |= ((apu.dmc.dma.remaining > 0) as u8) << 4;
-        res |= (self.irq.contains(IrqFlags::FRAME) as u8) << 6;
-        res |= (self.irq.contains(IrqFlags::DMC) as u8) << 7;
+        res |= (self.mem.irq.contains(IrqFlags::FRAME) as u8) << 6;
+        res |= (self.mem.irq.contains(IrqFlags::DMC) as u8) << 7;
 
         // TODO: If an interrupt flag was set at the same moment of the read, it will read back as 1 but it will not be cleared.
-        self.irq.remove(IrqFlags::FRAME);
+        self.mem.irq.remove(IrqFlags::FRAME);
         // TODO: bit 5 open bus
         res
       }
@@ -515,7 +517,7 @@ impl Emu {
         apu.dmc.irq_enabled = val & 0x80 != 0;
 
         if !apu.dmc.irq_enabled {
-          self.irq.remove(IrqFlags::DMC);
+          self.mem.irq.remove(IrqFlags::DMC);
         }
       }
       0x4011 => apu.dmc.output = val & 0x7f,
@@ -529,7 +531,7 @@ impl Emu {
         apu.noise.len.enable(val & 0x8 != 0);
         apu.dmc.enable(val & 0x10 != 0);
       
-        self.irq.remove(IrqFlags::DMC);
+        self.mem.irq.remove(IrqFlags::DMC);
       }
 
       0x4017 => {
@@ -568,7 +570,7 @@ impl Emu {
       if dmc.looping {
         dmc.restart_sample();
       } else if dmc.irq_enabled {
-        self.irq.insert(IrqFlags::DMC);
+        self.mem.irq.insert(IrqFlags::DMC);
       }
     }
   }
@@ -611,7 +613,7 @@ impl Emu {
       (3728 | 11185, _) => apu.frame_quarter_step(),
       (7456, _) => apu.frame_half_step(),
       (14914, FrameMode::Step4) => {
-        self.irq.set(IrqFlags::FRAME, !apu.frame_irq_disable);
+        self.mem.irq.set(IrqFlags::FRAME, !apu.frame_irq_disable);
         
         apu.frame_count = 0;
         apu.frame_half_step();

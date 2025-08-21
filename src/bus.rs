@@ -1,4 +1,13 @@
-use crate::{cart::{Cart, CartHeader}, emu::{Emu, Mirroring}, mapper::{mapper_from_header, Mapper}};
+use crate::{cart::{Cart, CartHeader}, emu::{Emu, Mirroring}};
+
+bitflags::bitflags! {
+  #[derive(Debug, Default, Clone)]
+  pub struct IrqFlags: u8 {
+    const FRAME = 1 << 0;
+    const DMC = 1 << 2;
+    const MAPPER = 1 << 3;
+  }
+}
 
 pub struct MemHandler {
   ram: [u8; 2 * 1024],
@@ -14,31 +23,22 @@ pub struct MemHandler {
   cpu_data_bus: u8,
   ppu_addr_bus: u16,
 
-  pub cart: CartHeader,
-  bankings: BankingHandler,
+  pub nmi: bool,
+  pub irq: IrqFlags,
+
+  pub banks: BankingHandler,
 
   // TODO: consider moving this to upper emu struct
-  pub mapper: Box<dyn Mapper>
 }
 
 // TODO: access prg, chr, sram, vram with unsafe uncheked get, as index bounds cannot be optimized
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct BankingHandler {
   pub prg:  Banking<PrgBank>,
   pub chr:  Banking<ChrBank>,
   pub sram: Banking<SramBank>,
   pub vram: Banking<VramBank>,
-}
-impl Default for BankingHandler {
-  fn default() -> Self {
-    Self {
-      prg: Banking::new(32 * 1024, 0x8000, 16 * 1024, 2),
-      chr: Banking::new(8 * 1024, 0, 8 * 1024, 1),
-      sram: Banking::new(8* 1024, 0x6000, 8 * 1024, 1),
-      vram: Banking::new(2 * 1024, 0x2000, 1024, 4),
-    }
-  }
 }
 impl BankingHandler {
   pub fn new(header: &CartHeader) -> Self {
@@ -71,13 +71,12 @@ impl BankCfg for VramBank {}
 
 #[derive(Debug)]
 pub struct Banking<T: BankCfg> {
-  // TODO: if i don't use this, consider removing it
   data_size: usize,
   data_start: u16,
   pages_size: u16,
   bank_size: u16,
-  bank_size_shift: usize,
-  pub banks_count: usize,
+  bank_size_shift: u16,
+  pub banks_count: u16,
 
   pub bankings: Vec<usize>,
   kind: std::marker::PhantomData<T>,
@@ -87,9 +86,9 @@ impl<T: BankCfg> Banking<T> {
   pub fn new(rom_size: usize, rom_start: u16, pages_size: u16, pages_count: u16) -> Self {
     let bankings = vec![0; pages_count as usize];
     let bank_size = pages_size / pages_count;
-    let banks_count = rom_size.checked_div(bank_size as usize).unwrap_or_default();
+    let banks_count = (rom_size / bank_size as usize) as u16;
     // https://stackoverflow.com/questions/25787613/division-and-multiplication-by-power-of-2
-    let bank_size_shift = bank_size.checked_ilog2().unwrap_or_default() as usize;
+    let bank_size_shift = bank_size.checked_ilog2().unwrap_or_default() as u16;
 
     Self {
       data_size: rom_size,
@@ -108,33 +107,37 @@ impl<T: BankCfg> Banking<T> {
     self.bankings.len()
   }
 
-  pub fn change(&mut self, pages_count: u16) {
+  pub fn change_mode(&mut self, pages_count: u16) {
     assert!(pages_count as usize <= self.bankings.len());
 
     // we change the parameters, leaving banks array as is
     // thus we cannot change to a bigger bank size than the original
     self.bank_size = self.pages_size / pages_count;
-    self.banks_count = self.data_size.checked_div(self.bank_size as usize).unwrap_or_default();
-    self.bank_size_shift = self.bank_size.ilog2() as usize;
+    self.banks_count = (self.data_size / self.bank_size as usize) as u16;
+    self.bank_size_shift = self.bank_size.ilog2() as u16;
   }
 
-  pub fn set_page(&mut self, page: usize, bank: u8) {
+  pub fn set_page(&mut self, page: u8, bank: u8) {
     // some games might write bigger bank numbers than really avaible
     // let bank = bank % self.banks_count;
-    let bank = bank as usize & (self.banks_count - 1);
+    let bank = bank as usize & (self.banks_count as usize - 1);
     // i do not expect to write outside the slots array.
     // self.bankings[page] = bank * self.bank_size;
-    self.bankings[page] = bank << self.bank_size_shift;
+    self.bankings[page as usize] = bank << self.bank_size_shift;
   }
 
-  pub fn set_page2(&mut self, page: usize, bank: u8) {
+  pub fn set_page2(&mut self, page: u8, bank: u8) {
     let page = page & !1;
     self.set_page(page, bank);
     self.set_page(page + 1, bank + 1);
   }
 
-  pub fn set_page_to_last_bank(&mut self, page: usize) {
+  pub fn set_page_to_last_bank(&mut self, page: u8) {
     self.set_page(page, self.banks_count as u8-1);
+  }
+
+  pub fn swap_pages(&mut self, a: u8, b: u8) {
+    self.bankings.swap(a as usize, b as usize);
   }
 
   pub fn translate(&self, addr: u16) -> usize {
@@ -152,16 +155,31 @@ impl Banking<PrgBank> {
     Self::new(header.prg_size, 0x8000, 32 * 1024, pages_count)
   }
 }
+impl Default for Banking<PrgBank> {
+  fn default() -> Self {
+    Banking::new(32 * 1024, 0x8000, 16 * 1024, 2)
+  }
+}
 
 impl Banking<ChrBank> {
   pub fn new_chr(header: &CartHeader, pages_count: u16) -> Self {
     Self::new(header.chr_size, 0, 8 * 1024, pages_count)
   }
 }
+impl Default for Banking<ChrBank> {
+  fn default() -> Self {
+    Banking::new(8 * 1024, 0, 8 * 1024, 1)
+  }
+}
 
 impl Banking<SramBank> {
   pub fn new_sram() -> Self {
     Self::new(8 * 1024, 0x6000, 8 * 1024, 1)
+  }
+}
+impl Default for Banking<SramBank> {
+  fn default() -> Self {
+    Banking::new(8* 1024, 0x6000, 8 * 1024, 1)
   }
 }
 
@@ -205,12 +223,16 @@ impl Banking<VramBank> {
     }
   }
 }
+impl Default for Banking<VramBank> {
+  fn default() -> Self {
+    Banking::new(2 * 1024, 0x2000, 1024, 4)
+  }
+}
 
 impl MemHandler {
   pub fn new(cart: Cart) -> Result<Self, String> {
     let mut banks = BankingHandler::new(&cart.header);
     banks.vram.mirror(&cart.header.mirroring);
-    let mapper = mapper_from_header(&cart.header, &mut banks)?;
 
     Ok(Self {
       ram: [0; 2* 1024],
@@ -224,9 +246,10 @@ impl MemHandler {
       cpu_data_bus: 0,
       ppu_addr_bus: 0,
       
-      cart: cart.header,
-      bankings: banks,
-      mapper: mapper,
+      nmi: false,
+      irq: IrqFlags::empty(),
+
+      banks,
     })
   }
 }
@@ -247,7 +270,7 @@ impl Emu {
       0x4000..=0x4013 | 0x4015 | 0x4017 => self.apu_reg_read(addr),
       0x4016 => self.joypad.read() | (self.mem.cpu_data_bus & 0xe0),
       0x6000..=0x7fff => mem.sram[(addr as usize - 0x6000) & 0x1fff],
-      0x8000..=0xffff => mem.prg[mem.bankings.prg.translate(addr)],
+      0x8000..=0xffff => mem.prg[mem.banks.prg.translate(addr)],
       _ => mem.cpu_data_bus,
     };
 
@@ -269,7 +292,7 @@ impl Emu {
       0x4014 => self.ppu.dma.load((val as u16) << 8, 256),
       0x4016 => self.joypad.write(val),
       0x6000..=0x7fff => mem.sram[(addr as usize - 0x6000) & 0x1fff] = val,
-      0x8000..=0xffff => mem.mapper.prg_write(&mut mem.bankings, addr, val),
+      0x8000..=0xffff => self.mapper.prg_write(mem, addr, val),
       _ => {},
     }
   }
@@ -289,12 +312,12 @@ impl Emu {
   }
 
   pub fn ppu_chr_read(&mut self, addr: u16) -> u8 {
-    self.mem.mapper.notify_chr_access(addr, &mut self.mem.bankings);
-    self.mem.chr[self.mem.bankings.chr.translate(addr)]
+    self.mapper.notify_chr_access(addr, &mut self.mem.banks);
+    self.mem.chr[self.mem.banks.chr.translate(addr)]
   }
 
   pub fn ppu_vram_read(&self, addr: u16) -> u8 {
-    self.mem.vram[self.mem.bankings.vram.translate(addr)]
+    self.mem.vram[self.mem.banks.vram.translate(addr)]
   }
 
   pub fn ppu_palette_read(&self, addr: u16) -> u8 {
@@ -312,8 +335,8 @@ impl Emu {
     let addr = addr & 0x3fff;
     mem.ppu_addr_bus = addr;
     match addr {
-      0x0000..=0x1fff => mem.chr[mem.bankings.chr.translate(addr)] = val,
-      0x2000..=0x3eff => mem.vram[mem.bankings.vram.translate(addr & 0x2fff)] = val,
+      0x0000..=0x1fff => mem.chr[mem.banks.chr.translate(addr)] = val,
+      0x2000..=0x3eff => mem.vram[mem.banks.vram.translate(addr & 0x2fff)] = val,
       0x3f00..=0x3fff => {
         let addr = (addr as usize - 0x3f00) & 31;
         let val = val & 0b11_1111;

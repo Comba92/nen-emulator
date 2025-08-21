@@ -400,7 +400,7 @@ impl Emu {
             ppu.stat.insert(Status::Vblank);
           }
           
-          self.nmi = false;
+          self.mem.nmi = false;
           ppu.nmi_suppress = true;
         }
 
@@ -431,7 +431,7 @@ impl Emu {
 
         // Changing NMI enable from 0 to 1 while the vblank flag in PPUSTATUS is 1 will immediately trigger an NMI.
         if !old_nmi_enabled && new_nmi_enabled && ppu.stat.contains(Status::Vblank) {
-          self.nmi = true;
+          self.mem.nmi = true;
         }
         ppu.ctrl.vblank_nmi_enabled = new_nmi_enabled;
 
@@ -740,7 +740,7 @@ impl Emu {
       
       240..=260 => if self.ppu.scanline == 241 && self.ppu.cycle == 1 {
         self.ppu.stat.set(Status::Vblank, !self.ppu.vblank_suppress);
-        self.nmi = self.ppu.ctrl.vblank_nmi_enabled && !self.ppu.nmi_suppress;       
+        self.mem.nmi = self.ppu.ctrl.vblank_nmi_enabled && !self.ppu.nmi_suppress;       
         self.ppu.pixel = 0;
       }
       _ => {}

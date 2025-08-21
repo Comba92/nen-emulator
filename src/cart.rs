@@ -8,7 +8,7 @@ pub struct Cart {
 }
 
 // https://www.nesdev.org/wiki/INES
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct CartHeader {
   pub prg_size: usize,
   pub chr_size: usize,
