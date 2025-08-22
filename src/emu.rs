@@ -13,7 +13,7 @@ pub struct Emu {
   #[cfg(feature = "ram64kb")]
   pub ram: [u8; 64 * 1024],
 
-  rom_header: CartHeader,
+  pub rom_header: CartHeader,
 
   pub frame_ready: bool,
 
@@ -88,7 +88,7 @@ impl Emu {
     Ok(emu)
   }
 
-  #[cfg(not(feature = "ram64kb"))]
+
   pub fn emu_step(&mut self) {
     let cycles = self.cpu.cycles;
     self.cpu_step();
@@ -117,7 +117,7 @@ impl Emu {
     // self.ppu_step();
 
     // self.apu_step();
-    // self.mem.mapper.step();
+    // self.mapper.step(&mut self.mem);
   }
 
   pub fn step_until_vblank(&mut self) {

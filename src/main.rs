@@ -34,7 +34,7 @@ fn main() {
 
     tex.set_scale_mode(sdl2::render::ScaleMode::Nearest);
 
-    let mut emu = Emu::new(include_bytes!("../roms/prince of persia.nes")).unwrap();
+    let mut emu = Emu::new(include_bytes!("../roms/mario 3.nes")).unwrap();
 
     let mut framebuf = [0; 256 * 240 * 4];
 
@@ -131,5 +131,4 @@ fn main() {
         }
     }
 
-    println!("{:02X?}", emu.mem.palettes);
 }

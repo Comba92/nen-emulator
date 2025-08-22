@@ -1,4 +1,4 @@
-use crate::{bus::{self, Banking, BankingHandler, ChrBank, MemHandler}, cart::CartHeader, emu::Mirroring};
+use crate::{bus::{self, Banking, ChrBank, MemHandler}, cart::CartHeader, emu::Mirroring};
 
 // https://www.nesdev.org/wiki/Mapper
 pub trait Mapper {
@@ -6,8 +6,9 @@ pub trait Mapper {
   fn prg_write(&mut self, mem: &mut MemHandler, addr: u16, val: u8);
   fn step(&mut self, _mem: &mut MemHandler) {}
 
-  // temporary solution
-  fn notify_chr_access(&mut self, _addr: u16, _mem: &mut BankingHandler) {}
+  // TODO: temporary solution for MMC2
+  fn notify_mmc2(&mut self, _addr: u16, _mem: &mut MemHandler) {}
+  fn notify_mmc3(&mut self, mem: &mut MemHandler) {}
 }
 
 pub fn mapper_from_header(header: &CartHeader, mem: &mut MemHandler) -> Result<Box<dyn Mapper>, String> {
@@ -63,13 +64,18 @@ impl Mapper for UxROM {
 struct CNROM;
 impl Mapper for CNROM {
   fn new(header: &CartHeader, mem: &mut MemHandler) -> Box<Self> {
-    mem.banks.prg = Banking::new_prg(header, 1);
+    if header.prg_size <= 16 * 1024 {
+      mem.banks.prg.set_page(1, 0);
+    } else {
+      mem.banks.prg.set_page(1, 1);
+    }
+    
     mem.banks.sram = Banking::new(2 * 1024, 0x6000, 2 * 1024, 4);
     Box::new(Self)
   }
 
   fn prg_write(&mut self, mem: &mut MemHandler, _: u16, val: u8) {
-    mem.banks.chr.set_page(0, val & 0b1111);
+    mem.banks.chr.set_page(0, val & 0b11);
   }
 }
 
@@ -222,12 +228,12 @@ impl Mapper for MMC1 {
         };
 
         let chr_mode = shift_val & 0x80;
-        self.chr_bank_mask = if chr_mode == 0 {
+        if chr_mode == 0 {
           mem.banks.chr.change_mode(1);
-          1
+          self.chr_bank_mask = 1;
         } else {
           mem.banks.chr.change_mode(2);
-          0
+          self.chr_bank_mask = 0;
         };
       }
       // 0xa000..0xbfff
@@ -296,9 +302,10 @@ impl Mapper for MMC2 {
   }
 
   // TODO: temporary solution
-  fn notify_chr_access(&mut self, addr: u16, banks: &mut BankingHandler) {
+  fn notify_mmc2(&mut self, addr: u16, mem: &mut MemHandler) {
     use mmc2::Latch;
-    
+    let banks = &mut mem.banks;
+
     match addr {
       0x0fd8 => self.latch0 = Latch::FD,
       0x0fe8 => self.latch0 = Latch::FE,
@@ -332,7 +339,11 @@ struct MMC3 {
   irq_latch: u8,
   irq_reload: bool,
   irq_enabled: bool,
+
+  a12_low_count: isize,
+  clock_count: usize,
 }
+// https://forums.nesdev.org/viewtopic.php?t=14056
 impl Mapper for MMC3 {
   fn new(header: &CartHeader, mem: &mut MemHandler) -> Box<Self> {
     mem.banks.prg = Banking::new_prg(header, 4);
@@ -341,12 +352,16 @@ impl Mapper for MMC3 {
     mem.banks.prg.set_page_to_last_bank(3);
 
     mem.banks.chr = Banking::new_chr(header, 8);
+    mem.banks.chr.set_page2(0, 0);
+    mem.banks.chr.set_page2(2, 0);
 
     Box::new(Self::default())
   }
 
   fn prg_write(&mut self, mem: &mut MemHandler, addr: u16, val: u8) {
     // TODO: only higher bits and first bit matters
+    
+    
     match (addr, addr % 2 == 0) {
       (0x8000..=0x9fff, true) => {
         self.bank_select = val & 0x7;
@@ -373,8 +388,8 @@ impl Mapper for MMC3 {
         match (self.bank_select, self.chr_invert) {
           (6, _) => mem.banks.prg.set_page(self.prg_swapped, val & 0x3f),
           (7, _) => mem.banks.prg.set_page(1, val & 0x3f),
-          (0 | 1, false) => mem.banks.chr.set_page2(self.bank_select, val),
-          (0 | 1, true)  => mem.banks.chr.set_page2(self.bank_select + 4, val),
+          (0 | 1, false) => mem.banks.chr.set_page2(self.bank_select * 2, val),
+          (0 | 1, true)  => mem.banks.chr.set_page2(self.bank_select * 2 + 4, val),
           // cases 2..=5
           (_ , false)    => mem.banks.chr.set_page((self.bank_select - 2) + 4, val),
           (_, true)      => mem.banks.chr.set_page(self.bank_select - 2, val),
@@ -382,9 +397,10 @@ impl Mapper for MMC3 {
       }
 
       (0xa000..=0xbfff, true) => {
+        // inverted from what wiki says...
         let mirroring = match val & 1 {
-          0 => Mirroring::Horizontal,
-          _ => Mirroring::Vertical,
+          0 => Mirroring::Vertical,
+          _ => Mirroring::Horizontal,
         };
         mem.banks.vram.mirror(&mirroring);
       }
@@ -408,7 +424,49 @@ impl Mapper for MMC3 {
     }
   }
 
-  fn step(&mut self, mem: &mut MemHandler) {
-    
+  // fn step(&mut self, mem: &mut MemHandler) {
+  //   let a12_low = mem.ppu_addr_bus & 0x1000 == 0;
+
+  //   if self.a12_low_count >= 3 && !a12_low {
+  //     // println!("Decrementing IRQ at cycle {}", mem.ppu_cycle);
+  //     // self.clock_count += 1;
+
+  //     // if mem.ppu_scanline > 240 {
+  //     //   println!("Clocked for {} scanlines", self.clock_count);
+  //     //   self.clock_count = 0;
+  //     // }
+
+  //     if self.irq_reload || self.irq_count == 0 {
+  //       self.irq_count = self.irq_latch;
+  //       self.irq_reload = false;
+  //     } else {
+  //       self.irq_count -= 1;
+  //     }
+
+  //     if self.irq_enabled && self.irq_count == 0 {
+  //       mem.irq.insert(bus::IrqFlags::MAPPER);
+  //     }
+  //   }
+
+  //   if a12_low {
+  //     self.a12_low_count += 1;
+  //   } else {
+  //     self.a12_low_count = 0;
+  //   }
+  // }
+
+  fn notify_mmc3(&mut self, mem: &mut MemHandler) {
+    // println!("Decrementing IRQ at cycle {}", mem.ppu_cycle);
+
+    if self.irq_reload || self.irq_count == 0 {
+      self.irq_count = self.irq_latch;
+      self.irq_reload = false;
+    } else {
+      self.irq_count -= 1;
+    }
+
+    if self.irq_enabled && self.irq_count == 0 {
+      mem.irq.insert(bus::IrqFlags::MAPPER);
+    }
   }
 }

@@ -21,14 +21,16 @@ pub struct MemHandler {
 
   cpu_addr_bus: u16,
   cpu_data_bus: u8,
-  ppu_addr_bus: u16,
+  pub ppu_addr_bus: u16,
+
+  // TODO: remove this, only used for DEBUG porpuoses
+  pub ppu_cycle: i16,
+  pub ppu_scanline: i16,
 
   pub nmi: bool,
   pub irq: IrqFlags,
 
   pub banks: BankingHandler,
-
-  // TODO: consider moving this to upper emu struct
 }
 
 // TODO: access prg, chr, sram, vram with unsafe uncheked get, as index bounds cannot be optimized
@@ -126,7 +128,7 @@ impl<T: BankCfg> Banking<T> {
     self.bankings[page as usize] = bank << self.bank_size_shift;
   }
 
-  pub fn set_page2(&mut self, page: u8, bank: u8) {
+  pub fn set_page2(&mut self, page: u8, bank: u8) {    
     let page = page & !1;
     self.set_page(page, bank);
     self.set_page(page + 1, bank + 1);
@@ -245,6 +247,8 @@ impl MemHandler {
       cpu_addr_bus: 0,
       cpu_data_bus: 0,
       ppu_addr_bus: 0,
+      ppu_cycle: 0,
+      ppu_scanline: 261,
       
       nmi: false,
       irq: IrqFlags::empty(),
@@ -261,19 +265,19 @@ impl Emu {
     // TODO: cpu tick here
     // Be sure to remove ticks in dma and cpu reads
 
-    mem.cpu_addr_bus = addr;
     let res = match addr {
       0x0000..=0x1fff => mem.ram[addr as usize & 0x07ff],
       0x2000..=0x3fff => {
         self.ppu_reg_read(addr & 0x2007)
       }
       0x4000..=0x4013 | 0x4015 | 0x4017 => self.apu_reg_read(addr),
-      0x4016 => self.joypad.read() | (self.mem.cpu_data_bus & 0xe0),
+      0x4016 => self.joypad.read() | (mem.cpu_data_bus & 0xe0),
       0x6000..=0x7fff => mem.sram[(addr as usize - 0x6000) & 0x1fff],
       0x8000..=0xffff => mem.prg[mem.banks.prg.translate(addr)],
       _ => mem.cpu_data_bus,
     };
-
+    
+    self.mem.cpu_addr_bus = addr;
     self.mem.cpu_data_bus = res;
     res
   }
@@ -284,63 +288,94 @@ impl Emu {
     // TODO: cpu tick here
     // Be sure to remove ticks in dma and cpu reads
 
-    mem.cpu_addr_bus = addr;
     match addr {
       0x0000..=0x1fff => mem.ram[addr as usize & 0x07ff] = val,
       0x2000..=0x3fff => self.ppu_reg_write(addr & 0x2007, val),
       0x4000..=0x4013 | 0x4015 | 0x4017 => self.apu_reg_write(addr, val),
       0x4014 => self.ppu.dma.load((val as u16) << 8, 256),
+      // 0x4014 => {        
+      //   // https://www.nesdev.org/wiki/PPU_registers#OAMDMA_-_Sprite_DMA_($4014_write)
+      //   self.cpu_tick();
+      //   // TODO: +1 cycle on odd cpu cyles
+      //   // TODO: correct DMA behaviour
+
+      //   let mut addr = (val as u16) << 8;
+
+      //   for _ in 0..256 {
+      //     self.cpu_tick();
+      //     let byte = self.cpu_dispatch_read(addr);
+      //     addr += 1;
+      //     self.cpu_tick();
+      //     self.ppu.oam_write(byte);
+      //   }
+      // }
+
       0x4016 => self.joypad.write(val),
       0x6000..=0x7fff => mem.sram[(addr as usize - 0x6000) & 0x1fff] = val,
       0x8000..=0xffff => self.mapper.prg_write(mem, addr, val),
       _ => {},
     }
+
+    self.mem.cpu_addr_bus = addr;
+    self.mem.cpu_data_bus = val;
   }
 
+  // TODO: restore ppu_addr_bus assignments when MMC3 works
   pub fn ppu_dispatch_read(&mut self, addr: u16) -> u8 {
     let mem = &mut self.mem;
     
     let addr = addr & 0x3fff;
-    mem.ppu_addr_bus = addr;
-    match addr {
+    let res = match addr {
       0x0000..=0x1fff => self.ppu_chr_read(addr),
       0x2000..=0x3eff => self.ppu_vram_read(addr & 0x2fff),
       0x3f00..=0x3fff => self.ppu_palette_read(addr),
       // Video memory's data bus is multiplexed with the low byte of the address bus on pins 31 through 38. Thus a read from an address with no memory connected will usually return the low byte of the address.
-      _ => mem.ppu_addr_bus as u8,
-    }
+      _ => {
+        let res = mem.ppu_addr_bus as u8;
+        // self.mem.ppu_addr_bus = addr;
+        res
+      }
+    };
+
+    res
   }
 
   pub fn ppu_chr_read(&mut self, addr: u16) -> u8 {
-    self.mapper.notify_chr_access(addr, &mut self.mem.banks);
-    self.mem.chr[self.mem.banks.chr.translate(addr)]
+    let res = self.mem.chr[self.mem.banks.chr.translate(addr)];
+    self.mapper.notify_mmc2(addr, &mut self.mem);
+    // self.mem.ppu_addr_bus = addr;
+    res
   }
 
-  pub fn ppu_vram_read(&self, addr: u16) -> u8 {
-    self.mem.vram[self.mem.banks.vram.translate(addr)]
+  pub fn ppu_vram_read(&mut self, addr: u16) -> u8 {
+    let res = self.mem.vram[self.mem.banks.vram.translate(addr)];
+    // self.mem.ppu_addr_bus = addr;
+    res
   }
 
-  pub fn ppu_palette_read(&self, addr: u16) -> u8 {
-    let addr = (addr as usize - 0x3f00) & 31;
-    if addr % 4 == 0 {
+  pub fn ppu_palette_read(&mut self, addr: u16) -> u8 {
+    let pal = (addr as usize - 0x3f00) & 31;
+    let res = if pal % 4 == 0 {
       self.mem.palettes[0]
     } else {
-      self.mem.palettes[addr]
-    }
+      self.mem.palettes[pal]
+    };
+
+    // self.mem.ppu_addr_bus = addr;
+    res
   }
 
   pub fn ppu_dispatch_write(&mut self, addr: u16, val: u8) {
     let mem = &mut self.mem;
 
     let addr = addr & 0x3fff;
-    mem.ppu_addr_bus = addr;
     match addr {
       0x0000..=0x1fff => mem.chr[mem.banks.chr.translate(addr)] = val,
       0x2000..=0x3eff => mem.vram[mem.banks.vram.translate(addr & 0x2fff)] = val,
       0x3f00..=0x3fff => {
         let addr = (addr as usize - 0x3f00) & 31;
         let val = val & 0b11_1111;
-
+        
         // if we're writing a transparent color
         if addr % 4 == 0 {
           // write both backdrop colors
@@ -353,5 +388,7 @@ impl Emu {
       }
       _ => {},
     }
+
+    // mem.ppu_addr_bus = addr;
   }
 }
