@@ -1,70 +1,5 @@
 use crate::{cart::{Cart, CartHeader}, emu::{Emu, Mirroring}};
 
-bitflags::bitflags! {
-  #[derive(Debug, Default, Clone)]
-  pub struct IrqFlags: u8 {
-    const FRAME = 1 << 0;
-    const DMC = 1 << 2;
-    const MAPPER = 1 << 3;
-  }
-}
-
-pub enum CpuHandler {
-  RAM, PPU, IO, SRAM, PRG   
-}
-pub enum PpuHandler {
-  CHR, VRAM, Palette,
-}
-
-pub struct MemHandler {
-  ram: [u8; 2 * 1024],
-  prg: Vec<u8>,
-  sram: Vec<u8>,
-  chr: Vec<u8>,
-  pub vram: [u8; 2 * 1024],
-
-  // 64kb / 4kb = 16
-  cpu_handlers_4kb: [CpuHandler; 16],
-  // 16kb / 1kb = 16
-  ppu_handlers_1kb: [PpuHandler; 16],
-
-  // TODO: consider keeping this in PPU
-  pub palettes: [u8; 32],
-
-  cpu_addr_bus: u16,
-  cpu_data_bus: u8,
-  pub ppu_addr_bus: u16,
-
-  // TODO: remove this, only used for DEBUG porpuoses
-  pub ppu_cycle: i16,
-  pub ppu_scanline: i16,
-
-  pub nmi: bool,
-  pub irq: IrqFlags,
-
-  pub banks: BankingHandler,
-}
-
-// TODO: access prg, chr, sram, vram with unsafe uncheked get, as index bounds cannot be optimized
-
-#[derive(Debug, Default)]
-pub struct BankingHandler {
-  pub prg:  Banking<PrgBank>,
-  pub chr:  Banking<ChrBank>,
-  pub sram: Banking<SramBank>,
-  pub vram: Banking<VramBank>,
-}
-impl BankingHandler {
-  pub fn new(header: &CartHeader) -> Self {
-    Self {
-      prg: Banking::new_prg(header, 2),
-      chr: Banking::new_chr(header, 1),
-      sram: Banking::new_sram(header),
-      vram: Banking::new_vram(header),
-    }
-  }
-}
-
 pub trait BankCfg {}
 
 #[derive(Debug)]
@@ -242,6 +177,70 @@ impl Default for Banking<VramBank> {
   }
 }
 
+#[derive(Debug, Default)]
+pub struct BankingHandler {
+  pub prg:  Banking<PrgBank>,
+  pub chr:  Banking<ChrBank>,
+  pub sram: Banking<SramBank>,
+  pub vram: Banking<VramBank>,
+}
+impl BankingHandler {
+  pub fn new(header: &CartHeader) -> Self {
+    Self {
+      prg: Banking::new_prg(header, 2),
+      chr: Banking::new_chr(header, 1),
+      sram: Banking::new_sram(header),
+      vram: Banking::new_vram(header),
+    }
+  }
+}
+
+bitflags::bitflags! {
+  #[derive(Debug, Default, Clone)]
+  pub struct IrqFlags: u8 {
+    const FRAME = 1 << 0;
+    const DMC = 1 << 2;
+    const MAPPER = 1 << 3;
+  }
+}
+
+pub enum CpuHandler {
+  RAM, PPU, IO, SRAM, PRG   
+}
+pub enum PpuHandler {
+  CHR, VRAM, Palette,
+}
+
+// TODO: access prg, chr, sram, vram with unsafe uncheked get, as index bounds cannot be optimized
+pub struct MemHandler {
+  ram: [u8; 2 * 1024],
+  prg: Vec<u8>,
+  sram: Vec<u8>,
+  chr: Vec<u8>,
+  pub vram: [u8; 2 * 1024],
+
+  // 64kb / 4kb = 16
+  cpu_handlers_4kb: [CpuHandler; 16],
+  // 16kb / 1kb = 16
+  ppu_handlers_1kb: [PpuHandler; 16],
+
+  // TODO: consider keeping this in PPU
+  pub palettes: [u8; 32],
+
+  cpu_addr_bus: u16,
+  cpu_data_bus: u8,
+  pub ppu_addr_bus: u16,
+
+  // TODO: remove this, only used for DEBUG porpuoses
+  pub ppu_cycle: i16,
+  pub ppu_scanline: i16,
+
+  pub nmi: bool,
+  pub irq: IrqFlags,
+
+  pub banks: BankingHandler,
+}
+
 impl MemHandler {
   pub fn new(cart: Cart) -> Result<Self, String> {
     let mut banks = BankingHandler::new(&cart.header);
@@ -380,8 +379,11 @@ impl Emu {
     self.mem.cpu_data_bus = val;
   }
 
-  // TODO: restore ppu_addr_bus assignments when MMC3 works
-  
+  pub fn update_ppu_bus(&mut self, addr: u16) {
+    self.mem.ppu_addr_bus = addr;
+    self.mapper.notify_ppu_addr(&mut self.mem, self.cpu.cycles);
+  }
+
   pub fn ppu_dispatch_read(&mut self, addr: u16) -> u8 {
     let mem = &mut self.mem;
     
@@ -395,9 +397,7 @@ impl Emu {
           self.ppu_palette_read(addr)
         } else {
           // Video memory's data bus is multiplexed with the low byte of the address bus on pins 31 through 38. Thus a read from an address with no memory connected will usually return the low byte of the address.
-          let res = mem.ppu_addr_bus as u8;
-          self.mem.ppu_addr_bus = addr;
-          res
+          mem.ppu_addr_bus as u8
         }
       }
     };
@@ -407,14 +407,13 @@ impl Emu {
 
   pub fn ppu_chr_read(&mut self, addr: u16) -> u8 {
     let res = self.mem.chr[self.mem.banks.chr.translate(addr)];
-    self.mapper.notify_mmc2(addr, &mut self.mem);
-    self.mem.ppu_addr_bus = addr;
+    self.update_ppu_bus(addr);
     res
   }
 
   pub fn ppu_vram_read(&mut self, addr: u16) -> u8 {
     let res = self.mem.vram[self.mem.banks.vram.translate(addr)];
-    self.mem.ppu_addr_bus = addr;
+    self.update_ppu_bus(addr);
     res
   }
 
@@ -426,15 +425,14 @@ impl Emu {
       self.mem.palettes[pal]
     };
 
-    self.mem.ppu_addr_bus = addr;
     res
   }
 
   pub fn ppu_dispatch_write(&mut self, addr: u16, val: u8) {
     let mem = &mut self.mem;
-
+    
     let handler = (addr >> 10) % 16;
-
+    
     match mem.ppu_handlers_1kb[handler as usize] {
       PpuHandler::CHR => mem.chr[mem.banks.chr.translate(addr)] = val,
       PpuHandler::VRAM => mem.vram[mem.banks.vram.translate(addr & 0x2fff)] = val,
@@ -452,10 +450,13 @@ impl Emu {
             // write palette color as is
             mem.palettes[addr] = val;
           }
+
+          // shouldn't set ppu_addr_bus
+          return;
         }
       }
     }
 
-    mem.ppu_addr_bus = addr;
+    self.update_ppu_bus(addr);
   }
 }

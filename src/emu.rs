@@ -16,7 +16,6 @@ pub struct Emu {
   pub rom_header: CartHeader,
 
   pub frame_ready: bool,
-
   pub videobuf: [u8; 256 * 240],
   audiobuf: [i16; 1024],
 }
@@ -89,6 +88,7 @@ impl Emu {
   }
 
 
+  #[deprecated]
   pub fn emu_step(&mut self) {
     let cycles = self.cpu.cycles;
     self.cpu_step();
@@ -112,18 +112,18 @@ impl Emu {
   pub fn cpu_tick(&mut self) {
     self.cpu.cycles += 1;
 
-    // self.ppu_step();
-    // self.ppu_step();
-    // self.ppu_step();
+    self.ppu_step();
+    self.ppu_step();
+    self.ppu_step();
 
-    // self.apu_step();
-    // self.mapper.step(&mut self.mem);
+    self.apu_step();
+    self.mapper.step(&mut self.mem);
   }
 
   pub fn step_until_vblank(&mut self) {
     let cycles = self.cpu.cycles;
     while !self.frame_ready {
-      self.emu_step();
+      self.cpu_step();
     }
     let cycles_run: usize = self.cpu.cycles - cycles;
 

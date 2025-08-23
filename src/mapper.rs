@@ -6,9 +6,7 @@ pub trait Mapper {
   fn prg_write(&mut self, mem: &mut MemHandler, addr: u16, val: u8);
   fn step(&mut self, _mem: &mut MemHandler) {}
 
-  // TODO: temporary solution for MMC2
-  fn notify_mmc2(&mut self, _addr: u16, _mem: &mut MemHandler) {}
-  fn notify_mmc3(&mut self, _mem: &mut MemHandler) {}
+  fn notify_ppu_addr(&mut self, _mem: &mut MemHandler, _cycles: usize) {}
 }
 
 pub fn mapper_from_header(header: &CartHeader, mem: &mut MemHandler) -> Result<Box<dyn Mapper>, String> {
@@ -301,12 +299,11 @@ impl Mapper for MMC2 {
     }
   }
 
-  // TODO: temporary solution
-  fn notify_mmc2(&mut self, addr: u16, mem: &mut MemHandler) {
+  fn notify_ppu_addr(&mut self, mem: &mut MemHandler, _: usize) {
     use mmc2::Latch;
     let banks = &mut mem.banks;
 
-    match addr {
+    match mem.ppu_addr_bus {
       0x0fd8 => self.latch0 = Latch::FD,
       0x0fe8 => self.latch0 = Latch::FE,
       0x1fd8..=0x1fdf => self.latch1 = Latch::FD, 
@@ -340,8 +337,7 @@ struct MMC3 {
   irq_reload: bool,
   irq_enabled: bool,
 
-  a12_low_count: isize,
-  clock_count: usize,
+  a12_low_count: usize,
 }
 // https://forums.nesdev.org/viewtopic.php?t=14056
 impl Mapper for MMC3 {
@@ -424,49 +420,44 @@ impl Mapper for MMC3 {
     }
   }
 
-  // fn step(&mut self, mem: &mut MemHandler) {
-  //   let a12_low = mem.ppu_addr_bus & 0x1000 == 0;
+  fn notify_ppu_addr(&mut self, mem: &mut MemHandler, cycles: usize) {
+    let a12_low = mem.ppu_addr_bus & 0x1000 == 0;
 
-  //   if self.a12_low_count >= 3 && !a12_low {
-  //     // println!("Decrementing IRQ at cycle {}", mem.ppu_cycle);
-  //     // self.clock_count += 1;
+    let rising_edge = if !a12_low {
+      let res = self.a12_low_count > 0 && cycles - self.a12_low_count >= 3;
+      self.a12_low_count = 0;
+      res
+    } else if self.a12_low_count == 0 {
+      self.a12_low_count = cycles;
+      false
+    } else { false };
 
-  //     // if mem.ppu_scanline > 240 {
-  //     //   println!("Clocked for {} scanlines", self.clock_count);
-  //     //   self.clock_count = 0;
-  //     // }
+    if rising_edge {
+      if self.irq_reload || self.irq_count == 0 {
+        self.irq_count = self.irq_latch;
+        self.irq_reload = false;
+      } else {
+        self.irq_count -= 1;
+      }
 
-  //     if self.irq_reload || self.irq_count == 0 {
-  //       self.irq_count = self.irq_latch;
-  //       self.irq_reload = false;
-  //     } else {
-  //       self.irq_count -= 1;
-  //     }
-
-  //     if self.irq_enabled && self.irq_count == 0 {
-  //       mem.irq.insert(bus::IrqFlags::MAPPER);
-  //     }
-  //   }
-
-  //   if a12_low {
-  //     self.a12_low_count += 1;
-  //   } else {
-  //     self.a12_low_count = 0;
-  //   }
-  // }
-
-  fn notify_mmc3(&mut self, mem: &mut MemHandler) {
-    // println!("Decrementing IRQ at cycle {}", mem.ppu_cycle);
-
-    if self.irq_reload || self.irq_count == 0 {
-      self.irq_count = self.irq_latch;
-      self.irq_reload = false;
-    } else {
-      self.irq_count -= 1;
-    }
-
-    if self.irq_enabled && self.irq_count == 0 {
-      mem.irq.insert(bus::IrqFlags::MAPPER);
+      if self.irq_enabled && self.irq_count == 0 {
+        mem.irq.insert(bus::IrqFlags::MAPPER);
+      }
     }
   }
+
+  // fn noitfy_ppu_addr(&mut self, mem: &mut MemHandler) {
+  //   // println!("Decrementing IRQ at cycle {}", mem.ppu_cycle);
+
+  //   if self.irq_reload || self.irq_count == 0 {
+  //     self.irq_count = self.irq_latch;
+  //     self.irq_reload = false;
+  //   } else {
+  //     self.irq_count -= 1;
+  //   }
+
+  //   if self.irq_enabled && self.irq_count == 0 {
+  //     mem.irq.insert(bus::IrqFlags::MAPPER);
+  //   }
+  // }
 }

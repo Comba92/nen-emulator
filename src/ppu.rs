@@ -183,7 +183,7 @@ pub struct Ppu2C02 {
 impl Ppu2C02 {
   pub fn new() -> Self {
     Self {
-      scanline: 261,
+      scanline: -1,
       oam_tmp: vec![Sprite::empty(); 8],
       ..Default::default()
     }
@@ -257,7 +257,7 @@ impl Ppu2C02 {
   }
 
   fn is_rendering(&self) -> bool {
-    self.rendering_enabled() && (self.scanline < 240 || self.scanline == 261) 
+    self.rendering_enabled() && self.scanline < 240 
   }
 
   fn shifter_load_from_fetcher(&mut self) {
@@ -314,22 +314,16 @@ impl Emu {
     self.ppu = Ppu2C02::new();
   }
 
-  // TODO: this shit
-  fn update_addr(&mut self, addr: u16) {
-    self.ppu.v.0 = addr;
-    self.mem.ppu_addr_bus = addr;
-  }
-
   fn increase_addr(&mut self) {
-    // https://www.nesdev.org/wiki/PPU_scrolling#$2007_(PPUDATA)_reads_and_writes
-    // if self.scanline <= 239 && self.rendering_enabled() {
-    //   self.inc_scroll_x();
-    //   self.inc_scroll_y();
-    // }
-
     let ppu = &mut self.ppu;
-    let v = (ppu.v.0.wrapping_add(ppu.ctrl.vram_addr_inc)) & 0x7fff;
-    self.update_addr(v);
+    if !ppu.is_rendering() {
+      ppu.v.0 = (ppu.v.0.wrapping_add(ppu.ctrl.vram_addr_inc)) & 0x7fff;
+      self.update_ppu_bus(self.ppu.v.0);
+    } else {
+      // https://www.nesdev.org/wiki/PPU_scrolling#$2007_(PPUDATA)_reads_and_writes
+      //   self.inc_scroll_x();
+      //   self.inc_scroll_y();
+    }
   }
 
   fn inc_scroll_x(&mut self) {
@@ -341,9 +335,6 @@ impl Emu {
       } else {
         v.set_coarse_x(v.coarse_x() + 1);
       }
-
-      let v = v.0;
-      self.update_addr(v);
     }
   }
 
@@ -366,9 +357,6 @@ impl Emu {
         }                                         // increment coarse Y
         v.set_coarse_y(y);                  // put coarse Y back into v
       }
-
-      let v = v.0;
-      self.update_addr(v);
     }
   }
 
@@ -376,8 +364,6 @@ impl Emu {
     if self.ppu.rendering_enabled() {
       self.ppu.v.set_nametbl_x(self.ppu.t.nametbl_x());
       self.ppu.v.set_coarse_x(self.ppu.t.coarse_x());
-
-      self.update_addr(self.ppu.v.0);
     }
   }
 
@@ -386,8 +372,6 @@ impl Emu {
       self.ppu.v.set_nametbl_y(self.ppu.t.nametbl_y());
       self.ppu.v.set_coarse_y(self.ppu.t.coarse_y());
       self.ppu.v.set_fine_y(self.ppu.t.fine_y());
-      
-      self.update_addr(self.ppu.v.0);
     }
   }
 
@@ -463,8 +447,13 @@ impl Emu {
         ppu.ctrl.spr_size = if val & 0x20 == 0 { 8 } else { 16 };
       }
       // Mask
-      // TODO: handle rendeing disabling
-      0x2001 => ppu.mask = Mask::from_bits_retain(val),
+      0x2001 => {
+        ppu.mask = Mask::from_bits_retain(val);
+        if !ppu.rendering_enabled() {
+          // During VBlank and when rendering is disabled, the value on the PPU address bus is the current value of the v register. 
+          self.update_ppu_bus(self.ppu.v.0);
+        }
+      }
       // OamAddr
       // TODO: behaviour during rendering: https://www.nesdev.org/wiki/PPU_registers#OAMADDR_-_Sprite_RAM_address_($2003_write)
       0x2003 => ppu.oam_addr = val,
@@ -506,8 +495,7 @@ impl Emu {
             ppu.v.0 = ppu.t.0;
             ppu.w = WriteToggle::First;
 
-            let v = ppu.v.0;
-            self.update_addr(v);
+            self.update_ppu_bus(self.ppu.v.0);
           }
         };
       }
@@ -759,9 +747,13 @@ impl Emu {
 
   pub fn ppu_step(&mut self) {
     match self.ppu.scanline {
+      -1 => self.prerender_step(),
       0..=239 => self.render_step(),
-      261 => self.prerender_step(),
       
+      // During VBlank and when rendering is disabled, the value on the PPU address bus is the current value of the v register. 
+      240 => if self.ppu.cycle == 1 && !self.ppu.rendering_enabled() {
+        self.update_ppu_bus(self.ppu.v.0);
+      }
       241 => if self.ppu.cycle == 1 {
         self.ppu.stat.set(Status::Vblank, !self.ppu.vblank_suppress);
         self.mem.nmi = self.ppu.ctrl.vblank_nmi_enabled && !self.ppu.nmi_suppress;
@@ -782,8 +774,8 @@ impl Emu {
       self.mem.ppu_scanline = self.ppu.scanline;
       let ppu = &mut self.ppu;
       
-      if ppu.scanline > 261 {
-        ppu.scanline = 0;
+      if ppu.scanline >= 261 {
+        ppu.scanline = -1;
         
         self.mem.ppu_scanline = self.ppu.scanline;
         let ppu = &mut self.ppu;
@@ -801,7 +793,6 @@ impl Emu {
 
   fn render_step(&mut self) {
     let ppu = &mut self.ppu;
-    // TODO: This is technically correct, but should output backdrop color
 
     if !ppu.rendering_enabled() {
       if matches!(ppu.cycle, 1..=256) {
@@ -825,10 +816,6 @@ impl Emu {
       }
       257 => {
         self.restore_scroll_x();
-        self.spr_fetch_step();
-      }
-      260 => {
-        self.mapper.notify_mmc3(&mut self.mem);
         self.spr_fetch_step();
       }
       257..=320 => self.spr_fetch_step(),
@@ -860,10 +847,6 @@ impl Emu {
       }
       257 => {
         self.restore_scroll_x();
-        self.spr_fetch_step();
-      }
-      261 => {
-        self.mapper.notify_mmc3(&mut self.mem);
         self.spr_fetch_step();
       }
       257..=279 | 305..=320 => self.spr_fetch_step(),
