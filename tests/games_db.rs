@@ -1,4 +1,6 @@
-use std::{fs, io::{Read, Write}};
+use std::{collections::HashSet, fs, io::{Read, Write}};
+
+use nes_emulator::games_db::GameData;
 
 #[derive(serde::Serialize, serde::Deserialize)]
 struct Root {
@@ -66,7 +68,7 @@ struct RomData {
 }
 
 
-#[derive(Default, Debug, serde::Serialize, bitcode::Encode, bitcode::Decode, bincode::Encode)]
+#[derive(Default, Debug, Clone, serde::Serialize, bitcode::Encode, bitcode::Decode, bincode::Encode)]
 struct RomSection {
   size: usize,
   crc32: String,
@@ -85,7 +87,7 @@ impl From<&RomData> for RomSection {
 }
 
 #[repr(u8)]
-#[derive(Default, Debug, serde::Serialize, bitcode::Encode, bitcode::Decode, bincode::Encode)]
+#[derive(Default, Debug, Clone, Copy, serde::Serialize, bitcode::Encode, bitcode::Decode, bincode::Encode)]
 enum Mirroring {
   #[default]
   Horizontal,
@@ -104,8 +106,18 @@ impl From<&str> for Mirroring {
     }
   }
 }
+impl From<Mirroring> for nes_emulator::emu::Mirroring {
+  fn from(value: Mirroring) -> Self {
+    match value {
+        Mirroring::FourScreens => Self::FourScreens,
+        Mirroring::Horizontal => Self::Horizontal,
+        Mirroring::Vertical => Self::Vertical,
+        Mirroring::SingleScreen => Self::SingleScreenA,
+    }
+  }
+}
 
-#[derive(Default, Debug, serde::Serialize, bitcode::Encode, bitcode::Decode, bincode::Encode)]
+#[derive(Default, Debug, Clone, Copy, serde::Serialize, bitcode::Encode, bitcode::Decode, bincode::Encode)]
 enum Region {
   #[default] NTSC,
   PAL,
@@ -119,6 +131,16 @@ impl From<usize> for Region {
       1 => Self::PAL,
       2 => Self::Multiple,
       _ => Self::Other,
+    }
+  }
+}
+impl From<Region> for nes_emulator::emu::Region {
+  fn from(value: Region) -> Self {
+    match value {
+      Region::NTSC => Self::NTSC,
+      Region::PAL => Self::PAL,
+      Region::Multiple => Self::World,
+      Region::Other => Self::Dendy,
     }
   }
 }
@@ -146,6 +168,58 @@ struct FinalEntry {
   
   console: u8,
   expansions: u8,
+}
+
+// #[derive(Default, Debug, bitcode::Encode, bitcode::Decode)]
+// struct FinalEntryLite {
+//   title: String,
+
+//   rom_total_size: usize,
+//   crc32: String,
+//   sha1: String,
+//   sum16: String,
+
+//   prg_size: usize,
+//   chr_size: Option<usize>,
+//   prgram_size: Option<usize>,
+//   prgnvram_size: Option<usize>,
+//   chrram_size: Option<usize>,
+//   chrnvram_size: Option<usize>,
+
+//   mapper: usize,
+//   submapper: usize,
+//   mirroring: Mirroring,
+//   battery: bool,
+//   region: Region,
+  
+//   console: u8,
+//   expansions: u8,
+// }
+impl From<&FinalEntry> for GameData {
+  fn from(value: &FinalEntry) -> Self {
+    Self {
+      prg_size: value.prg.size,
+      chr_size: value.chr.clone().and_then(|it| Some(it.size)),
+      
+      title: value.title.clone(),
+      rom_total_size: value.rom.size,
+      crc32: value.rom.crc32.clone(),
+      sha1: value.rom.sha1.clone(),
+      sum16: value.rom.sum16.clone(),
+      
+      prgram_size: value.prgram_size,
+      prgnvram_size: value.prgnvram_size,
+      chrram_size: value.chrram_size,
+      chrnvram_size: value.chrnvram_size,
+      mapper: value.mapper,
+      submapper: value.submapper,
+      mirroring: value.mirroring.into(),
+      battery: value.battery,
+      region: value.region.into(),
+      console: value.console,
+      expansions: value.expansions,
+    }
+  }
 }
 
 #[test]
@@ -199,7 +273,17 @@ fn parse_db() {
     final_entries.push(final_entry);
   }
 
-  fs::create_dir("./db_tests").unwrap();
+  let categories = final_entries.iter()
+    .map(|x| x.category.clone())
+    .collect::<HashSet<_>>();
+
+  println!("{categories:?}");
+
+  let lite = final_entries.iter()
+    .map(|x| GameData::from(x))
+    .collect::<Vec<_>>();
+
+  _ = fs::create_dir("./db_tests");
 
   let create_file = |name: &str| {
     let file = std::fs::File::create(format!("./db_tests/nes20db_good{}", name)).unwrap();
@@ -231,6 +315,15 @@ fn parse_db() {
   gzip.write_all(&bin).unwrap();
   let gzip = gzip.finish().unwrap();
   let mut out = create_file(".bitcode.gzip");
+  out.write_all(&gzip).unwrap();
+
+  let mut out = create_file(".final.bitcode");
+  let bin = bitcode::encode(&lite);
+  out.write_all(&bin).unwrap();
+  let mut gzip = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
+  gzip.write_all(&bin).unwrap();
+  let gzip = gzip.finish().unwrap();
+  let mut out = create_file(".final.bitcode.gzip");
   out.write_all(&gzip).unwrap();
 }
 

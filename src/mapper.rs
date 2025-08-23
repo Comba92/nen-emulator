@@ -8,7 +8,7 @@ pub trait Mapper {
 
   // TODO: temporary solution for MMC2
   fn notify_mmc2(&mut self, _addr: u16, _mem: &mut MemHandler) {}
-  fn notify_mmc3(&mut self, mem: &mut MemHandler) {}
+  fn notify_mmc3(&mut self, _mem: &mut MemHandler) {}
 }
 
 pub fn mapper_from_header(header: &CartHeader, mem: &mut MemHandler) -> Result<Box<dyn Mapper>, String> {

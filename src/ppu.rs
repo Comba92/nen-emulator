@@ -1,5 +1,5 @@
 use bitflags::Flags;
-use crate::{dma::Dma, emu::{self, Emu}, utils::{byte_set_hi, byte_set_lo}};
+use crate::{dma::Dma, emu::Emu, utils::{byte_set_hi, byte_set_lo}};
 
 bitflags::bitflags! {
   #[derive(Default, Debug)]
@@ -788,11 +788,10 @@ impl Emu {
         self.mem.ppu_scanline = self.ppu.scanline;
         let ppu = &mut self.ppu;
         
+        ppu.pixel = 0;
         ppu.odd_frame = !ppu.odd_frame;
         ppu.vblank_suppress = false;
         ppu.nmi_suppress = false;
-
-        ppu.pixel = 0;
 
         // first scanline shouldn't render any sprite
         ppu.spr_scanline.0.fill(0.into());
@@ -841,7 +840,7 @@ impl Emu {
 
   fn prerender_step(&mut self) {
     let ppu = &mut self.ppu;
-    
+
     if !ppu.rendering_enabled() {
       if ppu.cycle == 1 {
         ppu.stat.clear();
@@ -863,7 +862,7 @@ impl Emu {
         self.restore_scroll_x();
         self.spr_fetch_step();
       }
-      260 => {
+      261 => {
         self.mapper.notify_mmc3(&mut self.mem);
         self.spr_fetch_step();
       }

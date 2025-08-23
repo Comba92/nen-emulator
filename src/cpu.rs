@@ -1,5 +1,5 @@
 use std::ops::{Shl, Shr};
-use crate::emu::{self, Emu};
+use crate::emu::Emu;
 
 enum AddressingMode {
   Implied,

@@ -9,12 +9,24 @@ bitflags::bitflags! {
   }
 }
 
+pub enum CpuHandler {
+  RAM, PPU, IO, SRAM, PRG   
+}
+pub enum PpuHandler {
+  CHR, VRAM, Palette,
+}
+
 pub struct MemHandler {
   ram: [u8; 2 * 1024],
   prg: Vec<u8>,
   sram: Vec<u8>,
   chr: Vec<u8>,
   pub vram: [u8; 2 * 1024],
+
+  // 64kb / 4kb = 16
+  cpu_handlers_4kb: [CpuHandler; 16],
+  // 16kb / 1kb = 16
+  ppu_handlers_1kb: [PpuHandler; 16],
 
   // TODO: consider keeping this in PPU
   pub palettes: [u8; 32],
@@ -47,7 +59,7 @@ impl BankingHandler {
     Self {
       prg: Banking::new_prg(header, 2),
       chr: Banking::new_chr(header, 1),
-      sram: Banking::new_sram(),
+      sram: Banking::new_sram(header),
       vram: Banking::new_vram(header),
     }
   }
@@ -175,8 +187,8 @@ impl Default for Banking<ChrBank> {
 }
 
 impl Banking<SramBank> {
-  pub fn new_sram() -> Self {
-    Self::new(8 * 1024, 0x6000, 8 * 1024, 1)
+  pub fn new_sram(header: &CartHeader) -> Self {
+    Self::new(header.prg_ram_size, 0x6000, 8 * 1024, 1)
   }
 }
 impl Default for Banking<SramBank> {
@@ -207,20 +219,19 @@ impl Banking<VramBank> {
         self.set_page(3, 1);
       }
       Mirroring::SingleScreenA => {
-        for i in 0..4 {
-          self.set_page(i, 0);
+        for i in 0..self.bankings.len() {
+          self.set_page(i as u8, 0);
         }
       }
       Mirroring::SingleScreenB => {
-        for i in 0..4 {
-          self.set_page(i, 1);
+        for i in 0..self.bankings.len() {
+          self.set_page(i as u8, 1);
         }
       }
       Mirroring::FourScreens => {
-        todo!("four screens mirroring");
-        // for i in 0..4 {
-        //   self.set_page(i, i);
-        // }
+        for i in 0..self.bankings.len() {
+          self.set_page(i as u8, i as u8);
+        }
       }
     }
   }
@@ -236,19 +247,61 @@ impl MemHandler {
     let mut banks = BankingHandler::new(&cart.header);
     banks.vram.mirror(&cart.header.mirroring);
 
+    let cpu_handlers_4kb = [
+      CpuHandler::RAM,
+      CpuHandler::RAM,
+      CpuHandler::PPU,
+      CpuHandler::PPU,
+      CpuHandler::IO,
+      CpuHandler::IO,
+      CpuHandler::SRAM,
+      CpuHandler::SRAM,
+      CpuHandler::PRG,
+      CpuHandler::PRG,
+      CpuHandler::PRG,
+      CpuHandler::PRG,
+      CpuHandler::PRG,
+      CpuHandler::PRG,
+      CpuHandler::PRG,
+      CpuHandler::PRG,
+    ];
+
+    let ppu_handlers_1kb = [
+      PpuHandler::CHR,
+      PpuHandler::CHR,
+      PpuHandler::CHR,
+      PpuHandler::CHR,
+      PpuHandler::CHR,
+      PpuHandler::CHR,
+      PpuHandler::CHR,
+      PpuHandler::CHR,
+      PpuHandler::VRAM,
+      PpuHandler::VRAM,
+      PpuHandler::VRAM,
+      PpuHandler::VRAM,
+      PpuHandler::VRAM,
+      PpuHandler::VRAM,
+      PpuHandler::VRAM,
+      PpuHandler::Palette
+    ];
+
     Ok(Self {
       ram: [0; 2* 1024],
       prg: cart.prg,
       chr: cart.chr,
       vram: [0; 2 * 1024],
-      sram: vec![0; 8 * 1024],
+      sram: vec![0; cart.header.prg_ram_size],
       palettes: [0; 32],
+
+      cpu_handlers_4kb,
+      ppu_handlers_1kb,
 
       cpu_addr_bus: 0,
       cpu_data_bus: 0,
       ppu_addr_bus: 0,
+      
       ppu_cycle: 0,
-      ppu_scanline: 261,
+      ppu_scanline: 0,
       
       nmi: false,
       irq: IrqFlags::empty(),
@@ -265,16 +318,19 @@ impl Emu {
     // TODO: cpu tick here
     // Be sure to remove ticks in dma and cpu reads
 
-    let res = match addr {
-      0x0000..=0x1fff => mem.ram[addr as usize & 0x07ff],
-      0x2000..=0x3fff => {
-        self.ppu_reg_read(addr & 0x2007)
+    let handler = (addr >> 12) % 16;
+
+    let res = match mem.cpu_handlers_4kb[handler as usize] {
+      CpuHandler::RAM => mem.ram[addr as usize & 0x07ff],
+      CpuHandler::PPU => self.ppu_reg_read(addr & 0x2007),
+      CpuHandler::IO => {
+        if matches!(addr, 0x4000..=0x4013 | 0x4015 | 0x4017) {
+          self.apu_reg_read(addr)
+        } else if addr == 0x4016 { self.joypad.read() | (mem.cpu_data_bus & 0xe0) }
+        else { mem.cpu_data_bus }
       }
-      0x4000..=0x4013 | 0x4015 | 0x4017 => self.apu_reg_read(addr),
-      0x4016 => self.joypad.read() | (mem.cpu_data_bus & 0xe0),
-      0x6000..=0x7fff => mem.sram[(addr as usize - 0x6000) & 0x1fff],
-      0x8000..=0xffff => mem.prg[mem.banks.prg.translate(addr)],
-      _ => mem.cpu_data_bus,
+      CpuHandler::SRAM => mem.sram[(addr as usize - 0x6000) & 0x1fff],
+      CpuHandler::PRG => mem.prg[mem.banks.prg.translate(addr)],
     };
     
     self.mem.cpu_addr_bus = addr;
@@ -288,11 +344,18 @@ impl Emu {
     // TODO: cpu tick here
     // Be sure to remove ticks in dma and cpu reads
 
-    match addr {
-      0x0000..=0x1fff => mem.ram[addr as usize & 0x07ff] = val,
-      0x2000..=0x3fff => self.ppu_reg_write(addr & 0x2007, val),
-      0x4000..=0x4013 | 0x4015 | 0x4017 => self.apu_reg_write(addr, val),
-      0x4014 => self.ppu.dma.load((val as u16) << 8, 256),
+    let handler = (addr >> 12) % 16;
+
+    match mem.cpu_handlers_4kb[handler as usize] {
+      CpuHandler::RAM => mem.ram[addr as usize & 0x07ff] = val,
+      CpuHandler::PPU => self.ppu_reg_write(addr & 0x2007, val),
+      CpuHandler::IO => {
+        if matches!(addr, 0x4000..=0x4013 | 0x4015 | 0x4017) {
+          self.apu_reg_write(addr, val)
+        } else if addr == 0x4014 { 
+          self.ppu.dma.load((val as u16) << 8, 256)
+        } else if addr == 0x4016 { self.joypad.write(val) }
+      }
       // 0x4014 => {        
       //   // https://www.nesdev.org/wiki/PPU_registers#OAMDMA_-_Sprite_DMA_($4014_write)
       //   self.cpu_tick();
@@ -309,11 +372,8 @@ impl Emu {
       //     self.ppu.oam_write(byte);
       //   }
       // }
-
-      0x4016 => self.joypad.write(val),
-      0x6000..=0x7fff => mem.sram[(addr as usize - 0x6000) & 0x1fff] = val,
-      0x8000..=0xffff => self.mapper.prg_write(mem, addr, val),
-      _ => {},
+      CpuHandler::SRAM => mem.sram[mem.banks.sram.translate(addr)] = val,
+      CpuHandler::PRG  => self.mapper.prg_write(mem, addr, val),
     }
 
     self.mem.cpu_addr_bus = addr;
@@ -321,19 +381,24 @@ impl Emu {
   }
 
   // TODO: restore ppu_addr_bus assignments when MMC3 works
+  
   pub fn ppu_dispatch_read(&mut self, addr: u16) -> u8 {
     let mem = &mut self.mem;
     
-    let addr = addr & 0x3fff;
-    let res = match addr {
-      0x0000..=0x1fff => self.ppu_chr_read(addr),
-      0x2000..=0x3eff => self.ppu_vram_read(addr & 0x2fff),
-      0x3f00..=0x3fff => self.ppu_palette_read(addr),
-      // Video memory's data bus is multiplexed with the low byte of the address bus on pins 31 through 38. Thus a read from an address with no memory connected will usually return the low byte of the address.
-      _ => {
-        let res = mem.ppu_addr_bus as u8;
-        // self.mem.ppu_addr_bus = addr;
-        res
+    let handler = (addr >> 10) % 16;
+
+    let res = match mem.ppu_handlers_1kb[handler as usize] {
+      PpuHandler::CHR => self.ppu_chr_read(addr),
+      PpuHandler::VRAM => self.ppu_vram_read(addr & 0x2fff),
+      PpuHandler::Palette => {
+        if matches!(addr, 0x3f00..=0x3fff) {
+          self.ppu_palette_read(addr)
+        } else {
+          // Video memory's data bus is multiplexed with the low byte of the address bus on pins 31 through 38. Thus a read from an address with no memory connected will usually return the low byte of the address.
+          let res = mem.ppu_addr_bus as u8;
+          self.mem.ppu_addr_bus = addr;
+          res
+        }
       }
     };
 
@@ -343,13 +408,13 @@ impl Emu {
   pub fn ppu_chr_read(&mut self, addr: u16) -> u8 {
     let res = self.mem.chr[self.mem.banks.chr.translate(addr)];
     self.mapper.notify_mmc2(addr, &mut self.mem);
-    // self.mem.ppu_addr_bus = addr;
+    self.mem.ppu_addr_bus = addr;
     res
   }
 
   pub fn ppu_vram_read(&mut self, addr: u16) -> u8 {
     let res = self.mem.vram[self.mem.banks.vram.translate(addr)];
-    // self.mem.ppu_addr_bus = addr;
+    self.mem.ppu_addr_bus = addr;
     res
   }
 
@@ -361,34 +426,36 @@ impl Emu {
       self.mem.palettes[pal]
     };
 
-    // self.mem.ppu_addr_bus = addr;
+    self.mem.ppu_addr_bus = addr;
     res
   }
 
   pub fn ppu_dispatch_write(&mut self, addr: u16, val: u8) {
     let mem = &mut self.mem;
 
-    let addr = addr & 0x3fff;
-    match addr {
-      0x0000..=0x1fff => mem.chr[mem.banks.chr.translate(addr)] = val,
-      0x2000..=0x3eff => mem.vram[mem.banks.vram.translate(addr & 0x2fff)] = val,
-      0x3f00..=0x3fff => {
-        let addr = (addr as usize - 0x3f00) & 31;
-        let val = val & 0b11_1111;
-        
-        // if we're writing a transparent color
-        if addr % 4 == 0 {
-          // write both backdrop colors
-          mem.palettes[addr & 0xf] = val;
-          mem.palettes[addr & 0xf + 16] = val;
-        } else {
-          // write palette color as is
-          mem.palettes[addr] = val;
+    let handler = (addr >> 10) % 16;
+
+    match mem.ppu_handlers_1kb[handler as usize] {
+      PpuHandler::CHR => mem.chr[mem.banks.chr.translate(addr)] = val,
+      PpuHandler::VRAM => mem.vram[mem.banks.vram.translate(addr & 0x2fff)] = val,
+      PpuHandler::Palette => {
+        if matches!(addr, 0x3f00..=0x3fff) {
+          let addr = (addr as usize - 0x3f00) & 31;
+          let val = val & 0b11_1111;
+          
+          // if we're writing a transparent color
+          if addr % 4 == 0 {
+            // write both backdrop colors
+            mem.palettes[addr & 0xf] = val;
+            mem.palettes[addr & 0xf + 16] = val;
+          } else {
+            // write palette color as is
+            mem.palettes[addr] = val;
+          }
         }
       }
-      _ => {},
     }
 
-    // mem.ppu_addr_bus = addr;
+    mem.ppu_addr_bus = addr;
   }
 }

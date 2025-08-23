@@ -1,6 +1,6 @@
-use std::{collections::VecDeque, sync::LazyLock};
+use std::sync::LazyLock;
 
-use crate::{apu::ApuRP2A, bus::MemHandler, cart::{Cart, CartHeader}, cpu::{self, Cpu6502}, dma::Dma, joypad::Joypad, mapper::{mapper_from_header, Mapper, NROM}, ppu::Ppu2C02};
+use crate::{apu::ApuRP2A, bus::MemHandler, cart::{Cart, CartHeader}, cpu::{self, Cpu6502}, joypad::Joypad, mapper::{mapper_from_header, Mapper, NROM}, ppu::Ppu2C02};
 
 pub struct Emu {
   pub cpu: Cpu6502,
@@ -21,7 +21,7 @@ pub struct Emu {
   audiobuf: [i16; 1024],
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, bitcode::Encode, bitcode::Decode)]
 pub enum Mirroring {
   #[default] Horizontal,
   Vertical,
@@ -30,8 +30,8 @@ pub enum Mirroring {
   FourScreens
 }
 
-#[derive(Debug, Default)]
-enum Region {
+#[derive(Debug, Default, Clone, bitcode::Encode, bitcode::Decode)]
+pub enum Region {
   #[default] NTSC, PAL, World, Dendy
 }
 

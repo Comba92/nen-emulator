@@ -1,4 +1,4 @@
-use nes_emulator::{emu::{Emu, DEFAULT_PALETTE}, joypad::NesButtons};
+use nes_emulator::{emu::Emu, joypad::NesButtons};
 use sdl2::{event::Event, keyboard::Keycode, pixels::PixelFormatEnum};
 
 fn main() {
@@ -38,9 +38,9 @@ fn main() {
 
     let mut framebuf = [0; 256 * 240 * 4];
 
-    let mut avg_missed = 0;
-    let mut frames_missed = 0;
-    let mut frames_count = 0;
+    // let mut avg_missed = 0;
+    // let mut frames_missed = 0;
+    // let mut frames_count = 0;
     'running: loop {
         let frame_start = timer.ticks64();
 

@@ -6,6 +6,8 @@ mod mapper;
 mod ppu;
 mod apu;
 
+pub mod games_db;
+
 mod utils {  
   // pub fn bit_get(x: u8, bit: u8) -> bool { (x >> bit) & 1 == 1 }
   // pub fn bit_set(x: u8, flags: u8) -> u8 { x | flags }
