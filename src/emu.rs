@@ -1,13 +1,13 @@
 use std::sync::LazyLock;
 
-use crate::{apu::ApuRP2A, bus::MemHandler, cart::{Cart, CartHeader}, cpu::{self, Cpu6502}, joypad::Joypad, mapper::{mapper_from_header, Mapper, NROM}, ppu::Ppu2C02};
+use crate::{apu::ApuRP2A, bus::Bus, cart::{Cart, CartHeader}, cpu::{self, Cpu6502}, joypad::Joypad, mapper::{mapper_from_header, Mapper, NROM}, ppu::Ppu2C02};
 
 pub struct Emu {
   pub cpu: Cpu6502,
   pub ppu: Ppu2C02,
   pub apu: ApuRP2A,
   pub joypad: Joypad,
-  pub mem: MemHandler,
+  pub mem: Bus,
   pub mapper: Box<dyn Mapper>,
 
   #[cfg(feature = "ram64kb")]
@@ -42,7 +42,7 @@ impl Default for Emu {
       ppu: Ppu2C02::new(),
       apu: ApuRP2A::new(),
       joypad: Joypad::default(),
-      mem: MemHandler::new(Cart::default()).unwrap(),
+      mem: Bus::new(Cart::default()).unwrap(),
       mapper: Box::new(NROM),
       
       #[cfg(feature = "ram64kb")]
@@ -62,7 +62,7 @@ impl Emu {
     let cart = Cart::new(rom)?;
 
     let rom_header = cart.header.clone();
-    let mut mem = MemHandler::new(cart)?;
+    let mut mem = Bus::new(cart)?;
     let mapper = mapper_from_header(&rom_header, &mut mem)?;
     
     let mut emu = Self {

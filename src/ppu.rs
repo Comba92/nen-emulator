@@ -138,7 +138,7 @@ struct SprScanlineData {
 
 struct SprScanline([SprScanlineData; 256]);
 impl Default for SprScanline {
-  fn default() -> Self { Self([SprScanlineData::default(); 256]) }
+  fn default() -> Self { Self([0.into(); 256]) }
 }
 
 // Clear explanation of how PPU works in Rust
@@ -316,14 +316,14 @@ impl Emu {
 
   fn increase_addr(&mut self) {
     let ppu = &mut self.ppu;
-    if !ppu.is_rendering() {
+    // if !ppu.is_rendering() {
       ppu.v.0 = (ppu.v.0.wrapping_add(ppu.ctrl.vram_addr_inc)) & 0x7fff;
       self.update_ppu_bus(self.ppu.v.0);
-    } else {
+    // } else {
       // https://www.nesdev.org/wiki/PPU_scrolling#$2007_(PPUDATA)_reads_and_writes
       //   self.inc_scroll_x();
       //   self.inc_scroll_y();
-    }
+    // }
   }
 
   fn inc_scroll_x(&mut self) {
@@ -541,10 +541,10 @@ impl Emu {
       // https://www.nesdev.org/wiki/PPU_scrolling#Tile_and_attribute_fetching
       0 => {
         self.ppu.shifter_load_from_fetcher();
-        self.ppu.fetcher.nametbl = self.ppu_vram_read(self.ppu.nametbl_addr());
+        self.ppu.fetcher.nametbl = self.ppu_dispatch_read(self.ppu.nametbl_addr());
       }
       2 => {        
-        let attr = self.ppu_vram_read(self.ppu.attribute_addr());
+        let attr = self.ppu_dispatch_read(self.ppu.attribute_addr());
         // we fetched the attribute, now we have to extract the correct 2 bits
         self.ppu.fetcher.attribute = self.ppu.palette_from_attribute(attr);
       }
@@ -552,11 +552,11 @@ impl Emu {
       4 => {
         let addr = self.ppu.bg_pttrn_addr();
         self.ppu.fetcher.pttrn_addr = addr;
-        self.ppu.fetcher.pttrn_lo = self.ppu_chr_read(addr);
+        self.ppu.fetcher.pttrn_lo = self.ppu_dispatch_read(addr);
       }
       6 => {
         self.ppu.fetcher.pttrn_hi = self
-          .ppu_chr_read(self.ppu.fetcher.pttrn_addr + 8);
+          .ppu_dispatch_read(self.ppu.fetcher.pttrn_addr + 8);
 
         // IMPORTANT: increase v by one
         self.inc_scroll_x();
@@ -573,11 +573,11 @@ impl Emu {
     match (ppu.cycle - 1) % 8 {
       0 => {
         // unused nt fetch
-        self.ppu_vram_read(self.ppu.nametbl_addr());
+        self.ppu_dispatch_read(self.ppu.nametbl_addr());
       }
       2 => {
         // ignored nt fetch
-        self.ppu_vram_read(self.ppu.nametbl_addr());
+        self.ppu_dispatch_read(self.ppu.nametbl_addr());
       }
       4 => {
         let spr_id = (ppu.cycle - 257) / 8;
@@ -587,7 +587,7 @@ impl Emu {
         ppu.fetcher.pttrn_addr = pttrn_addr;
         let flip_hori = sprite.flip_hori();
 
-        let mut pttrn = self.ppu_chr_read(pttrn_addr);
+        let mut pttrn = self.ppu_dispatch_read(pttrn_addr);
         if flip_hori { pttrn = pttrn.reverse_bits(); }
 
         self.ppu.oam_tmp[spr_id as usize].pttrn_lo = pttrn;
@@ -599,7 +599,7 @@ impl Emu {
         let pttrn_addr = ppu.fetcher.pttrn_addr;
         let flip_hori = sprite.flip_hori();
 
-        let mut pttrn = self.ppu_chr_read(pttrn_addr + 8);
+        let mut pttrn = self.ppu_dispatch_read(pttrn_addr + 8);
         if flip_hori { pttrn = pttrn.reverse_bits(); }
 
         self.ppu.oam_tmp[spr_id as usize].pttrn_hi = pttrn;
@@ -634,7 +634,7 @@ impl Emu {
   }
 
   // pre-computes a scanline of sprite data for later, so that we don't need any check when mixing with background
-  fn spr_compute_scanline(&mut self) {
+  fn spr_compute_next_scanline(&mut self) {
     self.ppu.spr_scanline.0.fill(0.into());
 
     // fetch sprites over sprite limit
@@ -644,8 +644,8 @@ impl Emu {
 
     //   let flip_hori = sprite.flip_hori();
 
-    //   let mut pttrn_lo = self.ppu_chr_read(pttrn_addr);
-    //   let mut pttrn_hi = self.ppu_chr_read(pttrn_addr + 8);
+    //   let mut pttrn_lo = self.ppu_dispatch_read(pttrn_addr);
+    //   let mut pttrn_hi = self.ppu_dispatch_read(pttrn_addr + 8);
       
     //   if flip_hori {
     //     pttrn_lo = pttrn_lo.reverse_bits(); 
@@ -726,6 +726,7 @@ impl Emu {
     }
 
     // TODO: can do this without ifs?
+    // TODO: something is off with sprite priority in front of backgrounds
     let color_id = if ppu.mask.contains(Mask::SprEnable) && spr_pixel > 0 && (spr_data.priority() || bg_pixel == 0) {
       self.spr_color_from_palette(spr_data.palette(), spr_pixel)
     } else if ppu.mask.contains(Mask::BgEnable) && bg_pixel > 0 {
@@ -803,7 +804,6 @@ impl Emu {
     }
 
     match ppu.cycle {
-      0 => self.spr_compute_scanline(),
       1..=255 => {
         // render pixel goes after the fetch, because at this time, the new tile hasnt been loaded into the shifters yet
         self.bg_fetch_step();
@@ -820,7 +820,8 @@ impl Emu {
       }
       257..=320 => self.spr_fetch_step(),
       321..=336 => self.bg_fetch_step(),
-      337 | 339 => { self.ppu_vram_read(self.ppu.nametbl_addr()); }
+      337 | 339 => { self.ppu_dispatch_read(self.ppu.nametbl_addr()); }
+      340 => self.spr_compute_next_scanline(),
       _ => {}
     }
   }
@@ -854,12 +855,12 @@ impl Emu {
         self.restore_scroll_y();
         self.spr_fetch_step();
       }
-      337 => { self.ppu_vram_read(self.ppu.nametbl_addr()); }
+      337 => { self.ppu_dispatch_read(self.ppu.nametbl_addr()); }
       339 => {
         if ppu.odd_frame && ppu.rendering_enabled() {
           ppu.cycle += 1;
         }
-        self.ppu_vram_read(self.ppu.nametbl_addr());
+        self.ppu_dispatch_read(self.ppu.nametbl_addr());
       }
       _ => {}
     }

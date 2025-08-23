@@ -44,7 +44,7 @@ impl Cart {
     header.prg_size = bytes[4] as usize * 16 * 1024;
     header.has_chr_ram = bytes[5] == 0;
     header.chr_size = if header.has_chr_ram { 8 * 1024 } else { bytes[5] as usize * 8 * 1024 };
-    // we default sram to 8kb
+    // we default wram to 8kb
     header.prg_ram_size = 8 * 1024;
 
     header.mirroring = match bytes[6] & 1 {
