@@ -101,6 +101,12 @@ impl<T: BankCfg + std::fmt::Debug> Banking<T> {
     }
   }
 
+  pub fn set_page_n(&mut self, page: u8, bank: u8, n: u8) {
+    for i in 0..n {
+      self.set_page(page + i, bank + i);
+    }
+  }
+
   pub fn set_page_to_last_bank(&mut self, page: u8) {
     self.set_page(page, self.banks_count as u8-1);
   }
@@ -225,12 +231,12 @@ bitflags::bitflags! {
   }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum CpuHandler {
   Ram, Ppu, IO, Wram, Prg, PrgInWram, Mapper,  
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum PpuHandler {
   Chr, Vram, Palette, ChrInVram, VramInChr,
 }
