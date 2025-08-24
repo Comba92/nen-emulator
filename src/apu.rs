@@ -3,13 +3,13 @@ use blip_buf::BlipBuf;
 use crate::{bus::{self, IrqFlags}, dma::Dma, emu::Emu, utils::{byte_set_hi, byte_set_lo}};
 
 #[derive(Default)]
-struct DividerCounter {
+pub struct DividerCounter {
   count: u16,
   pub period: u16,
 }
 
 impl DividerCounter {
-  fn step<F: FnOnce()>(&mut self, callback: F){
+  pub fn step<F: FnOnce()>(&mut self, callback: F){
     if self.count > 0 {
       self.count -= 1;
     } else {
@@ -48,10 +48,6 @@ impl LengthCounter {
     }
   }
 
-  fn is_enabled(&self) -> bool {
-    self.count > 0
-  }
-
   fn enable(&mut self, cond: bool) {
     self.enabled = cond;
     self.count = if cond { self.count } else { 0 };
@@ -69,6 +65,8 @@ struct Envelope {
 
 impl Envelope {
   fn step(&mut self) {
+    // TODO: volume can be precomputed here
+
     self.div.step(|| {
       if self.decay > 0 {
         self.decay -= 1;
@@ -89,6 +87,8 @@ impl Envelope {
     self.looping    = val & 0x20 != 0;
     self.use_volume = val & 0x10 != 0;
     self.div.period = val as u16 & 0xf;
+
+    // TODO: volume can be precomputed here 
   }
 
   fn volume(&self) -> u8 {
@@ -199,6 +199,7 @@ impl Pulse {
 
   fn sample(&self) -> u8 {
     if self.len.count > 0 && !self.is_muted() {
+      // TODO: might be difficult, but output can be precomputed
       let seq = Self::DUTIES[self.duty_cycle as usize][self.duty_seq as usize];
       seq * self.env.volume()
     } else {
@@ -228,7 +229,6 @@ impl Triangle {
     self.div.step(|| {
       // The sequencer is clocked by the timer as long as both the linear counter and the length counter are nonzero.
       
-      // TODO: filter out ultrasonic frequencies
       if self.len.count > 0 && self.linear_count > 0 {
         self.sequence = (self.sequence + 1) % Self::TABLE.len() as u8;
       }
@@ -255,6 +255,8 @@ impl Triangle {
   fn sample(&self) -> u8 {
     // At the expense of accuracy, these can be eliminated in an emulator e.g. by halting the triangle channel when an ultrasonic frequency is set (a timer value less than 2). 
     // Other games, e.g. Zombie Nation and Bullet-Proof Software's Tetris, "silence" the triangle channel by setting the timer to $7FF, which produces a deep rumble and quiet whine. 
+    
+    // TODO: precompute output
     if 2 <= self.div.period && self.div.period < 0x7ff {
       Self::TABLE[self.sequence as usize]
     } else {
@@ -297,6 +299,8 @@ impl Noise {
   }
 
   fn sample(&self) -> u8 {
+    // TODO: precompute output
+
     if self.len.count > 0 {
       !(self.shift & 1 == 0) as u8 * self.env.volume()
     } else {
@@ -456,21 +460,20 @@ impl Emu {
     match addr {
       0x4015 => {
         let mut res = 0;
-        res |= ((apu.p0.len.count  > 0) as u8) << 0;
+        res |= ((apu.p0.len.count > 0) as u8) << 0;
         res |= ((apu.p1.len.count  > 0) as u8) << 1;
         res |= ((apu.tri.len.count > 0) as u8) << 2;
         res |= ((apu.noise.len.count > 0) as u8) << 3;
         res |= ((apu.dmc.dma.remaining > 0) as u8) << 4;
+        res |= self.mem.cpu_data_bus & 0x10;
         res |= (self.mem.irq.contains(IrqFlags::FRAME) as u8) << 6;
         res |= (self.mem.irq.contains(IrqFlags::DMC) as u8) << 7;
 
         // TODO: If an interrupt flag was set at the same moment of the read, it will read back as 1 but it will not be cleared.
         self.mem.irq.remove(IrqFlags::FRAME);
-        // TODO: bit 5 open bus
         res
       }
-      // TODO: open bus
-      _ => 0,
+      _ => self.mem.cpu_data_bus,
     }
   }
 
@@ -600,7 +603,9 @@ impl Emu {
       + 0.00494 * apu.noise.sample() as f32
       + 0.00335 * apu.dmc.sample() as f32;
 
-    let sample = (pulse + tnd) * 80000.0;
+    let ext = self.mapper.sample() * 0.00568;
+
+    let sample = (pulse + tnd + ext) * 80000.0;
     let delta = sample - apu.prev_sample;
 
     apu.blip.0.add_delta(apu.cycles as u32, delta as i32);

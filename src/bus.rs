@@ -20,7 +20,7 @@ impl BankCfg for VramBank {}
 
 #[derive(Debug)]
 pub struct Banking<T: BankCfg> {
-  rom_size: usize,
+  real_size: usize,
   pages_size: u16,
   bank_size: u16,
   bank_size_shift: u16,
@@ -31,16 +31,16 @@ pub struct Banking<T: BankCfg> {
 }
 
 impl<T: BankCfg + std::fmt::Debug> Banking<T> {
-  pub fn new(rom_size: usize, addressable_size: u16, pages_count: u16) -> Self {
+  pub fn new(real_size: usize, addressable_size: u16, pages_count: u16) -> Self {
     let bankings = vec![0; pages_count as usize];
     let bank_size = addressable_size / pages_count;
-    let banks_count = (rom_size / bank_size as usize) as u16;
+    let banks_count = (real_size / bank_size as usize) as u16;
 
     // https://stackoverflow.com/questions/25787613/division-and-multiplication-by-power-of-2
     let bank_size_shift = bank_size.checked_ilog2().unwrap_or_default() as u16;
 
     Self {
-      rom_size,
+      real_size,
       bank_size,
       bank_size_shift,
       banks_count,
@@ -63,14 +63,13 @@ impl<T: BankCfg + std::fmt::Debug> Banking<T> {
 
     // TODO: can this be changed to a shift?
     self.bank_size = self.pages_size / pages_count;
-    self.banks_count = (self.rom_size / self.bank_size as usize) as u16;
+    self.banks_count = (self.real_size / self.bank_size as usize) as u16;
     self.bank_size_shift = self.bank_size.ilog2() as u16;
   }
 
   pub fn change_size(&mut self, size: usize) {
-    self.rom_size = size;
-    self.banks_count = (self.rom_size / self.bank_size as usize) as u16;
-    println!("{self:?}");
+    self.real_size = size;
+    self.banks_count = (self.real_size / self.bank_size as usize) as u16;
   }
 
   pub fn set_page(&mut self, page: u8, bank: u8) {
@@ -82,7 +81,7 @@ impl<T: BankCfg + std::fmt::Debug> Banking<T> {
     self.bankings[page as usize] = bank << self.bank_size_shift;
   }
 
-  pub fn set_page2(&mut self, page: u8, bank: u8) {    
+  pub fn set_page2x(&mut self, page: u8, bank: u8) {    
     let page = page & !1;
     self.set_page(page, bank);
     self.set_page(page + 1, bank + 1);
@@ -214,13 +213,14 @@ bitflags::bitflags! {
 
 #[derive(Clone, Copy)]
 pub enum CpuHandler {
-  Ram, Ppu, IO, Wram, Prg, PrgInWram,  
+  Ram, Ppu, IO, Wram, Prg, PrgInWram, Mapper,  
 }
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum PpuHandler {
   Chr, Vram, Palette, ChrInVram,
 }
+// TODO: unused handler might be useful for ram disabling
 
 // TODO: access prg, chr, sram, vram with unsafe uncheked get, as index bounds cannot be optimized
 pub struct Bus {
@@ -228,7 +228,8 @@ pub struct Bus {
   pub prg: Vec<u8>,
   pub wram: Vec<u8>,
   pub chr: Vec<u8>,
-  pub vram: [u8; 2 * 1024],
+  // this has to be a vec (even if it is 2kb 99% of times), as some games can set it to 4kb
+  pub vram: Vec<u8>,
 
   // 64kb / 4kb = 16
   pub cpu_handlers_4kb: [CpuHandler; 16],
@@ -238,8 +239,9 @@ pub struct Bus {
   // TODO: consider keeping this in PPU
   pub palettes: [u8; 32],
 
+  // TODO: this is not really used anywhere, remove it
   cpu_addr_bus: u16,
-  cpu_data_bus: u8,
+  pub cpu_data_bus: u8,
   pub ppu_addr_bus: u16,
 
   // TODO: remove these, only used for DEBUG porpuoses
@@ -296,10 +298,10 @@ impl Bus {
     ];
 
     Ok(Self {
-      ram: [0; 2* 1024],
+      ram: [0; 2 * 1024],
       prg: cart.prg,
       chr: cart.chr,
-      vram: [0; 2 * 1024],
+      vram: vec![0; 2 * 1024],
       wram: vec![0; cart.header.prg_ram_size],
       palettes: [0; 32],
 
@@ -353,6 +355,7 @@ impl Emu {
           self.mapper.cart_read(mem, addr) | mem.cpu_data_bus 
         }
       }
+      CpuHandler::Mapper => self.mapper.cart_read(mem, addr),
       CpuHandler::Wram => mem.wram[mem.banks.wram.translate(addr)],
       CpuHandler::Prg => mem.prg[mem.banks.prg.translate(addr)],
       CpuHandler::PrgInWram => mem.prg[mem.banks.wram.translate(addr)],
@@ -398,9 +401,9 @@ impl Emu {
       //     self.ppu.oam_write(byte);
       //   }
       // }
+      CpuHandler::Mapper => self.mapper.cart_write(mem, addr, val),
       CpuHandler::Wram => mem.wram[mem.banks.wram.translate(addr)] = val,
-      CpuHandler::Prg  => self.mapper.prg_write(mem, addr, val),
-      CpuHandler::PrgInWram => self.mapper.prg_write(mem, addr, val),
+      CpuHandler::Prg | CpuHandler::PrgInWram => self.mapper.prg_write(mem, addr, val),
     }
 
     self.mem.cpu_addr_bus = addr;
@@ -440,18 +443,6 @@ impl Emu {
 
     res
   }
-
-  // pub fn ppu_chr_read(&mut self, addr: u16) -> u8 {
-  //   let res = self.mem.chr[self.mem.banks.chr.translate(addr)];
-  //   self.update_ppu_bus(addr);
-  //   res
-  // }
-
-  // pub fn ppu_vram_read(&mut self, addr: u16) -> u8 {
-  //   let res = self.mem.vram[self.mem.banks.vram.translate(addr)];
-  //   self.update_ppu_bus(addr);
-  //   res
-  // }
 
   pub fn ppu_palette_read(&mut self, addr: u16) -> u8 {
     let pal = addr as usize & 31;

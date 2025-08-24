@@ -29,6 +29,7 @@ pub struct GameData {
   pub expansions: u8,
 }
 
+// https://forums.nesdev.org/viewtopic.php?t=19940
 pub static GAMES_DB: LazyLock<HashMap<String, GameData>>  = LazyLock::new(|| {
   let db = include_bytes!("../utils/nes_games_db.bitcode.gzip").as_slice();
   

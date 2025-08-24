@@ -2,17 +2,12 @@ https://www.reddit.com/r/EmuDev/comments/pkgxws/what_cycles_really_are/
 https://www.reddit.com/r/EmuDev/comments/xta12t/confused_about_cycles_and_emulator_game_loop/
 
 # Mappers
+- https://www.nesdev.org/wiki/List_of_mappers_by_Release_Date
+
 - https://www.nesdev.org/wiki/MMC1#SxROM_connection_variants
 - https://www.nesdev.org/wiki/MMC6
 - https://www.nesdev.org/wiki/MMC5
 - https://www.nesdev.org/wiki/MMC4
-- https://www.nesdev.org/wiki/CPROM
 - https://www.nesdev.org/wiki/INES_Mapper_016 (Namco)
 - https://www.nesdev.org/wiki/VRC2_and_VRC4
-- https://www.nesdev.org/wiki/VRC6
-- https://www.nesdev.org/wiki/INES_Mapper_031
-- https://www.nesdev.org/wiki/INES_Mapper_068
-- https://www.nesdev.org/wiki/Sunsoft_FME-7
-- https://www.nesdev.org/wiki/INES_Mapper_078
 - https://www.nesdev.org/wiki/VRC7
-

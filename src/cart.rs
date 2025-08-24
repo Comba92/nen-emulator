@@ -47,14 +47,16 @@ impl Cart {
     // we default wram to 8kb
     header.prg_ram_size = 8 * 1024;
 
-    header.mirroring = match bytes[6] & 1 {
-      0 => Mirroring::Horizontal,
-      _ => Mirroring::Vertical
-    };
     header.mapper = ((bytes[7] & 0xf0) | (bytes[6] >> 4)) as u16;
     header.has_battery = bytes[6] & 0x2 != 0;
     header.has_trainer = bytes[6] & 0x4 != 0;
     header.alt_mirroring = bytes[6] & 0x8 != 0;
+
+    header.mirroring = match bytes[6] & 1 {
+      0 => Mirroring::Horizontal,
+      _ => Mirroring::Vertical
+    };
+
     let version = bytes[7] & 0xc;
 
     if version == 0x08 {
