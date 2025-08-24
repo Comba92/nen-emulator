@@ -110,6 +110,12 @@ struct Sweep {
   target_period: u16,
 }
 
+// TODO: implement this for audio stuff, to have a lil cleaner interface
+pub trait Channel {
+  fn step_divider(&mut self);
+  fn sample(&self) -> u8;
+}
+
 // https://www.nesdev.org/wiki/APU_Pulse
 #[derive(Default)]
 struct Pulse {

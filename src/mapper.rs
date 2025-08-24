@@ -21,12 +21,12 @@ pub fn mapper_from_header(header: &CartHeader, mem: &mut Bus) -> Result<Box<dyn 
     2 | 94 | 180 => UxROM::new(header, mem),
     3 | 185 => CNROM::new(header, mem),
     4 => MMC3::new(header, mem),
-    // 5 => MMC5::new(header, mem),
+    5 => MMC5::new(header, mem),
     7 => AxROM::new(header, mem),
     9 => MMC2::new(header, mem),
     11 => ColorDreams::new(header, mem),
     13 => CPROM::new(header, mem),
-    // 19 => Namco129_163::new(header, mem),
+    19 => Namco129_163::new(header, mem),
     24 | 26 => VRC6::new(header, mem),
     31 => NSF::new(header, mem),
     66 | 140 => GxROM::new(header, mem),
@@ -300,6 +300,7 @@ impl Mapper for IremTAMS1 {
 // TODO: SxROM support
 // Needs NES2.0 / db support for SRAM
 // TODO: prg rom write delay
+// TODO: get rid of change_mode
 #[derive(Default)]
 struct MMC1 {
   shift_reg: u8,
@@ -623,129 +624,110 @@ impl Mapper for MMC3 {
 // https://www.nesdev.org/wiki/INES_Mapper_019
 // TODO: audio
 // TODO: mapper 210 is similiar (but simpler) to this
-// struct Namco129_163 {
-//   exram: [u8; 128],
-//   irq_count: u16,
-//   irq_enabled: bool,
+// TODO: nothing's working, doesnt even start
+struct Namco129_163 {
+  exram: [u8; 128],
+  irq_count: u16,
+  irq_enabled: bool,
 
-//   chr_ram0: bool,
-//   chr_ram1: bool,
-// }
-// impl Mapper for Namco129_163 {
-//   fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
-//     mem.banks.prg = Banking::new_prg(header, 4);
-//     mem.banks.prg.set_page_to_last_bank(3);
+  chr_ram0: bool,
+  chr_ram1: bool,
+}
+impl Mapper for Namco129_163 {
+  fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
+    mem.banks.prg = Banking::new_prg(header, 4);
+    mem.banks.prg.set_page_to_last_bank(3);
 
-//     mem.banks.chr = Banking::new_chr(header, 12);
-//     mem.banks.vram = Banking::new(2 * 1024, 4 * 1024, 12);
+    mem.banks.chr = Banking::new_chr(header, 12);
 
-//     Box::new(Self {
-//       exram: [0; 128],
-//       irq_count: 0x7fff,
-//       irq_enabled: false,
+    Box::new(Self {
+      exram: [0; 128],
+      irq_count: 0x7fff,
+      irq_enabled: false,
 
-//       chr_ram0: false,
-//       chr_ram1: false,
-//     })
-//   }
+      chr_ram0: false,
+      chr_ram1: false,
+    })
+  }
 
-//   fn cart_read(&mut self, _mem: &mut Bus, addr: u16) -> u8 {
-//     // TODO: use mask
-//     println!("READ CART");
+  fn cart_read(&mut self, _mem: &mut Bus, addr: u16) -> u8 {
+    // TODO: use mask
+    println!("READ CART");
 
-//     match addr {
-//       0x5000..=0x57ff => self.irq_count as u8,
-//       0x5800..=0x5fff => ((self.irq_enabled as u8) << 7) | (self.irq_count >> 8) as u8,
-//       _ => 0
-//     }
-//   }
+    match addr {
+      0x5000..=0x57ff => self.irq_count as u8,
+      0x5800..=0x5fff => ((self.irq_enabled as u8) << 7) | (self.irq_count >> 8) as u8,
+      _ => 0
+    }
+  }
 
-//   fn cart_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
-//     // TODO: use mask
-//     println!("WROTE CART");
-//     match addr {
-//       0x5000..=0x57ff => {
-//         self.irq_count = byte_set_lo(self.irq_count, val);
-//         mem.irq.remove(bus::IrqFlags::MAPPER);
-//       }
-//       0x5800..=0x5fff => {
-//         self.irq_count = byte_set_hi(self.irq_count, val & 0x7f);
-//         self.irq_enabled = val & 0x7f > 0;
-//         mem.irq.remove(bus::IrqFlags::MAPPER);
-//       }
+  fn cart_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
+    // TODO: use mask
+    println!("WROTE CART");
+    match addr {
+      0x5000..=0x57ff => {
+        self.irq_count = byte_set_lo(self.irq_count, val);
+        mem.irq.remove(bus::IrqFlags::MAPPER);
+      }
+      0x5800..=0x5fff => {
+        self.irq_count = byte_set_hi(self.irq_count, val & 0x7f);
+        self.irq_enabled = val & 0x7f > 0;
+        mem.irq.remove(bus::IrqFlags::MAPPER);
+      }
 
-//       _ => {}
-//     }
-//   }
+      _ => {}
+    }
+  }
 
-//   fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
-//     // TODO: use mask
-//     match addr {
-//       0x8000..=0xdfff => {
-//         let page = ((addr - 0x8000) / 0x800) as u8; 
+  fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
+    // TODO: use mask
+    match addr {
+      0x8000..=0xdfff => {
+        let page = ((addr - 0x8000) / 0x800) as u8; 
+        let nametbl_enabled = 
+          // last 4 pages are always nametables
+          page >= 8 ||
+          (page < 4 && !self.chr_ram0) ||
+          (page >= 4 && !self.chr_ram1); 
 
-//         if val >= 0xe0 {
-//           // use internal nametables
-//           let table = (val % 2 == 0) as u8;
-//           match addr {
-//             0x8000..=0x9fff => {
-//               if !self.chr_ram0 {
-//                 mem.banks.vram.set_page(page, table);
-//                 mem.ppu_handlers_1kb[page as usize] = bus::PpuHandler::VramAsChr;
-//               } else {
-//                 mem.banks.vram.set_page(page, table);
-//                 mem.ppu_handlers_1kb[page as usize] = bus::PpuHandler::VramAsChr;
-//               }
-//             }
-//             0xa000..=0xbfff => {
-//               if !self.chr_ram1 {
-//                 mem.banks.vram.set_page(page, table);
-//                 mem.ppu_handlers_1kb[page as usize] = bus::PpuHandler::VramAsChr;
-//               } else {
-//                 mem.banks.vram.set_page(page, table);
-//                 mem.ppu_handlers_1kb[page as usize] = bus::PpuHandler::VramAsChr;
-//               }
-//             }
-//             0xc000..=0xdfff => {
-//               mem.banks.vram.set_page(page, table);
-//               mem.ppu_handlers_1kb[page as usize] = bus::PpuHandler::VramAsChr;
-//             }
-//             _ => {}
-//           } 
-//         } else {
-//           // use chr rom
-//           mem.banks.chr.set_page(page, val);
-//           mem.ppu_handlers_1kb[page as usize] = bus::PpuHandler::Chr;
-//         }
-//       }
+        if val >= 0xe0 && nametbl_enabled {
+          // use nametables
+          mem.banks.chr.set_page(page, val & 1);
+          mem.ppu_handlers_1kb[page as usize] = PpuHandler::VramInChr;
+        } else {
+          // use chr
+          mem.banks.chr.set_page(page, val);
+          mem.ppu_handlers_1kb[page as usize] = PpuHandler::Chr;
+        }
+      }
 
-//       0xe000..=0xe7ff => {
-//         mem.banks.prg.set_page(0, val & 0x3f);
-//         // TODO: disable sound
-//       }
-//       0xe800..=0xefff => {
-//         mem.banks.prg.set_page(1, val & 0x3f);
-//         self.chr_ram0 = val & 0x40 > 0;
-//         self.chr_ram1 = val & 0x80 > 0;
-//       }
-//       0xf000..=0xf7ff => mem.banks.prg.set_page(2, val & 0x3f),
-//       0xf800..=0xffff => {
-//         // TODO: write protect for exram
-//       }
-//       _ => {}
-//     }
-//   }
+      0xe000..=0xe7ff => {
+        mem.banks.prg.set_page(0, val & 0x3f);
+        // TODO: disable sound
+      }
+      0xe800..=0xefff => {
+        mem.banks.prg.set_page(1, val & 0x3f);
+        self.chr_ram0 = val & 0x40 > 0;
+        self.chr_ram1 = val & 0x80 > 0;
+      }
+      0xf000..=0xf7ff => mem.banks.prg.set_page(2, val & 0x3f),
+      0xf800..=0xffff => {
+        // TODO: write protect for exram
+      }
+      _ => {}
+    }
+  }
 
-//   fn step(&mut self, mem: &mut Bus) {
-//     if self.irq_enabled && self.irq_count < 0x7fff {
-//       self.irq_count += 1;
-//       if self.irq_count >= 0x7fff {
-//         println!("IRQ CLOCKED");
-//         mem.irq.insert(bus::IrqFlags::MAPPER);
-//       }
-//     }
-//   }
-// }
+  fn step(&mut self, mem: &mut Bus) {
+    if self.irq_enabled && self.irq_count < 0x7fff {
+      self.irq_count += 1;
+      if self.irq_count >= 0x7fff {
+        println!("IRQ CLOCKED");
+        mem.irq.insert(bus::IrqFlags::MAPPER);
+      }
+    }
+  }
+}
 
 
 // https://www.nesdev.org/wiki/INES_Mapper_184
@@ -902,13 +884,71 @@ impl Mapper for Sunsoft4 {
   }
 }
 
+mod sunsoft_fme7 {
+  use crate::apu::{self, DividerCounter};
+
+  // https://www.nesdev.org/wiki/Sunsoft_5B_audio
+  pub struct Tone {
+    pub enabled: bool,
+    div: apu::DividerCounter,
+    pub volume: u8,
+    pub period: u16,
+    step: u16,
+    tone_high: bool,
+  }
+  impl Default for Tone {
+    fn default() -> Self {
+      let mut res = Self {
+        div: DividerCounter::default(),
+        enabled: false,
+        volume: 0,
+        period: 0,
+        step: 0,
+        tone_high: false,
+      };
+
+      res.div.period = 15;
+      res
+    }
+  }
+  impl Tone {
+    pub fn step(&mut self) {
+      // Unlike the 2A03 and VRC6 pulse channels' frequency formulas, the formula for 5B does not add 1 to the period.
+      // A period value of 0 appears to produce the same result as a period value of 1, for tone[1], noise and envelope[2]. 
+      
+      // Correct behaviour can be implemented as a counter that counts up on every 16th clock cycle until it is equal to or greater than the period register,
+      // at which point the output flips and the counter resets to 0. 
+      self.div.step(|| {
+        self.step += 1;
+        if self.step >= self.period {
+          self.step = 0;
+          self.tone_high = !self.tone_high;
+        }
+      });
+    }
+
+    pub fn sample(&self) -> u8 {
+      if self.enabled && self.tone_high { self.volume } else { 0 }
+    }
+  }
+}
+
 #[derive(Default)]
 struct SunsoftFME7 {
   uses_wram: bool,
-  command: u8,
+  cpu_command: u8,
+
   irq_enabled: bool,
   irq_count_enabled: bool,
   irq_count: u16,
+
+  audio_command: u8,
+  audio_enabled: bool,
+
+  // TODO: put these fuckers in an array
+  ta: sunsoft_fme7::Tone,
+  tb: sunsoft_fme7::Tone,
+  tc: sunsoft_fme7::Tone,
 }
 impl Mapper for SunsoftFME7 {
   fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
@@ -925,48 +965,90 @@ impl Mapper for SunsoftFME7 {
   fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
     match addr & 0xe000 {
       // 0x8000..=0x9fff
-      0x8000 => self.command = val & 0b1111,
+      0x8000 => self.cpu_command = val & 0b1111,
       // 0xa000..=0xbfff
-      0xa000 => {
-        match self.command {
-          0..=7 => mem.banks.chr.set_page(self.command, val),
-          8 => {
-            let mode = val & 0x40 > 0;
+      0xa000 => match self.cpu_command {
+        0..=7 => mem.banks.chr.set_page(self.cpu_command, val),
+        8 => {
+          let mode = val & 0x40 > 0;
 
-            if mode != self.uses_wram {
-              let new_size = if mode { mem.wram.len() } else { mem.prg.len() };
-              mem.banks.wram.change_size(new_size);
+          if mode != self.uses_wram {
+            let new_size = if mode { mem.wram.len() } else { mem.prg.len() };
+            mem.banks.wram.change_size(new_size);
 
-              let handler = if mode { CpuHandler::Wram } else { CpuHandler::PrgInWram };
-              mem.set_wram_handlers(handler);
+            let handler = if mode { CpuHandler::Wram } else { CpuHandler::PrgInWram };
+            mem.set_wram_handlers(handler);
 
-              mem.banks.wram.set_page(0, val & 0x3f);
-              self.uses_wram = mode;
-            }
-
-            // TODO: ram enable bit
+            mem.banks.wram.set_page(0, val & 0x3f);
+            self.uses_wram = mode;
           }
-          0x9..=0xb => mem.banks.prg.set_page(self.command - 9, val),
-          0xc => {
-            let mirroring = match val & 0b11 {
-                0 => Mirroring::Vertical,
-                1 => Mirroring::Horizontal,
-                2 => Mirroring::SingleScreenA,
-                _ => Mirroring::SingleScreenB
-            };
-            mem.banks.vram.mirror(&mirroring);
+
+          // TODO: ram enable bit
+        }
+        0x9..=0xb => mem.banks.prg.set_page(self.cpu_command - 9, val),
+        0xc => {
+          let mirroring = match val & 0b11 {
+              0 => Mirroring::Vertical,
+              1 => Mirroring::Horizontal,
+              2 => Mirroring::SingleScreenA,
+              _ => Mirroring::SingleScreenB
+          };
+          mem.banks.vram.mirror(&mirroring);
+        }
+        0xd => {
+          self.irq_enabled = val & 1 > 0;
+          self.irq_count_enabled = val & 0x80 > 0;
+          mem.irq.remove(bus::IrqFlags::MAPPER);
+        }
+        0xe => self.irq_count = byte_set_lo(self.irq_count, val),
+        0xf => self.irq_count = byte_set_hi(self.irq_count, val),
+        _ => {}
+      }
+
+      // 0xc000..=0xdfff
+      0xc000 => {
+        self.audio_command = val & 0x0f;
+        self.audio_enabled = val & 0xf0 == 0;
+      }
+      // TODO: audio partially implemented, not working
+      // 0xe000..=0xffff
+      0xe000 => {
+        if !self.audio_enabled { return; }
+
+        match self.audio_command {
+          0x0 => self.ta.period = byte_set_lo(self.ta.period, val),
+          0x1 => self.ta.period = byte_set_hi(self.ta.period, val & 0xf),
+
+          0x2 => self.tb.period = byte_set_lo(self.ta.period, val),
+          0x3 => self.tb.period = byte_set_hi(self.ta.period, val & 0xf),
+
+          0x4 => self.tc.period = byte_set_lo(self.ta.period, val),
+          0x5 => self.tc.period = byte_set_hi(self.ta.period, val & 0xf),
+
+          0x6 => {
+            // Noise period
           }
-          0xd => {
-            self.irq_enabled = val & 1 > 0;
-            self.irq_count_enabled = val & 0x80 > 0;
-            mem.irq.remove(bus::IrqFlags::MAPPER);
+          0x7 => {
+            self.ta.enabled = val & 0x1 > 0;
+            self.tb.enabled = val & 0x2 > 0;
+            self.tc.enabled = val & 0x4 > 0;
           }
-          0xe => self.irq_count = byte_set_lo(self.irq_count, val),
-          0xf => self.irq_count = byte_set_hi(self.irq_count, val),
+
+          0x8 => {
+            self.ta.volume = val & 0xf;
+          }
+          0x9 => {
+            self.tb.volume = val & 0xf;
+          }
+          0xa => {
+            self.tc.volume = val & 0xf;
+          }
+
+          // This audio hardware was only used in one game, Gimmick!
+          // Because this game did not use many features of the chip (e.g. noise, envelope), its features are often only partially implemented by emulators. 
           _ => {}
         }
       }
-
       _ => {}
     }
   }
@@ -979,6 +1061,15 @@ impl Mapper for SunsoftFME7 {
         mem.irq.insert(bus::IrqFlags::MAPPER);
       }
     }
+
+    self.ta.step();
+    self.tb.step();
+    self.tc.step();
+  }
+
+  fn sample(&self) -> f32 {
+    // (self.ta.sample() + self.tb.sample() + self.tc.sample()) as f32
+    0.0
   }
 }
 
@@ -1456,9 +1547,211 @@ impl Mapper for VRC6 {
   }
 }
 
-struct MMC5 {
+mod mmc5 {
+  pub struct ExRam(pub [u8; 1024]);
+  impl Default for ExRam {
+    fn default() -> Self { Self([0; 1024]) }
+  }
 
+  pub enum ExRamMode {
+
+  }
+}
+
+#[derive(Default)]
+struct MMC5 {
+  exram: mmc5::ExRam,
+
+  prg_mode: u8,
+  prg_regs: [u8; 5],
+
+  chr_mode: u8,
+  chr_regs: [u8; 12],
+  chr_hi: u8,
+
+  exram_mode: u8,
+
+  irq_enabled: bool,
+  irq_scanline_cmp: u16,
+  multiplier: u16,
 }
 impl MMC5 {
+  fn update_prg_banks(&mut self, mem: &mut Bus) {
+    let wram = &mut mem.banks.wram;
+    let prg = &mut mem.banks.prg;
 
+    // always set to first wram bank
+    wram.set_page(0, self.prg_regs[0] & 0x3f);
+
+    match self.prg_mode {
+      // one 32kb
+      0 => {
+        prg.set_page4x(0, self.prg_regs[4] & 0x3f);
+        mem.set_prg_handlers(CpuHandler::Prg);
+      }
+      // two 16kb
+      1 => {
+        let bank = self.prg_regs[2];
+        let handler = if bank & 0x80 == 1 {
+          // rom
+          prg.set_page2x(0, bank & 0x3f);
+          CpuHandler::Prg
+        } else {
+          // ram
+          wram.set_page2x(1, bank & 0x3f);
+          CpuHandler::Wram
+        };
+
+        for i in 8..12 {
+          mem.cpu_handlers_4kb[i] = handler;
+        }
+
+        // last always set to prg
+        prg.set_page2x(2, self.prg_regs[4] & 0x3f);
+      }
+      // one 16kb and two 8kb
+      2 => {
+        let bank16 = self.prg_regs[2];
+        let handler16 = if bank16 & 0x80 == 1 {
+          // rom
+          prg.set_page2x(0, bank16 & 0x3f);
+          CpuHandler::Prg
+        } else {
+          // ram
+          wram.set_page2x(1, bank16 & 0x3f);
+          CpuHandler::Wram
+        };
+        for i in 8..12 {
+          mem.cpu_handlers_4kb[i] = handler16;
+        }
+
+        let bank8 = self.prg_regs[3];
+        let handler8 = if bank8 & 0x80 == 1 {
+          // ram
+          prg.set_page(2, bank8 & 0x3f);
+          CpuHandler::Prg
+        } else {
+          // rom
+          wram.set_page(3, bank8 & 0x3f);
+          CpuHandler::Wram
+        };
+        for i in 12..14 {
+          mem.cpu_handlers_4kb[i] = handler8;
+        }
+
+        // last always set to prg
+        prg.set_page(3, self.prg_regs[4] & 0x3f);
+      }
+      // four 8kb
+      _ => {
+        for i in 0..3 {
+          let bank = self.prg_regs[i+1];
+          if bank & 0x80 == 1 {
+            // rom
+            prg.set_page(i as u8 - 1, bank & 0x3f);
+            mem.cpu_handlers_4kb[8 + i] = CpuHandler::Prg;
+            mem.cpu_handlers_4kb[9 + i] = CpuHandler::Prg;
+          } else {
+            // ram
+            wram.set_page(i as u8, bank & 0x3f);
+            mem.cpu_handlers_4kb[8 + i] = CpuHandler::Wram;
+            mem.cpu_handlers_4kb[9 + i] = CpuHandler::Wram;
+          }
+        }
+
+        // last always set to prg
+        prg.set_page(3, self.prg_regs[4] & 0x3f);
+      }
+    }
+  }
+
+  fn update_chr_banks(&mut self, mem: &mut Bus) {
+    let chr = &mut mem.banks.chr;
+
+    // Caution: Unlike the MMC1 and unlike PRG banking on the MMC5, the banks are always indexed by the currently selected size.
+    // When using 2kb, 4kb or 8kb bank sizes, the registers hold bank index of that larger size, and lower bits are *not* ignored. 
+    // shifting is needed
+    match self.chr_mode {
+      // 8kb
+      0 => chr.set_page8x(0, self.chr_regs[0] << 3),
+      // 4kb
+      1 => {
+        chr.set_page4x(0, self.chr_regs[3] << 2);
+        chr.set_page4x(4, self.chr_regs[7] << 2);
+      }
+      // 2kb
+      2 =>  for i in 0..4 {
+        // only odds chr_regs
+        chr.set_page2x(i, self.chr_regs[i as usize * 2 + 1] << 1);
+      }
+      // 1kb
+      _ => for i in 0..8 {
+        chr.set_page(i, self.chr_regs[i as usize]);
+      }
+    }
+  }
+
+  fn update_vram_banks(&mut self, mem: &mut Bus, val: u8) {
+    // TODO
+  }
+}
+impl Mapper for MMC5 {
+  fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
+    mem.banks.prg = Banking::new_prg(header, 4);
+    mem.banks.prg.set_page4x(0, 0);
+
+    mem.banks.chr = Banking::new_chr(header, 8);
+
+    // wram can be mapped in range 0x6000..=0xdfff (32kb)
+    mem.banks.wram = Banking::new(header.prg_ram_size, 32 * 1024, 4);
+
+    Box::new(Self::default())
+  }
+
+  fn cart_read(&mut self, mem: &mut Bus, addr: u16) -> u8 {
+    match addr {
+      _ => 0,
+    }
+  }
+
+  fn cart_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
+    match addr {
+      0x5100 => {
+        self.prg_mode = val & 0x3;
+        self.update_prg_banks(mem);
+      } 
+      0x5101 => {
+        self.chr_mode = val & 0x3;
+        self.update_chr_banks(mem);
+      }
+
+      0x5102 => {
+        // TODO: prg ram protect
+      }
+      0x5103 => {
+        // TODO: prg ram protect
+      }
+
+      0x5104 => {
+        self.exram_mode = val & 0x3;
+      }
+
+      0x5105 => self.update_vram_banks(mem, val),
+
+      0x5113..=0x5117 => {
+        let reg = addr as usize - 0x5133;
+        self.prg_regs[reg] = val;
+        self.update_prg_banks(mem);
+      }
+
+      0x5120..=0x512b => {
+        let reg = addr as usize - 0x5120;
+        self.chr_regs[reg] = val;
+        self.update_chr_banks(mem);
+      }
+      _ => {}
+    }
+  }
+
+  fn prg_write(&mut self, _: &mut Bus, _: u16, _: u8) {}
 }

@@ -82,9 +82,23 @@ impl<T: BankCfg + std::fmt::Debug> Banking<T> {
   }
 
   pub fn set_page2x(&mut self, page: u8, bank: u8) {    
-    let page = page & !1;
+    let bank = bank & !1;
     self.set_page(page, bank);
     self.set_page(page + 1, bank + 1);
+  }
+
+  pub fn set_page4x(&mut self, page: u8, bank: u8) {
+    let bank = bank & !0x3;
+    for i in 0..4 {
+      self.set_page(page + i, bank + i);
+    }
+  }
+
+  pub fn set_page8x(&mut self, page: u8, bank: u8) {
+    let bank = bank & !0x7;
+    for i in 0..8 {
+      self.set_page(page + i, bank + i);
+    }
   }
 
   pub fn set_page_to_last_bank(&mut self, page: u8) {
@@ -218,7 +232,7 @@ pub enum CpuHandler {
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum PpuHandler {
-  Chr, Vram, Palette, ChrInVram,
+  Chr, Vram, Palette, ChrInVram, VramInChr,
 }
 // TODO: unused handler might be useful for ram disabling
 
@@ -327,6 +341,12 @@ impl Bus {
     self.cpu_handlers_4kb[7] = handler;
   }
 
+  pub fn set_prg_handlers(&mut self, handler: CpuHandler) {
+    for i in 8..16 {
+      self.cpu_handlers_4kb[i] = handler;
+    }
+  }
+
   pub fn set_vram_handlers(&mut self, handler: PpuHandler) {
     for i in 8..12 {
       self.ppu_handlers_1kb[i] = handler;
@@ -346,12 +366,12 @@ impl Emu {
     let res = match mem.cpu_handlers_4kb[handler as usize] {
       CpuHandler::Ram => mem.ram[addr as usize & 0x07ff],
       CpuHandler::Ppu => self.ppu_reg_read(addr & 0x2007),
-      CpuHandler::IO => {
+      CpuHandler::IO => {        
         if matches!(addr, 0x4000..=0x4013 | 0x4015 | 0x4017) {
           self.apu_reg_read(addr)
         } else if addr == 0x4016 {
           self.joypad.read() | (mem.cpu_data_bus & 0xe0)
-        } else {
+        } else { 
           self.mapper.cart_read(mem, addr) | mem.cpu_data_bus 
         }
       }
@@ -426,6 +446,7 @@ impl Emu {
       PpuHandler::Chr => mem.chr[mem.banks.chr.translate(addr)],
       PpuHandler::Vram => mem.vram[mem.banks.vram.translate(addr)],
       PpuHandler::ChrInVram => mem.chr[mem.banks.vram.translate(addr)],
+      PpuHandler::VramInChr => mem.vram[mem.banks.chr.translate(addr)],
       PpuHandler::Palette => {
         if matches!(addr, 0x3f00..=0x3fff) {
           self.ppu_palette_read(addr)
@@ -465,6 +486,7 @@ impl Emu {
       PpuHandler::Chr => mem.chr[mem.banks.chr.translate(addr)] = val,
       PpuHandler::Vram => mem.vram[mem.banks.vram.translate(addr)] = val,
       PpuHandler::ChrInVram => mem.chr[mem.banks.vram.translate(addr)] = val,
+      PpuHandler::VramInChr => mem.vram[mem.banks.chr.translate(addr)] = val,
       PpuHandler::Palette => {
         if matches!(addr, 0x3f00..=0x3fff) {
           let addr = addr as usize & 31;
