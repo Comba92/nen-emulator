@@ -99,14 +99,20 @@ impl Mapper for UxROM {
 struct CNROM;
 impl Mapper for CNROM {
   fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
-    mem.banks.prg = Banking::new_prg(header, 1);
+    if header.prg_size <= 16 * 1024 {
+      mem.banks.prg.set_page_to_last_bank(1);
+    } else {
+      mem.banks.prg = Banking::new_prg(header, 1);
+    }
+
+    mem.banks.chr = Banking::new_chr(header, 1);
     // The Namco game Hayauchi Super Igo adds 2 KiB of PRG-RAM, denoted using mapper 3 and the appropriate value in the header's PRG-RAM size field.
     mem.banks.wram = Banking::new(2 * 1024, 2 * 1024, 4);
     Box::new(Self)
   }
 
   fn prg_write(&mut self, mem: &mut Bus, _: u16, val: u8) {
-    mem.banks.chr.set_page(0, val);
+    mem.banks.chr.set_page(0, val & 0b11);
   }
 }
 
@@ -530,8 +536,8 @@ impl Mapper for MMC3 {
     mem.banks.prg.set_page_to_last_bank(3);
 
     mem.banks.chr = Banking::new_chr(header, 8);
-    mem.banks.chr.set_page2x(0, 0);
-    mem.banks.chr.set_page2x(2, 0);
+    mem.banks.chr.set_pages_aligned2(0, 0);
+    mem.banks.chr.set_pages_aligned2(2, 0);
 
     Box::new(Self::default())
   }
@@ -567,8 +573,8 @@ impl Mapper for MMC3 {
         match (self.bank_select, self.chr_invert) {
           (6, _) => mem.banks.prg.set_page(self.prg_swapped, val & 0x3f),
           (7, _) => mem.banks.prg.set_page(1, val & 0x3f),
-          (0 | 1, false) => mem.banks.chr.set_page2x(self.bank_select * 2, val),
-          (0 | 1, true)  => mem.banks.chr.set_page2x(self.bank_select * 2 + 4, val),
+          (0 | 1, false) => mem.banks.chr.set_pages_aligned2(self.bank_select * 2, val),
+          (0 | 1, true)  => mem.banks.chr.set_pages_aligned2(self.bank_select * 2 + 4, val),
           // cases 2..=5
           (_ , false)    => mem.banks.chr.set_page((self.bank_select - 2) + 4, val),
           (_, true)      => mem.banks.chr.set_page(self.bank_select - 2, val),
@@ -657,7 +663,8 @@ impl Mapper for Namco129_163 {
     mem.banks.prg = Banking::new_prg(header, 4);
     mem.banks.prg.set_page_to_last_bank(3);
 
-    mem.banks.chr = Banking::new_chr(header, 12);
+    mem.banks.chr = Banking::new(header.chr_size, 12 * 1024, 12);
+    mem.banks.vram = Banking::new(header.chr_size, 12 * 1024, 12);
 
     Box::new(Self {
       exram: [0; 128],
@@ -671,7 +678,6 @@ impl Mapper for Namco129_163 {
 
   fn cart_read(&mut self, _mem: &mut Bus, addr: u16) -> u8 {
     // TODO: use mask
-    println!("READ CART");
 
     match addr {
       0x5000..=0x57ff => self.irq_count as u8,
@@ -682,7 +688,6 @@ impl Mapper for Namco129_163 {
 
   fn cart_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
     // TODO: use mask
-    println!("WROTE CART");
     match addr {
       0x5000..=0x57ff => {
         self.irq_count = byte_set_lo(self.irq_count, val);
@@ -702,17 +707,14 @@ impl Mapper for Namco129_163 {
     // TODO: use mask
     match addr {
       0x8000..=0xdfff => {
-        let page = ((addr - 0x8000) / 0x800) as u8; 
-        let nametbl_enabled = 
-          // last 4 pages are always nametables
-          page >= 8 ||
-          (page < 4 && !self.chr_ram0) ||
-          (page >= 4 && !self.chr_ram1); 
+        let page = ((addr - 0x8000) / 0x800) as u8;
+
+        let nametbl_enabled = (page >= 8) || (page < 4 && !self.chr_ram0) || (page >= 4 && !self.chr_ram1);
 
         if val >= 0xe0 && nametbl_enabled {
           // use nametables
-          mem.banks.chr.set_page(page, val & 1);
-          mem.ppu_handlers_1kb[page as usize] = PpuHandler::VramInChr;
+          mem.banks.vram.set_page(page, val & 1);
+          mem.ppu_handlers_1kb[page as usize] = PpuHandler::Vram;
         } else {
           // use chr
           mem.banks.chr.set_page(page, val);
@@ -729,7 +731,9 @@ impl Mapper for Namco129_163 {
         self.chr_ram0 = val & 0x40 > 0;
         self.chr_ram1 = val & 0x80 > 0;
       }
-      0xf000..=0xf7ff => mem.banks.prg.set_page(2, val & 0x3f),
+      0xf000..=0xf7ff => {
+        mem.banks.prg.set_page(2, val & 0x3f);
+      }
       0xf800..=0xffff => {
         // TODO: write protect for exram
       }
@@ -741,7 +745,6 @@ impl Mapper for Namco129_163 {
     if self.irq_enabled && self.irq_count < 0x7fff {
       self.irq_count += 1;
       if self.irq_count >= 0x7fff {
-        println!("IRQ CLOCKED");
         mem.irq.insert(IrqFlags::MAPPER);
       }
     }
@@ -807,12 +810,12 @@ struct Sunsoft4 {
 impl Sunsoft4 {
   fn update_chr_banks(&mut self, mem: &mut Bus) {
     let vram = &mut mem.banks.vram;
-    
+
     if !self.uses_chr_rom {
       vram.mirror(&self.mirroring);
       return;
     }
-
+    
     match &self.mirroring {
       Mirroring::Vertical => {
         vram.set_page(0, self.chr_table0);
@@ -854,6 +857,7 @@ impl Mapper for Sunsoft4 {
         // TODO: Licensing IC
       }
 
+      // mapper expects 2kb banks number, but we have 1kb bank slots, we need to shift
       0x8 => mem.banks.chr.set_page(0, val),
       0x9 => mem.banks.chr.set_page(1, val),
       0xa => mem.banks.chr.set_page(2, val),
@@ -890,8 +894,8 @@ impl Mapper for Sunsoft4 {
           mem.set_vram_handlers(handler);
 
           self.uses_chr_rom = mode;
-          self.update_chr_banks(mem);
         }
+        self.update_chr_banks(mem);
       }
       0xf => {
         // TODO: prg ram enable
@@ -902,6 +906,7 @@ impl Mapper for Sunsoft4 {
     }
   }
 }
+
 
 mod sunsoft_fme7 {
   use crate::apu::{self, DividerCounter};
@@ -1418,7 +1423,7 @@ impl VRC6 {
 
       // each register sets two pages
       1 => for i in 0..4 {
-        chr.set_page2x(2 * i as u8, self.regs[i]);
+        chr.set_pages_aligned2(2 * i as u8, self.regs[i]);
       }
 
       _ => {
@@ -1426,8 +1431,8 @@ impl VRC6 {
           chr.set_page(i as u8, self.regs[i]);
         }
         // only r4 and r5 set two pages each
-        chr.set_page2x(4, self.regs[4]);
-        chr.set_page2x(6, self.regs[5]);
+        chr.set_pages_aligned2(4, self.regs[4]);
+        chr.set_pages_aligned2(6, self.regs[5]);
       }
     }
   }
@@ -1486,7 +1491,7 @@ impl VRC6 {
 impl Mapper for VRC6 {
   fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
     mem.banks.prg = Banking::new_prg(header, 4);
-    mem.banks.prg.set_page2x(0, 0);
+    mem.banks.prg.set_pages_aligned2(0, 0);
     mem.banks.prg.set_page_to_last_bank(3);
 
     mem.banks.chr = Banking::new_chr(header, 8);
@@ -1504,7 +1509,7 @@ impl Mapper for VRC6 {
 
     match addr & 0xf003 {
       // be careful here: value passed here is missing lsb bit, so we have to shift it right
-      0x8000..=0x8003 => mem.banks.prg.set_page2x(0, val << 1),
+      0x8000..=0x8003 => mem.banks.prg.set_pages_aligned2(0, val << 1),
       0xc000..=0xc003 => mem.banks.prg.set_page(2, val),
       
       0xb003 => {
@@ -1806,16 +1811,16 @@ impl MMC5 {
     // shifting is needed
     match self.chr_mode {
       // 8kb
-      0 => chr.set_page_n(0, self.chr_regs[0], 8),
+      0 => chr.set_pages_unaligned(0, self.chr_regs[0], 8),
       // 4kb
       1 => {
-        chr.set_page_n(0, self.chr_regs[3], 4);
-        chr.set_page_n(4, self.chr_regs[7], 4);
+        chr.set_pages_unaligned(0, self.chr_regs[3], 4);
+        chr.set_pages_unaligned(4, self.chr_regs[7], 4);
       }
       // 2kb
       2 =>  for i in 0..4 {
         // only odds chr_regs
-        chr.set_page_n(i, self.chr_regs[i as usize * 2 + 1], 2);
+        chr.set_pages_unaligned(i, self.chr_regs[i as usize * 2 + 1], 2);
       }
       // 1kb
       _ => for i in 0..8 {
@@ -1831,7 +1836,7 @@ impl MMC5 {
 impl Mapper for MMC5 {
   fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
     mem.banks.prg = Banking::new_prg(header, 4);
-    mem.banks.prg.set_page4x(0, 0);
+    mem.banks.prg.set_pages_aligned4(0, 0);
 
     mem.banks.chr = Banking::new_chr(header, 8);
 
@@ -1887,7 +1892,7 @@ impl Mapper for MMC5 {
       0x5105 => self.update_vram_banks(mem, val),
 
       0x5113..=0x5117 => {
-        let reg = addr as usize - 0x5133;
+        let reg = addr as usize - 0x5113;
         self.prg_regs[reg] = val;
         self.update_prg_banks(mem);
       }

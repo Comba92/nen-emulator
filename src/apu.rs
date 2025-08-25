@@ -529,7 +529,16 @@ impl Emu {
           self.mem.irq.remove(IrqFlags::DMC);
         }
       }
-      0x4011 => apu.dmc.output = val & 0x7f,
+      0x4011 => {
+        let level = val & 0x7f;
+
+        // reduce dmc popping
+        self.apu.dmc.output = if self.apu.dmc.output.abs_diff(level) <= 50 {
+          level
+        } else {
+          50
+        };
+      }
       0x4012 => apu.dmc.sample_addr = 0xc000 + ((val as u16) * 64),
       0x4013 => apu.dmc.sample_len = ((val as u16) * 16) + 1,
 

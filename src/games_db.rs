@@ -48,8 +48,7 @@ impl From<&GameData> for CartHeader {
     } else if value.prgnvram_size > 0 {
       value.prgnvram_size
     } else {
-      // TODO: handle wram size of 0
-      8 * 1024
+      0
     };
     
     Self {

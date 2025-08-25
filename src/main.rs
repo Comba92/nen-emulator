@@ -97,6 +97,7 @@ fn main() {
         emu.step_until_vblank();
         audiodev.queue_audio(emu.get_audio()).unwrap();
 
+        // TODO: audio lagging out
         while audiodev.size() < audiodev.spec().samples as u32 {
             // run for another frame
             // println!("Running another frame for filling the audio queue... {}", audiodev.size());

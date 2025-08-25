@@ -317,7 +317,7 @@ impl Emu {
   fn increase_addr(&mut self) {
     let ppu = &mut self.ppu;
     // if !ppu.is_rendering() {
-      ppu.v.0 = (ppu.v.0.wrapping_add(ppu.ctrl.vram_addr_inc)) & 0x7fff;
+      ppu.v.0 = (ppu.v.0 + ppu.ctrl.vram_addr_inc) & 0x3fff;
       self.update_ppu_bus(self.ppu.v.0);
     // } else {
       // https://www.nesdev.org/wiki/PPU_scrolling#$2007_(PPUDATA)_reads_and_writes
@@ -384,28 +384,26 @@ impl Emu {
       0x2002 => {
         // Reading this register has the side effect of clearing the PPU's internal w register.
         ppu.w = WriteToggle::First;
-
-        let res = ppu.stat.bits();
-        // Reading PPUSTATUS will return the current state of this flag and then clear it.
         
       // Reading $2002 within a few PPU clocks of when VBL is set results in special-case behavior. 
       // Reading one PPU clock before reads it as clear and never sets the flag or generates NMI for that frame. 
       // Reading on the same PPU clock or one later reads it as set, clears it, and suppresses the NMI for that frame.
       //  Reading two or more PPU clocks before/after it's set behaves normally (reads flag's value, clears it, and doesn't affect NMI operation). 
 
-        if ppu.scanline == 241 {
+        if ppu.scanline == 241 && ppu.cycle <= 2 {
           if ppu.cycle == 0 {
             ppu.stat.remove(Status::Vblank);
             ppu.vblank_suppress = true;
-          }
-
-          if ppu.cycle <= 2 {
+          } else if ppu.cycle <= 2 {
             ppu.stat.insert(Status::Vblank);
           }
           
           self.mem.nmi = false;
           ppu.nmi_suppress = true;
         }
+
+        let res = ppu.stat.bits();
+        // Reading PPUSTATUS will return the current state of this flag and then clear it.
 
         ppu.stat.remove(Status::Vblank);
         res | (ppu.open_bus & 0x1f)
@@ -467,13 +465,13 @@ impl Emu {
             // Scroll X
             ppu.t.set_coarse_x(val >> 3);
             // coarse x
-            ppu.x = val & 0b111;
+            ppu.x = val & 0x7;
             ppu.w = WriteToggle::Second;
           }
           WriteToggle::Second => {
             // Scroll Y
             ppu.t.set_coarse_y(val >> 3);
-            ppu.t.set_fine_y(val & 0b111);
+            ppu.t.set_fine_y(val & 0x7);
             ppu.w = WriteToggle::First;
           }
         };
@@ -513,7 +511,7 @@ impl Emu {
     
     let res = if self.ppu.v.0 >= 0x3f00 {
     // https://www.nesdev.org/wiki/PPU_registers#Reading_palette_RAM
-    // TODO: seems incorect
+    // WARNING: older PPUs did not have this problem
       self.ppu_palette_read(self.ppu.v.0) | self.ppu.open_bus & 0xc0
     } else {
       self.ppu.ppu_data
@@ -857,7 +855,7 @@ impl Emu {
       }
       337 => { self.ppu_dispatch_read(self.ppu.nametbl_addr()); }
       339 => {
-        if ppu.odd_frame && ppu.rendering_enabled() {
+        if ppu.odd_frame && ppu.mask.contains(Mask::BgEnable) {
           ppu.cycle += 1;
         }
         self.ppu_dispatch_read(self.ppu.nametbl_addr());

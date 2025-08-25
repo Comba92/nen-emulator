@@ -134,6 +134,7 @@ impl Emu {
   }
 
   pub fn cpu_step(&mut self) {
+    // TODO: handle dma better
     if self.handle_dma() { return; }
     self.poll_interrupts();
     let opcode = self.pc_fetch8();

@@ -7,10 +7,10 @@ pub struct Cart {
   pub chr: Vec<u8>,
 }
 
-// TODO: UNIF support
+// TODO: FDS support
 #[derive(Debug, Default, Clone, PartialEq)]
 pub enum HeaderFormat {
-  #[default] Headerless, INes, Nes2_0, 
+  #[default] Headerless, INes, Nes2_0, Unif,
 }
 
 // TODO: just old a static reference to game data here retard
@@ -18,36 +18,44 @@ pub enum HeaderFormat {
 #[derive(Default, Debug, Clone)]
 pub struct CartHeader {
   pub format: HeaderFormat,
+  pub mapper: u16,
+  pub submapper: u8,
+  pub region: Region,
+
   pub prg_size: usize,
   pub chr_size: usize,
   pub wram_size: usize,
   
   pub mirroring: Mirroring,
-  pub region: Region,
   pub alt_mirroring: bool,
   
-  pub mapper: u16,
-  pub submapper: u8,
   pub expansions: u8,
 
-  pub has_trainer: bool,
+  pub has_battery: bool,
   pub has_chr_ram: bool,
   pub has_prg_ram: bool,
-  pub has_battery: bool,
+  pub has_trainer: bool,
 }
 
 impl CartHeader {
   const INES_MAGIC: &[u8] = &[0x4e, 0x45, 0x53, 0x1a];
   const INES_HEADER_SIZE: usize = 16;
+  const UNIF_MAGIC: &[u8] = &[0x55, 0x4e, 0x49, 0x46];
+  const UNIF_HEADER_SIZE: usize = 32;
   const TRAINER_SIZE: usize = 512;
 
   pub fn is_valid_ines(bytes: &[u8]) -> bool {
     bytes.len() >= Self::INES_HEADER_SIZE && &bytes[0..4] == Self::INES_MAGIC
   }
 
+  pub fn is_valid_unif(bytes: &[u8]) -> bool {
+    bytes.len() >= Self::UNIF_HEADER_SIZE && &bytes[0..4] == Self::UNIF_MAGIC
+  }
+
   pub fn header_len(&self) -> usize {
     match self.format {
       HeaderFormat::Headerless => 0,
+      HeaderFormat::Unif => Self::UNIF_HEADER_SIZE,
       HeaderFormat::INes | HeaderFormat::Nes2_0 => 
         if self.has_trainer { Self::INES_HEADER_SIZE + Self::TRAINER_SIZE } else { Self::INES_HEADER_SIZE },
     }
@@ -72,8 +80,13 @@ impl CartHeader {
   }
 
   pub fn parse(bytes: &[u8]) -> Result<Self, &'static str> {
+    // TODO: UNIF support
+    if Self::is_valid_unif(bytes) {
+      return Err("valid UNIF ROM, not yet parsed by this emulator")
+    }
+    
     if !Self::is_valid_ines(bytes) {
-      return Err("not a valid iNES ROM")
+      return Err("not a valid iNES/NES2.0 ROM")
     }
 
     let mut header = CartHeader::default();
@@ -82,7 +95,7 @@ impl CartHeader {
     header.prg_size = bytes[4] as usize * 16 * 1024;
     header.has_chr_ram = bytes[5] == 0;
     header.chr_size = bytes[5] as usize * 8 * 1024;
-    // default wram to 8kb
+    // default wram to 8kb if iNes, as we can't tell
     header.wram_size = 8 * 1024;
 
     header.mapper = ((bytes[7] & 0xf0) | (bytes[6] >> 4)) as u16;
@@ -112,9 +125,8 @@ impl CartHeader {
       } else if prg_nvram_shift > 0 {
         64 << prg_nvram_shift
       } else {
-        8 * 1024
+        0
       };
-      // TODO: handle case where wram is 0
       header.has_prg_ram = prg_nvram_shift > 0 || prg_nvram_shift > 0;
 
       // we only take chr ram if chr rom is zero
@@ -139,8 +151,9 @@ impl CartHeader {
       };
       header.expansions = bytes[15] & 0x3f;
     } else if version == 0 && bytes[12..=15].iter().all(|x| *x == 0) {
+      // https://www.nesdev.org/wiki/INES#Variant_comparison
       // iNES with PRG RAM and TV system field
-      header.wram_size = if bytes[8] == 0 { 8 * 1024 } else { bytes[8] as usize * 8 * 1024 };
+      header.wram_size = bytes[8] as usize * 8 * 1024;
       header.has_prg_ram = bytes[8] > 0;
       header.region = match bytes[9] {
         1 => Region::PAL,
@@ -167,8 +180,7 @@ impl CartHeader {
       } else if x.prgnvram_size > 0 {
         x.prgnvram_size
       } else {
-        // TODO: handler wram size of 0
-        8 * 1024
+        0
       };
     });
   }

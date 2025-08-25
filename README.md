@@ -3,6 +3,7 @@ https://www.reddit.com/r/EmuDev/comments/xta12t/confused_about_cycles_and_emulat
 
 # Mappers
 - https://www.nesdev.org/wiki/List_of_mappers_by_Release_Date
+- https://www.nesdev.org/wiki/List_of_mappers
 - https://www.nesdev.org/wiki/NES_2.0_submappers
 
 

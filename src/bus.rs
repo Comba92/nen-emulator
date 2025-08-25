@@ -21,7 +21,7 @@ impl BankCfg for VramBank {}
 #[derive(Debug)]
 pub struct Banking<T: BankCfg> {
   real_size: usize,
-  pages_size: u16,
+  addressable_size: u16,
   bank_size: u16,
   bank_size_shift: u16,
   pub banks_count: u16,
@@ -44,7 +44,7 @@ impl<T: BankCfg + std::fmt::Debug> Banking<T> {
       bank_size,
       bank_size_shift,
       banks_count,
-      pages_size: addressable_size,
+      addressable_size,
 
       bankings,
       kind: std::marker::PhantomData::<T>,
@@ -62,7 +62,7 @@ impl<T: BankCfg + std::fmt::Debug> Banking<T> {
     // thus we cannot change to a bigger bank size than the original
 
     // TODO: can this be changed to a shift?
-    self.bank_size = self.pages_size / pages_count;
+    self.bank_size = self.addressable_size / pages_count;
     self.banks_count = (self.real_size / self.bank_size as usize) as u16;
     self.bank_size_shift = self.bank_size.ilog2() as u16;
   }
@@ -76,33 +76,35 @@ impl<T: BankCfg + std::fmt::Debug> Banking<T> {
     // some games might write bigger bank numbers than really avaible
     // let bank = bank % self.banks_count;
     let bank = bank as usize & (self.banks_count as usize - 1);
+
     // i do not expect to write outside the slots array.
+    // we precompute the real index instead of keeping the bank number
     // self.bankings[page] = bank * self.bank_size;
     self.bankings[page as usize] = bank << self.bank_size_shift;
   }
 
-  pub fn set_page2x(&mut self, page: u8, bank: u8) {    
+  pub fn set_pages_aligned2(&mut self, page: u8, bank: u8) {    
     let bank = bank & !1;
     self.set_page(page, bank);
     self.set_page(page + 1, bank + 1);
   }
 
-  pub fn set_page4x(&mut self, page: u8, bank: u8) {
+  pub fn set_pages_aligned4(&mut self, page: u8, bank: u8) {
     let bank = bank & !0x3;
     for i in 0..4 {
       self.set_page(page + i, bank + i);
     }
   }
 
-  pub fn set_page8x(&mut self, page: u8, bank: u8) {
+  pub fn set_pages_aligned8(&mut self, page: u8, bank: u8) {
     let bank = bank & !0x7;
     for i in 0..8 {
       self.set_page(page + i, bank + i);
     }
   }
 
-  pub fn set_page_n(&mut self, page: u8, bank: u8, n: u8) {
-    for i in 0..n {
+  pub fn set_pages_unaligned(&mut self, page: u8, bank: u8, count: u8) {
+    for i in 0..count {
       self.set_page(page + i, bank + i);
     }
   }
@@ -117,11 +119,11 @@ impl<T: BankCfg + std::fmt::Debug> Banking<T> {
 
   pub fn translate(&self, addr: u16) -> usize {
     // let page = (addr % self.pages_size) / self.bank_size;
-    let page = (addr & self.pages_size-1) >> self.bank_size_shift;
+    let page = (addr & self.addressable_size-1) >> self.bank_size_shift;
 
     // i do not expect to write outside the slots array here either.
-    // the bus object should take responsibilty to always pass correct addresses, subtracting the data start offset.
     // self.bankings[page] + (addr % self.bank_size)
+    // real index + offset
     self.bankings[page as usize] + (addr & (self.bank_size - 1)) as usize
   }
 }
@@ -222,6 +224,44 @@ impl BanksHandler {
   }
 }
 
+#[test]
+fn cool_test() {
+  // let mut good_chr = Banking::<ChrBank>::new(128 * 1024, 8 * 1024, 4);
+  // let mut good_vram = Banking::<VramBank>::new(128 * 1024, 4096, 4);
+  // let mut bad = Banking::<ChrBank>::new(128 * 1024, 12 * 1024, 12);
+
+  // bad.set_page(0, 191);
+  // good_chr.set_page(0, 191);
+  // assert_eq!(bad.bankings[0], good_vram.bankings[0]);
+
+  // good_chr.bankings = vec![106496, 108544, 106496, 108544];
+  // good_vram.bankings = vec![199680, 131072, 199680, 131072];
+  // bad.bankings = vec![106496, 107520, 108544, 109568, 106496, 107520, 108544, 109568, 199680, 131072, 199680, 131072];
+
+  // for i in 0..0x1fff {
+  //   assert_eq!(good_chr.translate(i), bad.translate(i));
+  // }
+
+  // for i in 0x2000..=0x2fff {
+  //   assert_eq!(good_vram.translate(i), bad.translate(i));
+  // }
+
+  let mut bad = Banking::<VramBank>::new(128 * 1024, 12 * 1024, 12);
+  let mut good = Banking::<VramBank>::new(2 * 1024, 4 * 1024, 4);
+
+  bad.set_page(11, 1);
+  bad.set_page(9, 1);
+
+  good.set_page(3, 1);
+  good.set_page(1, 1);
+
+  println!("{:?}\n{:?}", bad, good);
+
+  for i in 0x2000..0x3000 {
+    assert_eq!(bad.translate(i), good.translate(i))
+  }
+}
+
 bitflags::bitflags! {
   #[derive(Debug, Default, Clone)]
   pub struct IrqFlags: u8 {
@@ -233,14 +273,14 @@ bitflags::bitflags! {
 
 #[derive(Clone, Copy, Debug)]
 pub enum CpuHandler {
-  Ram, Ppu, IO, Wram, Prg, PrgInWram, Mapper,  
+  Ram, Ppu, IO, Wram, Prg, PrgInWram, Mapper, OpenBus,
 }
 
+// CHR ROM / CHR RAM write handlers, chr rom shouldnt be written 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum PpuHandler {
   Chr, Vram, Palette, ChrInVram, VramInChr,
 }
-// TODO: unused handler might be useful for ram disabling
 
 // TODO: access prg, chr, sram, vram with unsafe uncheked get, as index bounds cannot be optimized
 pub struct Bus {
@@ -279,6 +319,8 @@ impl Bus {
     let mut banks = BanksHandler::new(&cart.header);
     banks.vram.mirror(&cart.header.mirroring);
 
+    // TODO: shrink those to 8
+    let wram_handler = if cart.header.wram_size == 0 { CpuHandler::OpenBus } else { CpuHandler::Wram };
     let cpu_handlers_4kb = [
       CpuHandler::Ram,
       CpuHandler::Ram,
@@ -286,8 +328,8 @@ impl Bus {
       CpuHandler::Ppu,
       CpuHandler::IO,
       CpuHandler::IO,
-      CpuHandler::Wram,
-      CpuHandler::Wram,
+      wram_handler,
+      wram_handler,
       CpuHandler::Prg,
       CpuHandler::Prg,
       CpuHandler::Prg,
@@ -385,6 +427,7 @@ impl Emu {
       CpuHandler::Wram => mem.wram[mem.banks.wram.translate(addr)],
       CpuHandler::Prg => mem.prg[mem.banks.prg.translate(addr)],
       CpuHandler::PrgInWram => mem.prg[mem.banks.wram.translate(addr)],
+      CpuHandler::OpenBus => mem.cpu_data_bus,
     };
     
     self.mem.cpu_addr_bus = addr;
@@ -429,7 +472,10 @@ impl Emu {
       // }
       CpuHandler::Mapper => self.mapper.cart_write(mem, addr, val),
       CpuHandler::Wram => mem.wram[mem.banks.wram.translate(addr)] = val,
-      CpuHandler::Prg | CpuHandler::PrgInWram => self.mapper.prg_write(mem, addr, val),
+      CpuHandler::Prg | CpuHandler::PrgInWram => {
+        self.mapper.prg_write(mem, addr, val);
+      }
+      CpuHandler::OpenBus => {},
     }
 
     self.mem.cpu_addr_bus = addr;
@@ -474,7 +520,7 @@ impl Emu {
   pub fn ppu_palette_read(&mut self, addr: u16) -> u8 {
     let pal = addr as usize & 31;
     let res = if pal % 4 == 0 {
-      self.mem.palettes[0]
+      self.mem.palettes[pal & 0xf]
     } else {
       self.mem.palettes[pal]
     };
@@ -502,7 +548,7 @@ impl Emu {
           if addr % 4 == 0 {
             // write both backdrop colors
             mem.palettes[addr & 0xf] = val;
-            mem.palettes[addr & 0xf + 16] = val;
+            mem.palettes[addr & 0xf + 0xf] = val;
           } else {
             // write palette color as is
             mem.palettes[addr] = val;
