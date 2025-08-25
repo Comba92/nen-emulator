@@ -1,6 +1,15 @@
-use std::sync::LazyLock;
+use crate::{apu::ApuRP2A, bus::Bus, cart::{Cart, CartHeader}, cpu::{self, Cpu6502}, joypad::Joypad, mapper::{self, Mapper, NROM}, ppu::Ppu2C02, Palette};
 
-use crate::{apu::ApuRP2A, bus::Bus, cart::{Cart, CartHeader}, cpu::{self, Cpu6502}, joypad::Joypad, mapper::{self, Mapper, NROM}, ppu::Ppu2C02};
+#[derive(Default)]
+pub struct EmuSettings {
+  pub sprite_limit: bool,
+  pub disable_background: bool,
+  pub disable_sprites: bool,
+  pub pal_borders: bool,
+
+  pub audio_frequency: usize,
+  pub volume: f32,
+}
 
 pub struct Emu {
   pub cpu: Cpu6502,
@@ -18,6 +27,9 @@ pub struct Emu {
   pub frame_ready: bool,
   pub videobuf: [u8; 256 * 240],
   audiobuf: [i16; 1024],
+
+  palette: Palette,
+  pub settings: EmuSettings,
 }
 
 #[derive(Debug, Default, Clone, bitcode::Encode, bitcode::Decode)]
@@ -53,6 +65,9 @@ impl Default for Emu {
 
       videobuf: [0; 256 * 240],
       audiobuf: [0; 1024],
+
+      palette: Palette::default(),
+      settings: EmuSettings::default()
     }
   }
 }
@@ -80,6 +95,7 @@ impl Emu {
 
       videobuf: [0; 256 * 240],
       audiobuf: [0; 1024],
+      palette: Palette::from_pal_file(include_bytes!("../utils/2C02G_wiki.pal")).unwrap(),
       ..Default::default()
     };
 
@@ -135,7 +151,7 @@ impl Emu {
 
   pub fn get_video_rgba(&mut self, buf: &mut [u8; 256 * 240 * 4]) {
     for (i, color) in self.videobuf.iter()
-      .map(|byte| &DEFAULT_PALETTE[*byte as usize])
+      .map(|byte| self.palette.0[*byte as usize])
       .enumerate()
     {
       buf[i * 4 + 0] = color.0;
@@ -150,21 +166,12 @@ impl Emu {
     let read = self.apu.blip.0.read_samples(&mut self.audiobuf, false);
     &self.audiobuf[..read]
   }
+
+  pub fn load_palette(&mut self, bytes: &[u8]) {
+    if let Some(pal) = Palette::from_pal_file(bytes) {
+      self.palette = pal;
+    } else {
+      println!("not a valid palette file");
+    }
+  }
 }
-
-
-// TODO: palette setting, this souldnt be static
-#[derive(Debug)]
-pub struct RGBColor(pub u8, pub u8, pub u8);
-pub static DEFAULT_PALETTE: LazyLock<[RGBColor; 64]> = LazyLock::new(|| {
-  let bytes = include_bytes!("../utils/Composite_wiki.pal");
-
-  let colors: Vec<RGBColor> = bytes
-    .chunks(3)
-    // we take only the first palette set of 64 colors, more might be in a .pal file
-    .take(64)
-    .map(|rgb| RGBColor(rgb[0], rgb[1], rgb[2]))
-    .collect();
-
-  colors.try_into().unwrap()
-});

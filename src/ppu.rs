@@ -636,24 +636,27 @@ impl Emu {
     self.ppu.spr_scanline.0.fill(0.into());
 
     // fetch sprites over sprite limit
-    // for i in 8..self.ppu.oam_tmp_count {
-    //   let sprite = &self.ppu.oam_tmp[i as usize];
-    //   let pttrn_addr = self.ppu.spr_pttrn_addr(sprite);
+    if !self.settings.sprite_limit {
+      for i in 8..self.ppu.oam_tmp_count {
+        let sprite = &self.ppu.oam_tmp[i as usize];
+        let pttrn_addr = self.ppu.spr_pttrn_addr(sprite);
 
-    //   let flip_hori = sprite.flip_hori();
+        let flip_hori = sprite.flip_hori();
 
-    //   let mut pttrn_lo = self.ppu_dispatch_read(pttrn_addr);
-    //   let mut pttrn_hi = self.ppu_dispatch_read(pttrn_addr + 8);
-      
-    //   if flip_hori {
-    //     pttrn_lo = pttrn_lo.reverse_bits(); 
-    //     pttrn_hi = pttrn_hi.reverse_bits(); 
-    //   }
+        let mut pttrn_lo = self.ppu_dispatch_read(pttrn_addr);
+        let mut pttrn_hi = self.ppu_dispatch_read(pttrn_addr + 8);
+        
+        if flip_hori {
+          pttrn_lo = pttrn_lo.reverse_bits(); 
+          pttrn_hi = pttrn_hi.reverse_bits(); 
+        }
 
-    //   let sprite = &mut self.ppu.oam_tmp[i as usize];
-    //   sprite.pttrn_lo = pttrn_lo;
-    //   sprite.pttrn_hi = pttrn_hi;
-    // }
+        let sprite = &mut self.ppu.oam_tmp[i as usize];
+        sprite.pttrn_lo = pttrn_lo;
+        sprite.pttrn_hi = pttrn_hi;
+      }
+    }
+    
 
     let ppu = &mut self.ppu;
     for sprite in ppu.oam_tmp.iter().take(ppu.oam_tmp_count as usize) {

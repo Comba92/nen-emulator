@@ -48,8 +48,14 @@ fn main() {
             match event {
                 Event::Quit { .. } => break 'running,
                 Event::DropFile { filename, .. } => {
-                    let rom = std::fs::read(&filename).unwrap();
-                    let new_emu = Emu::new(&rom);
+                    let bytes = std::fs::read(&filename).unwrap();
+                    
+                    if filename.ends_with(".pal") {
+                        emu.load_palette(&bytes);
+                        continue;
+                    }
+
+                    let new_emu = Emu::new(&bytes);
 
                     match new_emu {
                         Ok(res) => {
