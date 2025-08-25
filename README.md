@@ -3,6 +3,8 @@ https://www.reddit.com/r/EmuDev/comments/xta12t/confused_about_cycles_and_emulat
 
 # Mappers
 - https://www.nesdev.org/wiki/List_of_mappers_by_Release_Date
+- https://www.nesdev.org/wiki/NES_2.0_submappers
+
 
 - https://www.nesdev.org/wiki/MMC1#SxROM_connection_variants
 - https://www.nesdev.org/wiki/MMC6
@@ -13,3 +15,5 @@ https://www.reddit.com/r/EmuDev/comments/xta12t/confused_about_cycles_and_emulat
 
 - https://www.nesdev.org/wiki/INES_Mapper_118
 - https://www.nesdev.org/wiki/INES_Mapper_119
+
+- https://www.nesdev.org/wiki/RAMBO-1

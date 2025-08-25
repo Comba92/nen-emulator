@@ -150,7 +150,7 @@ impl Default for Banking<ChrBank> {
 
 impl Banking<WramBank> {
   pub fn new_wram(header: &CartHeader) -> Self {
-    Self::new(header.prg_ram_size, 8 * 1024, 1)
+    Self::new(header.wram_size, 8 * 1024, 1)
   }
 }
 impl Default for Banking<WramBank> {
@@ -322,7 +322,7 @@ impl Bus {
       prg: cart.prg,
       chr: cart.chr,
       vram: vec![0; 2 * 1024],
-      wram: vec![0; cart.header.prg_ram_size],
+      wram: vec![0; cart.header.wram_size],
       palettes: [0; 32],
 
       cpu_handlers_4kb,

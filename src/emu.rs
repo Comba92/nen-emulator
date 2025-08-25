@@ -1,6 +1,6 @@
 use std::sync::LazyLock;
 
-use crate::{apu::ApuRP2A, bus::Bus, cart::{Cart, CartHeader}, cpu::{self, Cpu6502}, joypad::Joypad, mapper::{mapper_from_header, Mapper, NROM}, ppu::Ppu2C02};
+use crate::{apu::ApuRP2A, bus::Bus, cart::{Cart, CartHeader}, cpu::{self, Cpu6502}, joypad::Joypad, mapper::{self, Mapper, NROM}, ppu::Ppu2C02};
 
 pub struct Emu {
   pub cpu: Cpu6502,
@@ -63,7 +63,7 @@ impl Emu {
 
     let rom_header = cart.header.clone();
     let mut mem = Bus::new(cart)?;
-    let mapper = mapper_from_header(&rom_header, &mut mem)?;
+    let mapper = mapper::from_header(&rom_header, &mut mem)?;
     
     let mut emu = Self {
       cpu: Cpu6502::new(),
@@ -153,7 +153,7 @@ impl Emu {
 }
 
 
-// TODO: palette setting
+// TODO: palette setting, this souldnt be static
 #[derive(Debug)]
 pub struct RGBColor(pub u8, pub u8, pub u8);
 pub static DEFAULT_PALETTE: LazyLock<[RGBColor; 64]> = LazyLock::new(|| {

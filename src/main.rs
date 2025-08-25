@@ -34,7 +34,7 @@ fn main() {
 
     tex.set_scale_mode(sdl2::render::ScaleMode::Nearest);
 
-    let mut emu = Emu::new(include_bytes!("../roms/Star Wars (Japan) (Namco).nes")).unwrap();
+    let mut emu = Emu::new(include_bytes!("../roms/castlevania.nes")).unwrap();
 
     let mut framebuf = [0; 256 * 240 * 4];
 
@@ -52,7 +52,10 @@ fn main() {
                     let new_emu = Emu::new(&rom);
 
                     match new_emu {
-                        Ok(res) => emu = res,
+                        Ok(res) => {
+                            emu = res;
+                            audiodev.clear();
+                        },
                         Err (e) => eprintln!("{e}"),
                     }
                 }
@@ -94,7 +97,7 @@ fn main() {
         emu.step_until_vblank();
         audiodev.queue_audio(emu.get_audio()).unwrap();
 
-        while audiodev.size() < audiodev.spec().samples as u32 * 4 {
+        while audiodev.size() < audiodev.spec().samples as u32 {
             // run for another frame
             // println!("Running another frame for filling the audio queue... {}", audiodev.size());
 

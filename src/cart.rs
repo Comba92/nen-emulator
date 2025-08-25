@@ -1,4 +1,4 @@
-use crate::emu::{Mirroring, Region};
+use crate::{emu::{Mirroring, Region}, games_db::GAMES_DB};
 
 #[derive(Default)]
 pub struct Cart {
@@ -7,13 +7,20 @@ pub struct Cart {
   pub chr: Vec<u8>,
 }
 
+// TODO: UNIF support
+#[derive(Debug, Default, Clone, PartialEq)]
+pub enum HeaderFormat {
+  #[default] Headerless, INes, Nes2_0, 
+}
+
+// TODO: just old a static reference to game data here retard
 // https://www.nesdev.org/wiki/INES
 #[derive(Default, Debug, Clone)]
 pub struct CartHeader {
+  pub format: HeaderFormat,
   pub prg_size: usize,
   pub chr_size: usize,
-  pub prg_ram_size: usize,
-  pub prg_nvram_size: usize,
+  pub wram_size: usize,
   
   pub mirroring: Mirroring,
   pub region: Region,
@@ -21,31 +28,62 @@ pub struct CartHeader {
   
   pub mapper: u16,
   pub submapper: u8,
-  pub extensions: u8,
+  pub expansions: u8,
 
   pub has_trainer: bool,
   pub has_chr_ram: bool,
+  pub has_prg_ram: bool,
   pub has_battery: bool,
-  pub is_nes2_0: bool,
 }
 
-const MAGIC: &[u8] = &[0x4e, 0x45, 0x53, 0x1a];
-const HEADER_SIZE: usize = 16;
-const TRAINER_SIZE: usize = 16;
+impl CartHeader {
+  const INES_MAGIC: &[u8] = &[0x4e, 0x45, 0x53, 0x1a];
+  const INES_HEADER_SIZE: usize = 16;
+  const TRAINER_SIZE: usize = 512;
 
-// TODO: UNIF support
+  pub fn is_valid_ines(bytes: &[u8]) -> bool {
+    bytes.len() >= Self::INES_HEADER_SIZE && &bytes[0..4] == Self::INES_MAGIC
+  }
 
-impl Cart {
+  pub fn header_len(&self) -> usize {
+    match self.format {
+      HeaderFormat::Headerless => 0,
+      HeaderFormat::INes | HeaderFormat::Nes2_0 => 
+        if self.has_trainer { Self::INES_HEADER_SIZE + Self::TRAINER_SIZE } else { Self::INES_HEADER_SIZE },
+    }
+  }
+
   pub fn new(bytes: &[u8]) -> Result<Self, &'static str> {
-    if bytes.len() < HEADER_SIZE || &bytes[0..4] != MAGIC { return Err("not a valid iNES ROM"); }
+    let header = Self::parse(bytes);
+
+    match header {
+      Ok(mut header) => {
+        // we only trust Nes2.0 format
+        if header.format != HeaderFormat::Nes2_0 {
+          header.update_from_db(bytes);
+        }
+
+        Ok(header)
+      }
+      Err(e) => GAMES_DB.query(bytes)
+        .ok_or(e)
+        .map(|x| x.into()),
+    }
+  }
+
+  pub fn parse(bytes: &[u8]) -> Result<Self, &'static str> {
+    if !Self::is_valid_ines(bytes) {
+      return Err("not a valid iNES ROM")
+    }
 
     let mut header = CartHeader::default();
+    header.format = HeaderFormat::INes;
     
     header.prg_size = bytes[4] as usize * 16 * 1024;
     header.has_chr_ram = bytes[5] == 0;
-    header.chr_size = if header.has_chr_ram { 8 * 1024 } else { bytes[5] as usize * 8 * 1024 };
-    // we default wram to 8kb
-    header.prg_ram_size = 8 * 1024;
+    header.chr_size = bytes[5] as usize * 8 * 1024;
+    // default wram to 8kb
+    header.wram_size = 8 * 1024;
 
     header.mapper = ((bytes[7] & 0xf0) | (bytes[6] >> 4)) as u16;
     header.has_battery = bytes[6] & 0x2 != 0;
@@ -61,22 +99,37 @@ impl Cart {
 
     if version == 0x08 {
       // NES 2.0
-      header.is_nes2_0 = true;
+      header.format = HeaderFormat::Nes2_0;
       header.mapper |= (bytes[8] as u16 & 0xf) << 8;
       header.submapper = bytes[8] >> 4;
 
       let prg_ram_shift = bytes[10] & 0xf;
       let prg_nvram_shift = bytes[10] >> 4;
-      header.prg_ram_size = if prg_ram_shift == 0 { 8 * 1024 } else { 64 << prg_ram_shift };
-      header.prg_nvram_size = if prg_nvram_shift == 0 { 0 } else { 64 << prg_nvram_shift };
 
-      let chr_ram_shift = bytes[11] & 0xf;
-      let chr_nvram_shift = bytes[11] >> 4;
-      header.chr_size = if chr_ram_shift != 0 {
-        64 << chr_ram_shift
+      // we only take nvram is ram is zero
+      header.wram_size = if prg_ram_shift > 0 {
+        64 << prg_ram_shift
+      } else if prg_nvram_shift > 0 {
+        64 << prg_nvram_shift
       } else {
-        64 << chr_nvram_shift
+        8 * 1024
       };
+      // TODO: handle case where wram is 0
+      header.has_prg_ram = prg_nvram_shift > 0 || prg_nvram_shift > 0;
+
+      // we only take chr ram if chr rom is zero
+      if header.chr_size == 0 {
+        let chr_ram_shift = bytes[11] & 0xf;
+        let chr_nvram_shift = bytes[11] >> 4;
+
+        header.chr_size = if chr_ram_shift > 0 {
+          64 << chr_ram_shift
+        } else if chr_nvram_shift > 0 {
+          64 << chr_nvram_shift
+        } else {
+          8 * 1024
+        };
+      }
 
       header.region = match bytes[12] & 0b11 {
         0 => Region::NTSC,
@@ -84,23 +137,55 @@ impl Cart {
         2 => Region::World,
         _ => Region::Dendy,
       };
-      header.extensions = bytes[15] & 0x3f;
+      header.expansions = bytes[15] & 0x3f;
     } else if version == 0 && bytes[12..=15].iter().all(|x| *x == 0) {
       // iNES with PRG RAM and TV system field
-      header.prg_ram_size = if bytes[8] == 0 { 8 * 1024 } else { bytes[8] as usize * 8 * 1024 };
+      header.wram_size = if bytes[8] == 0 { 8 * 1024 } else { bytes[8] as usize * 8 * 1024 };
+      header.has_prg_ram = bytes[8] > 0;
       header.region = match bytes[9] {
         1 => Region::PAL,
         _ => Region::NTSC,
       };
     }
+
+    // if chr rom is 0, default to 8kb
+    header.chr_size = if header.chr_size == 0 { 8 * 1024 } else { header.chr_size };
+
+    Ok(header)
+  }
+
+  fn update_from_db(&mut self, bytes: &[u8]) {
+    // get data not avaible on iNes
+    GAMES_DB.query(&bytes[self.header_len()..])
+    .inspect(|x| {
+      self.region = x.region.clone();
+      self.submapper = x.submapper;
+      self.expansions = x.expansions;
+
+      self.wram_size = if x.prgram_size > 0 {
+        x.prgram_size
+      } else if x.prgnvram_size > 0 {
+        x.prgnvram_size
+      } else {
+        // TODO: handler wram size of 0
+        8 * 1024
+      };
+    });
+  }
+}
+
+impl Cart {
+  pub fn new(rom_bytes: &[u8]) -> Result<Self, &'static str> {
+    let header = CartHeader::new(rom_bytes)?;
     
-    let rom_start = if header.has_trainer { HEADER_SIZE + TRAINER_SIZE } else { HEADER_SIZE };
-    let prg = bytes[rom_start..rom_start+header.prg_size].to_vec();
+    // only iNes supported
+    let rom_start = header.header_len();
+    let prg = rom_bytes[rom_start..rom_start+header.prg_size].to_vec();
     let chr = if header.has_chr_ram {
       vec![0; header.chr_size]
     } else {
       let chr_start = rom_start+header.prg_size;
-      bytes[chr_start..chr_start + header.chr_size].to_vec()
+      rom_bytes[chr_start..chr_start + header.chr_size].to_vec()
     };
 
     println!("{:?}", header);

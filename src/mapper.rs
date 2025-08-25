@@ -1,4 +1,4 @@
-use crate::{bus::{self, Banking, Bus, ChrBank, CpuHandler, IrqFlags, PpuHandler, VramBank}, cart::CartHeader, emu::Mirroring, utils::{byte_set_hi, byte_set_lo}};
+use crate::{bus::{Banking, Bus, ChrBank, CpuHandler, IrqFlags, PpuHandler}, cart::CartHeader, emu::Mirroring, utils::{byte_set_hi, byte_set_lo}};
 
 // https://www.nesdev.org/wiki/Mapper
 pub trait Mapper {
@@ -15,7 +15,7 @@ pub trait Mapper {
   fn sample(&self) -> f32 { 0.0 }
 }
 
-pub fn mapper_from_header(header: &CartHeader, mem: &mut Bus) -> Result<Box<dyn Mapper>, String> {
+pub fn from_header(header: &CartHeader, mem: &mut Bus) -> Result<Box<dyn Mapper>, String> {
   let mapper: Box<dyn Mapper> = match header.mapper {
     0 => NROM::new(header, mem),
     1 => MMC1::new(header, mem),
@@ -98,7 +98,8 @@ impl Mapper for UxROM {
 // https://www.nesdev.org/wiki/CNROM
 struct CNROM;
 impl Mapper for CNROM {
-  fn new(_: &CartHeader, mem: &mut Bus) -> Box<Self> {
+  fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
+    mem.banks.prg = Banking::new_prg(header, 1);
     // The Namco game Hayauchi Super Igo adds 2 KiB of PRG-RAM, denoted using mapper 3 and the appropriate value in the header's PRG-RAM size field.
     mem.banks.wram = Banking::new(2 * 1024, 2 * 1024, 4);
     Box::new(Self)
@@ -303,6 +304,7 @@ impl Mapper for IremTAMS1 {
 // Needs NES2.0 / db support for SRAM
 // TODO: prg rom write delay
 // TODO: get rid of change_mode
+// TODO: broken
 #[derive(Default)]
 struct MMC1 {
   shift_reg: u8,
@@ -1246,8 +1248,6 @@ mod konami {
       self.enabled = val & 0x2 > 0;
       self.mode_scanline = val & 0x4 == 0;
 
-      dbg!(self.mode_scanline);
-
       if self.enabled {
         self.count = self.latch;
       }
@@ -1836,7 +1836,7 @@ impl Mapper for MMC5 {
     mem.banks.chr = Banking::new_chr(header, 8);
 
     // wram can be mapped in range 0x6000..=0xdfff (32kb)
-    mem.banks.wram = Banking::new(header.prg_ram_size, 32 * 1024, 4);
+    mem.banks.wram = Banking::new(header.wram_size, 32 * 1024, 4);
 
     let mut res = Self::default();
     res.update_prg_banks(mem);
