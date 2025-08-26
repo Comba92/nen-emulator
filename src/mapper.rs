@@ -664,7 +664,8 @@ impl Mapper for Namco129_163 {
     mem.banks.prg.set_page_to_last_bank(3);
 
     mem.banks.chr = Banking::new(header.chr_size, 12 * 1024, 12);
-    mem.banks.vram = Banking::new(header.chr_size, 12 * 1024, 12);
+    mem.banks.vram = Banking::new(2 * 1024, 12 * 1024, 12);
+    mem.set_vram_handlers(PpuHandler::VramInChr);
 
     Box::new(Self {
       exram: [0; 128],
@@ -714,7 +715,8 @@ impl Mapper for Namco129_163 {
         if val >= 0xe0 && nametbl_enabled {
           // use nametables
           mem.banks.vram.set_page(page, val & 1);
-          mem.ppu_handlers_1kb[page as usize] = PpuHandler::Vram;
+          mem.ppu_handlers_1kb[page as usize] = PpuHandler::VramInChr;
+          println!("{:?}", mem.banks);
         } else {
           // use chr
           mem.banks.chr.set_page(page, val);
@@ -800,6 +802,8 @@ impl Mapper for Sunsoft89 {
   }
 }
 
+
+// https://www.nesdev.org/wiki/INES_Mapper_068
 #[derive(Default)]
 struct Sunsoft4 {
   uses_chr_rom: bool,
@@ -809,31 +813,30 @@ struct Sunsoft4 {
 }
 impl Sunsoft4 {
   fn update_chr_banks(&mut self, mem: &mut Bus) {
-    let vram = &mut mem.banks.vram;
-
     if !self.uses_chr_rom {
-      vram.mirror(&self.mirroring);
+      mem.banks.vram.mirror(&self.mirroring);
       return;
     }
     
+    let chr = &mut mem.banks.chr;
     match &self.mirroring {
       Mirroring::Vertical => {
-        vram.set_page(0, self.chr_table0);
-        vram.set_page(1, self.chr_table1);
-        vram.set_page(2, self.chr_table0);
-        vram.set_page(3, self.chr_table1);
+        chr.set_page(8 + 0, self.chr_table0);
+        chr.set_page(8 + 1, self.chr_table1);
+        chr.set_page(8 + 2, self.chr_table0);
+        chr.set_page(8 + 3, self.chr_table1);
       },
       Mirroring::Horizontal => {
-        vram.set_page(0, self.chr_table0);
-        vram.set_page(1, self.chr_table0);
-        vram.set_page(2, self.chr_table1);
-        vram.set_page(3, self.chr_table1);
+        chr.set_page(8 + 0, self.chr_table0);
+        chr.set_page(8 + 1, self.chr_table0);
+        chr.set_page(8 + 2, self.chr_table1);
+        chr.set_page(8 + 3, self.chr_table1);
       }
-      Mirroring::SingleScreenA => for i in 0..4 {
-        vram.set_page(i, self.chr_table0);
+      Mirroring::SingleScreenA => for i in 8..12 {
+        chr.set_page(i, self.chr_table0);
       }
-      Mirroring::SingleScreenB => for i in 0..4 {
-        vram.set_page(i, self.chr_table1);
+      Mirroring::SingleScreenB => for i in 8..12 {
+        chr.set_page(i, self.chr_table1);
       },
       // shouldn't have 4 screens mirroring
       _ => {}
@@ -843,7 +846,11 @@ impl Sunsoft4 {
 impl Mapper for Sunsoft4 {
   fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
     mem.banks.prg.set_page_to_last_bank(1);
-    mem.banks.chr = Banking::new_chr(header, 4);
+    mem.banks.chr = Banking::new(header.chr_size, 12 * 1024, 12);
+    mem.banks.chr.set_pages_aligned2(0, 0);
+    mem.banks.chr.set_pages_aligned2(2, 2);
+    mem.banks.chr.set_pages_aligned2(4, 4);
+    mem.banks.chr.set_pages_aligned2(6, 6);
 
     Box::new(Self {
       mirroring: header.mirroring.clone(),
@@ -858,10 +865,10 @@ impl Mapper for Sunsoft4 {
       }
 
       // mapper expects 2kb banks number, but we have 1kb bank slots, we need to shift
-      0x8 => mem.banks.chr.set_page(0, val),
-      0x9 => mem.banks.chr.set_page(1, val),
-      0xa => mem.banks.chr.set_page(2, val),
-      0xb => mem.banks.chr.set_page(3, val),
+      0x8 => mem.banks.chr.set_pages_aligned2(0, val << 1),
+      0x9 => mem.banks.chr.set_pages_aligned2(2, val << 1),
+      0xa => mem.banks.chr.set_pages_aligned2(4, val << 1),
+      0xb => mem.banks.chr.set_pages_aligned2(6, val << 1),
 
       0xc => {
         self.chr_table0 = 0x80 | val;
@@ -887,14 +894,11 @@ impl Mapper for Sunsoft4 {
 
         let mode = val & 0x10 > 0;
         if mode != self.uses_chr_rom {
-          let new_size = if mode { mem.chr.len() } else { 2 * 1024 };
-          mem.banks.vram.change_size(new_size);
-
-          let handler = if mode { PpuHandler::ChrInVram } else { PpuHandler::Vram };
+          let handler = if mode { PpuHandler::Chr } else { PpuHandler::Vram };
           mem.set_vram_handlers(handler);
-
           self.uses_chr_rom = mode;
         }
+
         self.update_chr_banks(mem);
       }
       0xf => {
@@ -957,6 +961,7 @@ mod sunsoft_fme7 {
   }
 }
 
+// https://www.nesdev.org/wiki/Sunsoft_FME-7
 #[derive(Default)]
 struct SunsoftFME7 {
   uses_wram: bool,
@@ -997,9 +1002,6 @@ impl Mapper for SunsoftFME7 {
           let mode = val & 0x40 > 0;
 
           if mode != self.uses_wram {
-            let new_size = if mode { mem.wram.len() } else { mem.prg.len() };
-            mem.banks.wram.change_size(new_size);
-
             let handler = if mode { CpuHandler::Wram } else { CpuHandler::PrgInWram };
             mem.set_wram_handlers(handler);
 
@@ -1681,8 +1683,8 @@ impl MMC5 {
       };
 
       // set 8kb handler
-      mem.cpu_handlers_4kb[8 + page as usize - 1] = handler;
-      mem.cpu_handlers_4kb[9 + page as usize - 1] = handler;
+      mem.cpu_handlers_8kb[8 + page as usize - 1] = handler;
+      mem.cpu_handlers_8kb[9 + page as usize - 1] = handler;
     };
 
     let reg1 = self.prg_regs[1];

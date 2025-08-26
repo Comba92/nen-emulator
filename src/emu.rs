@@ -96,7 +96,9 @@ impl Emu {
       videobuf: [0; 256 * 240],
       audiobuf: [0; 1024],
       palette: Palette::from_pal_file(include_bytes!("../utils/2C02G_wiki.pal")).unwrap(),
-      ..Default::default()
+      
+      frame_ready: false,
+      settings: EmuSettings::default()
     };
 
     emu.cpu.pc = emu.cpu_read16(cpu::RST_VECTOR);

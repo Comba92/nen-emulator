@@ -119,7 +119,8 @@ impl<T: BankCfg + std::fmt::Debug> Banking<T> {
 
   pub fn translate(&self, addr: u16) -> usize {
     // let page = (addr % self.pages_size) / self.bank_size;
-    let page = (addr & self.addressable_size-1) >> self.bank_size_shift;
+    // let page = (addr & self.addressable_size-1) >> self.bank_size_shift;
+    let page = addr >> self.bank_size_shift;
 
     // i do not expect to write outside the slots array here either.
     // self.bankings[page] + (addr % self.bank_size)
@@ -279,7 +280,7 @@ pub enum CpuHandler {
 // CHR ROM / CHR RAM write handlers, chr rom shouldnt be written 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum PpuHandler {
-  Chr, Vram, Palette, ChrInVram, VramInChr,
+  Chr, Vram, Palette, VramInChr,
 }
 
 // TODO: access prg, chr, sram, vram with unsafe uncheked get, as index bounds cannot be optimized
@@ -292,7 +293,7 @@ pub struct Bus {
   pub vram: Vec<u8>,
 
   // 64kb / 4kb = 16
-  pub cpu_handlers_4kb: [CpuHandler; 16],
+  pub cpu_handlers_8kb: [CpuHandler; 8],
   // 16kb / 1kb = 16
   pub ppu_handlers_1kb: [PpuHandler; 16],
 
@@ -319,27 +320,19 @@ impl Bus {
     let mut banks = BanksHandler::new(&cart.header);
     banks.vram.mirror(&cart.header.mirroring);
 
-    // TODO: shrink those to 8
     let wram_handler = if cart.header.wram_size == 0 { CpuHandler::OpenBus } else { CpuHandler::Wram };
-    let cpu_handlers_4kb = [
-      CpuHandler::Ram,
+    let cpu_handlers_8kb = [
       CpuHandler::Ram,
       CpuHandler::Ppu,
-      CpuHandler::Ppu,
-      CpuHandler::IO,
       CpuHandler::IO,
       wram_handler,
-      wram_handler,
-      CpuHandler::Prg,
-      CpuHandler::Prg,
-      CpuHandler::Prg,
-      CpuHandler::Prg,
       CpuHandler::Prg,
       CpuHandler::Prg,
       CpuHandler::Prg,
       CpuHandler::Prg,
     ];
 
+    // TODO: chr rom/ram
     let ppu_handlers_1kb = [
       PpuHandler::Chr,
       PpuHandler::Chr,
@@ -367,7 +360,7 @@ impl Bus {
       wram: vec![0; cart.header.wram_size],
       palettes: [0; 32],
 
-      cpu_handlers_4kb,
+      cpu_handlers_8kb,
       ppu_handlers_1kb,
 
       cpu_addr_bus: 0,
@@ -385,13 +378,12 @@ impl Bus {
   }
 
   pub fn set_wram_handlers(&mut self, handler: CpuHandler) {
-    self.cpu_handlers_4kb[6] = handler;
-    self.cpu_handlers_4kb[7] = handler;
+    self.cpu_handlers_8kb[3] = handler;
   }
 
   pub fn set_prg_handlers(&mut self, handler: CpuHandler) {
-    for i in 8..16 {
-      self.cpu_handlers_4kb[i] = handler;
+    for i in 4..8 {
+      self.cpu_handlers_8kb[i] = handler;
     }
   }
 
@@ -409,9 +401,9 @@ impl Emu {
     // TODO: cpu tick here
     // Be sure to remove ticks in dma and cpu reads
 
-    let handler = (addr >> 12) % 16;
+    let handler = (addr >> 13) % 16;
 
-    let res = match mem.cpu_handlers_4kb[handler as usize] {
+    let res = match mem.cpu_handlers_8kb[handler as usize] {
       CpuHandler::Ram => mem.ram[addr as usize & 0x07ff],
       CpuHandler::Ppu => self.ppu_reg_read(addr & 0x2007),
       CpuHandler::IO => {        
@@ -424,9 +416,9 @@ impl Emu {
         }
       }
       CpuHandler::Mapper => self.mapper.cart_read(mem, addr),
-      CpuHandler::Wram => mem.wram[mem.banks.wram.translate(addr)],
-      CpuHandler::Prg => mem.prg[mem.banks.prg.translate(addr)],
-      CpuHandler::PrgInWram => mem.prg[mem.banks.wram.translate(addr)],
+      CpuHandler::Wram => mem.wram[mem.banks.wram.translate(addr - 0x6000)],
+      CpuHandler::Prg => mem.prg[mem.banks.prg.translate(addr - 0x8000)],
+      CpuHandler::PrgInWram => mem.prg[mem.banks.wram.translate(addr - 0x6000)],
       CpuHandler::OpenBus => mem.cpu_data_bus,
     };
     
@@ -441,9 +433,9 @@ impl Emu {
     // TODO: cpu tick here
     // Be sure to remove ticks in dma and cpu reads
 
-    let handler = (addr >> 12) % 16;
+    let handler = (addr >> 13) % 16;
 
-    match mem.cpu_handlers_4kb[handler as usize] {
+    match mem.cpu_handlers_8kb[handler as usize] {
       CpuHandler::Ram => mem.ram[addr as usize & 0x07ff] = val,
       CpuHandler::Ppu => self.ppu_reg_write(addr & 0x2007, val),
       CpuHandler::IO => {
@@ -471,7 +463,7 @@ impl Emu {
       //   }
       // }
       CpuHandler::Mapper => self.mapper.cart_write(mem, addr, val),
-      CpuHandler::Wram => mem.wram[mem.banks.wram.translate(addr)] = val,
+      CpuHandler::Wram => mem.wram[mem.banks.wram.translate(addr - 0x6000)] = val,
       CpuHandler::Prg | CpuHandler::PrgInWram => {
         self.mapper.prg_write(mem, addr, val);
       }
@@ -496,9 +488,8 @@ impl Emu {
 
     let res = match handler {
       PpuHandler::Chr => mem.chr[mem.banks.chr.translate(addr)],
-      PpuHandler::Vram => mem.vram[mem.banks.vram.translate(addr)],
-      PpuHandler::ChrInVram => mem.chr[mem.banks.vram.translate(addr)],
-      PpuHandler::VramInChr => mem.vram[mem.banks.chr.translate(addr)],
+      PpuHandler::Vram => mem.vram[mem.banks.vram.translate(addr - 0x2000)],
+      PpuHandler::VramInChr => mem.vram[mem.banks.vram.translate(addr)],
       PpuHandler::Palette => {
         if matches!(addr, 0x3f00..=0x3fff) {
           self.ppu_palette_read(addr)
@@ -536,9 +527,8 @@ impl Emu {
     
     match mem.ppu_handlers_1kb[handler as usize] {
       PpuHandler::Chr => mem.chr[mem.banks.chr.translate(addr)] = val,
-      PpuHandler::Vram => mem.vram[mem.banks.vram.translate(addr)] = val,
-      PpuHandler::ChrInVram => mem.chr[mem.banks.vram.translate(addr)] = val,
-      PpuHandler::VramInChr => mem.vram[mem.banks.chr.translate(addr)] = val,
+      PpuHandler::Vram => mem.vram[mem.banks.vram.translate(addr - 0x2000)] = val,
+      PpuHandler::VramInChr => mem.vram[mem.banks.vram.translate(addr)] = val,
       PpuHandler::Palette => {
         if matches!(addr, 0x3f00..=0x3fff) {
           let addr = addr as usize & 31;
