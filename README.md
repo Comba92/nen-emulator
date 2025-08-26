@@ -14,8 +14,20 @@ https://www.reddit.com/r/EmuDev/comments/xta12t/confused_about_cycles_and_emulat
 - https://www.nesdev.org/wiki/VRC2_and_VRC4
 - https://www.nesdev.org/wiki/VRC7
 
-- https://www.nesdev.org/wiki/INES_Mapper_067
 - https://www.nesdev.org/wiki/INES_Mapper_118
 - https://www.nesdev.org/wiki/INES_Mapper_119
 
+- https://www.nesdev.org/wiki/INES_Mapper_018
+- https://www.nesdev.org/wiki/INES_Mapper_032
+- https://www.nesdev.org/wiki/INES_Mapper_076
+- https://www.nesdev.org/wiki/INES_Mapper_077
+- https://www.nesdev.org/wiki/INES_Mapper_206
+- https://www.nesdev.org/wiki/INES_Mapper_086
+- https://www.nesdev.org/wiki/INES_Mapper_072
+- https://www.nesdev.org/wiki/INES_Mapper_092
+- https://www.nesdev.org/wiki/INES_Mapper_210
+- https://www.nesdev.org/wiki/INES_Mapper_228
+- https://www.nesdev.org/wiki/INES_Mapper_232
+
+- https://www.nesdev.org/wiki/INES_Mapper_034
 - https://www.nesdev.org/wiki/RAMBO-1

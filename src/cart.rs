@@ -72,7 +72,10 @@ impl CartHeader {
         }
 
         // TODO: remove this, only for debug
-        GAMES_DB.query(&bytes[header.header_len()..]);
+        let res = GAMES_DB.query(&bytes[header.header_len()..]);
+        if let Some(game) = res {
+          println!("DB HIT! {:?}", game.title)
+        }
 
         Ok(header)
       }

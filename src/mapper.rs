@@ -31,9 +31,11 @@ pub fn from_header(header: &CartHeader, mem: &mut Bus) -> Result<Box<dyn Mapper>
     11 => ColorDreams::new(header, mem),
     13 => CPROM::new(header, mem),
     19 => Namco129_163::new(header, mem),
+    21 | 22 | 23 | 25 => VRC2_4::new(header, mem),
     24 | 26 => VRC6::new(header, mem),
     31 => NSF::new(header, mem),
     66 | 140 => GxROM::new(header, mem),
+    67 => Sunsoft3::new(header, mem),
     68 => Sunsoft4::new(header, mem),
     69 => SunsoftFME7::new(header, mem),
     70 | 152 => Bandai74::new(header, mem),
@@ -47,9 +49,6 @@ pub fn from_header(header: &CartHeader, mem: &mut Bus) -> Result<Box<dyn Mapper>
     93 => Sunsoft93::new(header, mem),
     97 => IremTAMS1::new(header, mem),
     184 => Sunsoft1::new(header, mem),
-    // TODO: mapper 34
-    // TODO: mapper 72 / 92
-    // TODO: mapper 206 (mmc3 prototype)
     _ => return Err(format!("mapper {} not implemented", header.mapper)),
   };
 
@@ -99,6 +98,7 @@ impl Mapper for UxROM {
 }
 
 // https://www.nesdev.org/wiki/CNROM
+// TODO: mapper 185 
 struct CNROM;
 impl Mapper for CNROM {
   fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
@@ -116,6 +116,7 @@ impl Mapper for CNROM {
 
   fn prg_write(&mut self, mem: &mut Bus, _: u16, val: u8) {
     mem.banks.chr.set_page(0, val & 0b11);
+    // TODO: mapper 185 chr disable
   }
 }
 
@@ -251,7 +252,7 @@ impl Mapper for Irem74HCx {
     mem.banks.prg.set_page_to_last_bank(1);
 
     Box::new(Self {
-      is_holy_diver: header.alt_mirroring
+      is_holy_diver: header.submapper == 3 || header.alt_mirroring
     })
   }
 
@@ -312,8 +313,6 @@ impl Mapper for IremTAMS1 {
 // TODO: SxROM support
 // Needs NES2.0 / db support for SRAM
 // TODO: prg rom write delay
-// TODO: get rid of change_mode
-// TODO: broken
 #[derive(Default)]
 struct MMC1 {
   shift_reg: u8,
@@ -393,7 +392,7 @@ impl Mapper for MMC1 {
           }
         };
 
-        let chr_mode = shift_val & 0x80;
+        let chr_mode = shift_val & 0x10;
         if chr_mode == 0 {
           mem.banks.chr.change_mode(1);
           self.chr_bank_mask = 1;
@@ -507,6 +506,7 @@ impl Mapper for MMC2 {
 // https://www.nesdev.org/wiki/MMC3
 // https://www.nesdev.org/wiki/MMC6
 // TODO: MMC6 variant
+// TODO: wram shit
 #[derive(Default)]
 struct MMC3 {
   bank_select: u8,
@@ -527,7 +527,7 @@ impl Mapper for MMC3 {
   fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
     if header.alt_mirroring {
       // MMC3 can have 4 screen mirroring
-      mem.banks.vram.change_size(4 * 1024);
+      mem.banks.vram = Banking::new(4 * 1024, 4 * 1024, 4);
       mem.banks.vram.mirror(&Mirroring::FourScreens);
       mem.vram.resize(4 * 1024, 0);
     }
@@ -803,6 +803,70 @@ impl Mapper for Sunsoft89 {
   }
 }
 
+#[derive(Default)]
+struct Sunsoft3 {
+  irq_write: bool,
+  irq_count: u16,
+  irq_enabled: bool,
+}
+impl Mapper for Sunsoft3 {
+  fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> where Self: Sized {
+    mem.banks.prg.set_page_to_last_bank(1);
+    mem.banks.chr = Banking::new_chr(header, 4);
+
+    Box::new(Self::default())
+  }
+
+  fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
+    if addr & 0x8800 == 0x8000 {
+      mem.irq.remove(IrqFlags::MAPPER);
+    }
+
+    match addr & 0xf800 {
+      0x8800 => mem.banks.chr.set_page(0, val),
+      0x9800 => mem.banks.chr.set_page(1, val),
+      0xa800 => mem.banks.chr.set_page(2, val),
+      0xb800 => mem.banks.chr.set_page(3, val),
+      
+      0xc800 => {
+        self.irq_count = if !self.irq_write {
+          byte_set_hi(self.irq_count, val)
+        } else {
+          byte_set_lo(self.irq_count, val)
+        };
+        self.irq_write = !self.irq_write;
+      }
+
+      0xd800 => {
+        self.irq_enabled = val & 0x10 > 0;
+        self.irq_write = false;
+      }
+      0xe800 => {
+        let mirroring = match val & 0x3 {
+          0 => Mirroring::Vertical,
+          1 => Mirroring::Horizontal,
+          2 => Mirroring::SingleScreenA,
+          _ => Mirroring::SingleScreenB,
+        };
+        mem.banks.vram.mirror(&mirroring);
+      }
+
+      0xf800 => mem.banks.prg.set_page(0, val & 0xf),
+      _ => {}
+    }
+  }
+
+  fn step(&mut self, mem: &mut Bus, _cycles: usize) {
+    if self.irq_enabled {
+      if self.irq_count == 0 {
+        mem.irq.insert(IrqFlags::MAPPER);
+        self.irq_enabled = false;
+      } else {
+        self.irq_count -= 1;
+      }
+    }
+  }
+}
 
 // https://www.nesdev.org/wiki/INES_Mapper_068
 #[derive(Default)]
@@ -1292,6 +1356,29 @@ mod konami {
         clock();
       }
     }
+  }
+}
+
+
+// https://www.nesdev.org/wiki/VRC2_and_VRC4
+// TODO
+#[derive(Default)]
+struct VRC2_4 {
+  irq: konami::Irq,
+  submapper: u8,
+}
+impl Mapper for VRC2_4 {
+  fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
+    mem.banks.chr = Banking::new_chr(header, 8);
+
+    Box::new(Self {
+      submapper: header.submapper,
+      ..Default::default()
+    })
+  }
+
+  fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
+    
   }
 }
 

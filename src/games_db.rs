@@ -125,11 +125,7 @@ impl GamesDB {
       }
     });
 
-    index.and_then(|i| {
-      let res = &self.games[*i];
-      println!("DB hit! {:?}", res.title);
-      Some(res)
-    })
+    index.and_then(|i| Some(&self.games[*i]))
   }
 }
 
