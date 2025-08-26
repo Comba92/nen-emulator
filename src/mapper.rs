@@ -716,11 +716,10 @@ impl Mapper for Namco129_163 {
           // use nametables
           mem.banks.vram.set_page(page, val & 1);
           mem.ppu_handlers_1kb[page as usize] = PpuHandler::VramInChr;
-          println!("{:?}", mem.banks);
         } else {
           // use chr
           mem.banks.chr.set_page(page, val);
-          mem.ppu_handlers_1kb[page as usize] = PpuHandler::Chr;
+          mem.ppu_handlers_1kb[page as usize] = PpuHandler::ChrRom;
         }
       }
 
@@ -894,7 +893,7 @@ impl Mapper for Sunsoft4 {
 
         let mode = val & 0x10 > 0;
         if mode != self.uses_chr_rom {
-          let handler = if mode { PpuHandler::Chr } else { PpuHandler::Vram };
+          let handler = if mode { PpuHandler::ChrRom } else { PpuHandler::Vram };
           mem.set_vram_handlers(handler);
           self.uses_chr_rom = mode;
         }
@@ -1586,6 +1585,7 @@ impl Mapper for VRC6 {
 }
 
 // https://www.nesdev.org/wiki/VRC7
+// TODO: incomplete
 #[derive(Default)]
 struct VRC7 {
   irq: konami::Irq,

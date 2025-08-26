@@ -272,15 +272,15 @@ bitflags::bitflags! {
   }
 }
 
+// TODO: WramReadOnly, WramRW
 #[derive(Clone, Copy, Debug)]
 pub enum CpuHandler {
   Ram, Ppu, IO, Wram, Prg, PrgInWram, Mapper, OpenBus,
 }
 
-// CHR ROM / CHR RAM write handlers, chr rom shouldnt be written 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum PpuHandler {
-  Chr, Vram, Palette, VramInChr,
+  ChrRom, ChrRam, Vram, Palette, VramInChr,
 }
 
 // TODO: access prg, chr, sram, vram with unsafe uncheked get, as index bounds cannot be optimized
@@ -321,6 +321,8 @@ impl Bus {
     banks.vram.mirror(&cart.header.mirroring);
 
     let wram_handler = if cart.header.wram_size == 0 { CpuHandler::OpenBus } else { CpuHandler::Wram };
+    let chr_handler = if cart.header.has_chr_ram { PpuHandler::ChrRam } else { PpuHandler::ChrRom };
+
     let cpu_handlers_8kb = [
       CpuHandler::Ram,
       CpuHandler::Ppu,
@@ -332,16 +334,15 @@ impl Bus {
       CpuHandler::Prg,
     ];
 
-    // TODO: chr rom/ram
     let ppu_handlers_1kb = [
-      PpuHandler::Chr,
-      PpuHandler::Chr,
-      PpuHandler::Chr,
-      PpuHandler::Chr,
-      PpuHandler::Chr,
-      PpuHandler::Chr,
-      PpuHandler::Chr,
-      PpuHandler::Chr,
+      chr_handler,
+      chr_handler,
+      chr_handler,
+      chr_handler,
+      chr_handler,
+      chr_handler,
+      chr_handler,
+      chr_handler,
       PpuHandler::Vram,
       PpuHandler::Vram,
       PpuHandler::Vram,
@@ -487,7 +488,7 @@ impl Emu {
     let handler = mem.ppu_handlers_1kb[handler_id as usize];
 
     let res = match handler {
-      PpuHandler::Chr => mem.chr[mem.banks.chr.translate(addr)],
+      PpuHandler::ChrRom | PpuHandler::ChrRam => mem.chr[mem.banks.chr.translate(addr)],
       PpuHandler::Vram => mem.vram[mem.banks.vram.translate(addr - 0x2000)],
       PpuHandler::VramInChr => mem.vram[mem.banks.vram.translate(addr)],
       PpuHandler::Palette => {
@@ -526,7 +527,8 @@ impl Emu {
     let handler = (addr >> 10) % 16;
     
     match mem.ppu_handlers_1kb[handler as usize] {
-      PpuHandler::Chr => mem.chr[mem.banks.chr.translate(addr)] = val,
+      PpuHandler::ChrRom => {}
+      PpuHandler::ChrRam => mem.chr[mem.banks.chr.translate(addr)] = val,
       PpuHandler::Vram => mem.vram[mem.banks.vram.translate(addr - 0x2000)] = val,
       PpuHandler::VramInChr => mem.vram[mem.banks.vram.translate(addr)] = val,
       PpuHandler::Palette => {

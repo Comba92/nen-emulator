@@ -71,6 +71,9 @@ impl CartHeader {
           header.update_from_db(bytes);
         }
 
+        // TODO: remove this, only for debug
+        GAMES_DB.query(&bytes[header.header_len()..]);
+
         Ok(header)
       }
       Err(e) => GAMES_DB.query(bytes)
@@ -141,6 +144,7 @@ impl CartHeader {
         } else {
           8 * 1024
         };
+        header.has_chr_ram = chr_ram_shift > 0 || chr_nvram_shift > 0;
       }
 
       header.region = match bytes[12] & 0b11 {
