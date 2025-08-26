@@ -125,7 +125,7 @@ impl<T: BankCfg + std::fmt::Debug> Banking<T> {
     // i do not expect to write outside the slots array here either.
     // self.bankings[page] + (addr % self.bank_size)
     // real index + offset
-    self.bankings[page as usize] + (addr & (self.bank_size - 1)) as usize
+    self.bankings[page as usize & self.bankings.len()-1] + (addr & (self.bank_size - 1)) as usize
   }
 }
 
@@ -225,44 +225,6 @@ impl BanksHandler {
   }
 }
 
-#[test]
-fn cool_test() {
-  // let mut good_chr = Banking::<ChrBank>::new(128 * 1024, 8 * 1024, 4);
-  // let mut good_vram = Banking::<VramBank>::new(128 * 1024, 4096, 4);
-  // let mut bad = Banking::<ChrBank>::new(128 * 1024, 12 * 1024, 12);
-
-  // bad.set_page(0, 191);
-  // good_chr.set_page(0, 191);
-  // assert_eq!(bad.bankings[0], good_vram.bankings[0]);
-
-  // good_chr.bankings = vec![106496, 108544, 106496, 108544];
-  // good_vram.bankings = vec![199680, 131072, 199680, 131072];
-  // bad.bankings = vec![106496, 107520, 108544, 109568, 106496, 107520, 108544, 109568, 199680, 131072, 199680, 131072];
-
-  // for i in 0..0x1fff {
-  //   assert_eq!(good_chr.translate(i), bad.translate(i));
-  // }
-
-  // for i in 0x2000..=0x2fff {
-  //   assert_eq!(good_vram.translate(i), bad.translate(i));
-  // }
-
-  let mut bad = Banking::<VramBank>::new(128 * 1024, 12 * 1024, 12);
-  let mut good = Banking::<VramBank>::new(2 * 1024, 4 * 1024, 4);
-
-  bad.set_page(11, 1);
-  bad.set_page(9, 1);
-
-  good.set_page(3, 1);
-  good.set_page(1, 1);
-
-  println!("{:?}\n{:?}", bad, good);
-
-  for i in 0x2000..0x3000 {
-    assert_eq!(bad.translate(i), good.translate(i))
-  }
-}
-
 bitflags::bitflags! {
   #[derive(Debug, Default, Clone)]
   pub struct IrqFlags: u8 {
@@ -272,10 +234,9 @@ bitflags::bitflags! {
   }
 }
 
-// TODO: WramReadOnly, WramRW
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum CpuHandler {
-  Ram, Ppu, IO, Wram, Prg, PrgInWram, Mapper, OpenBus,
+  Ram, Ppu, IO, WramRW, WramReadOnly, OpenBus, Prg, PrgInWram, PrgMMC5, PpuMMC5, Mapper,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -298,10 +259,10 @@ pub struct Bus {
   pub ppu_handlers_1kb: [PpuHandler; 16],
 
   // TODO: consider keeping this in PPU
+  // TODO: palettes are weird, accessing them doesnt change ppu addr bus, investigate
   pub palettes: [u8; 32],
 
-  // TODO: this is not really used anywhere, remove it
-  cpu_addr_bus: u16,
+  pub cpu_addr_bus: u16,
   pub cpu_data_bus: u8,
   pub ppu_addr_bus: u16,
 
@@ -320,7 +281,7 @@ impl Bus {
     let mut banks = BanksHandler::new(&cart.header);
     banks.vram.mirror(&cart.header.mirroring);
 
-    let wram_handler = if cart.header.wram_size == 0 { CpuHandler::OpenBus } else { CpuHandler::Wram };
+    let wram_handler = if cart.header.wram_size == 0 { CpuHandler::OpenBus } else { CpuHandler::WramRW };
     let chr_handler = if cart.header.has_chr_ram { PpuHandler::ChrRam } else { PpuHandler::ChrRom };
 
     let cpu_handlers_8kb = [
@@ -379,7 +340,10 @@ impl Bus {
   }
 
   pub fn set_wram_handlers(&mut self, handler: CpuHandler) {
-    self.cpu_handlers_8kb[3] = handler;
+    // only set wram if it is present
+    if self.cpu_handlers_8kb[3] != CpuHandler::OpenBus || handler == CpuHandler::Mapper {
+      self.cpu_handlers_8kb[3] = handler;
+    }
   }
 
   pub fn set_prg_handlers(&mut self, handler: CpuHandler) {
@@ -406,20 +370,24 @@ impl Emu {
 
     let res = match mem.cpu_handlers_8kb[handler as usize] {
       CpuHandler::Ram => mem.ram[addr as usize & 0x07ff],
-      CpuHandler::Ppu => self.ppu_reg_read(addr & 0x2007),
+      CpuHandler::Ppu | CpuHandler::PpuMMC5 => self.ppu_reg_read(addr & 0x2007),
       CpuHandler::IO => {        
         if matches!(addr, 0x4000..=0x4013 | 0x4015 | 0x4017) {
           self.apu_reg_read(addr)
         } else if addr == 0x4016 {
           self.joypad.read() | (mem.cpu_data_bus & 0xe0)
-        } else { 
+        } else {
           self.mapper.cart_read(mem, addr) | mem.cpu_data_bus 
         }
       }
       CpuHandler::Mapper => self.mapper.cart_read(mem, addr),
-      CpuHandler::Wram => mem.wram[mem.banks.wram.translate(addr - 0x6000)],
+      CpuHandler::WramRW | CpuHandler::WramReadOnly => mem.wram[mem.banks.wram.translate(addr - 0x6000)],
       CpuHandler::Prg => mem.prg[mem.banks.prg.translate(addr - 0x8000)],
       CpuHandler::PrgInWram => mem.prg[mem.banks.wram.translate(addr - 0x6000)],
+      CpuHandler::PrgMMC5 => {
+        self.mapper.notify_cpu_addr(mem, addr, None);
+        mem.prg[mem.banks.prg.translate(addr - 0x8000)]
+      }
       CpuHandler::OpenBus => mem.cpu_data_bus,
     };
     
@@ -439,6 +407,10 @@ impl Emu {
     match mem.cpu_handlers_8kb[handler as usize] {
       CpuHandler::Ram => mem.ram[addr as usize & 0x07ff] = val,
       CpuHandler::Ppu => self.ppu_reg_write(addr & 0x2007, val),
+      CpuHandler::PpuMMC5 => {
+        self.mapper.notify_cpu_addr(mem, addr, Some(val));
+        self.ppu_reg_write(addr & 0x2007, val);
+      }
       CpuHandler::IO => {
         if matches!(addr, 0x4000..=0x4013 | 0x4015 | 0x4017) {
           self.apu_reg_write(addr, val)
@@ -463,12 +435,14 @@ impl Emu {
       //     self.ppu.oam_write(byte);
       //   }
       // }
+
+      // TODO: this could just be prg_write...
       CpuHandler::Mapper => self.mapper.cart_write(mem, addr, val),
-      CpuHandler::Wram => mem.wram[mem.banks.wram.translate(addr - 0x6000)] = val,
-      CpuHandler::Prg | CpuHandler::PrgInWram => {
+      CpuHandler::WramRW => mem.wram[mem.banks.wram.translate(addr - 0x6000)] = val,
+      CpuHandler::Prg | CpuHandler::PrgInWram | CpuHandler::PrgMMC5 => {
         self.mapper.prg_write(mem, addr, val);
       }
-      CpuHandler::OpenBus => {},
+      CpuHandler::OpenBus | CpuHandler::WramReadOnly => {},
     }
 
     self.mem.cpu_addr_bus = addr;

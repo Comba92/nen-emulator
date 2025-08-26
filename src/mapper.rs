@@ -5,13 +5,16 @@ pub trait Mapper {
   fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> where Self: Sized;
   // 0x8000..=0xffff
   fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u8);
+  
   // 0x4020..=0x5fff
   // TODO: consider getting rid of these and use handlers
   fn cart_read(&mut self, _mem: &mut Bus, _addr: u16) -> u8 { 0 }
   fn cart_write(&mut self, _mem: &mut Bus, _addr: u16, _val: u8) {}
-  fn step(&mut self, _mem: &mut Bus) {}
+  fn step(&mut self, _mem: &mut Bus, _cycles: usize) {}
 
   fn notify_ppu_addr(&mut self, _mem: &mut Bus, _cycles: usize) {}
+  fn notify_cpu_addr(&mut self, _mem: &mut Bus, _addr: u16, _val: Option<u8>) {}
+
   fn sample(&self) -> f32 { 0.0 }
 }
 
@@ -507,7 +510,6 @@ impl Mapper for MMC2 {
 #[derive(Default)]
 struct MMC3 {
   bank_select: u8,
-
   chr_invert: bool,
 
   prg_mode: u8,
@@ -742,7 +744,7 @@ impl Mapper for Namco129_163 {
     }
   }
 
-  fn step(&mut self, mem: &mut Bus) {
+  fn step(&mut self, mem: &mut Bus, _: usize) {
     if self.irq_enabled && self.irq_count < 0x7fff {
       self.irq_count += 1;
       if self.irq_count >= 0x7fff {
@@ -1001,7 +1003,7 @@ impl Mapper for SunsoftFME7 {
           let mode = val & 0x40 > 0;
 
           if mode != self.uses_wram {
-            let handler = if mode { CpuHandler::Wram } else { CpuHandler::PrgInWram };
+            let handler = if mode { CpuHandler::WramRW } else { CpuHandler::PrgInWram };
             mem.set_wram_handlers(handler);
 
             mem.banks.wram.set_page(0, val & 0x3f);
@@ -1078,7 +1080,7 @@ impl Mapper for SunsoftFME7 {
     }
   }
 
-  fn step(&mut self, mem: &mut Bus) {
+  fn step(&mut self, mem: &mut Bus, _cycles: usize) {
     if self.irq_count_enabled {
       self.irq_count = self.irq_count.wrapping_sub(1);
       
@@ -1202,7 +1204,7 @@ impl Mapper for VRC3 {
     }
   }
 
-  fn step(&mut self, mem: &mut Bus) {
+  fn step(&mut self, mem: &mut Bus, _cycles: usize) {
     if self.irq_enabled {      
       if self.irq_8bit_mode {
         let next = (self.irq_count & 0xff) + 1;
@@ -1569,7 +1571,7 @@ impl Mapper for VRC6 {
     }
   }
 
-  fn step(&mut self, mem: &mut Bus) {
+  fn step(&mut self, mem: &mut Bus, _cycles: usize) {
     self.irq.step(mem);
 
     if !self.audio_halt {
@@ -1627,7 +1629,7 @@ impl Mapper for VRC7 {
     }
   }
 
-  fn step(&mut self, mem: &mut Bus) {
+  fn step(&mut self, mem: &mut Bus, _cycles: usize) {
     self.irq.step(mem);
   }
 }
@@ -1647,6 +1649,9 @@ mod mmc5 {
 struct MMC5 {
   exram: mmc5::ExRam,
 
+  ppu_substituion: bool,
+  ppu_big_sprites: bool,
+
   prg_mode: u8,
   prg_regs: [u8; 5],
 
@@ -1657,7 +1662,15 @@ struct MMC5 {
   exram_mode: u8,
 
   irq_enabled: bool,
-  irq_scanline_cmp: u16,
+  irq_pending: bool,
+  irq_cmp: u16,
+  irq_count: u16,
+  irq_in_frame: bool,
+
+  ppu_addr_count: usize,
+  last_ppu_addr: Option<u16>,
+  ppu_readed: bool,
+  ppu_idle_count: usize,
 
   multiplicand: u8,
   multiplier: u8,
@@ -1665,6 +1678,10 @@ struct MMC5 {
 }
 impl MMC5 {
   fn update_prg_banks(&mut self, mem: &mut Bus) {
+    // TODO: take prg ram read/write into account 
+
+    // TODO: still not working
+
     let wram = &mut mem.banks.wram;
     let prg = &mut mem.banks.prg;
 
@@ -1674,135 +1691,53 @@ impl MMC5 {
     let mut set_page = |page, bank| {      
       let handler = if bank & 0x80 > 0 {
         // rom
-        prg.set_page(page - 1, bank & 0x3f);
+        prg.set_page(page, bank & 0x3f);
         CpuHandler::Prg
       } else {
         // ram
-        wram.set_page(page, bank & 0x3f);
-        CpuHandler::Wram
+        wram.set_page(page + 1, bank & 0x3f);
+        // TODO: store wram handler somewhere
+        if mem.wram.len() > 0 { CpuHandler::WramRW } else { CpuHandler::OpenBus }
       };
 
-      // set 8kb handler
-      mem.cpu_handlers_8kb[8 + page as usize - 1] = handler;
-      mem.cpu_handlers_8kb[9 + page as usize - 1] = handler;
+      mem.cpu_handlers_8kb[4 + page as usize] = handler;
     };
 
     let reg1 = self.prg_regs[1];
     // 0x5114 only used in mode 3
     if self.prg_mode == 3 {
-      set_page(1, reg1);
+      set_page(0, reg1);
     }
 
     let reg2 = self.prg_regs[2];
     // 0x5115 used in all modes except 0
     if self.prg_mode == 3 {
-      set_page(2, reg2);
+      set_page(1, reg2);
     } else if matches!(self.prg_mode, 1 | 2) {
-      set_page(1, reg2 & !1);
-      set_page(2, reg2 | 1);
+      set_page(0, reg2 & !1);
+      set_page(1, reg2 | 1);
     }
 
     let reg3 = self.prg_regs[3];
     // 0x5116 used in mode 3 and 2
     if matches!(self.prg_mode, 2 | 3) {
-      set_page(3, reg3);
+      set_page(2, reg3);
     }
 
     let reg4 = self.prg_regs[4] | 0x80;
     // 0x5117 used in all modes
     if matches!(self.prg_mode, 2 | 3) {
-      set_page(4, reg4);
+      set_page(3, reg4);
     } else if self.prg_mode == 1 {
-      set_page(3, reg4 & !1);
-      set_page(4, reg4 | 1);
+      set_page(2, reg4 & !1);
+      set_page(3, reg4 | 1);
     } else {
       let reg4 = reg4 & !0x3;
-      set_page(1, reg4 + 0);
-      set_page(2, reg4 + 1);
-      set_page(3, reg4 + 2);
-      set_page(4, reg4 + 3);
+      set_page(0, reg4 | 0);
+      set_page(1, reg4 | 1);
+      set_page(2, reg4 | 2);
+      set_page(3, reg4 | 3);
     }
-
-    // match self.prg_mode {
-    //   // one 32kb
-    //   0 => {
-    //     prg.set_page4x(0, self.prg_regs[4] & 0x3f);
-    //     mem.set_prg_handlers(CpuHandler::Prg);
-    //   }
-    //   // two 16kb
-    //   1 => {
-    //     let bank = self.prg_regs[2];
-    //     let handler = if bank & 0x80 == 1 {
-    //       // rom
-    //       prg.set_page2x(0, bank & 0x3f);
-    //       CpuHandler::Prg
-    //     } else {
-    //       // ram
-    //       wram.set_page2x(1, bank & 0x3f);
-    //       CpuHandler::Wram
-    //     };
-
-    //     for i in 8..12 {
-    //       mem.cpu_handlers_4kb[i] = handler;
-    //     }
-
-    //     // last always set to prg
-    //     prg.set_page2x(2, self.prg_regs[4] & 0x3f);
-    //   }
-    //   // one 16kb and two 8kb
-    //   2 => {
-    //     let bank16 = self.prg_regs[2];
-    //     let handler16 = if bank16 & 0x80 == 1 {
-    //       // rom
-    //       prg.set_page2x(0, bank16 & 0x3f);
-    //       CpuHandler::Prg
-    //     } else {
-    //       // ram
-    //       wram.set_page2x(1, bank16 & 0x3f);
-    //       CpuHandler::Wram
-    //     };
-    //     for i in 8..12 {
-    //       mem.cpu_handlers_4kb[i] = handler16;
-    //     }
-
-    //     let bank8 = self.prg_regs[3];
-    //     let handler8 = if bank8 & 0x80 == 1 {
-    //       // ram
-    //       prg.set_page(2, bank8 & 0x3f);
-    //       CpuHandler::Prg
-    //     } else {
-    //       // rom
-    //       wram.set_page(3, bank8 & 0x3f);
-    //       CpuHandler::Wram
-    //     };
-    //     for i in 12..14 {
-    //       mem.cpu_handlers_4kb[i] = handler8;
-    //     }
-
-    //     // last always set to prg
-    //     prg.set_page(3, self.prg_regs[4] & 0x3f);
-    //   }
-    //   // four 8kb
-    //   _ => {
-    //     for i in 0..3 {
-    //       let bank = self.prg_regs[i+1];
-    //       if bank & 0x80 == 1 {
-    //         // rom
-    //         prg.set_page(i as u8 - 1, bank & 0x3f);
-    //         mem.cpu_handlers_4kb[8 + i] = CpuHandler::Prg;
-    //         mem.cpu_handlers_4kb[9 + i] = CpuHandler::Prg;
-    //       } else {
-    //         // ram
-    //         wram.set_page(i as u8, bank & 0x3f);
-    //         mem.cpu_handlers_4kb[8 + i] = CpuHandler::Wram;
-    //         mem.cpu_handlers_4kb[9 + i] = CpuHandler::Wram;
-    //       }
-    //     }
-
-    //     // last always set to prg
-    //     prg.set_page(3, self.prg_regs[4] & 0x3f);
-    //   }
-    // }
   }
 
   fn update_chr_banks(&mut self, mem: &mut Bus) {
@@ -1822,30 +1757,44 @@ impl MMC5 {
       // 2kb
       2 =>  for i in 0..4 {
         // only odds chr_regs
+        // TODO: should use chr_hi here, but set_pages only takes u8, modify signatures....
         chr.set_pages_unaligned(i, self.chr_regs[i as usize * 2 + 1], 2);
       }
       // 1kb
       _ => for i in 0..8 {
+        // TODO: should use chr_hi here, but set_pages only takes u8, modify signatures....
         chr.set_page(i, self.chr_regs[i as usize]);
       }
     }
   }
 
   fn update_vram_banks(&mut self, mem: &mut Bus, val: u8) {
-    // TODO
+    for i in 0..4 {
+      let nametbl = (val >> (i * 2)) & 0x3;
+      // TODO: do not handle exram for now
+      mem.banks.vram.set_page(i, nametbl);
+    }
+  }
+
+  fn reset_irq(&mut self, mem: &mut Bus) {
+    self.irq_in_frame = false;
+    self.last_ppu_addr = None;
+    self.irq_count = 0;
+    mem.irq.remove(IrqFlags::MAPPER);
   }
 }
 impl Mapper for MMC5 {
   fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
     mem.banks.prg = Banking::new_prg(header, 4);
-    mem.banks.prg.set_pages_aligned4(0, 0);
-
     mem.banks.chr = Banking::new_chr(header, 8);
 
     // wram can be mapped in range 0x6000..=0xdfff (32kb)
     mem.banks.wram = Banking::new(header.wram_size, 32 * 1024, 4);
+    mem.set_prg_handlers(CpuHandler::PrgMMC5);
+    mem.cpu_handlers_8kb[1] = CpuHandler::PpuMMC5;
 
     let mut res = Self::default();
+    res.prg_mode = 3;
     res.update_prg_banks(mem);
 
     Box::new(res)
@@ -1854,8 +1803,13 @@ impl Mapper for MMC5 {
   fn cart_read(&mut self, mem: &mut Bus, addr: u16) -> u8 {
     match addr {
       0x5204 => {
+        let mut res = 0;
+        res |= (self.irq_pending as u8) << 7;
+        res |= (self.irq_in_frame as u8) << 6;
+
+        self.irq_pending = false;
         mem.irq.remove(IrqFlags::MAPPER);
-        0
+        res
       }
 
       0x5205 => self.product as u8,
@@ -1873,8 +1827,9 @@ impl Mapper for MMC5 {
     match addr {
       0x5100 => {
         self.prg_mode = val & 0x3;
+        println!("Changed mode to {}", self.prg_mode);
         self.update_prg_banks(mem);
-      } 
+      }
       0x5101 => {
         self.chr_mode = val & 0x3;
         self.update_chr_banks(mem);
@@ -1908,8 +1863,10 @@ impl Mapper for MMC5 {
       // no official game relies on this register, and most don't even initialize it. 
       0x5130 => self.chr_hi = val & 0x3,
 
-      0x5203 => self.irq_scanline_cmp = val as u16,
-      0x5402 => self.irq_enabled = val & 0x80 > 0,
+      0x5203 => self.irq_cmp = val as u16,
+      0x5402 => {
+        self.irq_enabled = val & 0x80 > 0;
+      }
 
       0x5205 => {
         self.multiplicand = val;
@@ -1923,6 +1880,74 @@ impl Mapper for MMC5 {
       0x5c00..=0x5fff => {
         // TODO exram
       }
+      _ => {}
+    }
+  }
+
+  // https://www.nesdev.org/wiki/MMC5#Scanline_Detection_and_Scanline_IRQ
+  fn notify_ppu_addr(&mut self, mem: &mut Bus, _cycles: usize) {
+    if mem.ppu_addr_bus & 0x2000 > 0 && self.last_ppu_addr.is_some_and(|x| x == mem.ppu_addr_bus) {
+      self.ppu_addr_count += 1;
+
+      if self.ppu_addr_count >= 2 {
+        if !self.irq_in_frame {
+          self.irq_in_frame = true;
+          self.irq_count = 0;
+        } else {
+          self.irq_count += 1;
+          // Value $00 is a special case that will not produce IRQ pending conditions
+          if self.irq_count > 0 && self.irq_count == self.irq_cmp {
+            self.irq_pending = true;
+            // The IRQ pending flag is raised when the desired scanline is reached regardless of whether or not the scanline IRQ is enabled, i.e. even after a 0 was written to the scanline IRQ enable flag. 
+            // However, an actual IRQ is only sent to the CPU if both the scanline IRQ enable flag and IRQ pending flag are set. 
+            // A $5203 value of $00 is a special case where the comparison is never true.
+            if self.irq_enabled {
+              mem.irq.insert(IrqFlags::MAPPER);
+            }
+          }
+        }
+      }
+    } else {
+      self.ppu_addr_count = 0;
+    }
+
+    self.last_ppu_addr = Some(mem.ppu_addr_bus);
+    self.ppu_readed = true;
+  }
+
+  fn step(&mut self, _mem: &mut Bus, _cycles: usize) {
+    if self.ppu_readed {
+      self.ppu_idle_count = 0;
+    } else {
+      self.ppu_idle_count += 1;
+      if self.ppu_idle_count >= 3 {
+        self.irq_in_frame = false;
+        self.last_ppu_addr = None;
+      }
+    }
+
+    self.ppu_readed = false;
+  }
+
+  fn notify_cpu_addr(&mut self, mem: &mut Bus, addr: u16, val: Option<u8>) {
+    match (addr, val) {
+      (0xfffa | 0xfffb, None) => self.reset_irq(mem),
+
+      (0x2000, Some(val)) => self.ppu_big_sprites = val & 0x20 > 0,
+      (0x2001, Some(val)) => {
+        let ppu_sub = val & 0x18 > 0;
+        // When the MMC5 sees $00 written to $2001, and then the PPU’s rendering gets enabled via a mirror of $2001, the MMC5 still counts scanlines and can generate scanline interrupts even though it thinks $2001 is still disabled.
+        // The transition from disabled to enabled resets the scanline counter.
+        if !self.ppu_substituion && ppu_sub {
+          self.reset_irq(mem);
+        } else if !ppu_sub {
+          self.irq_in_frame = false;
+          self.last_ppu_addr = None;
+        }
+
+        self.ppu_substituion = ppu_sub;
+      }
+
       _ => {}
     }
   }

@@ -327,7 +327,7 @@ impl Emu {
   }
 
   fn inc_scroll_x(&mut self) {
-    if self.ppu.rendering_enabled() {
+    // if self.ppu.rendering_enabled() {
       let v = &mut self.ppu.v;
       if v.coarse_x() == 31 {
         v.set_coarse_x(0);
@@ -335,11 +335,11 @@ impl Emu {
       } else {
         v.set_coarse_x(v.coarse_x() + 1);
       }
-    }
+    // }
   }
 
   fn inc_scroll_y(&mut self) {
-    if self.ppu.rendering_enabled() {
+    // if self.ppu.rendering_enabled() {
       let v = &mut self.ppu.v;
       if v.fine_y() < 7 {                            // if fine Y < 7
         v.set_fine_y(v.fine_y() + 1);          // increment fine Y
@@ -357,22 +357,22 @@ impl Emu {
         }                                         // increment coarse Y
         v.set_coarse_y(y);                  // put coarse Y back into v
       }
-    }
+    // }
   }
 
   fn restore_scroll_x(&mut self) {
-    if self.ppu.rendering_enabled() {
+    // if self.ppu.rendering_enabled() {
       self.ppu.v.set_nametbl_x(self.ppu.t.nametbl_x());
       self.ppu.v.set_coarse_x(self.ppu.t.coarse_x());
-    }
+    // }
   }
 
   fn restore_scroll_y(&mut self) {
-    if self.ppu.rendering_enabled() {
+    // if self.ppu.rendering_enabled() {
       self.ppu.v.set_nametbl_y(self.ppu.t.nametbl_y());
       self.ppu.v.set_coarse_y(self.ppu.t.coarse_y());
       self.ppu.v.set_fine_y(self.ppu.t.fine_y());
-    }
+    // }
   }
 
   // https://www.nesdev.org/wiki/PPU_registers
@@ -443,6 +443,8 @@ impl Emu {
         ppu.ctrl.spr_pttrntbl_addr = if val & 0x8 == 0 { 0 } else { 0x1000 };
         ppu.ctrl.bg_pttrntbl_addr = if val & 0x10 == 0 { 0 } else { 0x1000 };
         ppu.ctrl.spr_size = if val & 0x20 == 0 { 8 } else { 16 };
+
+        // self.mapper.notify_ppu_ctrl(val);
       }
       // Mask
       0x2001 => {
@@ -451,6 +453,7 @@ impl Emu {
           // During VBlank and when rendering is disabled, the value on the PPU address bus is the current value of the v register. 
           self.update_ppu_bus(self.ppu.v.0);
         }
+        // self.mapper.notify_ppu_mask(val);
       }
       // OamAddr
       // TODO: behaviour during rendering: https://www.nesdev.org/wiki/PPU_registers#OAMADDR_-_Sprite_RAM_address_($2003_write)

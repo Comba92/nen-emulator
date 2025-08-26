@@ -72,8 +72,8 @@ fn main() {
                             Keycode::A => emu.joypad.set_button(NesButtons::Left, true),
                             Keycode::S => emu.joypad.set_button(NesButtons::Down, true),
                             Keycode::D => emu.joypad.set_button(NesButtons::Right, true),
-                            Keycode::J => emu.joypad.set_button(NesButtons::A, true),
-                            Keycode::K => emu.joypad.set_button(NesButtons::B, true),
+                            Keycode::K => emu.joypad.set_button(NesButtons::A, true),
+                            Keycode::J => emu.joypad.set_button(NesButtons::B, true),
                             Keycode::M => emu.joypad.set_button(NesButtons::Start, true),
                             Keycode::N => emu.joypad.set_button(NesButtons::Select, true),
                             _ => {}
@@ -88,8 +88,8 @@ fn main() {
                             Keycode::A => emu.joypad.set_button(NesButtons::Left, false),
                             Keycode::S => emu.joypad.set_button(NesButtons::Down, false),
                             Keycode::D => emu.joypad.set_button(NesButtons::Right, false),
-                            Keycode::J => emu.joypad.set_button(NesButtons::A, false),
-                            Keycode::K => emu.joypad.set_button(NesButtons::B, false),
+                            Keycode::K => emu.joypad.set_button(NesButtons::A, false),
+                            Keycode::J => emu.joypad.set_button(NesButtons::B, false),
                             Keycode::M => emu.joypad.set_button(NesButtons::Start, false),
                             Keycode::N => emu.joypad.set_button(NesButtons::Select, false),
                             _ => {}

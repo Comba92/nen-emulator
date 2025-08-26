@@ -122,6 +122,9 @@ impl CartHeader {
       let prg_ram_shift = bytes[10] & 0xf;
       let prg_nvram_shift = bytes[10] >> 4;
 
+      // TODO: some MMC5 games have both, handle that case
+      // https://www.nesdev.org/wiki/MMC5#PRG-RAM_configurations
+
       // we only take nvram is ram is zero
       header.wram_size = if prg_ram_shift > 0 {
         64 << prg_ram_shift

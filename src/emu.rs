@@ -119,7 +119,7 @@ impl Emu {
     }
 
     for _ in 0..cycles_run { self.apu_step();}
-    for _ in 0..cycles_run { self.mapper.step(&mut self.mem);}
+    for _ in 0..cycles_run { self.mapper.step(&mut self.mem, self.cpu.cycles);}
   }
 
   #[cfg(feature = "ram64kb")]
@@ -135,7 +135,7 @@ impl Emu {
     self.ppu_step();
 
     self.apu_step();
-    self.mapper.step(&mut self.mem);
+    self.mapper.step(&mut self.mem, self.cpu.cycles);
   }
 
   pub fn step_until_vblank(&mut self) {
