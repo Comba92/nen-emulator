@@ -816,6 +816,7 @@ impl Emu {
         self.render_pixel();
       }
       256 => {
+        self.bg_fetch_step();
         self.render_pixel();
         self.inc_scroll_y();
         self.spr_evaluation();
@@ -850,6 +851,7 @@ impl Emu {
       }
       1..=255 | 321..=336 => self.bg_fetch_step(),
       256 => {
+        self.bg_fetch_step();
         self.inc_scroll_y();
       }
       257 => {
@@ -871,58 +873,4 @@ impl Emu {
       _ => {}
     }
   }
-
-  // pub fn ppu_step(&mut self) {
-  //   // https://forums.nesdev.org/viewtopic.php?t=8066
-  //   // https://forums.nesdev.org/viewtopic.php?t=10348
-  //   // https://forums.nesdev.org/viewtopic.php?t=25833
-
-
-  //   // TODO: if on a visible scanline, and rendering is disabled, do nothing
-    
-  //   match (self.ppu.scanline, self.ppu.cycle) {
-  //     // no sprites on first scanline
-  //     (1..=239, 0) => self.spr_compute_scanline(),
-  //     (0..=239, 1..=256) => {
-  //       self.bg_fetch_step();
-  //       self.render_pixel();
-  //     }
-  //     (0..=239, 257) => {
-  //       self.ppu.inc_scroll_y();
-  //       self.ppu.restore_scroll_x();
-  //       self.spr_evaluation();
-  //     }
-  //     (0..=239, 257..=320) => self.spr_fetch_step(),
-  //     (0..=239, 321..=340) => self.bg_fetch_step(),
-  //     (241, 1) => {
-  //       self.ppu.stat.insert(Status::Vblank);
-  //       self.events.insert(emu::Events::PPU_FRAME);
-  //       self.ppu.pixel = 0;
-
-  //       if self.ppu.ctrl.vblank_nmi_enabled {
-  //         self.events.insert(emu::Events::NMI);
-  //       }
-  //     }
-  //     (261, 1) => {
-  //       self.bg_fetch_step();
-  //       self.ppu.stat.clear();
-  //     }
-  //     (261, 1..=256 | 321..=340) => self.bg_fetch_step(),
-  //     (261, 257) => {
-  //       self.ppu.inc_scroll_y();
-  //       self.ppu.restore_scroll_x();
-  //     }
-  //     (261, 280) => self.ppu.restore_scroll_y(),
-  //     _ => {}
-  //   }
-
-  //   self.ppu.cycle += 1;
-  //   if self.ppu.cycle > 340 {
-  //     self.ppu.cycle = 0;
-  //     self.ppu.scanline += 1;
-  //     if self.ppu.scanline > 261 {
-  //       self.ppu.scanline = 0;
-  //     }
-  //   }
-  // }
 }

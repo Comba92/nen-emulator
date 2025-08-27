@@ -17,19 +17,6 @@ enum AddressingMode {
   IndirectY,
 }
 
-// #[allow(non_upper_case_globals)]
-// mod flags {
-  //   pub const Carry:      u8   = 0b1;
-  //   pub const Zero:       u8 = 0b10;
-  //   pub const IrqDisable: u8 = 0b100;
-  //   pub const Decimal:    u8 = 0b1000;
-  //   pub const Brk:        u8 = 0b1_0000;
-  //   pub const Unused:     u8 = 0b10_0000;
-  //   pub const Overflow:   u8 = 0b100_0000;
-  //   pub const Negative:   u8 = 0b1000_0000;
-  // }
-  
-
 bitflags::bitflags! {
   #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
   pub struct Status: u8 {
@@ -209,7 +196,7 @@ impl Emu {
 
   // (ASL, LSR, ROL, ROR, INC, DEC, SLO, SRE, RLA, RRA, ISB, DCP)
   // (STA, STX, STY)
-  const RMW: &[u8] = &[0x1e, 0xde, 0xfe, 0x5e, 0x3e, 0x7e, 0x9d, 0x99, 0x1f, 0x1b, 0x5f, 0x5b, 0x3f, 0x3b, 0x7f, 0x7b, 0xff, 0xfb, 0xdf, 0xdb];
+  // const RMW: &[u8] = &[0x1e, 0xde, 0xfe, 0x5e, 0x3e, 0x7e, 0x9d, 0x99, 0x1f, 0x1b, 0x5f, 0x5b, 0x3f, 0x3b, 0x7f, 0x7b, 0xff, 0xfb, 0xdf, 0xdb];
   
   // TODO: temporary solution, definetely too over engineered for this
   fn is_rmw_op(opcode: u8) -> bool {
@@ -238,8 +225,6 @@ impl Emu {
     is_rmw || is_w
   }
 
-
-
   fn fetch_absolute_op(&mut self, offset: u8, opcode: u8) {
     let base_addr = self.pc_fetch16();
     self.cpu.op_addr = base_addr.wrapping_add(offset as u16);
@@ -256,7 +241,6 @@ impl Emu {
   fn fetch_operand(&mut self, opcode: u8) {
     let mode = &MODES_TABLE[opcode as usize];
     self.cpu.op_val = None;
-    
 
     // https://www.nesdev.org/6502_cpu.txt
     match mode {
@@ -300,8 +284,6 @@ impl Emu {
   }
 
   fn set_zn(&mut self, res: u8) {
-    // self.cpu.p = bit_change(self.cpu.p, flags::Zero, res == 0);
-    // self.cpu.p = bit_change(self.cpu.p, flags::Negative, bit_get(res, 7));
     self.cpu.p.set(Status::Zero, res == 0);
     self.cpu.p.set(Status::Negative, res & 0x80 != 0);
   }
@@ -403,7 +385,6 @@ impl Emu {
     self.stack_push8(self.cpu.a);
   }
   fn php(&mut self) {
-    // self.stack_push8(bit_set(self.cpu.p, flags::Brk));
     self.stack_push8((self.cpu.p | Status::Brk).bits());
   }
   fn pla(&mut self) {
@@ -421,7 +402,6 @@ impl Emu {
     // https://www.nesdev.org/wiki/Instruction_reference#PLP
     // TODO: The effect of changing IrqDisable flag is delayed 1 instruction. 
     let res = self.stack_pop8();
-    // self.cpu.p = bit_clear(res, flags::Brk);
     self.cpu.p = (Status::from_bits_retain(res) | Status::Unused) - Status::Brk;
   }
 
@@ -443,9 +423,6 @@ impl Emu {
   fn bit(&mut self) {
     let val = self.get_op_val();
     let res = self.cpu.a & val;
-    // self.cpu.p = bit_change(self.cpu.p, flags::Zero, res == 0);
-    // self.cpu.p = bit_change(self.cpu.p, flags::Overflow, bit_get(val, 6));
-    // self.cpu.p = bit_change(self.cpu.p, flags::Negative, bit_get(val, 7));
     self.cpu.p.set(Status::Zero, res == 0);
     self.cpu.p.set(Status::Overflow, val & 0x40 != 0);
     self.cpu.p.set(Status::Negative, val & 0x80 != 0);
@@ -454,7 +431,6 @@ impl Emu {
   fn addition(&mut self, val: u8) {
     let res = self.cpu.a as u16 
       + val as u16
-      // + bit_get(self.cpu.p, flags::Carry) as u16;
       + self.cpu.p.contains(Status::Carry) as u16;
 
     // self.cpu.p = bit_change(self.cpu.p, flags::Carry, res > u8::MAX as u16);
@@ -483,7 +459,6 @@ impl Emu {
     let b = self.get_op_val();
     let res = a.wrapping_sub(b);
 
-    // self.cpu.p = bit_change(self.cpu.p, flags::Carry, a >= b);
     self.cpu.p.set(Status::Carry, a >= b);
     self.set_zn(res);
   }
@@ -534,7 +509,6 @@ impl Emu {
 
   fn shift<F: FnOnce(u8) -> u8>(&mut self, val: u8, op: F, carry_bit: u8) -> u8 {
     let res = op(val);
-    // self.cpu.p = bit_change(self.cpu.p, flags::Carry, bit_get(val, carry_bit));
     self.cpu.p.set(Status::Carry, val.shr(carry_bit) & 1 == 1);
     self.set_zn(res);
     self.set_op_res(val, res);
@@ -555,15 +529,6 @@ impl Emu {
     let carry = self.cpu.p.contains(Status::Carry) as u8;
     self.shift(val, |x| x.shr(1) | (carry << 7), 0)
   }
-
-  // fn shift<F: FnOnce(u8) -> u8>(&mut self, op: F, carry_bit: u8) {
-  //   let val = self.get_op_val();
-  //   let res = op(val);
-  //   // self.cpu.p = bit_change(self.cpu.p, flags::Carry, bit_get(val, carry_bit));
-  //   self.cpu.p.set(Status::Carry, val.shr(carry_bit) & 1 == 1);
-  //   self.set_zn(res);
-  //   self.set_op_res(val, res);
-  // }
 
   fn asl(&mut self) {
     let val = self.get_op_val();
@@ -624,68 +589,51 @@ impl Emu {
     }
   }
   fn bcc(&mut self) {
-    // self.branch(!bit_get(self.cpu.p, flags::Carry));
     self.branch(!self.cpu.p.contains(Status::Carry));
   }
   fn bcs(&mut self) {
-    // self.branch(bit_get(self.cpu.p, flags::Carry));
     self.branch(self.cpu.p.contains(Status::Carry));
   }
   fn beq(&mut self) {
-    // self.branch(bit_get(self.cpu.p, flags::Zero));
     self.branch(self.cpu.p.contains(Status::Zero));
   }
   fn bmi(&mut self) {
-    // self.branch(bit_get(self.cpu.p, flags::Negative));
     self.branch(self.cpu.p.contains(Status::Negative));
   }
   fn bne(&mut self) {
-    // self.branch(!bit_get(self.cpu.p, flags::Zero));
     self.branch(!self.cpu.p.contains(Status::Zero));
   }
   fn bpl(&mut self) {
-    // self.branch(!bit_get(self.cpu.p, flags::Negative));
     self.branch(!self.cpu.p.contains(Status::Negative));
   }
   fn bvc(&mut self) {
-    // self.branch(!bit_get(self.cpu.p, flags::Overflow));
     self.branch(!self.cpu.p.contains(Status::Overflow));
   }
   fn bvs(&mut self) {
-    // self.branch(bit_get(self.cpu.p, flags::Overflow));
     self.branch(self.cpu.p.contains(Status::Overflow));
   }
 
   fn clc(&mut self) {
-    // self.cpu.p = bit_clear(self.cpu.p, flags::Carry);
     self.cpu.p.remove(Status::Carry);
   }
   fn cld(&mut self) {
-    // self.cpu.p = bit_clear(self.cpu.p, flags::Decimal);
     self.cpu.p.remove(Status::Decimal);
   }
   fn cli(&mut self) {
-    // self.cpu.p = bit_clear(self.cpu.p, flags::IrqDisable);
-
     // https://www.nesdev.org/wiki/Instruction_reference#CLI
     // TODO: The effect of changing this flag is delayed 1 instruction. 
     self.cpu.p.remove(Status::IrqDisable);
   }
   fn clv(&mut self) {
-    // self.cpu.p = bit_clear(self.cpu.p, flags::Overflow);
     self.cpu.p.remove(Status::Overflow);
   }
   fn sec(&mut self) {
-    // self.cpu.p = bit_set(self.cpu.p, flags::Carry);
     self.cpu.p.insert(Status::Carry);
   }
   fn sed(&mut self) {
-    // self.cpu.p = bit_set(self.cpu.p, flags::Decimal);
     self.cpu.p.insert(Status::Decimal);
   }
   fn sei(&mut self) {
-    // self.cpu.p = bit_set(self.cpu.p, flags::IrqDisable);
-
     // https://www.nesdev.org/wiki/Instruction_reference#SEI
     // TODO: The effect of changing this flag is delayed 1 instruction. 
     self.cpu.p.insert(Status::IrqDisable);
@@ -694,7 +642,6 @@ impl Emu {
   fn brk(&mut self) {
     self.stack_push16(self.cpu.pc.wrapping_add(1));
     self.php();
-    // self.cpu.p = bit_set(self.cpu.p, flags::IrqDisable);
     self.cpu.p.insert(Status::IrqDisable);
     self.cpu.pc = self.cpu_read16(IRQ_VECTOR);
   }
@@ -703,7 +650,6 @@ impl Emu {
     self.plp();
     self.cpu.pc = self.stack_pop16();
   }
-
 
   fn nop(&mut self) {
     // NOP reads from effective address with zeropage, absolute and indexed addressing
@@ -849,7 +795,13 @@ impl Emu {
     // self.dex();
 
     // (A AND X) - oper -> X
-    todo!()
+    let b = self.get_op_val();
+    let a = self.cpu.a & self.cpu.x;
+    let res = a.wrapping_sub(b);
+
+    self.cpu.p.set(Status::Carry, a >= b);
+    self.set_zn(res);
+    self.cpu.x = res;
   }
 
   fn jam(&mut self) {
