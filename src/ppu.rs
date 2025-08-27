@@ -626,7 +626,7 @@ impl Emu {
     }
 
     ppu.stat.set(Status::SprOvfl, ppu.rendering_enabled() && ppu.oam_tmp.len() > 8);
-    ppu.oam_tmp_count = ppu.oam_tmp.len() as u8;
+    ppu.oam_tmp_count = ppu.oam_tmp.len().min(8) as u8;
 
     // we always make secondary oam have 8 sprites, so sprite fetching works
     if ppu.oam_tmp.len() < 8 {
@@ -639,8 +639,10 @@ impl Emu {
     self.ppu.spr_scanline.0.fill(0.into());
 
     // fetch sprites over sprite limit
-    if !self.settings.sprite_limit {
-      for i in 8..self.ppu.oam_tmp_count {
+    if self.settings.no_sprite_limit {
+      self.ppu.oam_tmp_count = self.ppu.oam_tmp.len() as u8;
+
+      for i in 8..self.ppu.oam_tmp.len() {
         let sprite = &self.ppu.oam_tmp[i as usize];
         let pttrn_addr = self.ppu.spr_pttrn_addr(sprite);
 

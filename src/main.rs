@@ -34,7 +34,7 @@ fn main() {
 
     tex.set_scale_mode(sdl2::render::ScaleMode::Nearest);
 
-    let mut emu = Emu::new(include_bytes!("../roms/donkey kong.nes")).unwrap();
+    let mut emu = Emu::new(include_bytes!("../roms/super mario.nes")).unwrap();
 
     let mut framebuf = [0; 256 * 240 * 4];
 

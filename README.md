@@ -25,9 +25,10 @@ https://www.reddit.com/r/EmuDev/comments/xta12t/confused_about_cycles_and_emulat
 - https://www.nesdev.org/wiki/INES_Mapper_086
 - https://www.nesdev.org/wiki/INES_Mapper_072
 - https://www.nesdev.org/wiki/INES_Mapper_092
-- https://www.nesdev.org/wiki/INES_Mapper_210
 - https://www.nesdev.org/wiki/INES_Mapper_228
 - https://www.nesdev.org/wiki/INES_Mapper_232
 
 - https://www.nesdev.org/wiki/INES_Mapper_034
 - https://www.nesdev.org/wiki/RAMBO-1
+
+SCROLLING GLITCH

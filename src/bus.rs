@@ -61,7 +61,6 @@ impl<T: BankCfg + std::fmt::Debug> Banking<T> {
     // we change the parameters, leaving banks array as is
     // thus we cannot change to a bigger bank size than the original
 
-    // TODO: can this be changed to a shift?
     self.bank_size = self.addressable_size / pages_count;
     self.banks_count = (self.real_size / self.bank_size as usize) as u16;
     self.bank_size_shift = self.bank_size.ilog2() as u16;
@@ -72,7 +71,7 @@ impl<T: BankCfg + std::fmt::Debug> Banking<T> {
     self.banks_count = (self.real_size / self.bank_size as usize) as u16;
   }
 
-  pub fn set_page(&mut self, page: u8, bank: u8) {
+  pub fn set_page(&mut self, page: u8, bank: u16) {
     // some games might write bigger bank numbers than really avaible
     // let bank = bank % self.banks_count;
     let bank = bank as usize & (self.banks_count as usize - 1);
@@ -83,34 +82,34 @@ impl<T: BankCfg + std::fmt::Debug> Banking<T> {
     self.bankings[page as usize] = bank << self.bank_size_shift;
   }
 
-  pub fn set_pages_aligned2(&mut self, page: u8, bank: u8) {    
+  pub fn set_pages_aligned2(&mut self, page: u8, bank: u16) {    
     let bank = bank & !1;
     self.set_page(page, bank);
     self.set_page(page + 1, bank + 1);
   }
 
-  pub fn set_pages_aligned4(&mut self, page: u8, bank: u8) {
+  pub fn set_pages_aligned4(&mut self, page: u8, bank: u16) {
     let bank = bank & !0x3;
     for i in 0..4 {
-      self.set_page(page + i, bank + i);
+      self.set_page(page + i, bank + i as u16);
     }
   }
 
-  pub fn set_pages_aligned8(&mut self, page: u8, bank: u8) {
+  pub fn set_pages_aligned8(&mut self, page: u8, bank: u16) {
     let bank = bank & !0x7;
     for i in 0..8 {
-      self.set_page(page + i, bank + i);
+      self.set_page(page + i, bank + i as u16);
     }
   }
 
-  pub fn set_pages_unaligned(&mut self, page: u8, bank: u8, count: u8) {
+  pub fn set_pages_unaligned(&mut self, page: u8, bank: u16, count: u8) {
     for i in 0..count {
-      self.set_page(page + i, bank + i);
+      self.set_page(page + i, bank + i as u16);
     }
   }
 
   pub fn set_page_to_last_bank(&mut self, page: u8) {
-    self.set_page(page, self.banks_count as u8-1);
+    self.set_page(page, self.banks_count-1);
   }
 
   pub fn swap_pages(&mut self, a: u8, b: u8) {
@@ -125,7 +124,7 @@ impl<T: BankCfg + std::fmt::Debug> Banking<T> {
     // i do not expect to write outside the slots array here either.
     // self.bankings[page] + (addr % self.bank_size)
     // real index + offset
-    self.bankings[page as usize & self.bankings.len()-1] + (addr & (self.bank_size - 1)) as usize
+    self.bankings[page as usize] + (addr & (self.bank_size - 1)) as usize
   }
 }
 
@@ -152,8 +151,8 @@ impl Default for Banking<ChrBank> {
 }
 
 impl Banking<WramBank> {
-  pub fn new_wram(header: &CartHeader) -> Self {
-    Self::new(header.wram_size, 8 * 1024, 1)
+  pub fn new_wram(header: &CartHeader, pages_count: u16) -> Self {
+    Self::new(header.wram_size, 8 * 1024, pages_count)
   }
 }
 impl Default for Banking<WramBank> {
@@ -195,7 +194,7 @@ impl Banking<VramBank> {
       }
       Mirroring::FourScreens => {
         for i in 0..self.bankings.len() {
-          self.set_page(i as u8, i as u8);
+          self.set_page(i as u8, i as u16);
         }
       }
     }
@@ -219,7 +218,7 @@ impl BanksHandler {
     Self {
       prg: Banking::new_prg(header, 2),
       chr: Banking::new_chr(header, 1),
-      wram: Banking::new_wram(header),
+      wram: Banking::new_wram(header, 1),
       vram: Banking::new_vram(header),
     }
   }
@@ -236,7 +235,7 @@ bitflags::bitflags! {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum CpuHandler {
-  Ram, Ppu, IO, WramRW, WramReadOnly, OpenBus, Prg, PrgInWram, PrgMMC5, PpuMMC5, Mapper,
+  Ram, Ppu, IO, WramRW, WramReadOnly, Prg, PrgInWram, PrgMMC5, PpuMMC5, Mapper,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -281,7 +280,7 @@ impl Bus {
     let mut banks = BanksHandler::new(&cart.header);
     banks.vram.mirror(&cart.header.mirroring);
 
-    let wram_handler = if cart.header.wram_size == 0 { CpuHandler::OpenBus } else { CpuHandler::WramRW };
+    let wram_handler = if cart.header.wram_size == 0 { CpuHandler::Mapper } else { CpuHandler::WramRW };
     let chr_handler = if cart.header.has_chr_ram { PpuHandler::ChrRam } else { PpuHandler::ChrRom };
 
     let cpu_handlers_8kb = [
@@ -308,9 +307,9 @@ impl Bus {
       PpuHandler::Vram,
       PpuHandler::Vram,
       PpuHandler::Vram,
-      PpuHandler::Vram,
-      PpuHandler::Vram,
-      PpuHandler::Vram,
+      PpuHandler::Palette,
+      PpuHandler::Palette,
+      PpuHandler::Palette,
       PpuHandler::Palette
     ];
 
@@ -340,10 +339,8 @@ impl Bus {
   }
 
   pub fn set_wram_handlers(&mut self, handler: CpuHandler) {
-    // only set wram if it is present
-    if self.cpu_handlers_8kb[3] != CpuHandler::OpenBus || handler == CpuHandler::Mapper {
-      self.cpu_handlers_8kb[3] = handler;
-    }
+    // TODO: what if WRAM is not present?
+    self.cpu_handlers_8kb[3] = handler;
   }
 
   pub fn set_prg_handlers(&mut self, handler: CpuHandler) {
@@ -352,9 +349,29 @@ impl Bus {
     }
   }
 
+  pub fn set_chr_handlers(&mut self, handler: PpuHandler) {
+    for i in 4..8 {
+      self.ppu_handlers_1kb[i] = handler;
+    }
+  }
+
   pub fn set_vram_handlers(&mut self, handler: PpuHandler) {
     for i in 8..12 {
       self.ppu_handlers_1kb[i] = handler;
+    }
+  }
+
+  pub fn set_4screen_mirroring(&mut self) {
+    self.banks.vram = Banking::new(4 * 1024, 4 * 1024, 4);
+    self.banks.vram.mirror(&Mirroring::FourScreens);
+    self.vram.resize(4 * 1024, 0);
+  }
+
+  pub fn wram_enable(&mut self, cond: bool) {
+    if cond {
+      self.set_wram_handlers(CpuHandler::WramRW);
+    } else {
+      self.set_wram_handlers(CpuHandler::Mapper);
     }
   }
 }
@@ -388,7 +405,6 @@ impl Emu {
         self.mapper.notify_cpu_addr(mem, addr, None);
         mem.prg[mem.banks.prg.translate(addr - 0x8000)]
       }
-      CpuHandler::OpenBus => mem.cpu_data_bus,
     };
     
     self.mem.cpu_addr_bus = addr;
@@ -417,7 +433,7 @@ impl Emu {
         } else if addr == 0x4014 { 
           self.ppu.dma.load((val as u16) << 8, 256)
         } else if addr == 0x4016 { self.joypad.write(val) }
-          else { self.mapper.cart_write(mem, addr, val) }
+          else { self.mapper.cart_write(mem, addr, val as u16) }
       }
       // 0x4014 => {        
       //   // https://www.nesdev.org/wiki/PPU_registers#OAMDMA_-_Sprite_DMA_($4014_write)
@@ -437,12 +453,12 @@ impl Emu {
       // }
 
       // TODO: this could just be prg_write...
-      CpuHandler::Mapper => self.mapper.cart_write(mem, addr, val),
+      CpuHandler::Mapper => self.mapper.cart_write(mem, addr, val as u16),
       CpuHandler::WramRW => mem.wram[mem.banks.wram.translate(addr - 0x6000)] = val,
       CpuHandler::Prg | CpuHandler::PrgInWram | CpuHandler::PrgMMC5 => {
-        self.mapper.prg_write(mem, addr, val);
+        self.mapper.prg_write(mem, addr, val as u16);
       }
-      CpuHandler::OpenBus | CpuHandler::WramReadOnly => {},
+      CpuHandler::WramReadOnly => {},
     }
 
     self.mem.cpu_addr_bus = addr;

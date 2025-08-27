@@ -805,6 +805,56 @@ impl Emu {
 
     self.addition(res);
   }
+
+  fn anc(&mut self) {
+    let val = self.get_op_val();
+    let res = self.cpu.a & val;
+    self.cpu.p.set(Status::Carry, res >> 7 == 1);
+    self.set_zn(res);
+    self.cpu.a = res;
+  }
+
+  fn alr(&mut self) {
+    let val = self.get_op_val();
+    let res = self.lsr_base(self.cpu.a & val);
+    self.cpu.a = res;
+  }
+
+  fn arr(&mut self) {
+    let val = self.get_op_val();
+    let res = self.ror_base(self.cpu.a & val);
+    let bit6 = res & 0b0100_0000 != 0;
+    let bit5 = res & 0b0010_0000 != 0;
+    self.cpu.p.set(Status::Carry, bit6);
+    self.cpu.p.set(Status::Overflow, bit6 ^ bit5);
+    self.cpu.a = res;
+  }
+
+  fn las(&mut self) {
+    // self.lda();
+    // self.tsx();
+
+    // M AND SP -> A, X, SP
+    let val = self.get_op_val();
+    let res = val & self.cpu.sp;
+    self.set_zn(res);
+
+    self.cpu.a = res;
+    self.cpu.x = res;
+    self.cpu.sp = res;
+  }
+
+  fn sbx(&mut self) {
+    // self.cmp();
+    // self.dex();
+
+    // (A AND X) - oper -> X
+    todo!()
+  }
+
+  fn jam(&mut self) {
+    panic!("SYSTEM JAMMED\n{:?}", self.cpu);
+  }
 }
 
 use AddressingMode::*;
@@ -1222,14 +1272,14 @@ impl Emu {
       0xfd => self.sbc(),
       0xfe => self.inc(),
 
-      // 0x02 => self.jam(),
+      0x02 => self.jam(),
       0x03 => self.slo(),
       0x04 => self.nop(),
       0x07 => self.slo(),
-      // 0x0b => self.anc(),
+      0x0b => self.anc(),
       0x0c => self.nop(),
       0x0f => self.slo(),
-      // 0x12 => self.jam(),
+      0x12 => self.jam(),
       0x13 => self.slo(),
       0x14 => self.nop(),
       0x17 => self.slo(),
@@ -1237,12 +1287,12 @@ impl Emu {
       0x1b => self.slo(),
       0x1c => self.nop(),
       0x1f => self.slo(),
-      // 0x22 => self.jam(),
+      0x22 => self.jam(),
       0x23 => self.rla(),
       0x27 => self.rla(),
-      // 0x2b => self.anc(),
+      0x2b => self.anc(),
       0x2f => self.rla(),
-      // 0x32 => self.jam(),
+      0x32 => self.jam(),
       0x33 => self.rla(),
       0x34 => self.nop(),
       0x37 => self.rla(),
@@ -1250,13 +1300,13 @@ impl Emu {
       0x3b => self.rla(),
       0x3c => self.nop(),
       0x3f => self.rla(),
-      // 0x42 => self.jam(),
+      0x42 => self.jam(),
       0x43 => self.sre(),
       0x44 => self.nop(),
       0x47 => self.sre(),
-      // 0x4b => self.alr(),
+      0x4b => self.alr(),
       0x4f => self.sre(),
-      // 0x52 => self.jam(),
+      0x52 => self.jam(),
       0x53 => self.sre(),
       0x54 => self.nop(),
       0x57 => self.sre(),
@@ -1264,13 +1314,13 @@ impl Emu {
       0x5b => self.sre(),
       0x5c => self.nop(),
       0x5f => self.sre(),
-      // 0x62 => self.jam(),
+      0x62 => self.jam(),
       0x63 => self.rra(),
       0x64 => self.nop(),
       0x67 => self.rra(),
-      // 0x6b => self.arr(),
+      0x6b => self.arr(),
       0x6f => self.rra(),
-      // 0x72 => self.jam(),
+      0x72 => self.jam(),
       0x73 => self.rra(),
       0x74 => self.nop(),
       0x77 => self.rra(),
@@ -1285,7 +1335,7 @@ impl Emu {
       0x89 => self.nop(),
       // 0x8b => self.ane(),
       0x8f => self.sax(),
-      // 0x92 => self.jam(),
+      0x92 => self.jam(),
       // 0x93 => self.sha(),
       0x97 => self.sax(),
       // 0x9b => self.tas(),
@@ -1296,17 +1346,17 @@ impl Emu {
       0xa7 => self.lax(),
       // 0xab => self.lxa(),
       0xaf => self.lax(),
-      // 0xb2 => self.jam(),
+      0xb2 => self.jam(),
       0xb3 => self.lax(),
       0xb7 => self.lax(),
-      // 0xbb => self.las(),
+      0xbb => self.las(),
       0xbf => self.lax(),
       0xc2 => self.nop(),
       0xc3 => self.dcp(),
       0xc7 => self.dcp(),
-      // 0xcb => self.sbx(),
+      0xcb => self.sbx(),
       0xcf => self.dcp(),
-      // 0xd2 => self.jam(),
+      0xd2 => self.jam(),
       0xd3 => self.dcp(),
       0xd4 => self.nop(),
       0xd7 => self.dcp(),
@@ -1319,7 +1369,7 @@ impl Emu {
       0xe7 => self.isb(),
       0xeb => self.sbc(),
       0xef => self.isb(),
-      // 0xf2 => self.jam(),
+      0xf2 => self.jam(),
       0xf3 => self.isb(),
       0xf4 => self.nop(),
       0xf7 => self.isb(),
@@ -1328,7 +1378,6 @@ impl Emu {
       0xfc => self.nop(),
       0xff => self.isb(),
       _ => unreachable!("illegal opcode 0x{opcode:02X} at address 0x{:04X} reached, system jammed", self.cpu.pc)
-      // _ => {}
     }
   }
 }
