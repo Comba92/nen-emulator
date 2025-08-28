@@ -167,6 +167,7 @@ impl Mapper for ColorDreams {
 }
 
 // https://www.nesdev.org/wiki/INES_Mapper_071
+// https://www.nesdev.org/wiki/INES_Mapper_232
 #[derive(Default)]
 struct Codemasters {
   mapper: u16,
@@ -176,6 +177,7 @@ struct Codemasters {
 impl Mapper for Codemasters {
   fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
     mem.banks.prg = Banking::new_prg(header, 2);
+    // this starts at last bank for some reason
     mem.banks.prg.set_page_to_last_bank(1);
 
     Box::new(Self {
@@ -185,21 +187,24 @@ impl Mapper for Codemasters {
   }
 
   fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u16) {
-    match (addr >> 12, self.mapper) {
-      (0x8..=0xb, 232) => {
+    match (addr & 0xf000, self.mapper) {
+      (0x8000..=0xb000, 232) => {
         self.prg_block = (val >> 3) & 0b11;
-        mem.banks.prg.set_page(0, (self.prg_block << 4) | self.prg_bank);
+        self.prg_bank = (self.prg_block << 2) | (self.prg_bank & 0x3);
+        mem.banks.prg.set_page(0, self.prg_bank);
+        // CAREFUL: last page should be relative to current block
+        mem.banks.prg.set_page(1, (self.prg_block << 2) | 0x3);
       }
       // For compatibility without using a submapper, FCEUX begins all games with fixed mirroring, and applies single screen mirroring only once $9000-9FFF is written, ignoring writes to $8000-8FFF.
-      (0x9, _) => if val & 0x10 == 0 {
+      (0x9000, _) => if val & 0x10 == 0 {
         mem.banks.vram.mirror(&Mirroring::SingleScreenA);
       } else {
         mem.banks.vram.mirror(&Mirroring::SingleScreenB);
       }
-      (0xc..=0xf, 71) => mem.banks.prg.set_page(0, val & 0b1111),
-      (0xc..=0xf, 232) => {
-        self.prg_bank = val & 0b11;
-        mem.banks.prg.set_page(0, (self.prg_block << 4) | self.prg_bank);
+      (0xc000..=0xf000, 71) => mem.banks.prg.set_page(0, val & 0b1111),
+      (0xc000..=0xf000, 232) => {
+        self.prg_bank = (self.prg_bank & 0xc) | (val & 0b11);
+        mem.banks.prg.set_page(0, self.prg_bank);
       }
       _ => {}
     }
@@ -210,6 +215,7 @@ impl Mapper for Codemasters {
 struct CPROM;
 impl Mapper for CPROM {
   fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
+    mem.banks.prg = Banking::new_prg(header, 1);
     mem.banks.chr = Banking::new_chr(header, 2);
     Box::new(Self)
   }
@@ -278,14 +284,14 @@ impl Mapper for Bandai74 {
   }
 
   fn prg_write(&mut self, mem: &mut Bus, _: u16, val: u16) {
-    mem.banks.chr.set_page(0, val & 0b1111);
+    mem.banks.chr.set_page(0, val & 0xf);
     
     if self.mapper == 152 {
       mem.banks.prg.set_page(0, (val >> 4) & 0b111);
-      let mirroring = if val & 0x8 == 0 { Mirroring::SingleScreenA } else { Mirroring::SingleScreenB };
+      let mirroring = if val & 0x80 == 0 { Mirroring::SingleScreenA } else { Mirroring::SingleScreenB };
       mem.banks.vram.mirror(&mirroring);
     } else {
-      mem.banks.prg.set_page(0, (val >> 4) & 0b1111);
+      mem.banks.prg.set_page(0, val >> 4);
     }
   }
 }
@@ -293,12 +299,13 @@ impl Mapper for Bandai74 {
 // https://www.nesdev.org/wiki/INES_Mapper_097
 struct IremTAMS1;
 impl Mapper for IremTAMS1 {
-  fn new(_: &CartHeader, _: &mut Bus) -> Box<Self> {
+  fn new(_: &CartHeader, mem: &mut Bus) -> Box<Self> {
+    mem.banks.prg.set_page_to_last_bank(0);
     Box::new(Self)
   }
 
   fn prg_write(&mut self, mem: &mut Bus, _: u16, val: u16) {
-    mem.banks.prg.set_page(1, val & 0b11111);
+    mem.banks.prg.set_page(1, val & 0x1f);
     let mirroring = if val & 0x80 == 0 { Mirroring::Horizontal } else { Mirroring::Vertical }; 
     mem.banks.vram.mirror(&mirroring);
   }
@@ -924,7 +931,7 @@ impl Mapper for Sunsoft93 {
 
   fn prg_write(&mut self, mem: &mut Bus, _: u16, val: u16) {
     mem.banks.prg.set_page(0, (val >> 4) & 0b111);
-    // TODO: ram enable
+    mem.wram_enable(val & 1 > 0);
   }
 }
 
@@ -945,6 +952,7 @@ impl Mapper for Sunsoft89 {
   }
 }
 
+// https://www.nesdev.org/wiki/INES_Mapper_067
 #[derive(Default)]
 struct Sunsoft3 {
   irq_write: bool,
@@ -1340,8 +1348,8 @@ impl Mapper for J87 {
 // https://www.nesdev.org/wiki/VRC1
 #[derive(Default)]
 struct VRC1 {
-  chr_hi0: u16,
-  chr_hi1: u16,
+  chr_bank0: u16,
+  chr_bank1: u16,
 }
 impl Mapper for VRC1 {
   fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
@@ -1353,22 +1361,30 @@ impl Mapper for VRC1 {
   }
 
   fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u16) {
-    match addr >> 12 {
-      0x8 => mem.banks.prg.set_page(0, val),
-      0xa => mem.banks.prg.set_page(1, val),
-      0xc => mem.banks.prg.set_page(2, val),
-      0x9 => {
+    match addr & 0xf000 {
+      0x8000 => mem.banks.prg.set_page(0, val),
+      0xa000 => mem.banks.prg.set_page(1, val),
+      0xc000 => mem.banks.prg.set_page(2, val),
+      0x9000 => {
         let mirroring = match val & 1 {
           0 => Mirroring::Vertical,
           _ => Mirroring::Horizontal,
         };
         mem.banks.vram.mirror(&mirroring);
 
-        self.chr_hi0 = (val >> 1) & 1;
-        self.chr_hi1 = (val >> 2) & 1;
+        self.chr_bank0 = (self.chr_bank0 & 0xf) | ((val & 0x2) << 3);
+        self.chr_bank1 = (self.chr_bank1 & 0xf) | ((val & 0x4) << 2);
+        mem.banks.chr.set_page(0, self.chr_bank0);
+        mem.banks.chr.set_page(1, self.chr_bank1);
       }
-      0xe => mem.banks.chr.set_page(0, (self.chr_hi0 << 5) | val),
-      0xf => mem.banks.chr.set_page(1, (self.chr_hi1 << 5) | val),
+      0xe000 => {
+        self.chr_bank0 = (self.chr_bank0 & 0x10) | (val & 0xf);
+        mem.banks.chr.set_page(0, self.chr_bank0);
+      }
+      0xf000 => {
+        self.chr_bank1 = (self.chr_bank1 & 0x10) | (val & 0xf);
+        mem.banks.chr.set_page(1, self.chr_bank1);
+      }
       _ => {}
     }
   }
@@ -1459,7 +1475,7 @@ mod konami {
       if self.enabled {
         self.count = self.latch;
       }
-
+      
       // Any write to this register will acknowledge the pending IRQ and reset the prescaler.
       self.prescaler = 341;
       mem.irq.remove(IrqFlags::MAPPER)
@@ -1512,7 +1528,6 @@ struct VRC2_4 {
   latch: u8,
 }
 impl VRC2_4 {
-
   fn translate_address(&self, addr: u16) -> u16 {
     // The primary difference between them was having the mapper address lines connected in different ways. In particular, two lines chosen from A0-A7 will be used to select registers. 
 
@@ -1538,19 +1553,15 @@ impl VRC2_4 {
     if addr & 0xf > 3 { return; }
 
     let reg_pair = (addr >> 12) - 0xb;
+    // we can tell if it is low or high nibble by second bit
     let low_or_high = (addr >> 1) & 1;
+    // multiply reg pair by two, add low or high
     let page = ((reg_pair) << 1) | low_or_high;
 
     let reg = &mut self.chr_regs[page as usize]; 
     
     if addr & 1 == 0 {
       // low
-      let val = if self.mapper == 22 {
-        // On VRC2a (mapper 22), the low bit is ignored (right shift value by 1). 
-        // TODO: shift or ignore? this doesnt work 
-        val & !1
-      } else { val };
-
       *reg = (*reg & 0x1f0) | (val & 0xf);
     } else {
       // high
@@ -1562,7 +1573,12 @@ impl VRC2_4 {
       *reg = (*reg & 0xf) | (val << 4);
     }
 
-    mem.banks.chr.set_page(page as u8, *reg);
+    if self.mapper == 22 {
+      // On VRC2a (mapper 22), the low bit is ignored (right shift value by 1). 
+      mem.banks.chr.set_page(page as u8, *reg >> 1);
+    } else {
+      mem.banks.chr.set_page(page as u8, *reg);
+    }
   }
 }
 impl Mapper for VRC2_4 {
@@ -1649,7 +1665,7 @@ impl Mapper for VRC2_4 {
       (0xb000..=0xe003, _) => self.update_chr_banks(mem, addr, val),
 
       (0xf000, false) => self.irq.latch = (self.irq.latch & 0xf0) | (val as u8 & 0x0f),
-      (0xf001, false) => self.irq.latch = (self.irq.latch & 0x0f) | (val as u8 & 0xf0),
+      (0xf001, false) => self.irq.latch = (self.irq.latch & 0x0f) | ((val as u8 & 0xf) << 4),
       (0xf002, false) => self.irq.write_ctrl(val as u8, mem),
       (0xf003, false) => self.irq.write_ack(mem),
       _ => {}
@@ -1977,6 +1993,7 @@ impl Mapper for VRC7 {
     } else { addr };
 
     match addr & 0xf00f {
+      // LOL
       0x8000 => mem.banks.prg.set_page(0, val),
       0x8008 => mem.banks.prg.set_page(1, val),
       0x9000 => mem.banks.prg.set_page(2, val),

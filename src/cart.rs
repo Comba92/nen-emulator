@@ -54,7 +54,7 @@ impl CartHeader {
     bytes.len() >= Self::UNIF_HEADER_SIZE && &bytes[0..4] == Self::UNIF_MAGIC
   }
 
-  pub fn header_len(&self) -> usize {
+  pub fn len(&self) -> usize {
     match self.format {
       HeaderFormat::Headerless => 0,
       HeaderFormat::Unif => Self::UNIF_HEADER_SIZE,
@@ -68,9 +68,18 @@ impl CartHeader {
 
     match header {
       Ok(mut header) => {
+        // DEBUG
+        if let Some(entry) = GAMES_DB.query(&bytes[header.len()..]) {
+          println!("==[GAME LOADED]==\n{:?}", entry);
+        }
+
         // we only trust Nes2.0 format
         if header.format != HeaderFormat::Nes2_0 {
-          header.update_from_db(bytes);
+          let entry = GAMES_DB.query(&bytes[header.len()..]);
+          if let Some(entry) = entry {
+            header = entry.into();
+            header.format = HeaderFormat::INes;
+          }
         }
         Ok(header)
       }
@@ -173,26 +182,6 @@ impl CartHeader {
 
     Ok(header)
   }
-
-  fn update_from_db(&mut self, bytes: &[u8]) {
-    // get data not avaible on iNes
-    GAMES_DB.query(&bytes[self.header_len()..])
-    .inspect(|x| {
-      self.region = x.region.clone();
-      self.submapper = x.submapper;
-      self.expansions = x.expansions;
-      self.volatile_ram_size = x.prg_size;
-      self.non_volatile_ram_size = x.prgnvram_size;
-
-      self.wram_size = if x.prgram_size > 0 {
-        x.prgram_size
-      } else if x.prgnvram_size > 0 {
-        x.prgnvram_size
-      } else {
-        0
-      };
-    });
-  }
 }
 
 impl Cart {
@@ -200,7 +189,7 @@ impl Cart {
     let header = CartHeader::new(rom_bytes)?;
 
     // only iNes supported
-    let rom_start = header.header_len();
+    let rom_start = header.len();
     let prg = rom_bytes[rom_start..rom_start+header.prg_size].to_vec();
     let chr = if header.has_chr_ram {
       vec![0; header.chr_size]
@@ -209,7 +198,8 @@ impl Cart {
       rom_bytes[chr_start..chr_start+header.chr_size].to_vec()
     };
 
-    println!("{:?}", header);
+    // DEBUG
+    // println!("{:?}", header);
 
     Ok(Self {
       header,
