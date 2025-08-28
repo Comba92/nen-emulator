@@ -18,9 +18,9 @@ pub struct GameData {
   // pub prg_sha1: [u8; 20],
   
   pub chr_size: usize,
+  pub chrram_size: usize,
   pub prgram_size: usize,
   pub prgnvram_size: usize,
-  pub chrram_size: usize,
   // no game has chrnvram
   // pub chrnvram_size: usize,
 
@@ -35,10 +35,10 @@ pub struct GameData {
 }
 impl From<&GameData> for CartHeader {
   fn from(value: &GameData) -> Self {
-    let chr_size = if value.chr_size > 0 {
-      value.chr_size
-    } else if value.chrram_size > 0 {
+    let chr_size = if value.chrram_size > 0 {
       value.chrram_size
+    } else if value.chr_size > 0 {
+      value.chr_size
     } else {
       8 * 1024
     };
@@ -50,13 +50,16 @@ impl From<&GameData> for CartHeader {
     } else {
       0
     };
-    
+
+    println!("{:?}", value);
+
     Self {
       prg_size: value.prg_size,
       chr_size,
       wram_size,
       has_chr_ram: value.chrram_size > 0,
-      has_prg_ram: value.prg_size > 0 || value.prgnvram_size > 0,
+      volatile_ram_size: value.prgram_size,
+      non_volatile_ram_size: value.prgnvram_size,
       
       mirroring: value.mirroring.clone(),
       region: value.region.clone(),

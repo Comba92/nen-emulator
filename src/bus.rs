@@ -118,7 +118,6 @@ impl<T: BankCfg + std::fmt::Debug> Banking<T> {
 
   pub fn translate(&self, addr: u16) -> usize {
     // let page = (addr % self.pages_size) / self.bank_size;
-    // let page = (addr & self.addressable_size-1) >> self.bank_size_shift;
     let page = addr >> self.bank_size_shift;
 
     // i do not expect to write outside the slots array here either.
@@ -313,8 +312,13 @@ impl Bus {
       PpuHandler::Palette
     ];
 
+    let mut ram = [0; 2 * 1024];
+    // Final Fantasy, River City Ransom, Apple Town Story[5], Impossible Mission II[6] amongst others
+    // Use the semi-random contents of RAM on powerup to seed their RNGs.
+    _ = getrandom::fill(&mut ram);
+
     Ok(Self {
-      ram: [0; 2 * 1024],
+      ram,
       prg: cart.prg,
       chr: cart.chr,
       vram: vec![0; 2 * 1024],

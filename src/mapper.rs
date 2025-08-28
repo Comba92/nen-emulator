@@ -35,6 +35,7 @@ pub fn from_header(header: &CartHeader, mem: &mut Bus) -> Result<Box<dyn Mapper>
     24 | 26 => VRC6::new(header, mem),
     31 => NSF::new(header, mem),
     // 32 => IremG101::new(header, mem),
+    // 65 => IremH3001::new(header, mem),
     66 => GxROM::new(header, mem),
     67 => Sunsoft3::new(header, mem),
     68 => Sunsoft4::new(header, mem),
@@ -120,7 +121,6 @@ impl Mapper for CNROM {
 struct GxROM;
 impl Mapper for GxROM {
   fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
-    let shift = 
     mem.banks.prg = Banking::new_prg(header, 1);
 
     Box::new(Self)
@@ -306,33 +306,127 @@ impl Mapper for IremTAMS1 {
 
 // TODO
 // https://www.nesdev.org/wiki/INES_Mapper_032
-struct IremG101 {
+struct IremG101;
 
+// https://www.nesdev.org/wiki/INES_Mapper_065
+struct IremH3001;
+
+mod mmc1 {
+  #[derive(Default, Debug)]
+  pub enum WramKind {
+    Bank32, Bank16, #[default] Bank8
+  }
 }
 
-// TODO: SxROM support
 // Needs NES2.0 / db support for SRAM
 // TODO: prg rom write delay
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct MMC1 {
   shift_reg: u16,
   shift_count: u8,
 
-  prg_swapped: u8,
+  prg_mode: u8,
   prg_bank: u16,
-  prg_bank_mask: u16,
+  prg_hi_bank: u16,
+  
+  // 512kb of prg
+  has_big_prg: bool,
+  last_bank: u16,
+  wram_kind: mmc1::WramKind,
 
-  chr_bank_mask: u16,
+  chr_mode: bool,
+  chr_bank0: u16,
+  chr_bank1: u16,
+}
+impl MMC1 {
+  fn update_all_banks(&mut self, mem: &mut Bus, val: u16) {
+    if self.has_big_prg {
+      self.prg_hi_bank = val & 0x10;
+
+      if self.prg_hi_bank > 0 {
+        // last bank is the real last
+        self.last_bank = mem.banks.prg.banks_count-1;
+      } else {
+        // last bank is the mid one
+        self.last_bank = mem.banks.prg.banks_count/2-1;
+      }
+    }
+
+    use mmc1::WramKind;
+    let wram = &mut mem.banks.wram;
+    match self.wram_kind {
+      WramKind::Bank16 => wram.set_page(0, (val >> 3) & 0x1),
+      WramKind::Bank32 => wram.set_page(0, (val >> 2) & 0x3),
+      _ => {}
+    }
+
+    self.update_prg_banks(mem);
+    self.update_chr_banks(mem);
+  }
+
+  fn update_prg_banks(&mut self, mem: &mut Bus) {
+    let bank = self.prg_hi_bank | self.prg_bank;
+    match self.prg_mode {
+      2 => {
+        // 2: fix first bank at $8000 and switch 16 KB bank at $C000 
+        mem.banks.prg.set_page(0, 0);
+        mem.banks.prg.set_page(1, bank);
+      }
+      3 => {
+        // 3: fix last bank at $C000 and switch 16 KB bank at $8000)
+        mem.banks.prg.set_page(0, bank);
+        // CAREFUL HERE: if we have 512kb, this has still the be the last 256kb bank of the current block 
+        mem.banks.prg.set_page(1, self.last_bank);
+      }
+      _ => {
+        // 0, 1: switch 32 KB at $8000, ignoring low bit of bank number;
+        mem.banks.prg.set_pages_aligned2(0, bank);
+      }
+    }
+  }
+
+  fn update_chr_banks(&mut self, mem: &mut Bus) {
+    if self.chr_mode {
+      mem.banks.chr.set_page(0, self.chr_bank0);
+      mem.banks.chr.set_page(1, self.chr_bank1);
+    } else {
+      mem.banks.chr.set_pages_aligned2(0, self.chr_bank0 << 0);
+    }
+  }
 }
 impl Mapper for MMC1 {
   fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
     mem.banks.chr = Banking::new_chr(header, 2);
-    
-    // starts in mode3 by default
-    mem.banks.prg.set_page(0, 0);
-    mem.banks.prg.set_page_to_last_bank(1);
 
-    Box::new(Self::default())
+    let has_big_prg = header.prg_size >= 512 * 1024;
+    let last_bank = if has_big_prg {
+      // start with mid bank
+      mem.banks.prg.banks_count/2-1
+    } else {
+      // will always be real last
+      mem.banks.prg.banks_count-1
+    };
+
+    let wram_kind = if header.wram_size >= 32 * 1024 {
+      mmc1::WramKind::Bank32
+    } else if header.wram_size >= 16 * 1024 {
+      mmc1::WramKind::Bank16
+    } else {
+      mmc1::WramKind::Bank8
+    };
+
+    let mut res = Self {
+      has_big_prg,
+      wram_kind,
+      last_bank,
+      prg_mode: 3,
+      ..Default::default()
+    };
+
+    res.update_prg_banks(mem);
+    res.update_chr_banks(mem);
+
+    Box::new(res)
   }
 
   fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u16) {
@@ -341,9 +435,8 @@ impl Mapper for MMC1 {
       self.shift_count = 0;
 
       // back to mode3
-      mem.banks.prg.change_mode(2);
-      mem.banks.prg.set_page(0, self.prg_bank);
-      self.prg_bank_mask = 0;
+      self.prg_mode = 3;
+      self.update_prg_banks(mem);
       
       return;
     }
@@ -353,14 +446,14 @@ impl Mapper for MMC1 {
 
     if self.shift_count < 5 { return; }
 
-    let shift_val = self.shift_reg;
+    let val = self.shift_reg;
     self.shift_reg = 0;
     self.shift_count = 0;
 
     match addr & 0xe000 {
-      // 0x8000..0x9ffff
+      // 0x8000..=0x9fff => {
       0x8000 => {
-        let mirroring = match shift_val & 0b11 {
+        let mirroring = match val & 0x3 {
           0 => Mirroring::SingleScreenA,
           1 => Mirroring::SingleScreenB,
           2 => Mirroring::Vertical,
@@ -368,47 +461,30 @@ impl Mapper for MMC1 {
         };
         mem.banks.vram.mirror(&mirroring);
         
-        let prg_mode = (shift_val >> 2) & 0b11;
-        (self.prg_swapped, self.prg_bank_mask) = match prg_mode {
-          2 => {
-            // 2: fix first bank at $8000 and switch 16 KB bank at $C000
-            mem.banks.prg.change_mode(2);
-            mem.banks.prg.set_page(0, 0);
-            mem.banks.prg.set_page(1, self.prg_bank);
-            (1, 0)
-          }
-          3 => {
-            // 3: fix last bank at $C000 and switch 16 KB bank at $8000)
-            mem.banks.prg.change_mode(2);
-            mem.banks.prg.set_page(0, self.prg_bank);
-            mem.banks.prg.set_page_to_last_bank(1);
-            (0, 0)
-          }
-          _ => {
-            // 0, 1: switch 32 KB at $8000, ignoring low bit of bank number;
-            mem.banks.prg.change_mode(1);
-            mem.banks.prg.set_page(0, self.prg_bank & !1);
-            (0, 1)
-          }
-        };
+        self.prg_mode = (val as u8 >> 2) & 0x3;
+        self.update_prg_banks(mem);
 
-        let chr_mode = shift_val & 0x10;
-        if chr_mode == 0 {
-          mem.banks.chr.change_mode(1);
-          self.chr_bank_mask = 1;
-        } else {
-          mem.banks.chr.change_mode(2);
-          self.chr_bank_mask = 0;
-        };
+        self.chr_mode = val & 0x10 > 0;
+        self.update_chr_banks(mem);
       }
-      // 0xa000..0xbfff
-      0xa000 => mem.banks.chr.set_page(0, shift_val & !self.chr_bank_mask),
-      // 0xc000..0xdfff
-      0xc000 => mem.banks.chr.set_page(1, shift_val),
-      // 0xe000..0xffff
+      0xa000..=0xbfff => {
+      // 0xa000 => {
+        self.chr_bank0 = val;
+        self.update_all_banks(mem, val);
+      }
+      // 0xc000..=0xdfff => {
+      0xc000 => {
+        self.chr_bank1 = val;
+        if self.chr_mode {
+          self.update_all_banks(mem, val);
+        }
+      }
+      // 0xe000..=0xffff => {
       0xe000 => {
-        self.prg_bank = shift_val;
-        mem.banks.prg.set_page(self.prg_swapped, shift_val & !self.prg_bank_mask);
+        self.prg_bank = val & 0xf;
+        self.update_prg_banks(mem);
+
+        mem.wram_enable(val & 0x10 == 0);
       }
       _ => {}
     }
@@ -1237,7 +1313,7 @@ impl Mapper for SunsoftFME7 {
 }
 
 // https://www.nesdev.org/wiki/INES_Mapper_087
-// TODO: mapper 101
+// https://www.nesdev.org/wiki/INES_Mapper_101
 struct J87 {
   shift: u8,
 }
@@ -1362,7 +1438,7 @@ impl Mapper for VRC3 {
 mod konami {
   use crate::bus::{self, IrqFlags};
 
-  // JITTERS, might not work properly
+  // TODO: JITTERS, might not work properly, as seen in mappers VRC2/4 and VRC7
   #[derive(Default)]
   // https://www.nesdev.org/wiki/VRC_IRQ
   pub struct Irq {
@@ -1471,7 +1547,7 @@ impl VRC2_4 {
       // low
       let val = if self.mapper == 22 {
         // On VRC2a (mapper 22), the low bit is ignored (right shift value by 1). 
-        // TODO: shift or ignore?
+        // TODO: shift or ignore? this doesnt work 
         val & !1
       } else { val };
 
@@ -1522,13 +1598,13 @@ impl Mapper for VRC2_4 {
   }
 
   fn cart_read(&mut self, mem: &mut Bus, addr: u16) -> u8 {
-    if matches!(addr, 0x6000..=0x6fff) {
+    if self.is_vrc2 && matches!(addr, 0x6000..=0x6fff) {
       self.latch
     } else { mem.cpu_data_bus }
   }
 
   fn cart_write(&mut self, _: &mut Bus, addr: u16, val: u16) {
-    if matches!(addr, 0x6000..=0x6fff) {
+    if self.is_vrc2 && matches!(addr, 0x6000..=0x6fff) {
       self.latch = val as u8 & 1;
     }
   }

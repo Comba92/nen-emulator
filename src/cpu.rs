@@ -805,7 +805,7 @@ impl Emu {
   }
 
   fn jam(&mut self) {
-    panic!("SYSTEM JAMMED\n{:?}", self.cpu);
+    panic!("===[SYSTEM JAMMED]===\n{:?}", self.cpu);
   }
 }
 

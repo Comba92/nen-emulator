@@ -13,7 +13,7 @@ pub enum HeaderFormat {
   #[default] Headerless, INes, Nes2_0, Unif,
 }
 
-// TODO: just old a static reference to game data here retard
+// TODO: just hold a static reference to game data here retard
 // https://www.nesdev.org/wiki/INES
 #[derive(Default, Debug, Clone)]
 pub struct CartHeader {
@@ -25,6 +25,9 @@ pub struct CartHeader {
   pub prg_size: usize,
   pub chr_size: usize,
   pub wram_size: usize,
+
+  pub volatile_ram_size: usize,
+  pub non_volatile_ram_size: usize,
   
   pub mirroring: Mirroring,
   pub alt_mirroring: bool,
@@ -33,7 +36,6 @@ pub struct CartHeader {
 
   pub has_battery: bool,
   pub has_chr_ram: bool,
-  pub has_prg_ram: bool,
   pub has_trainer: bool,
 }
 
@@ -70,13 +72,6 @@ impl CartHeader {
         if header.format != HeaderFormat::Nes2_0 {
           header.update_from_db(bytes);
         }
-
-        // TODO: remove this, only for debug
-        let res = GAMES_DB.query(&bytes[header.header_len()..]);
-        if let Some(game) = res {
-          println!("[DB HIT] {:?}", game.title)
-        }
-
         Ok(header)
       }
       Err(e) => GAMES_DB.query(bytes)
@@ -128,15 +123,18 @@ impl CartHeader {
       // TODO: some MMC5 games have both, handle that case
       // https://www.nesdev.org/wiki/MMC5#PRG-RAM_configurations
 
+      let prg_ram_size = if prg_ram_shift > 0 { 64 << prg_ram_shift} else { 0 };
+      let prg_nvram_size = if prg_nvram_shift > 0 { 64 << prg_nvram_shift} else { 0 };
       // we only take nvram is ram is zero
       header.wram_size = if prg_ram_shift > 0 {
-        64 << prg_ram_shift
+        prg_ram_size
       } else if prg_nvram_shift > 0 {
-        64 << prg_nvram_shift
+        prg_nvram_size
       } else {
         0
       };
-      header.has_prg_ram = prg_nvram_shift > 0 || prg_nvram_shift > 0;
+      header.volatile_ram_size = prg_ram_size;
+      header.non_volatile_ram_size = prg_nvram_size;
 
       // we only take chr ram if chr rom is zero
       if header.chr_size == 0 {
@@ -150,7 +148,7 @@ impl CartHeader {
         } else {
           8 * 1024
         };
-        header.has_chr_ram = chr_ram_shift > 0 || chr_nvram_shift > 0;
+
       }
 
       header.region = match bytes[12] & 0b11 {
@@ -164,7 +162,6 @@ impl CartHeader {
       // https://www.nesdev.org/wiki/INES#Variant_comparison
       // iNES with PRG RAM and TV system field
       header.wram_size = bytes[8] as usize * 8 * 1024;
-      header.has_prg_ram = bytes[8] > 0;
       header.region = match bytes[9] {
         1 => Region::PAL,
         _ => Region::NTSC,
@@ -184,6 +181,8 @@ impl CartHeader {
       self.region = x.region.clone();
       self.submapper = x.submapper;
       self.expansions = x.expansions;
+      self.volatile_ram_size = x.prg_size;
+      self.non_volatile_ram_size = x.prgnvram_size;
 
       self.wram_size = if x.prgram_size > 0 {
         x.prgram_size
@@ -199,7 +198,7 @@ impl CartHeader {
 impl Cart {
   pub fn new(rom_bytes: &[u8]) -> Result<Self, &'static str> {
     let header = CartHeader::new(rom_bytes)?;
-    
+
     // only iNes supported
     let rom_start = header.header_len();
     let prg = rom_bytes[rom_start..rom_start+header.prg_size].to_vec();
@@ -207,7 +206,7 @@ impl Cart {
       vec![0; header.chr_size]
     } else {
       let chr_start = rom_start+header.prg_size;
-      rom_bytes[chr_start..chr_start + header.chr_size].to_vec()
+      rom_bytes[chr_start..chr_start+header.chr_size].to_vec()
     };
 
     println!("{:?}", header);

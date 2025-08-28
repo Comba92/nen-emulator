@@ -14,6 +14,8 @@ struct XmlGameList {
 
 #[derive(serde::Serialize, serde::Deserialize)]
 struct XmlGameEntry {
+  prgrom: XmlRomData,
+  chrrom: Option<XmlRomData>,
   prgram: Option<XmlRamData>,
   prgnvram: Option<XmlRamData>,
   chrram: Option<XmlRamData>,
@@ -25,9 +27,6 @@ struct XmlGameEntry {
   console: XmlConsoleData,
   expansion: XmlExpansionData,
   vs: Option<XmlVsData>,
-
-  chrrom: Option<XmlRomData>,
-  prgrom: XmlRomData,
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -302,7 +301,7 @@ fn db_xml_to_json() {
   }
 
   _ = std::fs::create_dir("./db_tests");
-  let file = std::fs::File::create("./db_tests/nes20db.xml.json").unwrap();
+  let file = std::fs::File::create("./db_tests/nes20db.json").unwrap();
   let buf = std::io::BufWriter::new(file);
   serde_json::to_writer_pretty(buf, &json_entries).unwrap()
 }

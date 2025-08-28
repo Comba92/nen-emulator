@@ -23,6 +23,7 @@ fn main() {
     };
     let audiodev = audio.open_queue(None, &audiospec).unwrap();
     audiodev.resume();
+    println!("{:?}", audiodev.spec());
 
     let mut events = sdl.event_pump().unwrap();
 

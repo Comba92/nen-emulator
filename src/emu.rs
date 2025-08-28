@@ -2,6 +2,7 @@ use crate::{apu::ApuRP2A, bus::Bus, cart::{Cart, CartHeader}, cpu::{self, Cpu650
 
 #[derive(Default)]
 pub struct EmuSettings {
+  pub random_ram: bool,
   pub no_sprite_limit: bool,
   pub disable_background: bool,
   pub disable_sprites: bool,
