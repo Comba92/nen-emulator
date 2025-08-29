@@ -6,6 +6,7 @@ mod mapper;
 mod ppu;
 mod apu;
 
+mod disk;
 pub mod games_db;
 
 mod utils {

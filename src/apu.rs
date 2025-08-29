@@ -24,8 +24,8 @@ impl DividerCounter {
 }
 
 #[derive(Default)]
-struct LengthCounter {
-  count: u8,
+pub struct LengthCounter {
+  pub count: u8,
   enabled: bool,
   halted: bool,
 }
@@ -36,7 +36,7 @@ impl LengthCounter {
     12, 16, 24, 18, 48, 20, 96, 22, 192, 24, 72, 26, 16, 28, 32, 30,
   ];
 
-  fn step(&mut self) {
+  pub fn step(&mut self) {
     if !self.halted && self.count > 0 {
       self.count -= 1;
     }
@@ -48,14 +48,14 @@ impl LengthCounter {
     }
   }
 
-  fn enable(&mut self, cond: bool) {
+  pub fn enable(&mut self, cond: bool) {
     self.enabled = cond;
     self.count = if cond { self.count } else { 0 };
   }
 }
 
 #[derive(Default)]
-struct Envelope {
+pub struct Envelope {
   start: bool,
   looping: bool,
   use_volume: bool,
@@ -64,7 +64,7 @@ struct Envelope {
 }
 
 impl Envelope {
-  fn step(&mut self) {
+  pub fn step(&mut self) {
     // TODO: volume can be precomputed here
 
     self.div.step(|| {
@@ -100,7 +100,6 @@ impl Envelope {
   }
 }
 
-#[derive(Default)]
 struct Sweep {
   div: DividerCounter,
   enabled: bool,
@@ -108,6 +107,18 @@ struct Sweep {
   reload: bool,
   shift: u8,
   target_period: u16,
+}
+impl Default for Sweep {
+  fn default() -> Self {
+    Self {
+      div: Default::default(),
+      enabled: false,
+      negate: true,
+      reload: false,
+      shift: 0,
+      target_period: 0,
+    }
+  }
 }
 
 // TODO: implement this for audio stuff, to have a lil cleaner interface
@@ -118,10 +129,10 @@ pub trait Channel {
 
 // https://www.nesdev.org/wiki/APU_Pulse
 #[derive(Default)]
-struct Pulse {
+pub struct Pulse {
   div: DividerCounter,
-  len: LengthCounter,
-  env: Envelope,
+  pub len: LengthCounter,
+  pub env: Envelope,
   sweep: Sweep,
   duty_seq: u8,
   duty_cycle: u8, 
@@ -135,7 +146,7 @@ impl Pulse {
     [1, 1, 1, 1, 1, 1, 0, 0]
   ];
 
-  fn write_ctrl(&mut self, val: u8) {
+  pub fn write_ctrl(&mut self, val: u8) {
     self.env.set(val);
     self.len.halted = val & 0x10 != 0;
     self.duty_cycle = val >> 6;
@@ -151,11 +162,11 @@ impl Pulse {
     sweep.reload = true;
   }
 
-  fn write_timer_lo(&mut self, val: u8) {
+  pub fn write_timer_lo(&mut self, val: u8) {
     self.div.period = byte_set_lo(self.div.period, val);
   }
 
-  fn write_timer_hi(&mut self, val: u8) {
+  pub fn write_timer_hi(&mut self, val: u8) {
     self.div.period = byte_set_hi(self.div.period, val & 0b111);
     self.len.load(val);
 
@@ -163,7 +174,7 @@ impl Pulse {
     self.env.start = true;
   }
 
-  fn step_divider(&mut self) {
+  pub fn step_divider(&mut self) {
     self.div.step(|| {
       self.duty_seq = (self.duty_seq + 1) % Self::DUTIES[0].len() as u8;
     });
@@ -203,7 +214,7 @@ impl Pulse {
     }
   }
 
-  fn sample(&self) -> u8 {
+  pub fn sample(&self) -> u8 {
     if self.len.count > 0 && !self.is_muted() {
       // TODO: might be difficult, but output can be precomputed
       let seq = Self::DUTIES[self.duty_cycle as usize][self.duty_seq as usize];

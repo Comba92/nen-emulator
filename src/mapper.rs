@@ -1,5 +1,7 @@
 
-use crate::{bus::{Banking, Bus, ChrBank, CpuHandler, IrqFlags, PpuHandler}, emu::Mirroring, utils::{byte_set_hi, byte_set_lo}};
+use std::ops::Neg;
+
+use crate::{apu, bus::{Banking, Bus, ChrBank, CpuHandler, IrqFlags, PpuHandler}, emu::Mirroring, utils::{byte_set_hi, byte_set_lo}};
 
 // https://www.nesdev.org/wiki/Mapper
 pub trait Mapper {
@@ -34,6 +36,7 @@ pub fn from_header(mem: &mut Bus) -> Result<Box<dyn Mapper>, String> {
     13 => CPROM::new(mem),
     16 | 153 | 157 | 159 => BandaiFCG::new(mem),
     19 | 210 => Namco129_163::new(mem),
+    20 => FDS::new(mem),
     21 | 22 | 23 | 25 => VRC2_4::new(mem),
     24 | 26 => VRC6::new(mem),
     31 => NSF::new(mem),
@@ -1471,8 +1474,7 @@ impl Mapper for SunsoftFME7 {
   }
 
   fn sample(&self) -> f32 {
-    // (self.ta.sample() + self.tb.sample() + self.tc.sample()) as f32
-    0.0
+    (self.ta.sample() + self.tb.sample() + self.tc.sample()) as f32
   }
 }
 
@@ -2382,7 +2384,7 @@ mod mmc5 {
   }
 
   pub enum ExRamMode {
-
+    Vram, CpuRW, CpuReadOnly,
   }
 }
 
@@ -2414,12 +2416,15 @@ struct MMC5 {
 
   ppu_addr_count: usize,
   last_ppu_addr: Option<u16>,
-  ppu_readed: bool,
-  ppu_idle_count: usize,
+  ppu_idle_countdown: usize,
 
   multiplicand: u8,
   multiplier: u8,
   product: u16,
+
+  p0: apu::Pulse,
+  p1: apu::Pulse,
+  audio_cycles: usize,
 }
 impl MMC5 {
   fn update_prg_banks(&mut self, mem: &mut Bus) {
@@ -2489,36 +2494,35 @@ impl MMC5 {
   }
 
   fn update_chr_banks(&mut self, mem: &mut Bus) {
-    // in 8x8 sprites mode, in 16x8 sprites mode and rendering sprites, in vblank and last written low registers
+    // in 8x8 sprites mode, in 16x8 sprites mode and rendering sprites, in vblank use last written low registers
     let use_low_regs = !self.ppu_big_sprites 
-      || (self.tile_fetches_count >= 32 && self.tile_fetches_count < 40)
+      || (self.tile_fetches_count >= 32 && self.tile_fetches_count < 48)
       || (!self.ppu_in_frame && self.last_chr_wrote <= 0x5127);
 
-    // if use_low_regs {
-    //   self.update_chr_low_regs(mem);
-    // } else {
-    //   self.update_chr_high_regs(mem);
-    // }
-    self.update_chr_high_regs(mem);
+    if use_low_regs {
+      self.update_chr_low_regs(mem);
+    } else {
+      self.update_chr_high_regs(mem);
+    }
   }
 
   fn update_chr_low_regs(&mut self, mem: &mut Bus) {
     // Caution: Unlike the MMC1 and unlike PRG banking on the MMC5, the banks are always indexed by the currently selected size.
     // When using 2kb, 4kb or 8kb bank sizes, the registers hold bank index of that larger size, and lower bits are *not* ignored. 
-    // shifting is needed
+
     let chr = &mut mem.banks.chr;
     match self.chr_mode {
       // 8kb
-      0 => chr.set_pages_unaligned(0, self.chr_regs[7] << 3, 8),
+      0 => chr.set_pages_unaligned(0, self.chr_regs[7], 8),
       // 4kb
       1 => {
-        chr.set_pages_unaligned(0, self.chr_regs[3] << 2, 4);
-        chr.set_pages_unaligned(4, self.chr_regs[7] << 2, 4);
+        chr.set_pages_unaligned(0, self.chr_regs[3], 4);
+        chr.set_pages_unaligned(4, self.chr_regs[7], 4);
       }
       // 2kb
       2 =>  for i in 0..4 {
         // only odds chr_regs
-        chr.set_pages_unaligned(i, self.chr_regs[i as usize * 2 + 1] << 1, 2);
+        chr.set_pages_unaligned(i, self.chr_regs[i as usize * 2 + 1], 2);
       }
       // 1kb
       _ => for i in 0..8 {
@@ -2597,6 +2601,13 @@ impl Mapper for MMC5 {
 
   fn cart_read(&mut self, mem: &mut Bus, addr: u16) -> u8 {
     match addr {
+      0x5015 => {
+        let mut res = 0;
+        res |= ((self.p0.len.count > 0) as u8) << 0;
+        res |= ((self.p1.len.count > 0) as u8) << 1;
+        res
+      }
+
       0x5204 => {
         let mut res = 0;
         res |= (self.irq_pending as u8) << 7;
@@ -2621,13 +2632,25 @@ impl Mapper for MMC5 {
   fn cart_write(&mut self, mem: &mut Bus, addr: u16, val: u16) {
     let val = val as u8;
     match addr {
+      0x5000 => self.p0.write_ctrl(val as u8),
+      0x5002 => self.p0.write_timer_lo(val as u8),
+      0x5003 => self.p0.write_timer_hi(val as u8),
+
+      0x5004 => self.p1.write_ctrl(val as u8),
+      0x5006 => self.p1.write_timer_lo(val as u8),
+      0x5007 => self.p1.write_timer_hi(val as u8),
+
+      0x5015 => {
+        self.p0.len.enable(val & 0x1 > 0);
+        self.p1.len.enable(val & 0x2 > 0);
+      }
+
       0x5100 => {
         self.prg_mode = val & 0x3;
         self.update_prg_banks(mem);
       }
       0x5101 => {
         self.chr_mode = val & 0x3;
-        println!("CHR MODE: {}", self.chr_mode);
         self.update_chr_banks(mem);
       }
 
@@ -2656,8 +2679,7 @@ impl Mapper for MMC5 {
 
       0x5120..=0x512b => {
         let reg = addr as usize - 0x5120;
-        // self.chr_regs[reg] = ((self.chr_hi as u16) << 8) | val as u16;
-        self.chr_regs[reg] = val as u16;
+        self.chr_regs[reg] = ((self.chr_hi as u16) << 8) | val as u16;
         self.last_chr_wrote = addr;
 
         self.update_chr_banks(mem);
@@ -2667,8 +2689,14 @@ impl Mapper for MMC5 {
       0x5130 => self.chr_hi = val & 0x3,
 
       0x5203 => self.irq_cmp = val as u16,
-      0x5402 => {
+      0x5204 => {
         self.irq_enabled = val & 0x80 > 0;
+      
+        if self.irq_enabled && self.irq_pending {
+          mem.irq.insert(IrqFlags::MAPPER);
+        } else if !self.irq_enabled {
+          mem.irq.remove(IrqFlags::MAPPER);
+        }
       }
 
       0x5205 => {
@@ -2692,20 +2720,26 @@ impl Mapper for MMC5 {
     // nametable tile fetch, not attribute
     if mem.ppu_addr_bus & 0x2000 > 0 && mem.ppu_addr_bus & 0x3ff < 0x3c0 {
       self.tile_fetches_count += 1;
-      // TODO: might be overkill
-      // self.update_chr_banks(mem);
+      
+      // there are 16 dummy nametables fetches during sprites rendering
+      if self.ppu_in_frame && matches!(self.tile_fetches_count, 32 | 48) {
+        self.update_chr_banks(mem);
+      }
     }
 
+    // The MMC5 detects scanlines by first looking for three consecutive PPU reads from the same nametable address in the range $2xxx. 
+    // the scanline gets detected when the PPU does the attribute table byte read, which is at PPU cycle 4.
     if mem.ppu_addr_bus & 0x2000 > 0 && self.last_ppu_addr.is_some_and(|x| x == mem.ppu_addr_bus) {
       self.ppu_addr_count += 1;
 
       if self.ppu_addr_count >= 2 {
+        // scanline just started
+        self.tile_fetches_count = 0;
+
         if !self.ppu_in_frame {
-          // scanline just started
           self.ppu_in_frame = true;
           self.irq_count = 0;
-          self.tile_fetches_count = 0;
-          // self.update_chr_banks(mem);
+          self.update_chr_banks(mem);
         } else {
           self.irq_count += 1;
           // Value $00 is a special case that will not produce IRQ pending conditions
@@ -2725,32 +2759,47 @@ impl Mapper for MMC5 {
     }
 
     self.last_ppu_addr = Some(mem.ppu_addr_bus);
-    self.ppu_readed = true;
+    self.ppu_idle_countdown = 3;
   }
 
   fn step(&mut self, mem: &mut Bus, _cycles: usize) {
-    if self.ppu_readed {
-      self.ppu_idle_count = 0;
-    } else {
-      self.ppu_idle_count += 1;
-      if self.ppu_idle_count >= 3 {
+    if self.ppu_idle_countdown > 0 {
+      self.ppu_idle_countdown -= 1;
+      if self.ppu_idle_countdown == 0 {
         self.ppu_in_frame = false;
         self.last_ppu_addr = None;
-        // self.update_chr_banks(mem);
+        self.update_chr_banks(mem);
       }
     }
 
-    self.ppu_readed = false;
+    if self.audio_cycles % 2 == 1 {
+      self.p0.step_divider();
+      self.p1.step_divider();
+    }
+    
+    // envelope and length counter are fixed to a 240hz update rate.
+    if self.audio_cycles > (1789773 / 240) {
+      self.audio_cycles -= 1789773 / 240;
+      self.p0.len.step();
+      self.p0.env.step();
+      self.p1.len.step();
+      self.p1.env.step();
+    }
+    self.audio_cycles += 1;
   }
 
   fn notify_cpu_addr(&mut self, mem: &mut Bus, addr: u16, val: Option<u8>) {
     match (addr, val) {
       (0xfffa | 0xfffb, None) => {
         self.reset_irq(mem);
-        // self.update_chr_banks(mem);
+        self.update_chr_banks(mem);
       }
 
-      (0x2000, Some(val)) => self.ppu_big_sprites = val & 0x20 > 0,
+      (0x2000, Some(val)) => {
+        self.ppu_big_sprites = val & 0x20 > 0;
+        self.update_chr_banks(mem);
+      }
+
       (0x2001, Some(val)) => {
         let ppu_sub = val & 0x18 > 0;
         // When the MMC5 sees $00 written to $2001, and then the PPU’s rendering gets enabled via a mirror of $2001, the MMC5 still counts scanlines and can generate scanline interrupts even though it thinks $2001 is still disabled.
@@ -2763,7 +2812,7 @@ impl Mapper for MMC5 {
         }
         
         self.ppu_substituion = ppu_sub;
-        // self.update_chr_banks(mem);
+        self.update_chr_banks(mem);
       }
 
       _ => {}
@@ -2771,4 +2820,61 @@ impl Mapper for MMC5 {
   }
 
   fn prg_write(&mut self, _: &mut Bus, _: u16, _: u16) {}
+
+  // The sound output of the square channels are equivalent in volume to the corresponding APU channels, but the polarity of all MMC5 channels is reversed compared to the APU. 
+  fn sample(&self) -> f32 {
+    ((self.p0.sample() + self.p1.sample()) as f32).neg()
+  }
+}
+
+#[derive(Default)]
+struct FDS {
+  irq_reload: u16,
+  irq_repeat: bool,
+  irq_enabled: bool,
+}
+impl Mapper for FDS {
+  fn new(mem: &mut Bus) -> Box<Self> {
+    mem.banks.prg = Banking::new_prg(&mem.header, 1);
+    mem.set_wram_handlers(CpuHandler::PrgInWram);
+    mem.set_prg_handlers(CpuHandler::PrgInWram);
+
+    // we put bios in wram so that it can't be written to
+    mem.wram.resize(8 * 1024, 0);
+    mem.wram.copy_from_slice(include_bytes!("../utils/disksys.rom"));
+    mem.cpu_handlers_8kb[7] = CpuHandler::WramReadOnly;
+
+    Box::new(Self::default())
+  }
+
+  fn cart_write(&mut self, mem: &mut Bus, addr: u16, val: u16) {
+    match addr {
+      0x4020 => self.irq_reload = byte_set_lo(self.irq_reload, val as u8),
+      0x4021 => self.irq_reload = byte_set_hi(self.irq_reload, val as u8),
+    
+      0x4022 => {
+        self.irq_repeat = val & 0x1 > 0;
+        self.irq_enabled = val & 0x2 > 0;
+      }
+
+      0x4023 => {
+        // TODO: master io enable
+      }
+
+      0x4024 => {
+        // TODO: write data register
+      }
+
+      0x4025 => {
+        // TODO: fds ctrl
+      }
+
+      0x4032 => {
+        // TODO: disk status
+      }
+      _ => {}
+    }
+  }
+
+  fn prg_write(&mut self, _mem: &mut Bus, _addr: u16, _val: u16) {}
 }
