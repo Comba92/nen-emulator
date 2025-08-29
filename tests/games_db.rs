@@ -265,6 +265,18 @@ fn db_xml_to_json() {
     })
     .collect::<Vec<_>>();
 
+  let mut categories = HashSet::new();
+  for entry in &names {
+    if entry.0.contains(',') {
+      let split = entry.0.split(",");
+      categories.extend(split);
+    } else {
+      categories.insert(entry.0.as_str());
+    }
+  }
+
+  println!("{categories:?}");
+
   let db_json = include_str!("../utils/nes20db.xml.json");
   let entries: XmlRoot = serde_json::from_str(db_json).unwrap();
 

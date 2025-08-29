@@ -1,3 +1,4 @@
+
 use crate::{bus::{Banking, Bus, ChrBank, CpuHandler, IrqFlags, PpuHandler}, cart::CartHeader, emu::Mirroring, utils::{byte_set_hi, byte_set_lo}};
 
 // https://www.nesdev.org/wiki/Mapper
@@ -30,10 +31,12 @@ pub fn from_header(header: &CartHeader, mem: &mut Bus) -> Result<Box<dyn Mapper>
     9 | 10 => MMC2::new(header, mem),
     11 => ColorDreams::new(header, mem),
     13 => CPROM::new(header, mem),
+    16 | 153 | 157 | 159 => BandaiFCG::new(header, mem),
     19 | 210 => Namco129_163::new(header, mem),
     21 | 22 | 23 | 25 => VRC2_4::new(header, mem),
     24 | 26 => VRC6::new(header, mem),
     31 => NSF::new(header, mem),
+    34 | 177 | 241 => NINA00x_BNROM::new(header, mem),
     // 32 => IremG101::new(header, mem),
     // 65 => IremH3001::new(header, mem),
     66 => GxROM::new(header, mem),
@@ -44,13 +47,16 @@ pub fn from_header(header: &CartHeader, mem: &mut Bus) -> Result<Box<dyn Mapper>
     71 | 232 => Codemasters::new(header, mem),
     73 => VRC3::new(header, mem),
     75 => VRC1::new(header, mem),
+    77 => NapoleonSenki::new(header, mem),
     78 => Irem74HCx::new(header, mem),
+    79 => NINA003_006::new(header, mem),
     85 => VRC7::new(header, mem),
     87 | 101 => J87::new(header, mem),
     89 => Sunsoft89::new(header, mem),
     93 => Sunsoft93::new(header, mem),
     97 => IremTAMS1::new(header, mem),
     184 => Sunsoft1::new(header, mem),
+    206 | 154 | 95 | 88 | 76 => DxROM::new(header, mem),
     _ => return Err(format!("mapper {} not implemented", header.mapper)),
   };
 
@@ -269,6 +275,155 @@ impl Mapper for Irem74HCx {
   }
 }
 
+// https://www.nesdev.org/wiki/INES_Mapper_016
+// https://www.nesdev.org/wiki/INES_Mapper_153
+// https://www.nesdev.org/wiki/INES_Mapper_157
+// https://www.nesdev.org/wiki/INES_Mapper_159
+// TODO: eeprom
+#[derive(Default)]
+struct BandaiFCG {
+  mapper: u16,
+  submapper: u8,
+  prg_bank: u16,
+  irq_enabled: bool,
+  irq_latch: u16,
+  irq_count: u16,
+}
+impl BandaiFCG {
+  fn write(&mut self, mem: &mut Bus, addr: u16, val: u16) {
+    match (addr & 0xf, self.mapper) {
+      (0x0..=0x7, 16 | 159) => mem.banks.chr.set_page(addr as u8 & 0xf, val),
+      (0x0..=0x3, 153) => {
+        let prg_block = val & 1;
+        self.prg_bank = (prg_block << 4) | (self.prg_bank & 0x0f);
+        mem.banks.prg.set_page(0, self.prg_bank);
+
+        let last_bank = if prg_block == 0 {
+          mem.banks.prg.banks_count/2 - 1
+        } else {
+          mem.banks.prg.banks_count-1
+        };
+        mem.banks.prg.set_page(1, last_bank);
+      }
+      (0x0..=0x3, 157) => {
+        // TODO: eeprom clock
+      }
+      (0x8, _) => {
+        self.prg_bank = (self.prg_bank & 0xf0) | val;
+        mem.banks.prg.set_page(0, self.prg_bank);
+      }
+      (0x9, _) => {
+        let mirroring = match val & 0x3 {
+          0 => Mirroring::Vertical,
+          1 => Mirroring::Vertical,
+          2 => Mirroring::SingleScreenA,
+          _ => Mirroring::SingleScreenB,
+        };
+        mem.banks.vram.mirror(&mirroring);
+      }
+      (0xa, _) => {
+        self.irq_enabled = val & 1 > 0;
+        if self.irq_enabled && self.irq_count == 0 {
+          mem.irq.insert(IrqFlags::MAPPER);
+        } else {
+          mem.irq.remove(IrqFlags::MAPPER);
+        }
+
+        if self.submapper == 5 {
+          self.irq_count = self.irq_latch;
+        }
+      }
+      (0xb, _) => if self.submapper == 4 {
+        self.irq_count = byte_set_lo(self.irq_count, val as u8);
+      } else if self.submapper == 5 {
+        self.irq_latch = byte_set_lo(self.irq_latch, val as u8);
+      }
+      (0xc, _) => if self.submapper == 4 {
+        self.irq_count = byte_set_hi(self.irq_count, val as u8);
+      } else if self.submapper == 5 {
+        self.irq_latch = byte_set_hi(self.irq_latch, val as u8);
+      }
+      (0xd, 16 | 159) => if self.submapper == 5 {
+        // TODO: eeprom ctrl
+      }
+      (0xd, 157) => {
+        // TODO: eeprom ctrl
+      }
+      (0xd, 153) => mem.wram_enable(val & 0x20 > 0),
+      _ => {}
+    }
+  }
+}
+impl Mapper for BandaiFCG {
+  fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
+    mem.banks.chr = Banking::new_chr(header, 8);
+    
+    if header.mapper == 153 {
+      // needed for Famicom Jump II
+      _ = getrandom::fill(&mut mem.wram);
+
+      // has two prg blocks, last bank should be mid
+      mem.banks.prg.set_page(1, mem.banks.prg.banks_count/2-1);
+    } else {
+      // has eeprom
+      mem.set_wram_handlers(CpuHandler::Mapper);
+
+      // no prg blocks
+      mem.banks.prg.set_page_to_last_bank(1);
+    }
+
+    if matches!(header.mapper, 153 | 157) {
+      // chr is unbanked
+      for i in 0..8 {
+        mem.banks.chr.set_page(i, i as u16);
+      }
+    }
+
+    let submapper = if header.mapper == 16 {
+      header.submapper
+    } else {
+      // all other work as submapper 5
+      5
+    };
+
+    Box::new(Self { 
+      mapper: header.mapper,
+      submapper,
+      ..Default::default()
+    })
+  }
+
+  fn cart_read(&mut self, _mem: &mut Bus, _addr: u16) -> u8 {
+    // TODO: eeprom read for 16, 157, 159
+
+    0
+  }
+
+  fn cart_write(&mut self, mem: &mut Bus, addr: u16, val: u16) {
+    if self.submapper == 4 {
+      self.write(mem, addr, val);
+    }
+  }
+
+  fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u16) {
+    if self.submapper == 5 {
+      self.write(mem, addr, val);
+    }
+  }
+
+  fn step(&mut self, mem: &mut Bus, _cycles: usize) {
+    if self.irq_enabled {
+      if self.irq_count == 0 {
+        if self.submapper == 5 {
+          self.irq_count = self.irq_latch;
+        }
+        mem.irq.insert(IrqFlags::MAPPER);
+      }
+      self.irq_count -= 1;
+    }
+  }
+}
+
 // https://www.nesdev.org/wiki/INES_Mapper_152
 // https://www.nesdev.org/wiki/INES_Mapper_070
 // TODO: very similiar to Sunsoft89
@@ -325,7 +480,7 @@ mod mmc1 {
   }
 }
 
-// Needs NES2.0 / db support for SRAM
+// Needs NES2.0 / db support for WRAM (NEW FINDING: only SOROM games have 2 different kind of RAM))
 // TODO: prg rom write delay
 #[derive(Default, Debug)]
 struct MMC1 {
@@ -608,7 +763,7 @@ struct MMC3 {
 // https://forums.nesdev.org/viewtopic.php?t=14056
 impl Mapper for MMC3 {
   fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
-    if header.alt_mirroring {
+    if header.alt_mirroring || header.mirroring == Mirroring::FourScreens {
       // MMC3 can have 4 screen mirroring
       mem.set_4screen_mirroring();
     }
@@ -931,7 +1086,6 @@ impl Mapper for Sunsoft93 {
 
   fn prg_write(&mut self, mem: &mut Bus, _: u16, val: u16) {
     mem.banks.prg.set_page(0, (val >> 4) & 0b111);
-    mem.wram_enable(val & 1 > 0);
   }
 }
 
@@ -1345,6 +1499,188 @@ impl Mapper for J87 {
   fn prg_write(&mut self, _: &mut Bus, _: u16, _: u16) {}
 }
 
+// https://www.nesdev.org/wiki/INES_Mapper_034
+// https://www.nesdev.org/wiki/INES_Mapper_177
+// https://www.nesdev.org/wiki/INES_Mapper_241
+#[allow(non_camel_case_types)]
+struct NINA00x_BNROM {
+  mapper: u16,
+  submapper: u8,
+}
+impl Mapper for NINA00x_BNROM {
+  fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> where Self: Sized {
+    // should be considered BNROM when the CHR-ROM size is 0-8 KiB, and NINA-001/NINA-002 when the CHR-ROM size is above 8 KiB. 
+    if header.submapper == 1 || header.chr_size > 8 * 1024 {
+      mem.banks.chr = Banking::new_chr(header, 2);
+    } else if header.submapper == 2 || header.chr_size <= 8 * 1024  {
+      mem.banks.chr = Banking::new_chr(header, 1);
+    }
+    mem.banks.prg = Banking::new_prg(header, 1);
+    
+    let submapper = if header.mapper == 34 { header.submapper } else { 2 };
+
+    Box::new(Self {
+      mapper: header.mapper,
+      submapper,
+    })
+  }
+
+  fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u16) {
+    match (addr, self.submapper) {
+      (0x7ffd, 1) | (0x8000..=0xffff, 2) => {
+        mem.banks.prg.set_page(0, val);
+        if self.mapper == 177 {
+          if val & 0x20 > 0 {
+            mem.banks.vram.mirror(&Mirroring::Vertical);
+          } else {
+            mem.banks.vram.mirror(&Mirroring::Horizontal);
+          }
+        }
+      }
+      (0x7ffe, 1) => mem.banks.chr.set_page(0, val),
+      (0x7fff, 1) => mem.banks.chr.set_page(1, val),
+      _ => {}
+    }
+  }
+}
+
+// https://www.nesdev.org/wiki/INES_Mapper_034
+struct NINA003_006;
+impl Mapper for NINA003_006 {
+  fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> where Self: Sized {
+    mem.banks.prg = Banking::new_prg(header, 1);
+    Box::new(Self)
+  }
+
+  fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u16) {
+    if addr & 0xe100 == 0x4100 {
+      mem.banks.prg.set_page(0, (val >> 3) & 1);
+      mem.banks.chr.set_page(0, val & 0x7);
+    }
+  }
+}
+
+// https://www.nesdev.org/wiki/INES_Mapper_206
+// https://www.nesdev.org/wiki/INES_Mapper_088
+// https://www.nesdev.org/wiki/INES_Mapper_095
+// https://www.nesdev.org/wiki/INES_Mapper_154
+// https://www.nesdev.org/wiki/INES_Mapper_076
+struct DxROM {
+  select: u8,
+  mapper: u16,
+}
+impl Mapper for DxROM {
+  fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
+    if header.alt_mirroring || header.mirroring == Mirroring::FourScreens {
+      mem.set_4screen_mirroring();
+    }
+
+    // same as MMC3
+    mem.banks.prg = Banking::new_prg(header, 4);
+    mem.banks.prg.set_page(2, mem.banks.prg.banks_count - 2);
+    mem.banks.prg.set_page_to_last_bank(3);
+
+    mem.banks.chr = Banking::new_chr(header, 8);
+    mem.banks.chr.set_pages_aligned2(0, 0);
+    mem.banks.chr.set_pages_aligned2(2, 0);
+
+    if header.mapper == 76 {
+      mem.banks.chr = Banking::new_chr(header, 4);
+    }
+
+    Box::new(Self {
+      select: 0,
+      mapper: header.mapper,
+    })
+  }
+
+  fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u16) {
+    if self.mapper == 154 {
+      // Note that this bit is present over the entire 32kB range; it is not present in only odd or even addresses unlike the associated Namcot 108. 
+      if val & 0x40 > 0 {
+        mem.banks.vram.mirror(&Mirroring::SingleScreenB);
+      } else {
+        mem.banks.vram.mirror(&Mirroring::SingleScreenA);
+      }
+    }
+    
+    match addr & 0xe001 {
+      // (0x8000..=0x9fff, true)
+      0x8000 => {
+        self.select = val as u8 & 0x7;
+      }
+
+      // (0x8000..=0x9fff, false)
+      0x8001 => {
+        let mut val = val;
+        if matches!(self.mapper, 88 | 154) {
+          // A possible way to implement this would be to mask the CHR ROM 1K bank output from the mapper by ANDing with $3F, and then OR it with $40 for N108 registers 2, 3, 4, and 5. 
+          // https://github.com/SourMesen/Mesen2/blob/master/Core/NES/Mappers/Namco/Namco108_88.h
+          match self.select {
+            0 | 1 => val &= 0x3f,
+            6 | 7 => {}
+            _ => val |= 0x40
+          }
+        } else if self.mapper == 95 {
+          if self.select == 0 {
+            mem.banks.vram.set_page(0, (val & 0x20) >> 5);
+            mem.banks.vram.set_page(1, (val & 0x20) >> 5);
+          } else if self.select == 1 {
+            mem.banks.vram.set_page(2, (val & 0x20) >> 5);
+            mem.banks.vram.set_page(3, (val & 0x20) >> 5);
+          }
+        }
+
+        match self.select {
+          6 | 7 => mem.banks.prg.set_page(self.select - 6, val & 0x3f),
+          0 | 1 => mem.banks.chr.set_pages_aligned2(2 * self.select, val),
+          // cases 2..=5
+          _     => if self.mapper == 76 {
+            mem.banks.chr.set_page(self.select - 2, val);
+          } else {
+            mem.banks.chr.set_page((self.select - 2) + 4, val)
+          }
+        }
+      }
+
+        _ => {}
+    }
+  }
+}
+
+// https://www.nesdev.org/wiki/INES_Mapper_077 
+struct NapoleonSenki;
+impl Mapper for NapoleonSenki {
+  fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
+    mem.banks.prg = Banking::new_prg(header, 1);
+    mem.banks.chr = Banking::new(header.chr_size, 2 * 1024, 1);
+    
+    // this games provides 8kb of chr ram + 2kb of vram
+    // we simulate chr ram by extending our vram from 0x0000 to 0x2fff, even if we dont use 0x0000..=0x07ff
+    mem.vram.resize(12 * 1024, 0);
+    mem.banks.vram = Banking::new(12 * 1024, 12 * 1024, 6);
+    
+    for i in 1..6 {
+      mem.banks.vram.bankings[i] = i * 2048;
+      // I HAVE NO CLUE WHAT THIS DOENST WORK and have to manually set the pages..
+      // mem.banks.vram.set_page(i as u8, i);
+    }
+
+    for i in 2..12 {
+      mem.ppu_handlers_1kb[i] = PpuHandler::VramInChr;
+    }
+    println!("{:?}", mem.banks.vram);
+    println!("{:?}", mem.ppu_handlers_1kb);
+
+    Box::new(Self)
+  }
+
+  fn prg_write(&mut self, mem: &mut Bus, _: u16, val: u16) {
+    mem.banks.prg.set_page(0, val & 0xf);
+    mem.banks.chr.set_page(0, val >> 4);
+  }
+}
+
 // https://www.nesdev.org/wiki/VRC1
 #[derive(Default)]
 struct VRC1 {
@@ -1451,7 +1787,7 @@ impl Mapper for VRC3 {
   }
 }
 
-mod konami {
+mod vrc {
   use crate::bus::{self, IrqFlags};
 
   // TODO: JITTERS, might not work properly, as seen in mappers VRC2/4 and VRC7
@@ -1474,10 +1810,10 @@ mod konami {
 
       if self.enabled {
         self.count = self.latch;
+        self.prescaler = 341;
       }
       
       // Any write to this register will acknowledge the pending IRQ and reset the prescaler.
-      self.prescaler = 341;
       mem.irq.remove(IrqFlags::MAPPER)
     }
 
@@ -1489,25 +1825,37 @@ mod konami {
     pub fn step(&mut self, mem: &mut bus::Bus) {
       if !self.enabled { return; } 
 
-      let mut clock = || {
-        if self.count >= 0xff {
+      self.prescaler -= 3;
+      if !self.mode_scanline || (self.mode_scanline && self.prescaler <= 0) {
+        if self.count == 0xff {
           self.count = self.latch;
           mem.irq.insert(IrqFlags::MAPPER);
         } else {
           self.count += 1;
         }
-      };
-
-      if self.mode_scanline {
-        self.prescaler -= 3;
-        if self.prescaler <= 0 {
-          self.prescaler += 341;
-          clock();
-        }
-      } else {
-        clock();
+        self.prescaler += 341;
       }
     }
+
+    //   let mut clock = || {
+    //     if self.count >= 0xff {
+    //       self.count = self.latch;
+    //       mem.irq.insert(IrqFlags::MAPPER);
+    //     } else {
+    //       self.count += 1;
+    //     }
+    //   };
+
+    //   if self.mode_scanline {
+    //     self.prescaler -= 3;
+    //     if self.prescaler <= 0 {
+    //       self.prescaler += 341;
+    //       clock();
+    //     }
+    //   } else {
+    //     clock();
+    //   }
+    // }
   }
 }
 
@@ -1516,7 +1864,7 @@ mod konami {
 // TODO: not working on some games, like Gradius 2, TMNT, and Boku Dracula
 #[derive(Default)]
 struct VRC2_4 {
-  irq: konami::Irq,
+  irq: vrc::Irq,
   mapper: u16,
   submapper: u8,
   is_vrc2: bool,
@@ -1609,7 +1957,7 @@ impl Mapper for VRC2_4 {
       prg_bank: 0,
       chr_regs: [0; 8],
       latch: 0,
-      irq: konami::Irq::default(),
+      irq: vrc::Irq::default(),
     })
   }
 
@@ -1783,7 +2131,7 @@ struct VRC6 {
   mirroring: u8,
   uses_chr_rom: bool,
 
-  irq: konami::Irq,
+  irq: vrc::Irq,
 
   audio_halt: bool,
   audio_freq_shift: u8,
@@ -1975,7 +2323,7 @@ impl Mapper for VRC6 {
 // TODO: incomplete
 #[derive(Default)]
 struct VRC7 {
-  irq: konami::Irq,
+  irq: vrc::Irq,
 }
 impl Mapper for VRC7 {
   fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {

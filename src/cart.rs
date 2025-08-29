@@ -199,7 +199,7 @@ impl Cart {
     };
 
     // DEBUG
-    // println!("{:?}", header);
+    println!("{:?}", header);
 
     Ok(Self {
       header,

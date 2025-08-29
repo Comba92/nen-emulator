@@ -118,12 +118,12 @@ impl<T: BankCfg + std::fmt::Debug> Banking<T> {
 
   pub fn translate(&self, addr: u16) -> usize {
     // let page = (addr % self.pages_size) / self.bank_size;
-    let page = addr >> self.bank_size_shift;
+    let page = (addr >> self.bank_size_shift) as usize % self.pages_count();
 
     // i do not expect to write outside the slots array here either.
     // self.bankings[page] + (addr % self.bank_size)
     // real index + offset
-    self.bankings[page as usize] + (addr & (self.bank_size - 1)) as usize
+    self.bankings[page] + (addr & (self.bank_size - 1)) as usize
   }
 }
 
@@ -239,7 +239,7 @@ pub enum CpuHandler {
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum PpuHandler {
-  ChrRom, ChrRam, Vram, Palette, VramInChr,
+  ChrRom, ChrRam, Vram, Palette, VramInChr, ExRam
 }
 
 // TODO: access prg, chr, sram, vram with unsafe uncheked get, as index bounds cannot be optimized
@@ -276,10 +276,9 @@ pub struct Bus {
 
 impl Bus {
   pub fn new(cart: Cart) -> Result<Self, String> {
-    let mut banks = BanksHandler::new(&cart.header);
-    banks.vram.mirror(&cart.header.mirroring);
+    let banks = BanksHandler::new(&cart.header);
 
-    let wram_handler = if cart.header.wram_size == 0 { CpuHandler::Mapper } else { CpuHandler::WramRW };
+    let wram_handler = if cart.header.wram_size > 0 { CpuHandler::WramRW } else { CpuHandler::Mapper };
     let chr_handler = if cart.header.has_chr_ram { PpuHandler::ChrRam } else { PpuHandler::ChrRom };
 
     let cpu_handlers_8kb = [
@@ -342,8 +341,17 @@ impl Bus {
     })
   }
 
+  // TODO: should take with games which don't have any wram but still call this
+  pub fn wram_enable(&mut self, cond: bool) {
+    if cond {
+      self.set_wram_handlers(CpuHandler::WramRW);
+    } else {
+      self.set_wram_handlers(CpuHandler::Mapper);
+    }
+  }
+
+  // TODO: what if WRAM is not present?
   pub fn set_wram_handlers(&mut self, handler: CpuHandler) {
-    // TODO: what if WRAM is not present?
     self.cpu_handlers_8kb[3] = handler;
   }
 
@@ -369,14 +377,6 @@ impl Bus {
     self.banks.vram = Banking::new(4 * 1024, 4 * 1024, 4);
     self.banks.vram.mirror(&Mirroring::FourScreens);
     self.vram.resize(4 * 1024, 0);
-  }
-
-  pub fn wram_enable(&mut self, cond: bool) {
-    if cond {
-      self.set_wram_handlers(CpuHandler::WramRW);
-    } else {
-      self.set_wram_handlers(CpuHandler::Mapper);
-    }
   }
 }
 
@@ -493,6 +493,7 @@ impl Emu {
           mem.ppu_addr_bus as u8
         }
       }
+      PpuHandler::ExRam => todo!()
     };
 
     // shouldn't set ppu_addr_bus
@@ -544,6 +545,7 @@ impl Emu {
           return;
         }
       }
+      PpuHandler::ExRam => todo!()
     }
 
     self.update_ppu_bus(addr);

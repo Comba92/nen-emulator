@@ -33,7 +33,7 @@ pub struct Emu {
   pub settings: EmuSettings,
 }
 
-#[derive(Debug, Default, Clone, bitcode::Encode, bitcode::Decode)]
+#[derive(Debug, Default, Clone, PartialEq, bitcode::Encode, bitcode::Decode)]
 pub enum Mirroring {
   #[default] Horizontal,
   Vertical,
@@ -80,7 +80,8 @@ impl Emu {
     let rom_header = cart.header.clone();
     let mut mem = Bus::new(cart)?;
     let mapper = mapper::from_header(&rom_header, &mut mem)?;
-    
+    let palette = Palette::from_pal_file(include_bytes!("../utils/2C02G_wiki.pal")).unwrap();
+
     let mut emu = Self {
       cpu: Cpu6502::new(),
       ppu: Ppu2C02::new(),
@@ -96,7 +97,7 @@ impl Emu {
 
       videobuf: [0; 256 * 240],
       audiobuf: [0; 1024],
-      palette: Palette::from_pal_file(include_bytes!("../utils/2C02G_wiki.pal")).unwrap(),
+      palette,
       
       frame_ready: false,
       settings: EmuSettings::default()

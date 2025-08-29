@@ -35,10 +35,10 @@ pub struct GameData {
 }
 impl From<&GameData> for CartHeader {
   fn from(value: &GameData) -> Self {
-    let chr_size = if value.chrram_size > 0 {
-      value.chrram_size
-    } else if value.chr_size > 0 {
+    let chr_size = if value.chr_size > 0 {
       value.chr_size
+    } else if value.chrram_size > 0 {
+      value.chrram_size
     } else {
       8 * 1024
     };
@@ -181,6 +181,16 @@ fn count_prgram() {
   dbg!(only_prgram);
   dbg!(only_prgnvram);
 
+  let interesting = GAMES_DB.games.iter()
+  .filter_map(|x| if x.prgram_size > 0 && x.prgnvram_size > 0 && x.mapper <= 5 {
+    Some((&x.title, x.mapper))
+  } else {
+    None
+  })
+  .collect::<Vec<_>>();
+
+  println!("{:?}", interesting);
+
   let games_with_both = GAMES_DB.games.iter()
     .filter(|x| x.prgram_size > 0 && x.prgnvram_size > 0)
     .map(|x| x.mapper)
@@ -197,6 +207,12 @@ fn count_chr() {
   dbg!(both);
   dbg!(only_chr);
   dbg!(only_chrram);
+
+  let interesting = GAMES_DB.games.iter()
+    .filter(|x| x.chr_size > 0 && x.chrram_size > 0 && x.mapper <= 5 || x.mapper == 119)
+    .collect::<Vec<_>>();
+
+  println!("{:?}", interesting);
 
   let games_with_both = GAMES_DB.games.iter()
     .filter(|x| x.chr_size > 0 && x.chrram_size > 0)
