@@ -315,7 +315,7 @@ impl Bus {
     let mut ram = [0; 2 * 1024];
     // Final Fantasy, River City Ransom, Apple Town Story[5], Impossible Mission II[6] amongst others
     // Use the semi-random contents of RAM on powerup to seed their RNGs.
-    _ = getrandom::fill(&mut ram);
+    // _ = getrandom::fill(&mut ram);
 
     Ok(Self {
       ram,
@@ -354,8 +354,9 @@ impl Bus {
   }
 
   pub fn set_wram_handlers(&mut self, handler: CpuHandler) {
-    if self.wram.is_empty() { return; }
-    self.cpu_handlers_8kb[3] = handler;
+    if !self.wram.is_empty() || !matches!(handler, CpuHandler::WramRW | CpuHandler::WramReadOnly) {
+      self.cpu_handlers_8kb[3] = handler;
+    }
   }
 
   pub fn set_prg_handlers(&mut self, handler: CpuHandler) {
