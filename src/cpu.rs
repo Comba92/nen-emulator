@@ -132,9 +132,8 @@ impl Emu {
 
   fn handle_dma(&mut self) -> bool {
     if self.apu.dmc.buffer.is_none() && self.apu.dmc.dma.remaining > 0 {
-      // TODO: do not do halting cycles here
       // // halting cycle
-      // self.cpu_tick();
+      self.cpu_tick();
 
       // dummy cycle
       self.cpu_tick();

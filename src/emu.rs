@@ -23,8 +23,6 @@ pub struct Emu {
   #[cfg(feature = "ram64kb")]
   pub ram: [u8; 64 * 1024],
 
-  pub rom_header: CartHeader,
-
   pub frame_ready: bool,
   pub videobuf: [u8; 256 * 240],
   audiobuf: [i16; 1024],
@@ -37,8 +35,8 @@ pub struct Emu {
 pub enum Mirroring {
   #[default] Horizontal,
   Vertical,
-  SingleScreenA,
-  SingleScreenB,
+  LowTable,
+  HighTable,
   FourScreens
 }
 
@@ -61,7 +59,6 @@ impl Default for Emu {
       #[cfg(feature = "ram64kb")]
       ram: [0; 64 * 1024],
 
-      rom_header: Default::default(),
       frame_ready: false,
 
       videobuf: [0; 256 * 240],
@@ -77,9 +74,8 @@ impl Emu {
   pub fn new(rom: &[u8]) -> Result<Self, String> {
     let cart = Cart::new(rom)?;
 
-    let rom_header = cart.header.clone();
     let mut mem = Bus::new(cart)?;
-    let mapper = mapper::from_header(&rom_header, &mut mem)?;
+    let mapper = mapper::from_header(&mut mem)?;
     let palette = Palette::from_pal_file(include_bytes!("../utils/2C02G_wiki.pal")).unwrap();
 
     let mut emu = Self {
@@ -92,8 +88,6 @@ impl Emu {
 
       #[cfg(feature = "ram64kb")]
       ram: [0; 64 * 1024],
-
-      rom_header,
 
       videobuf: [0; 256 * 240],
       audiobuf: [0; 1024],
@@ -135,7 +129,7 @@ impl Emu {
     self.ppu_step();
     self.ppu_step();
     self.ppu_step();
-
+    
     self.apu_step();
     self.mapper.step(&mut self.mem, self.cpu.cycles);
   }

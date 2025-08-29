@@ -182,7 +182,7 @@ impl From<Mirroring> for nes_emulator::emu::Mirroring {
         Mirroring::FourScreens => Self::FourScreens,
         Mirroring::Horizontal => Self::Horizontal,
         Mirroring::Vertical => Self::Vertical,
-        Mirroring::SingleScreen => Self::SingleScreenA,
+        Mirroring::SingleScreen => Self::LowTable,
     }
   }
 }

@@ -1,10 +1,11 @@
 
-use crate::{bus::{Banking, Bus, ChrBank, CpuHandler, IrqFlags, PpuHandler}, cart::CartHeader, emu::Mirroring, utils::{byte_set_hi, byte_set_lo}};
+use crate::{bus::{Banking, Bus, ChrBank, CpuHandler, IrqFlags, PpuHandler}, emu::Mirroring, utils::{byte_set_hi, byte_set_lo}};
 
 // https://www.nesdev.org/wiki/Mapper
 pub trait Mapper {
-  fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> where Self: Sized;
+  fn new(mem: &mut Bus) -> Box<Self> where Self: Sized;
   // 0x8000..=0xffff
+  // TODO: turn back val to u8... ?
   fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u16);
   
   // 0x4020..=0x5fff
@@ -19,45 +20,45 @@ pub trait Mapper {
   fn sample(&self) -> f32 { 0.0 }
 }
 
-pub fn from_header(header: &CartHeader, mem: &mut Bus) -> Result<Box<dyn Mapper>, String> {
-  let mapper: Box<dyn Mapper> = match header.mapper {
-    0 => NROM::new(header, mem),
-    1 => MMC1::new(header, mem),
-    2 | 94 | 180 => UxROM::new(header, mem),
-    3 | 185 => CNROM::new(header, mem),
-    4 => MMC3::new(header, mem),
-    5 => MMC5::new(header, mem),
-    7 => AxROM::new(header, mem),
-    9 | 10 => MMC2::new(header, mem),
-    11 => ColorDreams::new(header, mem),
-    13 => CPROM::new(header, mem),
-    16 | 153 | 157 | 159 => BandaiFCG::new(header, mem),
-    19 | 210 => Namco129_163::new(header, mem),
-    21 | 22 | 23 | 25 => VRC2_4::new(header, mem),
-    24 | 26 => VRC6::new(header, mem),
-    31 => NSF::new(header, mem),
-    34 | 177 | 241 => NINA00x_BNROM::new(header, mem),
-    // 32 => IremG101::new(header, mem),
-    // 65 => IremH3001::new(header, mem),
-    66 => GxROM::new(header, mem),
-    67 => Sunsoft3::new(header, mem),
-    68 => Sunsoft4::new(header, mem),
-    69 => SunsoftFME7::new(header, mem),
-    70 | 152 => Bandai74::new(header, mem),
-    71 | 232 => Codemasters::new(header, mem),
-    73 => VRC3::new(header, mem),
-    75 => VRC1::new(header, mem),
-    77 => NapoleonSenki::new(header, mem),
-    78 => Irem74HCx::new(header, mem),
-    79 => NINA003_006::new(header, mem),
-    85 => VRC7::new(header, mem),
-    87 | 101 => J87::new(header, mem),
-    89 => Sunsoft89::new(header, mem),
-    93 => Sunsoft93::new(header, mem),
-    97 => IremTAMS1::new(header, mem),
-    184 => Sunsoft1::new(header, mem),
-    206 | 154 | 95 | 88 | 76 => DxROM::new(header, mem),
-    _ => return Err(format!("mapper {} not implemented", header.mapper)),
+pub fn from_header(mem: &mut Bus) -> Result<Box<dyn Mapper>, String> {
+  let mapper: Box<dyn Mapper> = match mem.header.mapper {
+    0 => NROM::new(mem),
+    1 => MMC1::new(mem),
+    2 | 94 | 180 => UxROM::new(mem),
+    3 | 185 => CNROM::new(mem),
+    4 => MMC3::new(mem),
+    5 => MMC5::new(mem),
+    7 => AxROM::new(mem),
+    9 | 10 => MMC2::new(mem),
+    11 => ColorDreams::new(mem),
+    13 => CPROM::new(mem),
+    16 | 153 | 157 | 159 => BandaiFCG::new(mem),
+    19 | 210 => Namco129_163::new(mem),
+    21 | 22 | 23 | 25 => VRC2_4::new(mem),
+    24 | 26 => VRC6::new(mem),
+    31 => NSF::new(mem),
+    34 | 177 | 241 => NINA00x_BNROM::new(mem),
+    // 32 => IremG101::new(mem),
+    // 65 => IremH3001::new(mem),
+    66 => GxROM::new(mem),
+    67 => Sunsoft3::new(mem),
+    68 => Sunsoft4::new(mem),
+    69 => SunsoftFME7::new(mem),
+    70 | 152 => Bandai74::new(mem),
+    71 | 232 => Codemasters::new(mem),
+    73 => VRC3::new(mem),
+    75 => VRC1::new(mem),
+    77 => NapoleonSenki::new(mem),
+    78 => Irem74HCx::new(mem),
+    79 => NINA003_006::new(mem),
+    85 => VRC7::new(mem),
+    87 | 101 => J87::new(mem),
+    89 => Sunsoft89::new(mem),
+    93 => Sunsoft93::new(mem),
+    97 => IremTAMS1::new(mem),
+    184 => Sunsoft1::new(mem),
+    206 | 154 | 95 | 88 | 76 => DxROM::new(mem),
+    _ => return Err(format!("mapper {} not implemented", mem.header.mapper)),
   };
 
   Ok(mapper)
@@ -66,10 +67,10 @@ pub fn from_header(header: &CartHeader, mem: &mut Bus) -> Result<Box<dyn Mapper>
 // https://www.nesdev.org/wiki/NROM
 pub struct NROM;
 impl Mapper for NROM {
-  fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {    
-    if header.prg_size > 16 * 1024 {
+  fn new(mem: &mut Bus) -> Box<Self> {    
+    if mem.header.prg_size > 16 * 1024 {
       // if we have 32 kb, no mirroring, we have mirroring by default
-      mem.banks.prg = Banking::new_prg(header, 1);
+      mem.banks.prg = Banking::new_prg(&mem.header, 1);
     }
 
     Box::new(Self)
@@ -84,9 +85,9 @@ struct UxROM {
   shift: u8,
 }
 impl Mapper for UxROM {
-  fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
-    let shift = if header.mapper == 94 { 2 } else { 0 };
-    let (swapped, fixed) = if header.mapper == 180 { (1, 0) } else { (0, 1) };
+  fn new(mem: &mut Bus) -> Box<Self> {
+    let shift = if mem.header.mapper == 94 { 2 } else { 0 };
+    let (swapped, fixed) = if mem.header.mapper == 180 { (1, 0) } else { (0, 1) };
     mem.banks.prg.set_page_to_last_bank(fixed);
 
     Box::new(Self {
@@ -104,14 +105,14 @@ impl Mapper for UxROM {
 // TODO: mapper 185
 struct CNROM;
 impl Mapper for CNROM {
-  fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
-    if header.prg_size <= 16 * 1024 {
+  fn new(mem: &mut Bus) -> Box<Self> {
+    if mem.header.prg_size <= 16 * 1024 {
       mem.banks.prg.set_page_to_last_bank(1);
     } else {
-      mem.banks.prg = Banking::new_prg(header, 1);
+      mem.banks.prg = Banking::new_prg(&mem.header, 1);
     }
 
-    mem.banks.chr = Banking::new_chr(header, 1);
+    mem.banks.chr = Banking::new_chr(&mem.header, 1);
     // The Namco game Hayauchi Super Igo adds 2 KiB of PRG-RAM, denoted using mapper 3 and the appropriate value in the header's PRG-RAM size field.
     mem.banks.wram = Banking::new(2 * 1024, 2 * 1024, 4);
     Box::new(Self)
@@ -126,8 +127,8 @@ impl Mapper for CNROM {
 // https://www.nesdev.org/wiki/GxROM
 struct GxROM;
 impl Mapper for GxROM {
-  fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
-    mem.banks.prg = Banking::new_prg(header, 1);
+  fn new(mem: &mut Bus) -> Box<Self> {
+    mem.banks.prg = Banking::new_prg(&mem.header, 1);
 
     Box::new(Self)
   }
@@ -141,8 +142,8 @@ impl Mapper for GxROM {
 // https://www.nesdev.org/wiki/AxROM
 struct AxROM;
 impl Mapper for AxROM {
-  fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> where Self: Sized {
-    mem.banks.prg = Banking::new_prg(header, 1);
+  fn new(mem: &mut Bus) -> Box<Self> where Self: Sized {
+    mem.banks.prg = Banking::new_prg(&mem.header, 1);
     Box::new(Self)
   }
 
@@ -150,9 +151,9 @@ impl Mapper for AxROM {
     mem.banks.prg.set_page(0, val & 0b111);
     
     let mirroring = if val & 0x10 == 0 {
-      Mirroring::SingleScreenA
+      Mirroring::LowTable
     } else {
-      Mirroring::SingleScreenB
+      Mirroring::HighTable
     };
     mem.banks.vram.mirror(&mirroring);
   }
@@ -161,8 +162,8 @@ impl Mapper for AxROM {
 // https://www.nesdev.org/wiki/Color_Dreams
 struct ColorDreams;
 impl Mapper for ColorDreams {
-  fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
-    mem.banks.prg = Banking::new_prg(header, 1);
+  fn new(mem: &mut Bus) -> Box<Self> {
+    mem.banks.prg = Banking::new_prg(&mem.header, 1);
     Box::new(Self)
   }
 
@@ -181,13 +182,13 @@ struct Codemasters {
   prg_bank: u16,
 }
 impl Mapper for Codemasters {
-  fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
-    mem.banks.prg = Banking::new_prg(header, 2);
+  fn new(mem: &mut Bus) -> Box<Self> {
+    mem.banks.prg = Banking::new_prg(&mem.header, 2);
     // this starts at last bank for some reason
     mem.banks.prg.set_page_to_last_bank(1);
 
     Box::new(Self {
-      mapper: header.mapper,
+      mapper: mem.header.mapper,
       ..Default::default()
     })
   }
@@ -203,9 +204,9 @@ impl Mapper for Codemasters {
       }
       // For compatibility without using a submapper, FCEUX begins all games with fixed mirroring, and applies single screen mirroring only once $9000-9FFF is written, ignoring writes to $8000-8FFF.
       (0x9000, _) => if val & 0x10 == 0 {
-        mem.banks.vram.mirror(&Mirroring::SingleScreenA);
+        mem.banks.vram.mirror(&Mirroring::LowTable);
       } else {
-        mem.banks.vram.mirror(&Mirroring::SingleScreenB);
+        mem.banks.vram.mirror(&Mirroring::HighTable);
       }
       (0xc000..=0xf000, 71) => mem.banks.prg.set_page(0, val & 0b1111),
       (0xc000..=0xf000, 232) => {
@@ -220,9 +221,9 @@ impl Mapper for Codemasters {
 // https://www.nesdev.org/wiki/CPROM
 struct CPROM;
 impl Mapper for CPROM {
-  fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
-    mem.banks.prg = Banking::new_prg(header, 1);
-    mem.banks.chr = Banking::new_chr(header, 2);
+  fn new(mem: &mut Bus) -> Box<Self> {
+    mem.banks.prg = Banking::new_prg(&mem.header, 1);
+    mem.banks.chr = Banking::new_chr(&mem.header, 2);
     Box::new(Self)
   }
 
@@ -234,8 +235,8 @@ impl Mapper for CPROM {
 // https://www.nesdev.org/wiki/INES_Mapper_031
 struct NSF;
 impl Mapper for NSF {
-  fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
-    mem.banks.prg = Banking::new_prg(header, 8);
+  fn new(mem: &mut Bus) -> Box<Self> {
+    mem.banks.prg = Banking::new_prg(&mem.header, 8);
     mem.banks.prg.set_page_to_last_bank(7);
     Box::new(Self)
   }
@@ -253,11 +254,11 @@ struct Irem74HCx {
   is_holy_diver: bool,
 }
 impl Mapper for Irem74HCx {
-  fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
+  fn new(mem: &mut Bus) -> Box<Self> {
     mem.banks.prg.set_page_to_last_bank(1);
 
     Box::new(Self {
-      is_holy_diver: header.submapper == 3 || header.alt_mirroring
+      is_holy_diver: mem.header.submapper == 3 || mem.header.alt_mirroring
     })
   }
 
@@ -268,8 +269,8 @@ impl Mapper for Irem74HCx {
     let mirroring = match (self.is_holy_diver, val & 0x8) {
       (true, 0)  => Mirroring::Horizontal,
       (true, _)  => Mirroring::Vertical,
-      (false, 0) => Mirroring::SingleScreenA,
-      (false, _) => Mirroring::SingleScreenB
+      (false, 0) => Mirroring::LowTable,
+      (false, _) => Mirroring::HighTable
     };
     mem.banks.vram.mirror(&mirroring);
   }
@@ -316,8 +317,8 @@ impl BandaiFCG {
         let mirroring = match val & 0x3 {
           0 => Mirroring::Vertical,
           1 => Mirroring::Vertical,
-          2 => Mirroring::SingleScreenA,
-          _ => Mirroring::SingleScreenB,
+          2 => Mirroring::LowTable,
+          _ => Mirroring::HighTable,
         };
         mem.banks.vram.mirror(&mirroring);
       }
@@ -355,10 +356,10 @@ impl BandaiFCG {
   }
 }
 impl Mapper for BandaiFCG {
-  fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
-    mem.banks.chr = Banking::new_chr(header, 8);
+  fn new(mem: &mut Bus) -> Box<Self> {
+    mem.banks.chr = Banking::new_chr(&mem.header, 8);
     
-    if header.mapper == 153 {
+    if mem.header.mapper == 153 {
       // needed for Famicom Jump II
       _ = getrandom::fill(&mut mem.wram);
 
@@ -372,22 +373,22 @@ impl Mapper for BandaiFCG {
       mem.banks.prg.set_page_to_last_bank(1);
     }
 
-    if matches!(header.mapper, 153 | 157) {
+    if matches!(mem.header.mapper, 153 | 157) {
       // chr is unbanked
       for i in 0..8 {
         mem.banks.chr.set_page(i, i as u16);
       }
     }
 
-    let submapper = if header.mapper == 16 {
-      header.submapper
+    let submapper = if mem.header.mapper == 16 {
+      mem.header.submapper
     } else {
       // all other work as submapper 5
       5
     };
 
     Box::new(Self { 
-      mapper: header.mapper,
+      mapper: mem.header.mapper,
       submapper,
       ..Default::default()
     })
@@ -431,10 +432,10 @@ struct Bandai74 {
   mapper: u16,
 }
 impl Mapper for Bandai74 {
-  fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
+  fn new(mem: &mut Bus) -> Box<Self> {
     mem.banks.prg.set_page_to_last_bank(1);
     Box::new(Self {
-      mapper: header.mapper,
+      mapper: mem.header.mapper,
     })
   }
 
@@ -443,7 +444,7 @@ impl Mapper for Bandai74 {
     
     if self.mapper == 152 {
       mem.banks.prg.set_page(0, (val >> 4) & 0b111);
-      let mirroring = if val & 0x80 == 0 { Mirroring::SingleScreenA } else { Mirroring::SingleScreenB };
+      let mirroring = if val & 0x80 == 0 { Mirroring::LowTable } else { Mirroring::HighTable };
       mem.banks.vram.mirror(&mirroring);
     } else {
       mem.banks.prg.set_page(0, val >> 4);
@@ -454,7 +455,7 @@ impl Mapper for Bandai74 {
 // https://www.nesdev.org/wiki/INES_Mapper_097
 struct IremTAMS1;
 impl Mapper for IremTAMS1 {
-  fn new(_: &CartHeader, mem: &mut Bus) -> Box<Self> {
+  fn new(mem: &mut Bus) -> Box<Self> {
     mem.banks.prg.set_page_to_last_bank(0);
     Box::new(Self)
   }
@@ -468,10 +469,10 @@ impl Mapper for IremTAMS1 {
 
 // TODO
 // https://www.nesdev.org/wiki/INES_Mapper_032
-struct IremG101;
+// struct IremG101;
 
 // https://www.nesdev.org/wiki/INES_Mapper_065
-struct IremH3001;
+// struct IremH3001;
 
 mod mmc1 {
   #[derive(Default, Debug)]
@@ -557,10 +558,10 @@ impl MMC1 {
   }
 }
 impl Mapper for MMC1 {
-  fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
-    mem.banks.chr = Banking::new_chr(header, 2);
+  fn new(mem: &mut Bus) -> Box<Self> {
+    mem.banks.chr = Banking::new_chr(&mem.header, 2);
 
-    let has_big_prg = header.prg_size >= 512 * 1024;
+    let has_big_prg = mem.header.prg_size >= 512 * 1024;
     let last_bank = if has_big_prg {
       // start with mid bank
       mem.banks.prg.banks_count/2-1
@@ -569,9 +570,9 @@ impl Mapper for MMC1 {
       mem.banks.prg.banks_count-1
     };
 
-    let wram_kind = if header.wram_size >= 32 * 1024 {
+    let wram_kind = if mem.header.wram_size >= 32 * 1024 {
       mmc1::WramKind::Bank32
-    } else if header.wram_size >= 16 * 1024 {
+    } else if mem.header.wram_size >= 16 * 1024 {
       mmc1::WramKind::Bank16
     } else {
       mmc1::WramKind::Bank8
@@ -616,8 +617,8 @@ impl Mapper for MMC1 {
       // 0x8000..=0x9fff => {
       0x8000 => {
         let mirroring = match val & 0x3 {
-          0 => Mirroring::SingleScreenA,
-          1 => Mirroring::SingleScreenB,
+          0 => Mirroring::LowTable,
+          1 => Mirroring::HighTable,
           2 => Mirroring::Vertical,
           _ => Mirroring::Horizontal
         };
@@ -672,28 +673,28 @@ struct MMC2 {
 }
 
 impl Mapper for MMC2 {
-  fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> where Self: Sized {
-    if header.mapper == 9 {
+  fn new(mem: &mut Bus) -> Box<Self> where Self: Sized {
+    if mem.header.mapper == 9 {
       // MMC2
-      mem.banks.prg = Banking::new_prg(header, 4);
+      mem.banks.prg = Banking::new_prg(&mem.header, 4);
       let last_bank = mem.banks.prg.banks_count - 1;
       mem.banks.prg.set_page(1, last_bank-2);
       mem.banks.prg.set_page(2, last_bank-1);
       mem.banks.prg.set_page(3, last_bank);
-    } else if header.mapper == 10 {
+    } else if mem.header.mapper == 10 {
       // MMC4
       // only two 16 kb pages
       mem.banks.prg.set_page_to_last_bank(1);
     }
 
-    mem.banks.chr = Banking::new_chr(header, 2);
+    mem.banks.chr = Banking::new_chr(&mem.header, 2);
 
     Box::new(Self {
-      bank_fd: Banking::new_chr(header, 2),
-      bank_fe: Banking::new_chr(header, 2),
+      bank_fd: Banking::new_chr(&mem.header, 2),
+      bank_fe: Banking::new_chr(&mem.header, 2),
       latch0: mmc2::Latch::FD,
       latch1: mmc2::Latch::FD,
-      mapper: header.mapper,
+      mapper: mem.header.mapper,
     })
   }
 
@@ -762,25 +763,25 @@ struct MMC3 {
 }
 // https://forums.nesdev.org/viewtopic.php?t=14056
 impl Mapper for MMC3 {
-  fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
-    if header.alt_mirroring || header.mirroring == Mirroring::FourScreens {
+  fn new(mem: &mut Bus) -> Box<Self> {
+    if mem.header.alt_mirroring || mem.header.mirroring == Mirroring::FourScreens {
       // MMC3 can have 4 screen mirroring
       mem.set_4screen_mirroring();
     }
 
-    mem.banks.prg = Banking::new_prg(header, 4);
+    mem.banks.prg = Banking::new_prg(&mem.header, 4);
     // start with prg mode0
     mem.banks.prg.set_page(2, mem.banks.prg.banks_count - 2);
     mem.banks.prg.set_page_to_last_bank(3);
 
-    mem.banks.chr = Banking::new_chr(header, 8);
+    mem.banks.chr = Banking::new_chr(&mem.header, 8);
     mem.banks.chr.set_pages_aligned2(0, 0);
     mem.banks.chr.set_pages_aligned2(2, 0);
 
-    let is_mmc6 = header.submapper == 1;
+    let is_mmc6 = mem.header.submapper == 1;
 
     if is_mmc6 {
-      mem.banks.wram = Banking::new_wram(header, 8);
+      mem.banks.wram = Banking::new_wram(&mem.header, 8);
     }
 
     Box::new(Self {
@@ -922,19 +923,19 @@ struct Namco129_163 {
   submapper: u8,
 }
 impl Mapper for Namco129_163 {
-  fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
-    mem.banks.prg = Banking::new_prg(header, 4);
+  fn new(mem: &mut Bus) -> Box<Self> {
+    mem.banks.prg = Banking::new_prg(&mem.header, 4);
     mem.banks.prg.set_page_to_last_bank(3);
-    mem.banks.wram = Banking::new_wram(header, 4);
+    mem.banks.wram = Banking::new_wram(&mem.header, 4);
 
-    if header.mapper == 19 {
+    if mem.header.mapper == 19 {
       // namco 129/163
-      mem.banks.chr = Banking::new(header.chr_size, 12 * 1024, 12);
+      mem.banks.chr = Banking::new(mem.header.chr_size, 12 * 1024, 12);
       mem.banks.vram = Banking::new(2 * 1024, 12 * 1024, 12);
       mem.set_vram_handlers(PpuHandler::VramInChr);  
-    } else if header.mapper == 210 {
+    } else if mem.header.mapper == 210 {
       // namco 175/340
-      mem.banks.chr = Banking::new_chr(header, 8);
+      mem.banks.chr = Banking::new_chr(&mem.header, 8);
     }
   
 
@@ -946,8 +947,8 @@ impl Mapper for Namco129_163 {
       chr_ram0: false,
       chr_ram1: false,
 
-      mapper: header.mapper,
-      submapper: header.submapper,
+      mapper: mem.header.mapper,
+      submapper: mem.header.submapper,
     })
   }
 
@@ -1021,9 +1022,9 @@ impl Mapper for Namco129_163 {
         // namco 340 only
         if self.mapper == 210 && self.submapper == 2 {
           let mirroring = match val & 0xc0 {
-            0 => Mirroring::SingleScreenA,
+            0 => Mirroring::LowTable,
             1 => Mirroring::Vertical,
-            2 => Mirroring::SingleScreenB,
+            2 => Mirroring::HighTable,
             _ => Mirroring::Horizontal
           };
           mem.banks.vram.mirror(&mirroring);
@@ -1062,8 +1063,8 @@ impl Mapper for Namco129_163 {
 // https://www.nesdev.org/wiki/INES_Mapper_184
 struct Sunsoft1;
 impl Mapper for Sunsoft1 {
-  fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
-    mem.banks.chr = Banking::new_chr(header, 2);
+  fn new(mem: &mut Bus) -> Box<Self> {
+    mem.banks.chr = Banking::new_chr(&mem.header, 2);
     mem.set_wram_handlers(CpuHandler::Mapper);
     Box::new(Self)
   }
@@ -1079,7 +1080,7 @@ impl Mapper for Sunsoft1 {
 // https://www.nesdev.org/wiki/INES_Mapper_093
 struct Sunsoft93;
 impl Mapper for Sunsoft93 {
-  fn new(_: &CartHeader, mem: &mut Bus) -> Box<Self> {
+  fn new(mem: &mut Bus) -> Box<Self> {
     mem.banks.prg.set_page_to_last_bank(1);
     Box::new(Self)
   }
@@ -1092,7 +1093,7 @@ impl Mapper for Sunsoft93 {
 // https://www.nesdev.org/wiki/INES_Mapper_089
 struct Sunsoft89;
 impl Mapper for Sunsoft89 {
-  fn new(_: &CartHeader, mem: &mut Bus) -> Box<Self> {
+  fn new(mem: &mut Bus) -> Box<Self> {
     mem.banks.prg.set_page_to_last_bank(1);
     Box::new(Self)
   }
@@ -1101,7 +1102,7 @@ impl Mapper for Sunsoft89 {
     mem.banks.prg.set_page(0, (val >> 4) & 0b111);
     mem.banks.chr.set_page(0, ((val & 0x80) >> 4) | (val & 0b111));
 
-    let mirroring = if val & 0x8 == 0 { Mirroring::SingleScreenA } else { Mirroring::SingleScreenB };
+    let mirroring = if val & 0x8 == 0 { Mirroring::LowTable } else { Mirroring::HighTable };
     mem.banks.vram.mirror(&mirroring);
   }
 }
@@ -1114,9 +1115,9 @@ struct Sunsoft3 {
   irq_enabled: bool,
 }
 impl Mapper for Sunsoft3 {
-  fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> where Self: Sized {
+  fn new(mem: &mut Bus) -> Box<Self> where Self: Sized {
     mem.banks.prg.set_page_to_last_bank(1);
-    mem.banks.chr = Banking::new_chr(header, 4);
+    mem.banks.chr = Banking::new_chr(&mem.header, 4);
 
     Box::new(Self::default())
   }
@@ -1149,8 +1150,8 @@ impl Mapper for Sunsoft3 {
         let mirroring = match val & 0x3 {
           0 => Mirroring::Vertical,
           1 => Mirroring::Horizontal,
-          2 => Mirroring::SingleScreenA,
-          _ => Mirroring::SingleScreenB,
+          2 => Mirroring::LowTable,
+          _ => Mirroring::HighTable,
         };
         mem.banks.vram.mirror(&mirroring);
       }
@@ -1201,10 +1202,10 @@ impl Sunsoft4 {
         chr.set_page(8 + 2, self.chr_table1);
         chr.set_page(8 + 3, self.chr_table1);
       }
-      Mirroring::SingleScreenA => for i in 8..12 {
+      Mirroring::LowTable => for i in 8..12 {
         chr.set_page(i, self.chr_table0);
       }
-      Mirroring::SingleScreenB => for i in 8..12 {
+      Mirroring::HighTable => for i in 8..12 {
         chr.set_page(i, self.chr_table1);
       },
       // shouldn't have 4 screens mirroring
@@ -1213,16 +1214,16 @@ impl Sunsoft4 {
   }
 }
 impl Mapper for Sunsoft4 {
-  fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
+  fn new(mem: &mut Bus) -> Box<Self> {
     mem.banks.prg.set_page_to_last_bank(1);
-    mem.banks.chr = Banking::new(header.chr_size, 12 * 1024, 12);
+    mem.banks.chr = Banking::new(mem.header.chr_size, 12 * 1024, 12);
     mem.banks.chr.set_pages_aligned2(0, 0);
     mem.banks.chr.set_pages_aligned2(2, 2);
     mem.banks.chr.set_pages_aligned2(4, 4);
     mem.banks.chr.set_pages_aligned2(6, 6);
 
     Box::new(Self {
-      mirroring: header.mirroring.clone(),
+      mirroring: mem.header.mirroring.clone(),
       ..Default::default()
     })
   }
@@ -1264,8 +1265,8 @@ impl Mapper for Sunsoft4 {
         self.mirroring = match val & 0b11 {
           0 => Mirroring::Vertical,
           1 => Mirroring::Horizontal,
-          2 => Mirroring::SingleScreenA,
-          _ => Mirroring::SingleScreenB,
+          2 => Mirroring::LowTable,
+          _ => Mirroring::HighTable,
         };
 
         let mode = val & 0x10 > 0;
@@ -1291,6 +1292,7 @@ mod sunsoft_fme7 {
   use crate::apu::{self, DividerCounter};
 
   // https://www.nesdev.org/wiki/Sunsoft_5B_audio
+  // TODO: incomplete
   pub struct Tone {
     pub enabled: bool,
     div: apu::DividerCounter,
@@ -1355,10 +1357,10 @@ struct SunsoftFME7 {
   tc: sunsoft_fme7::Tone,
 }
 impl Mapper for SunsoftFME7 {
-  fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
-    mem.banks.prg = Banking::new_prg(header, 4);
+  fn new(mem: &mut Bus) -> Box<Self> {
+    mem.banks.prg = Banking::new_prg(&mem.header, 4);
     mem.banks.prg.set_page_to_last_bank(3);
-    mem.banks.chr = Banking::new_chr(header, 8);
+    mem.banks.chr = Banking::new_chr(&mem.header, 8);
 
     Box::new(Self {
       uses_wram: true,
@@ -1391,8 +1393,8 @@ impl Mapper for SunsoftFME7 {
           let mirroring = match val & 0b11 {
               0 => Mirroring::Vertical,
               1 => Mirroring::Horizontal,
-              2 => Mirroring::SingleScreenA,
-              _ => Mirroring::SingleScreenB
+              2 => Mirroring::LowTable,
+              _ => Mirroring::HighTable
           };
           mem.banks.vram.mirror(&mirroring);
         }
@@ -1480,12 +1482,12 @@ struct J87 {
   shift: u8,
 }
 impl Mapper for J87 {
-  fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
-    if header.prg_size > 16 * 1024 {
-      mem.banks.prg = Banking::new_prg(header, 1);
+  fn new(mem: &mut Bus) -> Box<Self> {
+    if mem.header.prg_size > 16 * 1024 {
+      mem.banks.prg = Banking::new_prg(&mem.header, 1);
     }
     mem.set_wram_handlers(CpuHandler::Mapper);
-    let shift = if header.mapper == 87 { 1 } else { 0 };
+    let shift = if mem.header.mapper == 87 { 1 } else { 0 };
     Box::new(Self {
       shift
     })
@@ -1508,19 +1510,19 @@ struct NINA00x_BNROM {
   submapper: u8,
 }
 impl Mapper for NINA00x_BNROM {
-  fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> where Self: Sized {
+  fn new(mem: &mut Bus) -> Box<Self> where Self: Sized {
     // should be considered BNROM when the CHR-ROM size is 0-8 KiB, and NINA-001/NINA-002 when the CHR-ROM size is above 8 KiB. 
-    if header.submapper == 1 || header.chr_size > 8 * 1024 {
-      mem.banks.chr = Banking::new_chr(header, 2);
-    } else if header.submapper == 2 || header.chr_size <= 8 * 1024  {
-      mem.banks.chr = Banking::new_chr(header, 1);
+    if mem.header.submapper == 1 || mem.header.chr_size > 8 * 1024 {
+      mem.banks.chr = Banking::new_chr(&mem.header, 2);
+    } else if mem.header.submapper == 2 || mem.header.chr_size <= 8 * 1024  {
+      mem.banks.chr = Banking::new_chr(&mem.header, 1);
     }
-    mem.banks.prg = Banking::new_prg(header, 1);
+    mem.banks.prg = Banking::new_prg(&mem.header, 1);
     
-    let submapper = if header.mapper == 34 { header.submapper } else { 2 };
+    let submapper = if mem.header.mapper == 34 { mem.header.submapper } else { 2 };
 
     Box::new(Self {
-      mapper: header.mapper,
+      mapper: mem.header.mapper,
       submapper,
     })
   }
@@ -1547,8 +1549,8 @@ impl Mapper for NINA00x_BNROM {
 // https://www.nesdev.org/wiki/INES_Mapper_034
 struct NINA003_006;
 impl Mapper for NINA003_006 {
-  fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> where Self: Sized {
-    mem.banks.prg = Banking::new_prg(header, 1);
+  fn new(mem: &mut Bus) -> Box<Self> where Self: Sized {
+    mem.banks.prg = Banking::new_prg(&mem.header, 1);
     Box::new(Self)
   }
 
@@ -1570,27 +1572,27 @@ struct DxROM {
   mapper: u16,
 }
 impl Mapper for DxROM {
-  fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
-    if header.alt_mirroring || header.mirroring == Mirroring::FourScreens {
+  fn new(mem: &mut Bus) -> Box<Self> {
+    if mem.header.alt_mirroring || mem.header.mirroring == Mirroring::FourScreens {
       mem.set_4screen_mirroring();
     }
 
     // same as MMC3
-    mem.banks.prg = Banking::new_prg(header, 4);
+    mem.banks.prg = Banking::new_prg(&mem.header, 4);
     mem.banks.prg.set_page(2, mem.banks.prg.banks_count - 2);
     mem.banks.prg.set_page_to_last_bank(3);
 
-    mem.banks.chr = Banking::new_chr(header, 8);
+    mem.banks.chr = Banking::new_chr(&mem.header, 8);
     mem.banks.chr.set_pages_aligned2(0, 0);
     mem.banks.chr.set_pages_aligned2(2, 0);
 
-    if header.mapper == 76 {
-      mem.banks.chr = Banking::new_chr(header, 4);
+    if mem.header.mapper == 76 {
+      mem.banks.chr = Banking::new_chr(&mem.header, 4);
     }
 
     Box::new(Self {
       select: 0,
-      mapper: header.mapper,
+      mapper: mem.header.mapper,
     })
   }
 
@@ -1598,9 +1600,9 @@ impl Mapper for DxROM {
     if self.mapper == 154 {
       // Note that this bit is present over the entire 32kB range; it is not present in only odd or even addresses unlike the associated Namcot 108. 
       if val & 0x40 > 0 {
-        mem.banks.vram.mirror(&Mirroring::SingleScreenB);
+        mem.banks.vram.mirror(&Mirroring::HighTable);
       } else {
-        mem.banks.vram.mirror(&Mirroring::SingleScreenA);
+        mem.banks.vram.mirror(&Mirroring::LowTable);
       }
     }
     
@@ -1651,9 +1653,9 @@ impl Mapper for DxROM {
 // https://www.nesdev.org/wiki/INES_Mapper_077 
 struct NapoleonSenki;
 impl Mapper for NapoleonSenki {
-  fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
-    mem.banks.prg = Banking::new_prg(header, 1);
-    mem.banks.chr = Banking::new(header.chr_size, 2 * 1024, 1);
+  fn new(mem: &mut Bus) -> Box<Self> {
+    mem.banks.prg = Banking::new_prg(&mem.header, 1);
+    mem.banks.chr = Banking::new(mem.header.chr_size, 2 * 1024, 1);
     
     // this games provides 8kb of chr ram + 2kb of vram
     // we simulate chr ram by extending our vram from 0x0000 to 0x2fff, even if we dont use 0x0000..=0x07ff
@@ -1688,10 +1690,10 @@ struct VRC1 {
   chr_bank1: u16,
 }
 impl Mapper for VRC1 {
-  fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
-    mem.banks.prg = Banking::new_prg(header, 4);
+  fn new(mem: &mut Bus) -> Box<Self> {
+    mem.banks.prg = Banking::new_prg(&mem.header, 4);
     mem.banks.prg.set_page_to_last_bank(3);
-    mem.banks.chr = Banking::new_chr(header, 2);
+    mem.banks.chr = Banking::new_chr(&mem.header, 2);
 
     Box::new(Self::default()) 
   }
@@ -1736,7 +1738,7 @@ struct VRC3 {
   irq_8bit_mode: bool,
 }
 impl Mapper for VRC3 {
-  fn new(_: &CartHeader, mem: &mut Bus) -> Box<Self> {
+  fn new(mem: &mut Bus) -> Box<Self> {
     mem.banks.prg.set_page_to_last_bank(1);
     Box::new(Self::default())
   }
@@ -1790,7 +1792,6 @@ impl Mapper for VRC3 {
 mod vrc {
   use crate::bus::{self, IrqFlags};
 
-  // TODO: JITTERS, might not work properly, as seen in mappers VRC2/4 and VRC7
   #[derive(Default)]
   // https://www.nesdev.org/wiki/VRC_IRQ
   pub struct Irq {
@@ -1861,7 +1862,6 @@ mod vrc {
 
 
 // https://www.nesdev.org/wiki/VRC2_and_VRC4
-// TODO: not working on some games, like Gradius 2, TMNT, and Boku Dracula
 #[derive(Default)]
 struct VRC2_4 {
   irq: vrc::Irq,
@@ -1898,8 +1898,6 @@ impl VRC2_4 {
   }
 
   fn update_chr_banks(&mut self, mem: &mut Bus, addr: u16, val: u16) {
-    if addr & 0xf > 3 { return; }
-
     let reg_pair = (addr >> 12) - 0xb;
     // we can tell if it is low or high nibble by second bit
     let low_or_high = (addr >> 1) & 1;
@@ -1930,34 +1928,30 @@ impl VRC2_4 {
   }
 }
 impl Mapper for VRC2_4 {
-  fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
-    mem.banks.prg = Banking::new_prg(header, 4);
+  fn new(mem: &mut Bus) -> Box<Self> {
+    mem.banks.prg = Banking::new_prg(&mem.header, 4);
     let last_bank = mem.banks.prg.banks_count-1;
     mem.banks.prg.set_page(2, last_bank-1);
     mem.banks.prg.set_page(3, last_bank);
 
-    mem.banks.chr = Banking::new_chr(header, 8);
+    mem.banks.chr = Banking::new_chr(&mem.header, 8);
 
     let is_vrc2 = matches!(
-      (header.mapper, header.submapper),
+      (mem.header.mapper, mem.header.submapper),
       (22, 0) | (23, 3) | (25, 3)
     );
 
-    if is_vrc2 && mem.wram.len() == 0 {
+    if is_vrc2 && mem.wram.is_empty() {
       mem.set_wram_handlers(CpuHandler::Mapper);
     }
 
     // TODO: might have 2kb wram mirrored, we cant do that with 8kb handlers..
 
     Box::new(Self {
-      mapper: header.mapper,
-      submapper: header.submapper,
+      mapper: mem.header.mapper,
+      submapper: mem.header.submapper,
       is_vrc2,
-      prg_swapped: 0,
-      prg_bank: 0,
-      chr_regs: [0; 8],
-      latch: 0,
-      irq: vrc::Irq::default(),
+      ..Default::default()
     })
   }
 
@@ -2001,18 +1995,20 @@ impl Mapper for VRC2_4 {
       }
       (0xa000..=0xa003, _) => mem.banks.prg.set_page(1, val),
       (0x9000..=0x9003, true) | (0x9000, false) => {
-        let mirroring = match (val & 0x3, self.is_vrc2) {
-          (2, false) => Mirroring::SingleScreenA,
-          (3, false) => Mirroring::SingleScreenA,
-          (1, _) => Mirroring::Horizontal,
-          _ => Mirroring::Vertical,
+        let val = if self.is_vrc2 { val & 0b01 } else { val & 0b11};
+
+        let mirroring = match val {
+          0 => Mirroring::Vertical,
+          1 => Mirroring::Horizontal,
+          2 => Mirroring::LowTable,
+          _ => Mirroring::HighTable,
         };
         mem.banks.vram.mirror(&mirroring);
       }
 
       (0xb000..=0xe003, _) => self.update_chr_banks(mem, addr, val),
 
-      (0xf000, false) => self.irq.latch = (self.irq.latch & 0xf0) | (val as u8 & 0x0f),
+      (0xf000, false) => self.irq.latch = (self.irq.latch & 0xf0) | (val as u8 & 0xf),
       (0xf001, false) => self.irq.latch = (self.irq.latch & 0x0f) | ((val as u8 & 0xf) << 4),
       (0xf002, false) => self.irq.write_ctrl(val as u8, mem),
       (0xf003, false) => self.irq.write_ack(mem),
@@ -2224,15 +2220,15 @@ impl VRC6 {
   }
 }
 impl Mapper for VRC6 {
-  fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
-    mem.banks.prg = Banking::new_prg(header, 4);
+  fn new(mem: &mut Bus) -> Box<Self> {
+    mem.banks.prg = Banking::new_prg(&mem.header, 4);
     mem.banks.prg.set_pages_aligned2(0, 0);
     mem.banks.prg.set_page_to_last_bank(3);
 
-    mem.banks.chr = Banking::new_chr(header, 8);
+    mem.banks.chr = Banking::new_chr(&mem.header, 8);
 
     Box::new(Self {
-      mapper: header.mapper,
+      mapper: mem.header.mapper,
       ..Default::default()
     })
   }
@@ -2326,10 +2322,10 @@ struct VRC7 {
   irq: vrc::Irq,
 }
 impl Mapper for VRC7 {
-  fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
-    mem.banks.prg = Banking::new_prg(header, 4);
+  fn new(mem: &mut Bus) -> Box<Self> {
+    mem.banks.prg = Banking::new_prg(&mem.header, 4);
     mem.banks.prg.set_page_to_last_bank(3);
-    mem.banks.chr = Banking::new_chr(header, 8);
+    mem.banks.chr = Banking::new_chr(&mem.header, 8);
 
     Box::new(Self::default())
   }
@@ -2358,8 +2354,8 @@ impl Mapper for VRC7 {
         let mirroring = match val & 0x03 {
           0 => Mirroring::Vertical,
           1 => Mirroring::Horizontal,
-          2 => Mirroring::SingleScreenA,
-          _ => Mirroring::SingleScreenB,
+          2 => Mirroring::LowTable,
+          _ => Mirroring::HighTable,
         };
         mem.banks.vram.mirror(&mirroring);
 
@@ -2403,14 +2399,18 @@ struct MMC5 {
   chr_mode: u8,
   chr_regs: [u16; 12],
   chr_hi: u8,
+  last_chr_wrote: u16,
 
+  tile_fetches_count: usize,
+
+  wram_protect: u8,
   exram_mode: u8,
 
   irq_enabled: bool,
   irq_pending: bool,
   irq_cmp: u16,
   irq_count: u16,
-  irq_in_frame: bool,
+  ppu_in_frame: bool,
 
   ppu_addr_count: usize,
   last_ppu_addr: Option<u16>,
@@ -2423,124 +2423,174 @@ struct MMC5 {
 }
 impl MMC5 {
   fn update_prg_banks(&mut self, mem: &mut Bus) {
-    // TODO: take prg ram read/write into account 
-
-    // TODO: still not working
-
     let wram = &mut mem.banks.wram;
     let prg = &mut mem.banks.prg;
+  
+    // always on wram page 0
+    wram.set_page(0, self.prg_regs[0] & 0x7f);
+    // always on rom, so forcefully set high bit to 1
+    self.prg_regs[4] |= 0x80;
 
-    // always set to first wram bank
-    wram.set_page(0, self.prg_regs[0] & 0x3f);
-
-    let mut set_page = |page, bank| {      
-      let handler = if bank & 0x80 > 0 {
+    let mut set_bank = |page, bank| {
+      if bank & 0x80 > 0 {
         // rom
-        prg.set_page(page, bank & 0x3f);
-        CpuHandler::Prg
+        prg.set_page(page - 1, bank & 0x7f);
+        mem.cpu_handlers_8kb[3 + page as usize] = CpuHandler::PrgMMC5;
       } else {
         // ram
-        wram.set_page(page + 1, bank & 0x3f);
-        // TODO: store wram handler somewhere
-        if mem.wram.len() > 0 { CpuHandler::WramRW } else { CpuHandler::Mapper }
-      };
+        wram.set_page(page, bank & 0x7f);
 
-      mem.cpu_handlers_8kb[4 + page as usize] = handler;
+        let handler = if mem.wram.is_empty() {
+          CpuHandler::Mapper
+        } else if self.wram_protect == 0x6 {
+          CpuHandler::WramRW
+        } else {
+          CpuHandler::WramReadOnly
+        };
+
+        mem.cpu_handlers_8kb[3 + page as usize] = handler;
+      }
     };
 
-    let reg1 = self.prg_regs[1];
-    // 0x5114 only used in mode 3
+    // 5114 only in mode 3
     if self.prg_mode == 3 {
-      set_page(0, reg1);
+      set_bank(1, self.prg_regs[1]);
     }
 
-    let reg2 = self.prg_regs[2];
-    // 0x5115 used in all modes except 0
+    // 5115 in modes 1, 2, 3
+    let reg5115 = self.prg_regs[2];
     if self.prg_mode == 3 {
-      set_page(1, reg2);
+      set_bank(2, reg5115);
     } else if matches!(self.prg_mode, 1 | 2) {
-      set_page(0, reg2 & !1);
-      set_page(1, reg2 | 1);
+      set_bank(1, reg5115 & !1);
+      set_bank(2, reg5115 | 1);
     }
 
-    let reg3 = self.prg_regs[3];
-    // 0x5116 used in mode 3 and 2
+    // 5116 in modes 2, 3
     if matches!(self.prg_mode, 2 | 3) {
-      set_page(2, reg3);
+      set_bank(3, self.prg_regs[3]);
     }
 
-    let reg4 = self.prg_regs[4] | 0x80;
-    // 0x5117 used in all modes
+    // 5117 in all modes
+    let reg5117 = self.prg_regs[4];
     if matches!(self.prg_mode, 2 | 3) {
-      set_page(3, reg4);
+      set_bank(4, reg5117);
     } else if self.prg_mode == 1 {
-      set_page(2, reg4 & !1);
-      set_page(3, reg4 | 1);
-    } else {
-      let reg4 = reg4 & !0x3;
-      set_page(0, reg4 | 0);
-      set_page(1, reg4 | 1);
-      set_page(2, reg4 | 2);
-      set_page(3, reg4 | 3);
+      set_bank(3, reg5117 & !1);
+      set_bank(4, reg5117 | 1);
+    } else if self.prg_mode == 0 {
+      let reg5117 = reg5117 & !0x3;
+
+      set_bank(1, reg5117 | 0);
+      set_bank(2, reg5117 | 1);
+      set_bank(3, reg5117 | 2);
+      set_bank(4, reg5117 | 3);
     }
   }
 
   fn update_chr_banks(&mut self, mem: &mut Bus) {
-    let chr = &mut mem.banks.chr;
+    // in 8x8 sprites mode, in 16x8 sprites mode and rendering sprites, in vblank and last written low registers
+    let use_low_regs = !self.ppu_big_sprites 
+      || (self.tile_fetches_count >= 32 && self.tile_fetches_count < 40)
+      || (!self.ppu_in_frame && self.last_chr_wrote <= 0x5127);
 
+    // if use_low_regs {
+    //   self.update_chr_low_regs(mem);
+    // } else {
+    //   self.update_chr_high_regs(mem);
+    // }
+    self.update_chr_high_regs(mem);
+  }
+
+  fn update_chr_low_regs(&mut self, mem: &mut Bus) {
     // Caution: Unlike the MMC1 and unlike PRG banking on the MMC5, the banks are always indexed by the currently selected size.
     // When using 2kb, 4kb or 8kb bank sizes, the registers hold bank index of that larger size, and lower bits are *not* ignored. 
     // shifting is needed
+    let chr = &mut mem.banks.chr;
     match self.chr_mode {
       // 8kb
-      0 => chr.set_pages_unaligned(0, self.chr_regs[0], 8),
+      0 => chr.set_pages_unaligned(0, self.chr_regs[7] << 3, 8),
       // 4kb
       1 => {
-        chr.set_pages_unaligned(0, self.chr_regs[3], 4);
-        chr.set_pages_unaligned(4, self.chr_regs[7], 4);
+        chr.set_pages_unaligned(0, self.chr_regs[3] << 2, 4);
+        chr.set_pages_unaligned(4, self.chr_regs[7] << 2, 4);
       }
       // 2kb
       2 =>  for i in 0..4 {
         // only odds chr_regs
-        // TODO: should use chr_hi here, but set_pages only takes u8, modify signatures....
-        chr.set_pages_unaligned(i, self.chr_regs[i as usize * 2 + 1], 2);
+        chr.set_pages_unaligned(i, self.chr_regs[i as usize * 2 + 1] << 1, 2);
       }
       // 1kb
       _ => for i in 0..8 {
-        // TODO: should use chr_hi here, but set_pages only takes u8, modify signatures....
         chr.set_page(i, self.chr_regs[i as usize]);
+      }
+    }
+  }
+
+  fn update_chr_high_regs(&mut self, mem: &mut Bus) {
+    // Caution: Unlike the MMC1 and unlike PRG banking on the MMC5, the banks are always indexed by the currently selected size.
+    // When using 2kb, 4kb or 8kb bank sizes, the registers hold bank index of that larger size, and lower bits are *not* ignored. 
+    // shifting is needed
+    let chr = &mut mem.banks.chr;
+    match self.chr_mode {
+      // 8kb
+      0 => chr.set_pages_unaligned(0, self.chr_regs[11], 8),
+      // 4kb
+      1 => {
+        chr.set_pages_unaligned(0, self.chr_regs[11], 4);
+        chr.set_pages_unaligned(4, self.chr_regs[11], 4);
+      }
+      // 2kb
+      2 =>  {
+        chr.set_pages_unaligned(0, self.chr_regs[9], 2);
+        chr.set_pages_unaligned(2, self.chr_regs[11], 2);
+        chr.set_pages_unaligned(4, self.chr_regs[9], 2);
+        chr.set_pages_unaligned(6, self.chr_regs[11], 2);
+      }
+      // 1kb
+      _ => for i in 0..4 {
+        let bank = self.chr_regs[8 + i as usize];
+        chr.set_page(i, bank);
+        chr.set_page(4 + i, bank);
       }
     }
   }
 
   fn update_vram_banks(&mut self, mem: &mut Bus, val: u8) {
     for i in 0..4 {
-      let nametbl = (val >> (i * 2)) & 0x3;
+      // let nametbl = (val >> (i * 2)) & 0x3;
+      let nametbl = (val >> (i * 2)) & 1;
       // TODO: do not handle exram for now
       mem.banks.vram.set_page(i, nametbl as u16);
     }
   }
 
   fn reset_irq(&mut self, mem: &mut Bus) {
-    self.irq_in_frame = false;
+    self.ppu_in_frame = false;
     self.last_ppu_addr = None;
     self.irq_count = 0;
     mem.irq.remove(IrqFlags::MAPPER);
   }
 }
 impl Mapper for MMC5 {
-  fn new(header: &CartHeader, mem: &mut Bus) -> Box<Self> {
-    mem.banks.prg = Banking::new_prg(header, 4);
-    mem.banks.chr = Banking::new_chr(header, 8);
+  fn new(mem: &mut Bus) -> Box<Self> {
+    mem.banks.prg = Banking::new_prg(&mem.header, 4);
+    mem.banks.chr = Banking::new_chr(&mem.header, 8);
 
     // wram can be mapped in range 0x6000..=0xdfff (32kb)
-    mem.banks.wram = Banking::new(header.wram_size, 32 * 1024, 4);
+    mem.banks.wram = Banking::new(mem.header.wram_size, 32 * 1024, 4);
     mem.set_prg_handlers(CpuHandler::PrgMMC5);
     mem.cpu_handlers_8kb[1] = CpuHandler::PpuMMC5;
 
     let mut res = Self::default();
+    // The Koei games never write to this register, apparently relying on the MMC5 defaulting to mode 3 at power on. 
     res.prg_mode = 3;
+    // All known games have their reset vector in the last bank of PRG ROM, and the vector points to an address greater than or equal to $E000.
+    // This tells us that $5117 must have a reliable power-on value of $FF. 
+    res.prg_regs[4] = 0xff;
+
     res.update_prg_banks(mem);
+    res.update_chr_banks(mem);
 
     Box::new(res)
   }
@@ -2550,7 +2600,7 @@ impl Mapper for MMC5 {
       0x5204 => {
         let mut res = 0;
         res |= (self.irq_pending as u8) << 7;
-        res |= (self.irq_in_frame as u8) << 6;
+        res |= (self.ppu_in_frame as u8) << 6;
 
         self.irq_pending = false;
         mem.irq.remove(IrqFlags::MAPPER);
@@ -2573,19 +2623,23 @@ impl Mapper for MMC5 {
     match addr {
       0x5100 => {
         self.prg_mode = val & 0x3;
-        println!("Changed mode to {}", self.prg_mode);
         self.update_prg_banks(mem);
       }
       0x5101 => {
         self.chr_mode = val & 0x3;
+        println!("CHR MODE: {}", self.chr_mode);
         self.update_chr_banks(mem);
       }
 
       0x5102 => {
-        // TODO: prg ram protect
+        self.wram_protect = (self.wram_protect & 0xc) | (val & 0x3);
+        // self.wram_protect == 0x6
+        // TODO: wram rw
       }
       0x5103 => {
-        // TODO: prg ram protect
+        self.wram_protect = (self.wram_protect & 0x3) | ((val & 0x3) << 2);
+        // self.wram_protect == 0x6
+        // TODO: wram rw
       }
 
       0x5104 => {
@@ -2602,7 +2656,10 @@ impl Mapper for MMC5 {
 
       0x5120..=0x512b => {
         let reg = addr as usize - 0x5120;
-        self.chr_regs[reg] = ((self.chr_hi as u16) << 8) | val as u16;
+        // self.chr_regs[reg] = ((self.chr_hi as u16) << 8) | val as u16;
+        self.chr_regs[reg] = val as u16;
+        self.last_chr_wrote = addr;
+
         self.update_chr_banks(mem);
       }
 
@@ -2632,13 +2689,23 @@ impl Mapper for MMC5 {
 
   // https://www.nesdev.org/wiki/MMC5#Scanline_Detection_and_Scanline_IRQ
   fn notify_ppu_addr(&mut self, mem: &mut Bus, _cycles: usize) {
+    // nametable tile fetch, not attribute
+    if mem.ppu_addr_bus & 0x2000 > 0 && mem.ppu_addr_bus & 0x3ff < 0x3c0 {
+      self.tile_fetches_count += 1;
+      // TODO: might be overkill
+      // self.update_chr_banks(mem);
+    }
+
     if mem.ppu_addr_bus & 0x2000 > 0 && self.last_ppu_addr.is_some_and(|x| x == mem.ppu_addr_bus) {
       self.ppu_addr_count += 1;
 
       if self.ppu_addr_count >= 2 {
-        if !self.irq_in_frame {
-          self.irq_in_frame = true;
+        if !self.ppu_in_frame {
+          // scanline just started
+          self.ppu_in_frame = true;
           self.irq_count = 0;
+          self.tile_fetches_count = 0;
+          // self.update_chr_banks(mem);
         } else {
           self.irq_count += 1;
           // Value $00 is a special case that will not produce IRQ pending conditions
@@ -2661,14 +2728,15 @@ impl Mapper for MMC5 {
     self.ppu_readed = true;
   }
 
-  fn step(&mut self, _mem: &mut Bus, _cycles: usize) {
+  fn step(&mut self, mem: &mut Bus, _cycles: usize) {
     if self.ppu_readed {
       self.ppu_idle_count = 0;
     } else {
       self.ppu_idle_count += 1;
       if self.ppu_idle_count >= 3 {
-        self.irq_in_frame = false;
+        self.ppu_in_frame = false;
         self.last_ppu_addr = None;
+        // self.update_chr_banks(mem);
       }
     }
 
@@ -2677,7 +2745,10 @@ impl Mapper for MMC5 {
 
   fn notify_cpu_addr(&mut self, mem: &mut Bus, addr: u16, val: Option<u8>) {
     match (addr, val) {
-      (0xfffa | 0xfffb, None) => self.reset_irq(mem),
+      (0xfffa | 0xfffb, None) => {
+        self.reset_irq(mem);
+        // self.update_chr_banks(mem);
+      }
 
       (0x2000, Some(val)) => self.ppu_big_sprites = val & 0x20 > 0,
       (0x2001, Some(val)) => {
@@ -2687,11 +2758,12 @@ impl Mapper for MMC5 {
         if !self.ppu_substituion && ppu_sub {
           self.reset_irq(mem);
         } else if !ppu_sub {
-          self.irq_in_frame = false;
+          self.ppu_in_frame = false;
           self.last_ppu_addr = None;
         }
-
+        
         self.ppu_substituion = ppu_sub;
+        // self.update_chr_banks(mem);
       }
 
       _ => {}

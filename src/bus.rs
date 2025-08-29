@@ -181,12 +181,12 @@ impl Banking<VramBank> {
         self.set_page(2, 0);
         self.set_page(3, 1);
       }
-      Mirroring::SingleScreenA => {
+      Mirroring::LowTable => {
         for i in 0..self.bankings.len() {
           self.set_page(i as u8, 0);
         }
       }
-      Mirroring::SingleScreenB => {
+      Mirroring::HighTable => {
         for i in 0..self.bankings.len() {
           self.set_page(i as u8, 1);
         }
@@ -271,6 +271,7 @@ pub struct Bus {
   pub nmi: bool,
   pub irq: IrqFlags,
 
+  pub header: CartHeader,
   pub banks: BanksHandler,
 }
 
@@ -337,12 +338,14 @@ impl Bus {
       nmi: false,
       irq: IrqFlags::empty(),
 
+      header: cart.header,
       banks,
     })
   }
 
-  // TODO: should take with games which don't have any wram but still call this
   pub fn wram_enable(&mut self, cond: bool) {
+    if self.wram.is_empty() { return; }
+    
     if cond {
       self.set_wram_handlers(CpuHandler::WramRW);
     } else {
@@ -350,8 +353,8 @@ impl Bus {
     }
   }
 
-  // TODO: what if WRAM is not present?
   pub fn set_wram_handlers(&mut self, handler: CpuHandler) {
+    if self.wram.is_empty() { return; }
     self.cpu_handlers_8kb[3] = handler;
   }
 
@@ -435,7 +438,8 @@ impl Emu {
         if matches!(addr, 0x4000..=0x4013 | 0x4015 | 0x4017) {
           self.apu_reg_write(addr, val)
         } else if addr == 0x4014 { 
-          self.ppu.dma.load((val as u16) << 8, 256)
+          self.ppu.dma.load((val as u16) << 8, 256);
+          self.cpu_tick();
         } else if addr == 0x4016 { self.joypad.write(val) }
           else { self.mapper.cart_write(mem, addr, val as u16) }
       }

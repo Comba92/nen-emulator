@@ -645,7 +645,6 @@ impl Emu {
       for i in 8..self.ppu.oam_tmp.len() {
         let sprite = &self.ppu.oam_tmp[i as usize];
         let pttrn_addr = self.ppu.spr_pttrn_addr(sprite);
-
         let flip_hori = sprite.flip_hori();
 
         let mut pttrn_lo = self.ppu_dispatch_read(pttrn_addr);
