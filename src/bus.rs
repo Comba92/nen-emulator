@@ -1,24 +1,24 @@
-use crate::{cart::{Cart, CartHeader}, emu::{Emu, Mirroring}};
+use crate::{cart::{Cart, CartHeader}, disk::Disk, emu::{Emu, Mirroring}, mapper::{self, Mapper}};
 
 pub trait BankCfg {}
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct PrgBank;
 impl BankCfg for PrgBank {}
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct ChrBank;
 impl BankCfg for ChrBank {}
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct WramBank;
 impl BankCfg for WramBank {}
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct VramBank;
 impl BankCfg for VramBank {}
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Banking<T: BankCfg> {
   real_size: usize,
   addressable_size: u16,
@@ -49,10 +49,6 @@ impl<T: BankCfg + std::fmt::Debug> Banking<T> {
       bankings,
       kind: std::marker::PhantomData::<T>,
     }
-  }
-
-  pub fn pages_count(&self) -> usize {
-    self.bankings.len()
   }
 
   pub fn change_mode(&mut self, pages_count: u16) {
@@ -118,7 +114,8 @@ impl<T: BankCfg + std::fmt::Debug> Banking<T> {
 
   pub fn translate(&self, addr: u16) -> usize {
     // let page = (addr % self.pages_size) / self.bank_size;
-    let page = (addr >> self.bank_size_shift) as usize % self.pages_count();
+    // let page = (addr >> self.bank_size_shift) as usize % self.bankings.len();
+    let page = (addr >> self.bank_size_shift) as usize;
 
     // i do not expect to write outside the slots array here either.
     // self.bankings[page] + (addr % self.bank_size)
@@ -132,31 +129,16 @@ impl Banking<PrgBank> {
     Self::new(header.prg_size, 32 * 1024, pages_count)
   }
 }
-impl Default for Banking<PrgBank> {
-  fn default() -> Self {
-    Banking::new(32 * 1024, 32 * 1024, 2)
-  }
-}
 
 impl Banking<ChrBank> {
   pub fn new_chr(header: &CartHeader, pages_count: u16) -> Self {
     Self::new(header.chr_size, 8 * 1024, pages_count)
   }
 }
-impl Default for Banking<ChrBank> {
-  fn default() -> Self {
-    Banking::new(8 * 1024, 8 * 1024, 1)
-  }
-}
 
 impl Banking<WramBank> {
   pub fn new_wram(header: &CartHeader, pages_count: u16) -> Self {
     Self::new(header.wram_size, 8 * 1024, pages_count)
-  }
-}
-impl Default for Banking<WramBank> {
-  fn default() -> Self {
-    Banking::new(8* 1024, 8 * 1024, 1)
   }
 }
 
@@ -197,11 +179,6 @@ impl Banking<VramBank> {
         }
       }
     }
-  }
-}
-impl Default for Banking<VramBank> {
-  fn default() -> Self {
-    Banking::new(2 * 1024, 1024, 4)
   }
 }
 
@@ -277,7 +254,7 @@ pub struct Bus {
 }
 
 impl Bus {
-  pub fn new(cart: Cart) -> Result<Self, String> {
+  pub fn with_cart(cart: Cart) -> Self {
     let banks = BanksHandler::new(&cart.header);
 
     let wram_handler = if cart.header.wram_size > 0 { CpuHandler::WramRW } else { CpuHandler::Mapper };
@@ -318,7 +295,7 @@ impl Bus {
     // Use the semi-random contents of RAM on powerup to seed their RNGs.
     // _ = getrandom::fill(&mut ram);
 
-    Ok(Self {
+    Self {
       ram,
       prg: cart.prg,
       chr: cart.chr,
@@ -342,7 +319,84 @@ impl Bus {
 
       header: cart.header,
       banks,
-    })
+    }
+  }
+
+  pub fn with_disk(disk: Disk) -> (Self, Box<dyn Mapper>) {
+    let mut header = CartHeader::default();
+    header.mapper = 20;
+
+    let mut banks = BanksHandler::default();
+
+    // keep like this so we can just use the standard prg handler
+    banks.prg = Banking::new(8 * 1024, 8 * 1024, 4);
+    let mut prg = vec![0; 8 * 1024];
+    prg.copy_from_slice(include_bytes!("../utils/disksys.rom"));
+    banks.wram = Banking::new(32 * 1024, 32 * 1024, 4);
+
+    banks.chr = Banking::new(8 * 1024, 8 * 1024, 1);
+    banks.vram = Banking::new(2 * 1024, 4 * 1024, 2);
+
+    let cpu_handlers_8kb = [
+      CpuHandler::Ram,
+      CpuHandler::Ppu,
+      CpuHandler::IO,
+      CpuHandler::WramRW,
+      CpuHandler::WramRW,
+      CpuHandler::WramRW,
+      CpuHandler::WramRW,
+      CpuHandler::Prg,
+    ];
+
+    let ppu_handlers_1kb = [
+      PpuHandler::ChrRam,
+      PpuHandler::ChrRam,
+      PpuHandler::ChrRam,
+      PpuHandler::ChrRam,
+      PpuHandler::ChrRam,
+      PpuHandler::ChrRam,
+      PpuHandler::ChrRam,
+      PpuHandler::ChrRam,
+      PpuHandler::Vram,
+      PpuHandler::Vram,
+      PpuHandler::Vram,
+      PpuHandler::Vram,
+      PpuHandler::Palette,
+      PpuHandler::Palette,
+      PpuHandler::Palette,
+      PpuHandler::Palette
+    ];
+
+    let mut mem = Self {
+      ram: [0; 2 * 1024],
+      prg,
+      chr: vec![0; 8 * 1024],
+      vram: vec![0; 32 * 1024],
+      wram: vec![0; 2 * 1024],
+      palettes: [0; 32],
+
+      cpu_handlers_8kb,
+      ppu_handlers_1kb,
+
+      cpu_addr_bus: 0,
+      cpu_data_bus: 0,
+      ppu_addr_bus: 0,
+      ppu_data_bus: 0,
+      
+      ppu_cycle: 0,
+      ppu_scanline: 0,
+      
+      nmi: false,
+      irq: IrqFlags::empty(),
+
+      header,
+      banks,
+    };
+
+    let mut fds = mapper::FDS::new(&mut mem);
+    fds.sides = disk.sides;
+
+    (mem, fds as Box<dyn Mapper>)
   }
 
   pub fn wram_enable(&mut self, cond: bool) {
@@ -503,8 +557,7 @@ impl Emu {
         }
       }
       
-      PpuHandler::ChrMMC5 => self.mapper.special_read(mem, addr),
-      PpuHandler::VramMMC5 => self.mapper.special_read(mem, addr),
+      PpuHandler::ChrMMC5 | PpuHandler::VramMMC5 => self.mapper.special_read(mem, addr),
     };
 
     // shouldn't set ppu_addr_bus
@@ -530,10 +583,10 @@ impl Emu {
 
   pub fn ppu_dispatch_write(&mut self, addr: u16, val: u8) {
     let mem = &mut self.mem;
-    
+
     let addr = addr & 0x3fff;
     let handler = (addr >> 10) % 16;
-    
+
     match mem.ppu_handlers_1kb[handler as usize] {
       PpuHandler::ChrRom => {}
       PpuHandler::ChrRam | PpuHandler::ChrMMC5 => mem.chr[mem.banks.chr.translate(addr)] = val,

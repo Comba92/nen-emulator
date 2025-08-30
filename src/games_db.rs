@@ -51,8 +51,6 @@ impl From<&GameData> for CartHeader {
       0
     };
 
-    println!("{:?}", value);
-
     Self {
       prg_size: value.prg_size,
       chr_size,

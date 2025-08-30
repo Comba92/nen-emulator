@@ -1,4 +1,4 @@
-use crate::{apu::ApuRP2A, bus::Bus, cart::{Cart, CartHeader}, cpu::{self, Cpu6502}, joypad::Joypad, mapper::{self, Mapper, NROM}, ppu::Ppu2C02, Palette};
+use crate::{apu::ApuRP2A, bus::Bus, cart::Cart, cpu::{self, Cpu6502}, disk::Disk, joypad::Joypad, mapper::{self, Mapper, NROM}, ppu::Ppu2C02, Palette};
 
 #[derive(Default)]
 pub struct EmuSettings {
@@ -53,7 +53,7 @@ impl Default for Emu {
       ppu: Ppu2C02::new(),
       apu: ApuRP2A::new(),
       joypad: Joypad::default(),
-      mem: Bus::new(Cart::default()).unwrap(),
+      mem: Bus::with_cart(Cart::default()),
       mapper: Box::new(NROM),
       
       #[cfg(feature = "ram64kb")]
@@ -70,14 +70,44 @@ impl Default for Emu {
   }
 }
 
+pub enum Game {
+  Cart(Cart),
+  Disk(Disk)
+}
+impl Game {
+  pub fn new(bytes: &[u8]) -> Result<Self, &'static str> {
+    let cart = Cart::new(bytes);
+
+    let game = match cart {
+      Ok(cart) => Game::Cart(cart),
+      Err(_) => {
+        let disk = Disk::from(bytes).map_err(|_| "not a valid iNes/NES2.0 or FDS rom")?;
+        Game::Disk(disk)
+      }
+    };
+
+    Ok(game)
+  }
+}
+
 impl Emu {
   pub fn new(rom: &[u8]) -> Result<Self, String> {
-    let cart = Cart::new(rom)?;
+    let game = Game::new(rom)?;
 
-    let mut mem = Bus::new(cart)?;
-    let mapper = mapper::from_header(&mut mem)?;
+    let (mem, mapper) = match game {
+      Game::Cart(cart) => {
+        let mut mem = Bus::with_cart(cart);
+        let mapper = mapper::new(&mut mem)?;
+        (mem, mapper)
+      }
+      Game::Disk(disk) => {
+        return Err("loaded disk, not supported yet".to_string());
+        Bus::with_disk(disk)
+      },
+    };
+    
     let palette = Palette::from_pal_file(include_bytes!("../utils/2C02G_wiki.pal")).unwrap();
-
+    
     let mut emu = Self {
       cpu: Cpu6502::new(),
       ppu: Ppu2C02::new(),
@@ -171,5 +201,9 @@ impl Emu {
     } else {
       println!("not a valid palette file");
     }
+  }
+
+  pub fn load_disk(&mut self, bytes: &[u8]) {
+    todo!()
   }
 }

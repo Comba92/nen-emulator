@@ -1,9 +1,9 @@
-struct DiskHeader {
-  sides: Vec<Vec<u8>>,
+pub struct Disk {
+  pub sides: Vec<Vec<u8>>,
 }
 
 // https://github.com/SourMesen/Mesen2/blob/fabc9a62174f8734a113df6d244f5539ef6b8fcf/Core/NES/Loaders/FdsLoader.cpp#L21
-impl DiskHeader {
+impl Disk {
   const FDS_MAGIC: &[u8] = &[0x46, 0x44, 0x53, 0x1A];
   const FDS_HEADER_SIZE: usize = 16;
   const SIDE_SIZE: usize = 65500;
@@ -23,7 +23,7 @@ impl DiskHeader {
   }
 
   // TODO: change asserts to err
-  pub fn new(bytes: &[u8]) -> Result<Self, &'static str> {
+  pub fn from(bytes: &[u8]) -> Result<Self, &'static str> {
     let (rom_start, sides_count) = if &bytes[..4] == Self::FDS_MAGIC {
       (Self::FDS_HEADER_SIZE, bytes[4] as usize)
     } else { 
@@ -104,11 +104,11 @@ impl DiskHeader {
 
 #[test]
 fn parse_test() {
-  let bytes = include_bytes!("../roms/Metroid (Japan) (v1.2) [b].fds");
-  DiskHeader::new(bytes);
+  let bytes = include_bytes!("../roms/metroid.fds");
+  Disk::from(bytes);
 
   println!("\n=====\n\n");
 
   let bytes = include_bytes!("../roms/Super Mario Brothers 2 (Japan).fds");
-  DiskHeader::new(bytes);
+  Disk::from(bytes);
 }

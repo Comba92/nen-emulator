@@ -9,6 +9,9 @@ https://www.reddit.com/r/EmuDev/comments/xta12t/confused_about_cycles_and_emulat
 
 - https://www.nesdev.org/wiki/MMC5
 
+// vs system
+- https://www.nesdev.org/wiki/INES_Mapper_099
+
 - https://www.nesdev.org/wiki/INES_Mapper_118
 // has both chr rom and chr ram
 - https://www.nesdev.org/wiki/INES_Mapper_119
@@ -16,7 +19,6 @@ https://www.reddit.com/r/EmuDev/comments/xta12t/confused_about_cycles_and_emulat
 - https://www.nesdev.org/wiki/INES_Mapper_018
 - https://www.nesdev.org/wiki/INES_Mapper_032
 - https://www.nesdev.org/wiki/INES_Mapper_065
-- https://www.nesdev.org/wiki/NINA-003-006
 
 - https://www.nesdev.org/wiki/INES_Mapper_077
 
@@ -26,5 +28,3 @@ https://www.reddit.com/r/EmuDev/comments/xta12t/confused_about_cycles_and_emulat
 - https://www.nesdev.org/wiki/INES_Mapper_228
 
 - https://www.nesdev.org/wiki/RAMBO-1
-
-SCROLLING GLITCH

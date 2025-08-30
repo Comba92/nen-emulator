@@ -63,7 +63,7 @@ impl CartHeader {
     }
   }
 
-  pub fn new(bytes: &[u8]) -> Result<Self, &'static str> {
+  pub fn from(bytes: &[u8]) -> Result<Self, &'static str> {
     let header = Self::parse(bytes);
 
     match header {
@@ -92,7 +92,7 @@ impl CartHeader {
   pub fn parse(bytes: &[u8]) -> Result<Self, &'static str> {
     // TODO: UNIF support
     if Self::is_valid_unif(bytes) {
-      return Err("valid UNIF ROM, not yet parsed by this emulator")
+      return Err("valid UNIF ROM, but not yet supported by this emulator")
     }
     
     if !Self::is_valid_ines(bytes) {
@@ -186,7 +186,7 @@ impl CartHeader {
 
 impl Cart {
   pub fn new(rom_bytes: &[u8]) -> Result<Self, &'static str> {
-    let header = CartHeader::new(rom_bytes)?;
+    let header = CartHeader::from(rom_bytes)?;
 
     // only iNes supported
     let rom_start = header.len();
