@@ -234,12 +234,12 @@ bitflags::bitflags! {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum CpuHandler {
-  Ram, Ppu, IO, WramRW, WramReadOnly, Prg, PrgInWram, PrgMMC5, PpuMMC5, Mapper,
+  Ram, Ppu, IO, WramRW, WramReadOnly, Prg, Mapper, PrgInWram, PrgMMC5, PpuMMC5
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum PpuHandler {
-  ChrRom, ChrRam, Vram, Palette, VramInChr, ExRam
+  ChrRom, ChrRam, Vram, Palette, VramInChr, ChrMMC5, VramMMC5
 }
 
 // TODO: access prg, chr, sram, vram with unsafe uncheked get, as index bounds cannot be optimized
@@ -263,6 +263,7 @@ pub struct Bus {
   pub cpu_addr_bus: u16,
   pub cpu_data_bus: u8,
   pub ppu_addr_bus: u16,
+  pub ppu_data_bus: u8,
 
   // TODO: remove these, only used for DEBUG porpuoses
   pub ppu_cycle: i16,
@@ -312,7 +313,7 @@ impl Bus {
       PpuHandler::Palette
     ];
 
-    let mut ram = [0; 2 * 1024];
+    let ram = [0; 2 * 1024];
     // Final Fantasy, River City Ransom, Apple Town Story[5], Impossible Mission II[6] amongst others
     // Use the semi-random contents of RAM on powerup to seed their RNGs.
     // _ = getrandom::fill(&mut ram);
@@ -331,6 +332,7 @@ impl Bus {
       cpu_addr_bus: 0,
       cpu_data_bus: 0,
       ppu_addr_bus: 0,
+      ppu_data_bus: 0,
       
       ppu_cycle: 0,
       ppu_scanline: 0,
@@ -366,7 +368,7 @@ impl Bus {
   }
 
   pub fn set_chr_handlers(&mut self, handler: PpuHandler) {
-    for i in 4..8 {
+    for i in 0..8 {
       self.ppu_handlers_1kb[i] = handler;
     }
   }
@@ -409,6 +411,7 @@ impl Emu {
       CpuHandler::WramRW | CpuHandler::WramReadOnly => mem.wram[mem.banks.wram.translate(addr - 0x6000)],
       CpuHandler::Prg => mem.prg[mem.banks.prg.translate(addr - 0x8000)],
       CpuHandler::PrgInWram => mem.prg[mem.banks.wram.translate(addr - 0x6000)],
+      
       CpuHandler::PrgMMC5 => {
         self.mapper.notify_cpu_addr(mem, addr, None);
         mem.prg[mem.banks.prg.translate(addr - 0x8000)]
@@ -431,10 +434,6 @@ impl Emu {
     match mem.cpu_handlers_8kb[handler as usize] {
       CpuHandler::Ram => mem.ram[addr as usize & 0x07ff] = val,
       CpuHandler::Ppu => self.ppu_reg_write(addr & 0x2007, val),
-      CpuHandler::PpuMMC5 => {
-        self.mapper.notify_cpu_addr(mem, addr, Some(val));
-        self.ppu_reg_write(addr & 0x2007, val);
-      }
       CpuHandler::IO => {
         if matches!(addr, 0x4000..=0x4013 | 0x4015 | 0x4017) {
           self.apu_reg_write(addr, val)
@@ -468,6 +467,11 @@ impl Emu {
         self.mapper.prg_write(mem, addr, val as u16);
       }
       CpuHandler::WramReadOnly => {},
+
+      CpuHandler::PpuMMC5 => {
+        self.mapper.notify_cpu_addr(mem, addr, Some(val));
+        self.ppu_reg_write(addr & 0x2007, val);
+      }
     }
 
     self.mem.cpu_addr_bus = addr;
@@ -498,13 +502,17 @@ impl Emu {
           mem.ppu_addr_bus as u8
         }
       }
-      PpuHandler::ExRam => todo!()
+      
+      PpuHandler::ChrMMC5 => self.mapper.special_read(mem, addr),
+      PpuHandler::VramMMC5 => self.mapper.special_read(mem, addr),
     };
 
     // shouldn't set ppu_addr_bus
     if handler != PpuHandler::Palette {
       self.update_ppu_bus(addr);
     }
+
+    self.mem.ppu_data_bus = res;
 
     res
   }
@@ -528,8 +536,8 @@ impl Emu {
     
     match mem.ppu_handlers_1kb[handler as usize] {
       PpuHandler::ChrRom => {}
-      PpuHandler::ChrRam => mem.chr[mem.banks.chr.translate(addr)] = val,
-      PpuHandler::Vram => mem.vram[mem.banks.vram.translate(addr - 0x2000)] = val,
+      PpuHandler::ChrRam | PpuHandler::ChrMMC5 => mem.chr[mem.banks.chr.translate(addr)] = val,
+      PpuHandler::Vram | PpuHandler::VramMMC5 => mem.vram[mem.banks.vram.translate(addr - 0x2000)] = val,
       PpuHandler::VramInChr => mem.vram[mem.banks.vram.translate(addr)] = val,
       PpuHandler::Palette => {
         if matches!(addr, 0x3f00..=0x3fff) {
@@ -550,9 +558,9 @@ impl Emu {
           return;
         }
       }
-      PpuHandler::ExRam => todo!()
     }
 
     self.update_ppu_bus(addr);
+    self.mem.ppu_data_bus = val;
   }
 }

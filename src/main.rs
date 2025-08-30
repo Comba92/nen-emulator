@@ -1,5 +1,26 @@
+use std::io::{BufReader, Read, Seek};
+
 use nes_emulator::{emu::Emu, joypad::NesButtons};
 use sdl2::{event::Event, keyboard::Keycode, pixels::PixelFormatEnum};
+
+fn load_rom(path: &str) -> Result<Emu, Box<dyn std::error::Error>> {
+    let mut bytes = Vec::new();
+    let mut file = std::fs::File::open(path)?;
+
+    let _ = zip::read::ZipArchive::new(BufReader::new(&file))
+        .map_err(|e| e.into())
+        .and_then(|mut archive| {
+            archive.by_index(0)
+            .map_err(|e| e.into())
+            .and_then(|mut zip| {
+                zip.read_to_end(&mut bytes)
+            })
+        }).or_else(|_| {
+            file.rewind().and_then(|_| BufReader::new(&file).read_to_end(&mut bytes))
+        })?;
+
+    Emu::new(&bytes).map_err(|e| e.into())
+}
 
 fn main() {
     let sdl = sdl2::init().unwrap();
@@ -56,7 +77,7 @@ fn main() {
                         continue;
                     }
 
-                    let new_emu = Emu::new(&bytes);
+                    let new_emu = load_rom(&filename);
 
                     match new_emu {
                         Ok(res) => {

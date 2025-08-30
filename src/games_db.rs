@@ -220,4 +220,11 @@ fn count_chr() {
     .collect::<BTreeSet<_>>();
   println!("{:#?}", games_with_both);
 }
+#[test]
+fn count_mmc5_ram() {
+  let count = GAMES_DB.games.iter()
+    .filter(|x| x.mapper == 5 && x.chrram_size > 0)
+    .collect::<Vec<_>>();
+  println!("{count:?}");
+}
 }
