@@ -173,8 +173,6 @@ pub struct Ppu2C02 {
   shifter: ShifterData,
 }
 
-// TODO: rendering_enabled checks
-
 impl Ppu2C02 {
   pub fn new(region: &Region) -> Self {
     let scanlines_count = match region {
@@ -736,7 +734,6 @@ impl Emu {
     }
 
     // TODO: can do this without ifs?
-    // TODO: something is off with sprite priority in front of backgrounds
     let color_id = if ppu.mask.contains(Mask::SprEnable) && spr_pixel > 0 && (spr_data.priority() || bg_pixel == 0) {
       self.spr_color_from_palette(spr_data.palette(), spr_pixel)
     } else if ppu.mask.contains(Mask::BgEnable) && bg_pixel > 0 {
@@ -746,7 +743,11 @@ impl Emu {
     };
 
     // TODO: mask greyscale and color emphasis
-    self.videobuf[self.ppu.pixel] = color_id;
+    if self.ppu.mask.contains(Mask::GreyScale) { 
+      self.videobuf[self.ppu.pixel] = color_id & 0x30;
+    } else {
+      self.videobuf[self.ppu.pixel] = color_id;
+    }
     self.ppu.pixel += 1;
   }
 

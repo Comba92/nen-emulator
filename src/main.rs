@@ -1,6 +1,6 @@
 use std::io::{BufReader, Read, Seek};
 
-use nes_emulator::{emu::Emu, joypad::NesButtons};
+use nes_emulator::{emu::Emu, joypad::Button};
 use sdl2::{event::Event, keyboard::Keycode, pixels::PixelFormatEnum};
 
 fn load_rom(path: &str) -> Result<Emu, Box<dyn std::error::Error>> {
@@ -40,7 +40,7 @@ fn main() {
     let audiospec = sdl2::audio::AudioSpecDesired {
         channels: Some(1),
         freq: Some(48000),
-        samples: Some(2048),
+        samples: None,
     };
     let audiodev = audio.open_queue(None, &audiospec).unwrap();
     audiodev.resume();
@@ -59,12 +59,13 @@ fn main() {
     let mut emu = Emu::new(include_bytes!("../roms/super mario.nes")).unwrap();
 
     let mut framebuf = [0; 256 * 240 * 4];
-    let frame_rate = (1.0 / emu.frame_rate() * 1000.0) as u64;
-    println!("FRAME RATE: {frame_rate}");
+    let mut frame_rate = 1 + (1.0 / emu.frame_rate() * 1000.0) as u64;
+    println!("{frame_rate}");
 
-    // let mut avg_missed = 0;
-    // let mut frames_missed = 0;
-    // let mut frames_count = 0;
+
+    let mut avg_missed = 0;
+    let mut frames_missed = 0;
+    let mut frames_count = 0;
     'running: loop {
         let frame_start = timer.ticks64();
 
@@ -84,6 +85,8 @@ fn main() {
                     match new_emu {
                         Ok(res) => {
                             emu = res;
+                            frame_rate = 1 + (1.0 / emu.frame_rate() * 1000.0) as u64;
+                            println!("{frame_rate}");
                             audiodev.clear();
                         },
                         Err (e) => eprintln!("{e}"),
@@ -92,14 +95,14 @@ fn main() {
                 Event::KeyDown { keycode, .. } => {
                     if let Some(keycode) = keycode {
                         match keycode {
-                            Keycode::W => emu.joypad.set_button(NesButtons::Up, true),
-                            Keycode::A => emu.joypad.set_button(NesButtons::Left, true),
-                            Keycode::S => emu.joypad.set_button(NesButtons::Down, true),
-                            Keycode::D => emu.joypad.set_button(NesButtons::Right, true),
-                            Keycode::K => emu.joypad.set_button(NesButtons::A, true),
-                            Keycode::J => emu.joypad.set_button(NesButtons::B, true),
-                            Keycode::M => emu.joypad.set_button(NesButtons::Start, true),
-                            Keycode::N => emu.joypad.set_button(NesButtons::Select, true),
+                            Keycode::W => emu.joypad.set_button(Button::Up, true),
+                            Keycode::A => emu.joypad.set_button(Button::Left, true),
+                            Keycode::S => emu.joypad.set_button(Button::Down, true),
+                            Keycode::D => emu.joypad.set_button(Button::Right, true),
+                            Keycode::K => emu.joypad.set_button(Button::A, true),
+                            Keycode::J => emu.joypad.set_button(Button::B, true),
+                            Keycode::M => emu.joypad.set_button(Button::Start, true),
+                            Keycode::N => emu.joypad.set_button(Button::Select, true),
                             _ => {}
                         }
                     }
@@ -108,14 +111,14 @@ fn main() {
                 Event::KeyUp { keycode, .. } => {
                     if let Some(keycode) = keycode {
                         match keycode {
-                            Keycode::W => emu.joypad.set_button(NesButtons::Up, false),
-                            Keycode::A => emu.joypad.set_button(NesButtons::Left, false),
-                            Keycode::S => emu.joypad.set_button(NesButtons::Down, false),
-                            Keycode::D => emu.joypad.set_button(NesButtons::Right, false),
-                            Keycode::K => emu.joypad.set_button(NesButtons::A, false),
-                            Keycode::J => emu.joypad.set_button(NesButtons::B, false),
-                            Keycode::M => emu.joypad.set_button(NesButtons::Start, false),
-                            Keycode::N => emu.joypad.set_button(NesButtons::Select, false),
+                            Keycode::W => emu.joypad.set_button(Button::Up, false),
+                            Keycode::A => emu.joypad.set_button(Button::Left, false),
+                            Keycode::S => emu.joypad.set_button(Button::Down, false),
+                            Keycode::D => emu.joypad.set_button(Button::Right, false),
+                            Keycode::K => emu.joypad.set_button(Button::A, false),
+                            Keycode::J => emu.joypad.set_button(Button::B, false),
+                            Keycode::M => emu.joypad.set_button(Button::Start, false),
+                            Keycode::N => emu.joypad.set_button(Button::Select, false),
                             _ => {}
                         }
                     }
@@ -127,24 +130,21 @@ fn main() {
         emu.step_until_vblank();
         audiodev.queue_audio(emu.get_audio()).unwrap();
 
-        // TODO: audio lagging out
-        while audiodev.size() < audiodev.spec().samples as u32 * 4 {
+        while audiodev.size()/2 < audiodev.spec().samples as u32 * 2 {
             // run for another frame
-            // println!("Running another frame for filling the audio queue... {}", audiodev.size());
 
             emu.step_until_vblank();
             audiodev.queue_audio(emu.get_audio()).unwrap();
-            // println!("Are we filled? {}", audiodev.size());
 
-            // frames_missed += 1;
+            frames_missed += 1;
         }
 
-        // frames_count += 1;
-        // if frames_count % 60 == 0 {
-        //     println!("Missed this second: {frames_missed}");
-        //     avg_missed += frames_missed / 60;
-        //     frames_missed = 0;
-        // }
+        frames_count += 1;
+        if frames_count % 60 == 0 {
+            // println!("Missed this second: {frames_missed}");
+            avg_missed += frames_missed / 60;
+            frames_missed = 0;
+        }
 
         
         emu.get_video_rgba(&mut framebuf);

@@ -48,6 +48,7 @@ pub struct Cpu6502 {
   op_val: Option<u8>,
   op_addr: u16,
 
+  nmi_to_handle: bool,
   pub cycles: usize,
 }
 
@@ -156,6 +157,10 @@ impl Emu {
     // https://www.nesdev.org/wiki/CPU_interrupts#IRQ_and_NMI_tick-by-tick_execution
     if self.mem.nmi {
       self.mem.nmi = false;
+      // When NMI becomes enabled while the vblank flag is already set, the resulting NMI occurs late enough in the instruction that another instruction is able to execute before the NMI is serviced.
+      self.cpu.nmi_to_handle = true;
+    } else if self.cpu.nmi_to_handle {
+      self.cpu.nmi_to_handle = false;
       self.handle_interrupt(NMI_VECTOR);
     } else if !self.mem.irq.is_empty()
       && !self.cpu.p.contains(Status::IrqDisable)

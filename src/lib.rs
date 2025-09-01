@@ -50,7 +50,7 @@ impl Palette {
 pub mod joypad {
   bitflags::bitflags! {
     #[derive(Default)]
-    pub struct NesButtons: u8 {
+    pub struct Button: u8 {
       const A = 1 << 0;
       const B = 1 << 1;
       const Select = 1 << 2;
@@ -66,7 +66,7 @@ pub mod joypad {
   pub struct Joypad {
     polling: bool,
     curr_btn: u8,
-    buttons: NesButtons,
+    buttons: Button,
   }
 
   impl Joypad {
@@ -76,7 +76,7 @@ pub mod joypad {
         self.curr_btn = (self.curr_btn + 1) % 8;
         res
       } else {
-        self.buttons.contains(NesButtons::A) as u8
+        self.buttons.contains(Button::A) as u8
       }
     }
 
@@ -85,7 +85,7 @@ pub mod joypad {
       self.curr_btn = if self.polling { 0 } else { self.curr_btn };
     }
 
-    pub fn set_button(&mut self, btn: NesButtons, state: bool) {
+    pub fn set_button(&mut self, btn: Button, state: bool) {
       self.buttons.set(btn, state);
     }
   }

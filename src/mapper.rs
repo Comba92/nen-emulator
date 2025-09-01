@@ -11,12 +11,12 @@ pub trait Mapper {
   fn new(mem: &mut Bus) -> Box<Self> where Self: Sized;
   // 0x8000..=0xffff
   // TODO: turn back val to u8... ?
-  fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u16);
+  fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u8);
   
   // 0x4020..=0x5fff
   fn cart_read(&mut self, mem: &mut Bus, _addr: u16) -> u8 { mem.cpu_data_bus }
   // TODO: consider getting rid of this and use handlers
-  fn cart_write(&mut self, _mem: &mut Bus, _addr: u16, _val: u16) {}
+  fn cart_write(&mut self, _mem: &mut Bus, _addr: u16, _val: u8) {}
   fn step(&mut self, _mem: &mut Bus, _cycles: usize) {}
 
   fn notify_ppu_addr(&mut self, _mem: &mut Bus, _cycles: usize) {}
@@ -27,8 +27,10 @@ pub trait Mapper {
   fn sample(&self) -> f32 { 0.0 }
 }
 
-pub fn new(mem: &mut Bus) -> Result<Box<dyn Mapper>, String> {
-  let mapper: Box<dyn Mapper> = match mem.header.mapper {
+pub type BoxedMapper = Box<dyn Mapper + Send>; 
+
+pub fn new(mem: &mut Bus) -> Result<BoxedMapper, String> {
+  let mapper: BoxedMapper = match mem.header.mapper {
     0 => NROM::new(mem),
     1 => MMC1::new(mem),
     2 | 94 | 180 => UxROM::new(mem),
@@ -85,7 +87,7 @@ impl Mapper for NROM {
     Box::new(Self)
   }
 
-  fn prg_write(&mut self, _: &mut Bus, _: u16, _: u16) {}
+  fn prg_write(&mut self, _: &mut Bus, _: u16, _: u8) {}
 }
 
 // https://www.nesdev.org/wiki/UxROM
@@ -104,8 +106,8 @@ impl Mapper for UxROM {
     })
   }
 
-  fn prg_write(&mut self, mem: &mut Bus, _: u16, val: u16) {
-    mem.banks.prg.set_page(self.bank, val >> self.shift);
+  fn prg_write(&mut self, mem: &mut Bus, _: u16, val: u8) {
+    mem.banks.prg.set_page(self.bank, (val >> self.shift) as u16);
   }
 }
 
@@ -127,8 +129,8 @@ impl Mapper for CNROM {
     Box::new(Self)
   }
 
-  fn prg_write(&mut self, mem: &mut Bus, _: u16, val: u16) {
-    mem.banks.chr.set_page(0, val & 0xf);
+  fn prg_write(&mut self, mem: &mut Bus, _: u16, val: u8) {
+    mem.banks.chr.set_page(0, val as u16 & 0xf);
   }
 }
 
@@ -142,7 +144,8 @@ impl Mapper for GxROM {
     Box::new(Self)
   }
 
-  fn prg_write(&mut self, mem: &mut Bus, _: u16, val: u16) {
+  fn prg_write(&mut self, mem: &mut Bus, _: u16, val: u8) {
+    let val = val as u16;
     mem.banks.prg.set_page(0, (val >> 4) & 0b11);
     mem.banks.chr.set_page(0, val & 0b1111);
   }
@@ -156,8 +159,8 @@ impl Mapper for AxROM {
     Box::new(Self)
   }
 
-  fn prg_write(&mut self, mem: &mut Bus, _: u16, val: u16) {
-    mem.banks.prg.set_page(0, val & 0b111);
+  fn prg_write(&mut self, mem: &mut Bus, _: u16, val: u8) {
+    mem.banks.prg.set_page(0, val as u16 & 0b111);
     
     let mirroring = if val & 0x10 == 0 {
       Mirroring::LowTable
@@ -179,7 +182,7 @@ mod mmc1 {
 // TODO: prg rom write delay
 #[derive(Default, Debug)]
 struct MMC1 {
-  shift_reg: u16,
+  shift_reg: u8,
   shift_count: u8,
 
   prg_mode: u8,
@@ -194,6 +197,8 @@ struct MMC1 {
   chr_mode: bool,
   chr_bank0: u16,
   chr_bank1: u16,
+
+  write_delay: u8,
 }
 impl MMC1 {
   fn update_all_banks(&mut self, mem: &mut Bus, val: u16) {
@@ -286,7 +291,13 @@ impl Mapper for MMC1 {
     Box::new(res)
   }
 
-  fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u16) {
+  fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
+    if self.write_delay > 0 {
+      self.write_delay = 2;
+      return;
+    }
+    self.write_delay = 2;
+    
     if val & 0x80 != 0 {
       self.shift_reg = 0;
       self.shift_count = 0;
@@ -297,6 +308,7 @@ impl Mapper for MMC1 {
       
       return;
     }
+
 
     self.shift_reg |= (val & 1) << self.shift_count;
     self.shift_count += 1;
@@ -326,25 +338,29 @@ impl Mapper for MMC1 {
       }
       0xa000..=0xbfff => {
       // 0xa000 => {
-        self.chr_bank0 = val;
-        self.update_all_banks(mem, val);
+        self.chr_bank0 = val as u16;
+        self.update_all_banks(mem, self.chr_bank0);
       }
       // 0xc000..=0xdfff => {
       0xc000 => {
-        self.chr_bank1 = val;
+        self.chr_bank1 = val as u16;
         if self.chr_mode {
-          self.update_all_banks(mem, val);
+          self.update_all_banks(mem, self.chr_bank1);
         }
       }
       // 0xe000..=0xffff => {
       0xe000 => {
-        self.prg_bank = val & 0xf;
+        self.prg_bank = val as u16 & 0xf;
         self.update_prg_banks(mem);
 
         mem.wram_enable(val & 0x10 == 0);
       }
       _ => {}
     }
+  }
+
+  fn step(&mut self, _mem: &mut Bus, _cycles: usize) {
+    if self.write_delay > 0 { self.write_delay -= 1; }
   }
 }
 
@@ -392,7 +408,9 @@ impl Mapper for MMC2 {
     })
   }
 
-  fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u16) {
+  fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
+    let val = val as u16;
+
     match addr >> 12 {
       0xa => mem.banks.prg.set_page(0, val & 0xf),
       0xb => self.bank_fd.set_page(0, val & 0x1f),
@@ -484,11 +502,11 @@ impl Mapper for MMC3 {
     })
   }
 
-  fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u16) {
+  fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
     match addr & 0xe001 {
       // (0x8000..=0x9fff, true)
       0x8000 => {
-        self.bank_select = val as u8 & 0x7;
+        self.bank_select = val & 0x7;
         
         let chr_invert = val & 0x80 > 0;
         if self.chr_invert != chr_invert {
@@ -499,7 +517,7 @@ impl Mapper for MMC3 {
           self.chr_invert = chr_invert;
         }
 
-        let prg_mode = val as u8 & 0x40;
+        let prg_mode = val & 0x40;
         if self.prg_mode != prg_mode {
           mem.banks.prg.swap_pages(0, 2);
 
@@ -512,6 +530,7 @@ impl Mapper for MMC3 {
 
       // (0x8000..=0x9fff, false)
       0x8001 => {
+        let val = val as u16;
         match (self.bank_select, self.chr_invert) {
           (6, _) => mem.banks.prg.set_page(self.prg_swapped, val & 0x3f),
           (7, _) => mem.banks.prg.set_page(1, val & 0x3f),
@@ -555,7 +574,7 @@ impl Mapper for MMC3 {
       }
 
       // (0xc000..=0xdfff, true)
-      0xc000 => self.irq_latch = val as u8,
+      0xc000 => self.irq_latch = val,
       
       // (0xc000..=0xdfff, false)
       0xc001 => {
@@ -609,7 +628,8 @@ impl Mapper for ColorDreams {
     Box::new(Self)
   }
 
-  fn prg_write(&mut self, mem: &mut Bus, _: u16, val: u16) {
+  fn prg_write(&mut self, mem: &mut Bus, _: u16, val: u8) {
+    let val = val as u16;
     mem.banks.prg.set_page(0, val & 0b11);
     mem.banks.chr.set_page(0, val >> 4);
   }
@@ -620,8 +640,8 @@ impl Mapper for ColorDreams {
 #[derive(Default)]
 struct Codemasters {
   mapper: u16,
-  prg_block: u16,
-  prg_bank: u16,
+  prg_block: u8,
+  prg_bank: u8,
 }
 impl Mapper for Codemasters {
   fn new(mem: &mut Bus) -> Box<Self> {
@@ -635,14 +655,14 @@ impl Mapper for Codemasters {
     })
   }
 
-  fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u16) {
+  fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
     match (addr & 0xf000, self.mapper) {
       (0x8000..=0xb000, 232) => {
         self.prg_block = (val >> 3) & 0b11;
         self.prg_bank = (self.prg_block << 2) | (self.prg_bank & 0x3);
-        mem.banks.prg.set_page(0, self.prg_bank);
+        mem.banks.prg.set_page(0, self.prg_bank as u16);
         // CAREFUL: last page should be relative to current block
-        mem.banks.prg.set_page(1, (self.prg_block << 2) | 0x3);
+        mem.banks.prg.set_page(1, (self.prg_block << 2) as u16 | 0x3);
       }
       // For compatibility without using a submapper, FCEUX begins all games with fixed mirroring, and applies single screen mirroring only once $9000-9FFF is written, ignoring writes to $8000-8FFF.
       (0x9000, _) => if val & 0x10 == 0 {
@@ -650,10 +670,10 @@ impl Mapper for Codemasters {
       } else {
         mem.banks.vram.mirror(&Mirroring::HighTable);
       }
-      (0xc000..=0xf000, 71) => mem.banks.prg.set_page(0, val & 0b1111),
+      (0xc000..=0xf000, 71) => mem.banks.prg.set_page(0, val as u16 & 0b1111),
       (0xc000..=0xf000, 232) => {
         self.prg_bank = (self.prg_bank & 0xc) | (val & 0b11);
-        mem.banks.prg.set_page(0, self.prg_bank);
+        mem.banks.prg.set_page(0, self.prg_bank as u16);
       }
       _ => {}
     }
@@ -669,8 +689,8 @@ impl Mapper for CPROM {
     Box::new(Self)
   }
 
-  fn prg_write(&mut self, mem: &mut Bus, _: u16, val: u16) {
-    mem.banks.chr.set_page(1, val & 0b11);
+  fn prg_write(&mut self, mem: &mut Bus, _: u16, val: u8) {
+    mem.banks.chr.set_page(1, val as u16 & 0b11);
   }
 }
 
@@ -683,10 +703,10 @@ impl Mapper for NSF {
     Box::new(Self)
   }
 
-  fn prg_write(&mut self, _: &mut Bus, _: u16, _: u16) {}
-  fn cart_write(&mut self, mem: &mut Bus, addr: u16, val: u16) {
+  fn prg_write(&mut self, _: &mut Bus, _: u16, _: u8) {}
+  fn cart_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
     if (addr >> 12) == 0x5 {
-      mem.banks.prg.set_page(addr as u8 & 0b111, val);
+      mem.banks.prg.set_page(addr as u8 & 0b111, val as u16);
     }
   }
 }
@@ -704,7 +724,8 @@ impl Mapper for Irem74HCx {
     })
   }
 
-  fn prg_write(&mut self, mem: &mut Bus, _: u16, val: u16) {
+  fn prg_write(&mut self, mem: &mut Bus, _: u16, val: u8) {
+    let val = val as u16;
     mem.banks.prg.set_page(0, val & 0b111);
     mem.banks.chr.set_page(0, val >> 4);
 
@@ -727,19 +748,19 @@ impl Mapper for Irem74HCx {
 struct BandaiFCG {
   mapper: u16,
   submapper: u8,
-  prg_bank: u16,
+  prg_bank: u8,
   irq_enabled: bool,
   irq_latch: u16,
   irq_count: u16,
 }
 impl BandaiFCG {
-  fn write(&mut self, mem: &mut Bus, addr: u16, val: u16) {
+  fn write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
     match (addr & 0xf, self.mapper) {
-      (0x0..=0x7, 16 | 159) => mem.banks.chr.set_page(addr as u8 & 0xf, val),
+      (0x0..=0x7, 16 | 159) => mem.banks.chr.set_page(addr as u8 & 0xf, val as u16),
       (0x0..=0x3, 153) => {
         let prg_block = val & 1;
         self.prg_bank = (prg_block << 4) | (self.prg_bank & 0x0f);
-        mem.banks.prg.set_page(0, self.prg_bank);
+        mem.banks.prg.set_page(0, self.prg_bank as u16);
 
         let last_bank = if prg_block == 0 {
           mem.banks.prg.banks_count/2 - 1
@@ -753,7 +774,7 @@ impl BandaiFCG {
       }
       (0x8, _) => {
         self.prg_bank = (self.prg_bank & 0xf0) | val;
-        mem.banks.prg.set_page(0, self.prg_bank);
+        mem.banks.prg.set_page(0, self.prg_bank as u16);
       }
       (0x9, _) => {
         let mirroring = match val & 0x3 {
@@ -777,14 +798,14 @@ impl BandaiFCG {
         }
       }
       (0xb, _) => if self.submapper == 4 {
-        self.irq_count = byte_set_lo(self.irq_count, val as u8);
+        self.irq_count = byte_set_lo(self.irq_count, val);
       } else if self.submapper == 5 {
-        self.irq_latch = byte_set_lo(self.irq_latch, val as u8);
+        self.irq_latch = byte_set_lo(self.irq_latch, val);
       }
       (0xc, _) => if self.submapper == 4 {
-        self.irq_count = byte_set_hi(self.irq_count, val as u8);
+        self.irq_count = byte_set_hi(self.irq_count, val);
       } else if self.submapper == 5 {
-        self.irq_latch = byte_set_hi(self.irq_latch, val as u8);
+        self.irq_latch = byte_set_hi(self.irq_latch, val);
       }
       (0xd, 16 | 159) => if self.submapper == 5 {
         // TODO: eeprom ctrl
@@ -841,13 +862,13 @@ impl Mapper for BandaiFCG {
     mem.cpu_data_bus
   }
 
-  fn cart_write(&mut self, mem: &mut Bus, addr: u16, val: u16) {
+  fn cart_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
     if self.submapper == 4 {
       self.write(mem, addr, val);
     }
   }
 
-  fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u16) {
+  fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
     if self.submapper == 5 {
       self.write(mem, addr, val);
     }
@@ -880,7 +901,8 @@ impl Mapper for Bandai74 {
     })
   }
 
-  fn prg_write(&mut self, mem: &mut Bus, _: u16, val: u16) {
+  fn prg_write(&mut self, mem: &mut Bus, _: u16, val: u8) {
+    let val = val as u16;
     mem.banks.chr.set_page(0, val & 0xf);
     
     if self.mapper == 152 {
@@ -901,8 +923,8 @@ impl Mapper for IremTAMS1 {
     Box::new(Self)
   }
 
-  fn prg_write(&mut self, mem: &mut Bus, _: u16, val: u16) {
-    mem.banks.prg.set_page(1, val & 0x1f);
+  fn prg_write(&mut self, mem: &mut Bus, _: u16, val: u8) {
+    mem.banks.prg.set_page(1, val as u16 & 0x1f);
     let mirroring = if val & 0x80 == 0 { Mirroring::Horizontal } else { Mirroring::Vertical }; 
     mem.banks.vram.mirror(&mirroring);
   }
@@ -928,7 +950,7 @@ impl Mapper for NTDEC2722 {
     Box::new(Self::default())
   }
 
-  fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u16) {
+  fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
     match addr & 0xe000 {
       0x8000 => {
         self.irq_enabled = false;
@@ -940,7 +962,7 @@ impl Mapper for NTDEC2722 {
       0xc000 => if self.submapper == 1 {
         // TODO: submapper 1 stuff
       }
-      0xe000 => mem.banks.prg.set_page(2, val),
+      0xe000 => mem.banks.prg.set_page(2, val as u16),
       _ => {}
     }
   }
@@ -1021,10 +1043,9 @@ impl Mapper for Namco129_163 {
     }
   }
 
-  fn cart_write(&mut self, mem: &mut Bus, addr: u16, val: u16) {
+  fn cart_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
     if self.mapper != 19 { return; }
 
-    let val = val as u8;
     // TODO: use mask
     match addr {
       0x5000..=0x57ff => {
@@ -1041,7 +1062,7 @@ impl Mapper for Namco129_163 {
     }
   }
 
-  fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u16) {
+  fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
     // TODO: use mask
     match (addr, self.mapper) {
       (0x8000..=0xdfff, 19) => {
@@ -1051,11 +1072,11 @@ impl Mapper for Namco129_163 {
 
         if val >= 0xe0 && nametbl_enabled {
           // use nametables
-          mem.banks.vram.set_page(page, val & 1);
+          mem.banks.vram.set_page(page, val as u16 & 1);
           mem.ppu_handlers_1kb[page as usize] = PpuHandler::VramInChr;
         } else {
           // use chr
-          mem.banks.chr.set_page(page, val);
+          mem.banks.chr.set_page(page, val as u16);
           // All commercial-era titles only come with CHR-ROM.
           mem.ppu_handlers_1kb[page as usize] = PpuHandler::ChrRom;
         }
@@ -1063,7 +1084,7 @@ impl Mapper for Namco129_163 {
       
       (0x8000..=0xbfff, 210) => {
         let page = ((addr - 0x8000) / 0x800) as u8;
-        mem.banks.chr.set_page(page, val);
+        mem.banks.chr.set_page(page, val as u16);
       }
 
       (0xc000..=0xc7ff, 210) => {
@@ -1074,7 +1095,7 @@ impl Mapper for Namco129_163 {
       }
 
       (0xe000..=0xe7ff, _) => {
-        mem.banks.prg.set_page(0, val & 0x3f);
+        mem.banks.prg.set_page(0, val as u16 & 0x3f);
         // TODO: disable sound
 
         // namco 340 only
@@ -1090,12 +1111,12 @@ impl Mapper for Namco129_163 {
       }
 
       (0xe800..=0xefff, _) => {
-        mem.banks.prg.set_page(1, val & 0x3f);
+        mem.banks.prg.set_page(1, val as u16 & 0x3f);
         self.chr_ram0 = val & 0x40 > 0;
         self.chr_ram1 = val & 0x80 > 0;
       }
       (0xf000..=0xf7ff, _) => {
-        mem.banks.prg.set_page(2, val & 0x3f);
+        mem.banks.prg.set_page(2, val as u16 & 0x3f);
       }
       (0xf800..=0xffff, 19) => {
         // TODO: write protect for exram for mapper 19
@@ -1134,12 +1155,12 @@ impl Mapper for J87 {
     })
   }
 
-  fn cart_write(&mut self, mem: &mut Bus, _: u16, val: u16) {
+  fn cart_write(&mut self, mem: &mut Bus, _: u16, val: u8) {
     let bank = ((val & 0x1) << self.shift) | ((val & 0x2) >> self.shift);
-    mem.banks.chr.set_page(0, bank);
+    mem.banks.chr.set_page(0, bank as u16);
   }
 
-  fn prg_write(&mut self, _: &mut Bus, _: u16, _: u16) {}
+  fn prg_write(&mut self, _: &mut Bus, _: u16, _: u8) {}
 }
 
 // https://www.nesdev.org/wiki/INES_Mapper_034
@@ -1151,7 +1172,7 @@ struct NINA00x_BNROM {
   submapper: u8,
 }
 impl Mapper for NINA00x_BNROM {
-  fn new(mem: &mut Bus) -> Box<Self> where Self: Sized {
+  fn new(mem: &mut Bus) -> Box<Self> {
     // should be considered BNROM when the CHR-ROM size is 0-8 KiB, and NINA-001/NINA-002 when the CHR-ROM size is above 8 KiB. 
     let mut submapper = 0;
     if mem.header.submapper == 1 || mem.header.chr_size > 8 * 1024 {
@@ -1171,10 +1192,10 @@ impl Mapper for NINA00x_BNROM {
     })
   }
 
-  fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u16) {
+  fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
     match (addr, self.submapper) {
       (0x7ffd, 1) | (0x8000..=0xffff, 2) => {
-        mem.banks.prg.set_page(0, val);
+        mem.banks.prg.set_page(0, val as u16);
         if self.mapper == 177 {
           if val & 0x20 > 0 {
             mem.banks.vram.mirror(&Mirroring::Vertical);
@@ -1183,8 +1204,8 @@ impl Mapper for NINA00x_BNROM {
           }
         }
       }
-      (0x7ffe, 1) => mem.banks.chr.set_page(0, val),
-      (0x7fff, 1) => mem.banks.chr.set_page(1, val),
+      (0x7ffe, 1) => mem.banks.chr.set_page(0, val as u16),
+      (0x7fff, 1) => mem.banks.chr.set_page(1, val as u16),
       _ => {}
     }
   }
@@ -1198,8 +1219,9 @@ impl Mapper for NINA003_006 {
     Box::new(Self)
   }
 
-  fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u16) {
+  fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
     if addr & 0xe100 == 0x4100 {
+      let val = val as u16;
       mem.banks.prg.set_page(0, (val >> 3) & 1);
       mem.banks.chr.set_page(0, val & 0x7);
     }
@@ -1240,7 +1262,9 @@ impl Mapper for DxROM {
     })
   }
 
-  fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u16) {
+  fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
+    let val = val as u16;
+
     if self.mapper == 154 {
       // Note that this bit is present over the entire 32kB range; it is not present in only odd or even addresses unlike the associated Namcot 108. 
       if val & 0x40 > 0 {
@@ -1319,7 +1343,8 @@ impl Mapper for NapoleonSenki {
     Box::new(Self)
   }
 
-  fn prg_write(&mut self, mem: &mut Bus, _: u16, val: u16) {
+  fn prg_write(&mut self, mem: &mut Bus, _: u16, val: u8) {
+    let val = val as u16;
     mem.banks.prg.set_page(0, val & 0xf);
     mem.banks.chr.set_page(0, val >> 4);
   }
@@ -1334,9 +1359,10 @@ impl Mapper for Sunsoft1 {
     Box::new(Self)
   }
 
-  fn prg_write(&mut self, _: &mut Bus, _: u16, _: u16) {}
+  fn prg_write(&mut self, _: &mut Bus, _: u16, _: u8) {}
 
-  fn cart_write(&mut self, mem: &mut Bus, _: u16, val: u16) {
+  fn cart_write(&mut self, mem: &mut Bus, _: u16, val: u8) {
+    let val = val as u16;
     mem.banks.chr.set_page(0, val & 0b111);
     mem.banks.chr.set_page(1, (val >> 4) & 0b111);
   }
@@ -1350,8 +1376,8 @@ impl Mapper for Sunsoft93 {
     Box::new(Self)
   }
 
-  fn prg_write(&mut self, mem: &mut Bus, _: u16, val: u16) {
-    mem.banks.prg.set_page(0, (val >> 4) & 0b111);
+  fn prg_write(&mut self, mem: &mut Bus, _: u16, val: u8) {
+    mem.banks.prg.set_page(0, (val >> 4) as u16 & 0b111);
   }
 }
 
@@ -1363,7 +1389,8 @@ impl Mapper for Sunsoft89 {
     Box::new(Self)
   }
 
-  fn prg_write(&mut self, mem: &mut Bus, _: u16, val: u16) {
+  fn prg_write(&mut self, mem: &mut Bus, _: u16, val: u8) {
+    let val = val as u16;
     mem.banks.prg.set_page(0, (val >> 4) & 0b111);
     mem.banks.chr.set_page(0, ((val & 0x80) >> 4) | (val & 0b111));
 
@@ -1387,11 +1414,12 @@ impl Mapper for Sunsoft3 {
     Box::new(Self::default())
   }
 
-  fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u16) {
+  fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
     if addr & 0x8800 == 0x8000 {
       mem.irq.remove(IrqFlags::MAPPER);
     }
 
+    let val = val as u16;
     match addr & 0xf800 {
       0x8800 => mem.banks.chr.set_page(0, val),
       0x9800 => mem.banks.chr.set_page(1, val),
@@ -1493,7 +1521,7 @@ impl Mapper for Sunsoft4 {
     })
   }
 
-  fn cart_write(&mut self, _mem: &mut Bus, addr: u16, _val: u16) {
+  fn cart_write(&mut self, _mem: &mut Bus, addr: u16, _val: u8) {
     // TODO: licensing IC
     match addr >> 12 {
       0x6 | 0x7 => {
@@ -1504,7 +1532,8 @@ impl Mapper for Sunsoft4 {
     }
   }
 
-  fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u16) {
+  fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
+    let val = val as u16;
     match addr >> 12 {
       // mapper expects 2kb banks number, but we have 1kb bank slots, we need to shift
       0x8 => mem.banks.chr.set_pages_aligned2(0, val << 1),
@@ -1634,13 +1663,13 @@ impl Mapper for SunsoftFME7 {
     })
   }
 
-  fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u16) {
+  fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
     match addr & 0xe000 {
       // 0x8000..=0x9fff
       0x8000 => self.cpu_command = val as u8 & 0b1111,
       // 0xa000..=0xbfff
       0xa000 => match self.cpu_command {
-        0..=7 => mem.banks.chr.set_page(self.cpu_command, val),
+        0..=7 => mem.banks.chr.set_page(self.cpu_command, val as u16),
         8 => {
           let mode = val & 0x40 > 0;
 
@@ -1648,13 +1677,13 @@ impl Mapper for SunsoftFME7 {
             let handler = if mode { CpuHandler::Wram } else { CpuHandler::PrgInWram };
             mem.set_wram_handlers(handler);
 
-            mem.banks.wram.set_page(0, val & 0x3f);
+            mem.banks.wram.set_page(0, val as u16 & 0x3f);
             self.uses_wram = mode;
           }
 
           mem.wram_enable(val & 0x80 > 0);
         }
-        0x9..=0xb => mem.banks.prg.set_page(self.cpu_command - 9, val),
+        0x9..=0xb => mem.banks.prg.set_page(self.cpu_command - 9, val as u16),
         0xc => {
           let mirroring = match val & 0b11 {
               0 => Mirroring::Vertical,
@@ -1669,14 +1698,14 @@ impl Mapper for SunsoftFME7 {
           self.irq_count_enabled = val & 0x80 > 0;
           mem.irq.remove(IrqFlags::MAPPER);
         }
-        0xe => self.irq_count = byte_set_lo(self.irq_count, val as u8),
-        0xf => self.irq_count = byte_set_hi(self.irq_count, val as u8),
+        0xe => self.irq_count = byte_set_lo(self.irq_count, val),
+        0xf => self.irq_count = byte_set_hi(self.irq_count, val),
         _ => {}
       }
 
       // 0xc000..=0xdfff
       0xc000 => {
-        self.audio_command = val as u8 & 0x0f;
+        self.audio_command = val & 0x0f;
         self.audio_enabled = val & 0xf0 == 0;
       }
       // TODO: audio partially implemented, not working
@@ -1685,14 +1714,14 @@ impl Mapper for SunsoftFME7 {
         if !self.audio_enabled { return; }
 
         match self.audio_command {
-          0x0 => self.ta.period = byte_set_lo(self.ta.period, val as u8),
-          0x1 => self.ta.period = byte_set_hi(self.ta.period, val as u8 & 0xf),
+          0x0 => self.ta.period = byte_set_lo(self.ta.period, val),
+          0x1 => self.ta.period = byte_set_hi(self.ta.period, val & 0xf),
 
-          0x2 => self.tb.period = byte_set_lo(self.ta.period, val as u8),
-          0x3 => self.tb.period = byte_set_hi(self.ta.period, val as u8 & 0xf),
+          0x2 => self.tb.period = byte_set_lo(self.ta.period, val),
+          0x3 => self.tb.period = byte_set_hi(self.ta.period, val & 0xf),
 
-          0x4 => self.tc.period = byte_set_lo(self.ta.period, val as u8),
-          0x5 => self.tc.period = byte_set_hi(self.ta.period, val as u8 & 0xf),
+          0x4 => self.tc.period = byte_set_lo(self.ta.period, val),
+          0x5 => self.tc.period = byte_set_hi(self.ta.period, val & 0xf),
 
           0x6 => {
             // Noise period
@@ -1704,13 +1733,13 @@ impl Mapper for SunsoftFME7 {
           }
 
           0x8 => {
-            self.ta.volume = val as u8 & 0xf;
+            self.ta.volume = val & 0xf;
           }
           0x9 => {
-            self.tb.volume = val as u8 & 0xf;
+            self.tb.volume = val & 0xf;
           }
           0xa => {
-            self.tc.volume = val as u8 & 0xf;
+            self.tc.volume = val & 0xf;
           }
 
           // This audio hardware was only used in one game, Gimmick!
@@ -1839,10 +1868,10 @@ impl Mapper for FDS {
     }
   }
 
-  fn cart_write(&mut self, mem: &mut Bus, addr: u16, val: u16) {
+  fn cart_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
     match addr {
-      0x4020 => self.timer_reload = byte_set_lo(self.timer_reload, val as u8),
-      0x4021 => self.timer_reload = byte_set_hi(self.timer_reload, val as u8),
+      0x4020 => self.timer_reload = byte_set_lo(self.timer_reload, val),
+      0x4021 => self.timer_reload = byte_set_hi(self.timer_reload, val),
     
       0x4022 => {
         self.timer_repeat = val & 0x1 > 0;
@@ -1899,7 +1928,7 @@ impl Mapper for FDS {
     }
   }
 
-  fn prg_write(&mut self, _mem: &mut Bus, _addr: u16, _val: u16) {}
+  fn prg_write(&mut self, _mem: &mut Bus, _addr: u16, _val: u8) {}
 
   fn step(&mut self, mem: &mut Bus, _cycles: usize) {
     if self.timer_enabled {

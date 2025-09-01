@@ -22,7 +22,7 @@ pub struct Emu {
 
   pub frame_ready: bool,
   pub videobuf: [u8; 256 * 240],
-  audiobuf: [i16; 1024],
+  audiobuf: [i16; 2 * 1024],
 
   palette: Palette,
   pub settings: EmuSettings,
@@ -56,7 +56,7 @@ impl Default for Emu {
       frame_ready: false,
 
       videobuf: [0; 256 * 240],
-      audiobuf: [0; 1024],
+      audiobuf: [0; 2 * 1024],
 
       palette: Palette::default(),
       settings: EmuSettings::default()
@@ -69,15 +69,15 @@ pub enum Game {
   Disk(Disk)
 }
 impl Game {
-  pub fn new(bytes: &[u8]) -> Result<Self, &'static str> {
+  pub fn new(bytes: &[u8]) -> Result<Self, String> {
     let cart = Cart::new(bytes);
 
     let game = match cart {
       Ok(cart) => Game::Cart(cart),
-      Err(_) => {
+      Err(e1) => {
         // try to parse as fds rom if not valid nes rom
         let disk = Disk::from(bytes)
-          .map_err(|_| "not a valid iNes/NES2.0 or FDS rom")?;
+          .map_err(|e2| format!("not a valid iNes/NES2.0 or FDS rom: {e1}, {e2}"))?;
         Game::Disk(disk)
       }
     };
@@ -117,7 +117,7 @@ impl Emu {
       mapper,
 
       videobuf: [0; 256 * 240],
-      audiobuf: [0; 1024],
+      audiobuf: [0; 2 * 1024],
       palette,
       
       frame_ready: false,
@@ -208,7 +208,7 @@ impl Emu {
 
   // TODO: if audio isn't read, the buffer will overflow and panic
   pub fn get_audio(&mut self) -> &[i16] {
-    let read = self.apu.blip.0.read_samples(&mut self.audiobuf, false);
+    let read = self.apu.blip.0.read_samples(&mut self.audiobuf[..self.apu.blip.0.samples_avail() as usize], false);
     &self.audiobuf[..read]
   }
 

@@ -628,17 +628,18 @@ impl Emu {
 
   pub fn apu_step(&mut self) {
     self.frame_count_step();
+    
+    if self.cpu.cycles % 2 == 1 {
+      self.apu.p0.step_divider();
+      self.apu.p1.step_divider();
+      self.apu.noise.step_divider();
+    }
+
     let apu = &mut self.apu;
     
     // The triangle channel's timer is clocked on every CPU cycle, but the pulse, noise, and DMC timers are clocked only on every second CPU cycle and thus produce only even periods.
     apu.tri.step_divider();
     apu.dmc.step_divider();
-    
-    if apu.cycles % 2 == 1 {
-      apu.p0.step_divider();
-      apu.p1.step_divider();
-      apu.noise.step_divider();
-    }
 
     // TODO: lookup table method
     let pulse = 0.00752 * (apu.p0.sample() + apu.p1.sample()) as f32;
@@ -649,7 +650,8 @@ impl Emu {
 
     let ext = self.mapper.sample() * 0.00568;
 
-    let sample = (pulse + tnd + ext) * 80000.0;
+    
+    let sample = (pulse + tnd + ext) * 40000.0;
     let delta = sample - apu.prev_sample;
 
     apu.blip.0.add_delta(apu.cycles as u32, delta as i32);

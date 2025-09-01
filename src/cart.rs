@@ -7,7 +7,6 @@ pub struct Cart {
   pub chr: Vec<u8>,
 }
 
-// TODO: FDS support
 #[derive(Debug, Default, Clone, PartialEq)]
 pub enum HeaderFormat {
   #[default] Headerless, INes, Nes2_0, Unif,
@@ -122,6 +121,11 @@ impl CartHeader {
 
     if version == 0x08 {
       // NES 2.0
+      if bytes[9] & 0xf == 0x0f || bytes[9] & 0xf0 == 0xf0 {
+        return Err("exponent-multiplier notation not supported")
+      }
+
+
       header.format = HeaderFormat::Nes2_0;
       header.mapper |= (bytes[8] as u16 & 0xf) << 8;
       header.submapper = bytes[8] >> 4;
@@ -193,6 +197,7 @@ impl Cart {
 
     // only iNes supported
     let rom_start = header.len();
+    println!("{header:?}");
     let prg = rom_bytes[rom_start..rom_start+header.prg_size].to_vec();
     let chr = if header.has_chr_ram {
       vec![0; header.chr_size]

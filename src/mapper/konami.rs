@@ -15,7 +15,8 @@ impl Mapper for VRC1 {
     Box::new(Self::default()) 
   }
 
-  fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u16) {
+  fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
+    let val = val as u16;
     match addr & 0xf000 {
       0x8000 => mem.banks.prg.set_page(0, val),
       0xa000 => mem.banks.prg.set_page(1, val),
@@ -60,7 +61,7 @@ impl Mapper for VRC3 {
     Box::new(Self::default())
   }
 
-  fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u16) {
+  fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
     match addr >> 12 {
       0x8 => self.irq_latch = (self.irq_latch & !0x000f) | (((val & 0xf) as u16) << 0),
       0x9 => self.irq_latch = (self.irq_latch & !0x00f0) | (((val & 0xf) as u16) << 4),
@@ -81,7 +82,7 @@ impl Mapper for VRC3 {
         mem.irq.remove(IrqFlags::MAPPER);
       }
       
-      0xf => mem.banks.prg.set_page(0, val),
+      0xf => mem.banks.prg.set_page(0, val as u16),
       _ => {}
     }
   }
@@ -188,7 +189,7 @@ pub struct VRC2_4 {
   is_vrc2: bool,
 
   prg_swapped: u8,
-  prg_bank: u16,
+  prg_bank: u8,
   chr_regs: [u16; 8],
 
   latch: u8,
@@ -279,13 +280,13 @@ impl Mapper for VRC2_4 {
     } else { mem.cpu_data_bus }
   }
 
-  fn cart_write(&mut self, _: &mut Bus, addr: u16, val: u16) {
+  fn cart_write(&mut self, _: &mut Bus, addr: u16, val: u8) {
     if self.is_vrc2 && matches!(addr, 0x6000..=0x6fff) {
-      self.latch = val as u8 & 1;
+      self.latch = val & 1;
     }
   }
 
-  fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u16) {
+  fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
     let addr = self.translate_address(addr);
     match (addr & 0xf00f, self.is_vrc2) {
       (0x9002, false) => {
@@ -304,14 +305,14 @@ impl Mapper for VRC2_4 {
           self.prg_swapped = 0;
           mem.banks.prg.set_page(2, second_last_bank);
         }
-        mem.banks.prg.set_page(self.prg_swapped, self.prg_bank);
+        mem.banks.prg.set_page(self.prg_swapped, self.prg_bank as u16);
       }
 
       (0x8000..=0x8003, _) => {
         self.prg_bank = val;
-        mem.banks.prg.set_page(self.prg_swapped, val)
+        mem.banks.prg.set_page(self.prg_swapped, val as u16)
       }
-      (0xa000..=0xa003, _) => mem.banks.prg.set_page(1, val),
+      (0xa000..=0xa003, _) => mem.banks.prg.set_page(1, val as u16),
       (0x9000..=0x9003, true) | (0x9000, false) => {
         let val = if self.is_vrc2 { val & 0b01 } else { val & 0b11};
 
@@ -324,11 +325,11 @@ impl Mapper for VRC2_4 {
         mem.banks.vram.mirror(&mirroring);
       }
 
-      (0xb000..=0xe003, _) => self.update_chr_banks(mem, addr, val),
+      (0xb000..=0xe003, _) => self.update_chr_banks(mem, addr, val as u16),
 
-      (0xf000, false) => self.irq.latch = (self.irq.latch & 0xf0) | (val as u8 & 0xf),
-      (0xf001, false) => self.irq.latch = (self.irq.latch & 0x0f) | ((val as u8 & 0xf) << 4),
-      (0xf002, false) => self.irq.write_ctrl(val as u8, mem),
+      (0xf000, false) => self.irq.latch = (self.irq.latch & 0xf0) | (val & 0xf),
+      (0xf001, false) => self.irq.latch = (self.irq.latch & 0x0f) | ((val & 0xf) << 4),
+      (0xf002, false) => self.irq.write_ctrl(val, mem),
       (0xf003, false) => self.irq.write_ack(mem),
       _ => {}
     }
@@ -554,12 +555,11 @@ impl Mapper for VRC6 {
     res
   }
 
-  fn prg_write(&mut self, mem: &mut Bus, mut addr: u16, val: u16) {
+  fn prg_write(&mut self, mem: &mut Bus, mut addr: u16, val: u8) {
     if self.mapper == 26 {
       addr = (addr & 0xfffc) | ((addr & 0x01) << 1) | ((addr & 0x02) >> 1);
     }
 
-    let val = val as u8;
     match addr & 0xf003 {
       // be careful here: value passed here is missing lsb bit, so we have to shift it right
       0x8000..=0x8003 => mem.banks.prg.set_pages_aligned2(0, (val as u16) << 1),
@@ -651,12 +651,13 @@ impl Mapper for VRC7 {
     Box::new(Self::default())
   }
 
-  fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u16) {
+  fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
     let addr = if addr & 0x10 > 0 {
       // if we have 0x10, clear it and insert 0x8
       addr & !0x10 | 0x8
     } else { addr };
 
+    let val = val as u16;
     match addr & 0xf00f {
       // LOL
       0x8000 => mem.banks.prg.set_page(0, val),

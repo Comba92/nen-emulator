@@ -252,16 +252,15 @@ impl Mapper for MMC5 {
     }
   }
 
-  fn cart_write(&mut self, mem: &mut Bus, addr: u16, val: u16) {
-    let val = val as u8;
+  fn cart_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
     match addr {
-      0x5000 => self.p0.write_ctrl(val as u8),
-      0x5002 => self.p0.write_timer_lo(val as u8),
-      0x5003 => self.p0.write_timer_hi(val as u8),
+      0x5000 => self.p0.write_ctrl(val ),
+      0x5002 => self.p0.write_timer_lo(val),
+      0x5003 => self.p0.write_timer_hi(val),
 
-      0x5004 => self.p1.write_ctrl(val as u8),
-      0x5006 => self.p1.write_timer_lo(val as u8),
-      0x5007 => self.p1.write_timer_hi(val as u8),
+      0x5004 => self.p1.write_ctrl(val),
+      0x5006 => self.p1.write_timer_lo(val),
+      0x5007 => self.p1.write_timer_hi(val),
 
       0x5015 => {
         self.p0.len.enable(val & 0x1 > 0);
@@ -532,7 +531,7 @@ impl Mapper for MMC5 {
     }
   }
 
-  fn prg_write(&mut self, _: &mut Bus, _: u16, _: u16) {}
+  fn prg_write(&mut self, _: &mut Bus, _: u16, _: u8) {}
 
   // The sound output of the square channels are equivalent in volume to the corresponding APU channels, but the polarity of all MMC5 channels is reversed compared to the APU. 
   fn sample(&self) -> f32 {

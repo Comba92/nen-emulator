@@ -323,7 +323,7 @@ impl Bus {
     }
   }
 
-  pub fn with_disk(disk: Disk) -> (Self, Box<dyn Mapper>) {
+  pub fn with_disk(disk: Disk) -> (Self, Box<dyn Mapper + Send>) {
     let mut header = CartHeader::default();
     header.mapper = 20;
 
@@ -399,7 +399,7 @@ impl Bus {
     let mut fds = mapper::FDS::new(&mut mem);
     fds.disks = disk.sides;
 
-    (mem, fds as Box<dyn Mapper>)
+    (mem, fds as mapper::BoxedMapper)
   }
 
   pub fn wram_enable(&mut self, cond: bool) {
@@ -446,9 +446,6 @@ impl Bus {
 impl Emu {
   pub fn cpu_dispatch_read(&mut self, addr: u16) -> u8 {
     let mem = &mut self.mem;
-    
-    // TODO: cpu tick here
-    // Be sure to remove ticks in dma and cpu reads
 
     let handler = (addr >> 13) % 16;
 
@@ -483,9 +480,6 @@ impl Emu {
   pub fn cpu_dispatch_write(&mut self, addr: u16, val: u8) {    
     let mem = &mut self.mem;
 
-    // TODO: cpu tick here
-    // Be sure to remove ticks in dma and cpu reads
-
     let handler = (addr >> 13) % 16;
 
     match mem.cpu_handlers_8kb[handler as usize] {
@@ -498,13 +492,11 @@ impl Emu {
           self.ppu.dma.load((val as u16) << 8, 256);
           self.cpu_tick();
         } else if addr == 0x4016 { self.joypad.write(val) }
-          else { self.mapper.cart_write(mem, addr, val as u16) }
+          else { self.mapper.cart_write(mem, addr, val) }
       }
       // 0x4014 => {        
       //   // https://www.nesdev.org/wiki/PPU_registers#OAMDMA_-_Sprite_DMA_($4014_write)
       //   self.cpu_tick();
-      //   // TODO: +1 cycle on odd cpu cyles
-      //   // TODO: correct DMA behaviour
 
       //   let mut addr = (val as u16) << 8;
 
@@ -518,10 +510,10 @@ impl Emu {
       // }
 
       // TODO: this could just be prg_write...
-      CpuHandler::Mapper => self.mapper.cart_write(mem, addr, val as u16),
+      CpuHandler::Mapper => self.mapper.cart_write(mem, addr, val),
       CpuHandler::Wram => mem.wram[mem.banks.wram.translate(addr - 0x6000)] = val,
       CpuHandler::Prg | CpuHandler::PrgInWram | CpuHandler::PrgMMC5 => {
-        self.mapper.prg_write(mem, addr, val as u16);
+        self.mapper.prg_write(mem, addr, val);
       }
       CpuHandler::WramReadOnly => {},
 

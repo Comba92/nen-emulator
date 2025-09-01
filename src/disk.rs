@@ -24,7 +24,6 @@ impl Disk {
     data.push(0xad);
   }
 
-  // TODO: change asserts to err
   pub fn from(bytes: &[u8]) -> Result<Self, &'static str> {
     let (rom_start, sides_count) = if &bytes[..4] == Self::FDS_MAGIC {
       (Self::FDS_HEADER_SIZE, bytes[4] as usize)
