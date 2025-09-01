@@ -59,6 +59,8 @@ fn main() {
     let mut emu = Emu::new(include_bytes!("../roms/super mario.nes")).unwrap();
 
     let mut framebuf = [0; 256 * 240 * 4];
+    let frame_rate = (1.0 / emu.frame_rate() * 1000.0) as u64;
+    println!("FRAME RATE: {frame_rate}");
 
     // let mut avg_missed = 0;
     // let mut frames_missed = 0;
@@ -158,9 +160,8 @@ fn main() {
 
         let frame_duration = timer.ticks64() - frame_start;
 
-        if frame_duration < 16 {
-            timer.delay((16 - frame_duration) as u32);
+        if frame_duration < frame_rate {
+            timer.delay((frame_rate - frame_duration) as u32);
         }
     }
-
 }

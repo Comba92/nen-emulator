@@ -68,27 +68,15 @@ impl Emu {
     self.cpu.sp -= 3;
   }
 
-  #[cfg(not(feature = "ram64kb"))]
   fn cpu_read8(&mut self, addr: u16) -> u8 {
     let res = self.cpu_dispatch_read(addr);
     self.cpu_tick();
     res
   }
 
-  #[cfg(not(feature = "ram64kb"))]
   fn cpu_write8(&mut self, addr: u16, val: u8) {
     self.cpu_dispatch_write(addr, val);
     self.cpu_tick();
-  }
-
-  #[cfg(feature = "ram64kb")]
-  fn cpu_read8(&mut self, addr: u16) -> u8 {
-    self.ram[addr as usize]
-  }
-
-  #[cfg(feature = "ram64kb")]
-  fn cpu_write8(&mut self, addr: u16, val: u8) {
-    self.ram[addr as usize] = val;
   }
 
   pub fn cpu_read16(&mut self, addr: u16) -> u16 {
@@ -308,7 +296,6 @@ impl Emu {
   fn stack_curr(&self) -> u16 {
     STACK_START + self.cpu.sp as u16
   }
-
   fn stack_push8(&mut self, val: u8) {
     self.cpu_write8(self.stack_curr(), val);
     self.cpu.sp = self.cpu.sp.wrapping_sub(1);

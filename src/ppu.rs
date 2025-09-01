@@ -1,5 +1,5 @@
 use bitflags::Flags;
-use crate::{dma::Dma, emu::Emu, utils::{byte_set_hi, byte_set_lo}};
+use crate::{dma::Dma, emu::{Emu, Region}, utils::{byte_set_hi, byte_set_lo}};
 
 bitflags::bitflags! {
   #[derive(Default, Debug)]
@@ -41,6 +41,7 @@ struct CtrlStrut {
 }
 
 #[bitfields::bitfield(u16)]
+#[derive(Clone, Copy)]
 struct LoopyReg {
   #[bits(5)]
   coarse_x: u8,
@@ -55,12 +56,6 @@ struct LoopyReg {
 
   #[bits(1)]
   _unused: u16,
-}
-
-#[repr(u8)]
-#[derive(Default)]
-enum WriteToggle {
-  #[default] First, Second
 }
 
 #[derive(Default)]
@@ -145,7 +140,6 @@ impl Default for SprScanline {
 // https://docs.rs/nes-ppu/latest/src/nes_ppu
 #[derive(Default)]
 pub struct Ppu2C02 {
-
   ctrl: CtrlStrut,
   mask: Mask,
   stat: Status,
@@ -153,7 +147,7 @@ pub struct Ppu2C02 {
   v: LoopyReg,
   t: LoopyReg,
   x: u8,
-  w: WriteToggle,
+  w: bool,
 
   open_bus: u8,
   oam_addr: u8,
@@ -167,6 +161,7 @@ pub struct Ppu2C02 {
 
   pub cycle: i16,
   pub scanline: i16,
+  scanline_last: i16,
   pub pixel: usize,
   
   // https://www.nesdev.org/wiki/PPU_frame_timing
@@ -181,9 +176,16 @@ pub struct Ppu2C02 {
 // TODO: rendering_enabled checks
 
 impl Ppu2C02 {
-  pub fn new() -> Self {
+  pub fn new(region: &Region) -> Self {
+    let scanlines_count = match region {
+      Region::NTSC => 260,
+      // PAL NES PPUs render 70 vblank scanlines instead of 20
+      Region::PAL => 310,
+    };
+
     Self {
       scanline: -1,
+      scanline_last: scanlines_count,
       oam_tmp: vec![Sprite::empty(); 8],
       ..Default::default()
     }
@@ -303,32 +305,9 @@ impl Ppu2C02 {
     (bg_pixel, palette)
   }
 
-  pub fn oam_write(&mut self, val: u8) {
-    self.oam.0[self.oam_addr as usize] = val;
-    self.oam_addr = self.oam_addr.wrapping_add(1);
-  }
-}
-
-impl Emu {
-  pub fn ppu_reset(&mut self) {
-    self.ppu = Ppu2C02::new();
-  }
-
-  fn increase_addr(&mut self) {
-    let ppu = &mut self.ppu;
-    // if !ppu.is_rendering() {
-      ppu.v.0 = (ppu.v.0 + ppu.ctrl.vram_addr_inc) & 0x3fff;
-      self.update_ppu_bus(self.ppu.v.0);
-    // } else {
-      // https://www.nesdev.org/wiki/PPU_scrolling#$2007_(PPUDATA)_reads_and_writes
-      //   self.inc_scroll_x();
-      //   self.inc_scroll_y();
-    // }
-  }
-
   fn inc_scroll_x(&mut self) {
     // if self.ppu.rendering_enabled() {
-      let v = &mut self.ppu.v;
+      let v = &mut self.v;
       if v.coarse_x() == 31 {
         v.set_coarse_x(0);
         v.set_nametbl_x(!v.nametbl_x());
@@ -340,7 +319,7 @@ impl Emu {
 
   fn inc_scroll_y(&mut self) {
     // if self.ppu.rendering_enabled() {
-      let v = &mut self.ppu.v;
+      let v = &mut self.v;
       if v.fine_y() < 7 {                            // if fine Y < 7
         v.set_fine_y(v.fine_y() + 1);          // increment fine Y
       } else {                  
@@ -361,17 +340,46 @@ impl Emu {
   }
 
   fn restore_scroll_x(&mut self) {
-    // if self.ppu.rendering_enabled() {
-      self.ppu.v.set_nametbl_x(self.ppu.t.nametbl_x());
-      self.ppu.v.set_coarse_x(self.ppu.t.coarse_x());
+    // if self.rendering_enabled() {
+      self.v.set_nametbl_x(self.t.nametbl_x());
+      self.v.set_coarse_x(self.t.coarse_x());
     // }
   }
 
   fn restore_scroll_y(&mut self) {
-    // if self.ppu.rendering_enabled() {
-      self.ppu.v.set_nametbl_y(self.ppu.t.nametbl_y());
-      self.ppu.v.set_coarse_y(self.ppu.t.coarse_y());
-      self.ppu.v.set_fine_y(self.ppu.t.fine_y());
+    // if self.rendering_enabled() {
+      self.v.set_nametbl_y(self.t.nametbl_y());
+      self.v.set_coarse_y(self.t.coarse_y());
+      self.v.set_fine_y(self.t.fine_y());
+    // }
+  }
+
+  pub fn oam_write(&mut self, val: u8) {
+    self.oam.0[self.oam_addr as usize] = val;
+    self.oam_addr = self.oam_addr.wrapping_add(1);
+  }
+
+  pub fn reset(&mut self) {
+    *self = Ppu2C02 {
+      scanline: -1,
+      scanline_last: self.scanline_last,
+      v: self.v,
+      oam_tmp: vec![Sprite::empty(); 8],
+      ..Default::default()
+    }
+  }
+}
+
+impl Emu {
+  fn increase_addr(&mut self) {
+    let ppu = &mut self.ppu;
+    // if !ppu.is_rendering() {
+      ppu.v.0 = (ppu.v.0 + ppu.ctrl.vram_addr_inc) & 0x3fff;
+      self.update_ppu_bus(self.ppu.v.0);
+    // } else {
+      // https://www.nesdev.org/wiki/PPU_scrolling#$2007_(PPUDATA)_reads_and_writes
+      //   self.inc_scroll_x();
+      //   self.inc_scroll_y();
     // }
   }
 
@@ -383,7 +391,7 @@ impl Emu {
       // Status
       0x2002 => {
         // Reading this register has the side effect of clearing the PPU's internal w register.
-        ppu.w = WriteToggle::First;
+        ppu.w = false;
         
       // Reading $2002 within a few PPU clocks of when VBL is set results in special-case behavior. 
       // Reading one PPU clock before reads it as clear and never sets the flag or generates NMI for that frame. 
@@ -464,41 +472,38 @@ impl Emu {
       // Scroll
       0x2005 => {
         match ppu.w {
-          WriteToggle::First  => {
+          false  => {
             // Scroll X
             ppu.t.set_coarse_x(val >> 3);
             // coarse x
             ppu.x = val & 0x7;
-            ppu.w = WriteToggle::Second;
           }
-          WriteToggle::Second => {
+          true => {
             // Scroll Y
             ppu.t.set_coarse_y(val >> 3);
             ppu.t.set_fine_y(val & 0x7);
-            ppu.w = WriteToggle::First;
           }
-        };
+        }
+        ppu.w = !ppu.w;
       }
       // PpuAddr
       0x2006 => {
         match ppu.w {
-          WriteToggle::First  => {
+          false => {
             // The 16-bit address is written to PPUADDR one byte at a time, high byte first.
             // ppu.ppu_addr = byte_hi_set(ppu.ppu_addr, val);
             ppu.t.0 = byte_set_hi(ppu.t.0, val);
             // bit 14 of the internal t register that holds the data written to PPUADDR is forced to 0 when writing the PPUADDR high byte.
             ppu.t.0 &= 0x3fff;
-            ppu.w = WriteToggle::Second;
           }
-          WriteToggle::Second => {
+          true => {
             // ppu.ppu_addr = byte_lo_set(ppu.ppu_addr, val);
             ppu.t.0 = byte_set_lo(ppu.t.0, val);
             ppu.v.0 = ppu.t.0;
-            ppu.w = WriteToggle::First;
-
             self.update_ppu_bus(self.ppu.v.0);
           }
-        };
+        }
+        self.ppu.w = !self.ppu.w;
       }
       // PpuData
       0x2007 => self.ppu_write8(val),
@@ -560,7 +565,7 @@ impl Emu {
           .ppu_dispatch_read(self.ppu.fetcher.pttrn_addr + 8);
 
         // IMPORTANT: increase v by one
-        self.inc_scroll_x();
+        self.ppu.inc_scroll_x();
       }
 
       _ => {}
@@ -773,14 +778,14 @@ impl Emu {
     let ppu = &mut self.ppu;
 
     ppu.cycle += 1;
-    if ppu.cycle > 340 {
+    if ppu.cycle >= 341 {
       ppu.cycle = 0;
       ppu.scanline += 1;
 
       self.mem.ppu_scanline = self.ppu.scanline;
       let ppu = &mut self.ppu;
       
-      if ppu.scanline >= 261 {
+      if ppu.scanline > ppu.scanline_last {
         ppu.scanline = -1;
         
         self.mem.ppu_scanline = self.ppu.scanline;
@@ -817,11 +822,11 @@ impl Emu {
       256 => {
         self.bg_fetch_step();
         self.render_pixel();
-        self.inc_scroll_y();
+        self.ppu.inc_scroll_y();
         self.spr_evaluation();
       }
       257 => {
-        self.restore_scroll_x();
+        self.ppu.restore_scroll_x();
         self.spr_fetch_step();
       }
       257..=320 => self.spr_fetch_step(),
@@ -851,20 +856,20 @@ impl Emu {
       1..=255 | 321..=336 => self.bg_fetch_step(),
       256 => {
         self.bg_fetch_step();
-        self.inc_scroll_y();
+        self.ppu.inc_scroll_y();
       }
       257 => {
-        self.restore_scroll_x();
+        self.ppu.restore_scroll_x();
         self.spr_fetch_step();
       }
       257..=279 | 305..=320 => self.spr_fetch_step(),
       280..=304 => {
-        self.restore_scroll_y();
+        self.ppu.restore_scroll_y();
         self.spr_fetch_step();
       }
       337 => { self.ppu_dispatch_read(self.ppu.nametbl_addr()); }
       339 => {
-        if ppu.odd_frame && ppu.mask.contains(Mask::BgEnable) {
+        if ppu.odd_frame && !ppu.rendering_enabled() {
           ppu.cycle += 1;
         }
         self.ppu_dispatch_read(self.ppu.nametbl_addr());

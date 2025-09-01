@@ -1,6 +1,6 @@
 use blip_buf::BlipBuf;
 
-use crate::{bus::{self, IrqFlags}, dma::Dma, emu::Emu, utils::{byte_set_hi, byte_set_lo}};
+use crate::{bus::{self, IrqFlags}, dma::Dma, emu::{Emu, Region}, utils::{byte_set_hi, byte_set_lo}};
 
 #[derive(Default)]
 pub struct DividerCounter {
@@ -292,9 +292,13 @@ struct Noise {
 }
 
 impl Noise {
-  const TABLE: [u16; 16] = [
+  const TABLE_NTSC: [u16; 16] = [
     4, 8, 16, 32, 64, 96, 128, 160,
     202, 254, 380, 508, 762, 1016, 2034, 4068
+  ];
+  const TABLE_PAL: [u16; 16] = [
+    4, 8, 14, 30, 60, 88, 118, 148,
+    188, 236, 354, 472, 708,  944, 1890, 3778
   ];
 
   fn new() -> Self {
@@ -344,9 +348,14 @@ pub struct Dmc {
 }
 
 impl Dmc {
-  const RATES: [u16; 16] = [
+  const NTSC_RATES: [u16; 16] = [
     428, 380, 340, 320, 286, 254, 226, 214,
     190, 160, 142, 128, 106,  84,  72,  54
+  ];
+
+  const PAL_RATES: [u16; 16] = [
+    398, 354, 316, 298, 276, 236,210, 198,
+    176, 148, 132, 118,  98,  78,  66,  50
   ];
 
   pub fn new() -> Self {
@@ -413,13 +422,18 @@ enum FrameMode {
 }
 
 pub struct AudioBuf(pub BlipBuf);
+// TODO: make sample rate configurable
 impl Default for AudioBuf {
-  fn default() -> Self {
-    // TODO: make sample rate configurable
-
-    // TODO: custom BlipBuf implementation (saw some fiddly stuff in there)
+  fn default() -> Self { Self::new(&Region::default()) }
+}
+impl AudioBuf {
+  pub fn new(region: &Region) -> Self {
     let mut blip = BlipBuf::new(48000);
-    blip.set_rates(1789773.0, 48000.0);
+    let clock_rate = match region {
+      Region::NTSC => Emu::NTSC_CLOCK_RATE,
+      Region::PAL => Emu::PAL_CLOCK_RATE
+    };
+    blip.set_rates(clock_rate as f64, 48000.0);
     Self(blip)
   }
 }
@@ -442,10 +456,11 @@ pub struct ApuRP2A {
 }
 
 impl ApuRP2A {
-  pub fn new() -> Self {
+  pub fn new(region: &Region) -> Self {
     Self {
       noise: Noise::new(),
       dmc: Dmc::new(),
+      blip: AudioBuf::new(region),
       ..Default::default()
     }
   }
@@ -525,30 +540,33 @@ impl Emu {
       }
       0x400e => {
         apu.noise.looping = val & 0x80 != 0;
-        apu.noise.div.period = Noise::TABLE[val as usize & 0xf];
+        self.apu.noise.div.period = match self.region() {
+          Region::NTSC => Noise::TABLE_NTSC[val as usize & 0xf],
+          Region::PAL => Noise::TABLE_PAL[val as usize & 0xf]
+        };
       }
       0x400f => {
         apu.noise.len.load(val);
         apu.noise.env.start = true;
       }
       0x4010 => {
-        apu.dmc.div.period = Dmc::RATES[val as usize & 0xf];
         apu.dmc.looping = val & 0x40 != 0;
         apu.dmc.irq_enabled = val & 0x80 != 0;
 
         if !apu.dmc.irq_enabled {
           self.mem.irq.remove(IrqFlags::DMC);
         }
+
+        self.apu.dmc.div.period = match self.region() {
+          Region::NTSC => Dmc::NTSC_RATES[val as usize & 0xf],
+          Region::PAL => Dmc::PAL_RATES[val as usize & 0xf],
+        }
       }
       0x4011 => {
         let level = val & 0x7f;
 
         // reduce dmc popping
-        self.apu.dmc.output = if self.apu.dmc.output.abs_diff(level) <= 50 {
-          level
-        } else {
-          50
-        };
+        self.apu.dmc.output = if self.apu.dmc.output.abs_diff(level) <= 50 { level } else { 50 };
       }
       0x4012 => apu.dmc.sample_addr = 0xc000 + ((val as u16) * 64),
       0x4013 => apu.dmc.sample_len = ((val as u16) * 16) + 1,
@@ -643,6 +661,13 @@ impl Emu {
   fn frame_count_step(&mut self) {
     // The sequencer is clocked on every other CPU cycle, so 2 CPU cycles = 1 APU cycle
     
+    match self.region() {
+      Region::NTSC => self.frame_count_step_ntsc(),
+      Region::PAL => self.frame_count_step_pal(),
+    }
+  }
+
+  fn frame_count_step_ntsc(&mut self) {
     let apu = &mut self.apu;
     match (apu.frame_count, &apu.frame_mode) {
       (3728 | 11185, _) => apu.frame_quarter_step(),
@@ -656,6 +681,29 @@ impl Emu {
         apu.frame_half_step();
       }
       (18640, FrameMode::Step5) => {
+        apu.frame_count = 0;
+        apu.frame_half_step();
+      }
+      _ => {}
+    }
+
+    self.apu.frame_count += 1;
+  }
+
+  fn frame_count_step_pal(&mut self) {
+    let apu = &mut self.apu;
+    match (apu.frame_count, &apu.frame_mode) {
+      (4156 | 12469, _) => apu.frame_quarter_step(),
+      (8313, _) => apu.frame_half_step(),
+      (16626, FrameMode::Step4) => {
+        if !apu.frame_irq_disable {
+          self.mem.irq.insert(IrqFlags::FRAME);
+        }
+        
+        apu.frame_count = 0;
+        apu.frame_half_step();
+      }
+      (20782, FrameMode::Step5) => {
         apu.frame_count = 0;
         apu.frame_half_step();
       }

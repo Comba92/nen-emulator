@@ -161,10 +161,8 @@ impl CartHeader {
       }
 
       header.region = match bytes[12] & 0b11 {
-        0 => Region::NTSC,
-        1 => Region::PAL,
-        2 => Region::World,
-        _ => Region::Dendy,
+        1 | 3 => Region::PAL,
+        _ => Region::NTSC,
       };
       header.expansions = bytes[15] & 0x3f;
     } else if version == 0 && bytes[12..=15].iter().all(|x| *x == 0) {

@@ -32,6 +32,10 @@ impl Disk {
       (0, bytes.len() / Self::SIDE_SIZE)
     };
 
+    if sides_count == 0 {
+      return Err("not a valid FDS rom")
+    }
+
     println!("SIDES AMOUNT: {sides_count}");
 
     let mut disk = Vec::new();
@@ -48,20 +52,25 @@ impl Disk {
       // side_data.push(0xde);
       // side_data.push(0xad);
       
-
-      assert_eq!(img[0], 1);
+      if img[0] != 1 {
+        return Err("no valid side info block")
+      }
       println!("{:?}", str::from_utf8(&img[1..15]));
       println!("GAME NAME [{:?}]", str::from_utf8(&img[0x10..0x13]));
 
       println!("SIDE NUMBER: {}", img[0x15]);
       println!("DISK NUMBER: {}", img[0x16]);
 
-      assert_eq!(&img[0x1a..0x1a+5], &[0xff, 0xff, 0xff, 0xff, 0xff]);
+      if !img[0x1a..0x1a+5].iter().all(|x| *x == 0xff) {
+        return Err("no 0xff chunk at offset 0x1a in side info block")
+      }
 
       // disk info block is 0x38 (56) bytes
       Self::push_and_add_gaps(&mut side_data, &img[..0x38]);
 
-      assert_eq!(img[0x38], 2);
+      if img[0x38] != 2 {
+        return Err("no valid file amount block")
+      }
       println!("FILES AMOUNT: {}", img[0x39]);
 
       let files_count = img[0x39];
@@ -71,10 +80,14 @@ impl Disk {
       let mut file = &img[0x3a..];
       println!();
 
+      let mut parsed_bytes = 0x3a;
       for i in 0..files_count {
         println!("FILE {i}");
 
         assert_eq!(file[0], 3);
+        if file[0] != 3 {
+          return Err("no valid file header block");
+        }
         println!("FILE NUMBER: {}", file[1]);
         println!("FILE ID: {}", file[2]);
         println!("FILE NAME: {:?}", str::from_utf8(&file[0x3..0xb]));
@@ -87,7 +100,11 @@ impl Disk {
         Self::push_and_add_gaps(&mut side_data, &file[..0x10]);
 
         assert_eq!(file[0x10], 4);
+        if file[0x10] != 4 {
+          return Err("no valid file data block");
+        }
 
+        parsed_bytes += 0x11 + file_size;
         // TODO: handle case when we go over 65500 bytes
         Self::push_and_add_gaps(&mut side_data, &file[0x11..0x11 + file_size]);
         file = &file[0x11 + file_size..];

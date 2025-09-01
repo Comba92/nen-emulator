@@ -1153,14 +1153,17 @@ struct NINA00x_BNROM {
 impl Mapper for NINA00x_BNROM {
   fn new(mem: &mut Bus) -> Box<Self> where Self: Sized {
     // should be considered BNROM when the CHR-ROM size is 0-8 KiB, and NINA-001/NINA-002 when the CHR-ROM size is above 8 KiB. 
+    let mut submapper = 0;
     if mem.header.submapper == 1 || mem.header.chr_size > 8 * 1024 {
       mem.banks.chr = Banking::new_chr(&mem.header, 2);
+      submapper = 1;
     } else if mem.header.submapper == 2 || mem.header.chr_size <= 8 * 1024  {
       mem.banks.chr = Banking::new_chr(&mem.header, 1);
+      submapper = 2;
     }
     mem.banks.prg = Banking::new_prg(&mem.header, 1);
     
-    let submapper = if mem.header.mapper == 34 { mem.header.submapper } else { 2 };
+    let submapper = if mem.header.mapper == 34 { submapper } else { 2 };
 
     Box::new(Self {
       mapper: mem.header.mapper,

@@ -207,10 +207,8 @@ impl From<usize> for Region {
 impl From<Region> for nes_emulator::emu::Region {
   fn from(value: Region) -> Self {
     match value {
-      Region::NTSC => Self::NTSC,
-      Region::PAL => Self::PAL,
-      Region::Multiple => Self::World,
-      Region::Other => Self::Dendy,
+      Region::NTSC | Region::Multiple => Self::NTSC,
+      Region::PAL | Region::Other => Self::PAL,
     }
   }
 }

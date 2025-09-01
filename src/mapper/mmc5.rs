@@ -110,6 +110,10 @@ impl MMC5 {
   // TODO: update chr banks only when necessary
   fn update_chr_banks(&mut self, mem: &mut Bus) {
     // in 8x8 sprites mode, in 16x8 sprites mode and rendering sprites, in vblank use last written low registers
+    if !self.ppu_big_sprites {
+      self.last_chr_wrote = 0;
+    }
+    
     let use_low_regs = !(self.ppu_big_sprites && self.ppu_substituion)
       || (self.nametbl_fetch_count >= 32 && self.nametbl_fetch_count < 48)
       || (!self.ppu_in_frame && self.last_chr_wrote <= 0x5127);

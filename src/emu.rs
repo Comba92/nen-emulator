@@ -20,9 +20,6 @@ pub struct Emu {
   pub mem: Bus,
   pub mapper: Box<dyn Mapper>,
 
-  #[cfg(feature = "ram64kb")]
-  pub ram: [u8; 64 * 1024],
-
   pub frame_ready: bool,
   pub videobuf: [u8; 256 * 240],
   audiobuf: [i16; 1024],
@@ -42,7 +39,7 @@ pub enum Mirroring {
 
 #[derive(Debug, Default, Clone, bitcode::Encode, bitcode::Decode)]
 pub enum Region {
-  #[default] NTSC, PAL, World, Dendy
+  #[default] NTSC, PAL
 }
 
 // TODO: control all default implementations
@@ -50,14 +47,11 @@ impl Default for Emu {
   fn default() -> Self {
     Self {
       cpu: Cpu6502::new(),
-      ppu: Ppu2C02::new(),
-      apu: ApuRP2A::new(),
+      ppu: Ppu2C02::new(&Region::default()),
+      apu: ApuRP2A::new(&Region::default()),
       joypad: Joypad::default(),
       mem: Bus::with_cart(Cart::default()),
       mapper: Box::new(NROM),
-      
-      #[cfg(feature = "ram64kb")]
-      ram: [0; 64 * 1024],
 
       frame_ready: false,
 
@@ -82,7 +76,8 @@ impl Game {
       Ok(cart) => Game::Cart(cart),
       Err(_) => {
         // try to parse as fds rom if not valid nes rom
-        let disk = Disk::from(bytes).map_err(|_| "not a valid iNes/NES2.0 or FDS rom")?;
+        let disk = Disk::from(bytes)
+          .map_err(|_| "not a valid iNes/NES2.0 or FDS rom")?;
         Game::Disk(disk)
       }
     };
@@ -92,6 +87,11 @@ impl Game {
 }
 
 impl Emu {
+  pub const NTSC_CLOCK_RATE: usize = 1789773;
+  pub const PAL_CLOCK_RATE:  usize = 1662607;
+  pub const NTSC_FRAME_RATE: f32 = 60.0988;
+  pub const PAL_FRAME_RATE:  f32 = 50.0070;
+
   pub fn new(rom: &[u8]) -> Result<Self, String> {
     let game = Game::new(rom)?;
 
@@ -102,7 +102,6 @@ impl Emu {
         (mem, mapper)
       }
       Game::Disk(disk) => {
-        // return Err("loaded disk, not supported yet".to_string());
         Bus::with_disk(disk)
       },
     };
@@ -111,14 +110,11 @@ impl Emu {
     
     let mut emu = Self {
       cpu: Cpu6502::new(),
-      ppu: Ppu2C02::new(),
-      apu: ApuRP2A::new(),
+      ppu: Ppu2C02::new(&mem.header.region),
+      apu: ApuRP2A::new(&mem.header.region),
       joypad: Joypad::default(),
       mem,
       mapper,
-
-      #[cfg(feature = "ram64kb")]
-      ram: [0; 64 * 1024],
 
       videobuf: [0; 256 * 240],
       audiobuf: [0; 1024],
@@ -132,6 +128,23 @@ impl Emu {
     Ok(emu)
   }
 
+  pub const fn clock_rate(&self) -> usize {
+    match self.region() {
+      Region::NTSC => Self::NTSC_CLOCK_RATE,
+      Region::PAL => Self::PAL_CLOCK_RATE,
+    }
+  }
+
+  pub const fn frame_rate(&self) -> f32 {
+    match self.region() {
+      Region::NTSC => Self::NTSC_FRAME_RATE,
+      Region::PAL => Self::PAL_FRAME_RATE,
+    }
+  }
+
+  pub const fn region(&self) -> &Region {
+    &self.mem.header.region
+  }
 
   #[deprecated]
   pub fn emu_step(&mut self) {
@@ -149,17 +162,20 @@ impl Emu {
     for _ in 0..cycles_run { self.mapper.step(&mut self.mem, self.cpu.cycles);}
   }
 
-  #[cfg(feature = "ram64kb")]
-  pub fn step(&mut self) {
-    self.cpu_step();
-  }
-
   pub fn cpu_tick(&mut self) {
     self.cpu.cycles += 1;
 
     self.ppu_step();
     self.ppu_step();
     self.ppu_step();
+    // PAL systems additionally run 3.2 PPU cycles per CPU cycle
+    // meaning, every 5 CPU cycles there is an additional PPU cycle 
+    match self.mem.header.region {
+      Region::PAL => if self.cpu.cycles % 5 == 0 {
+        self.ppu_step()
+      }
+      _ => {}
+    }
     
     self.apu_step();
     self.mapper.step(&mut self.mem, self.cpu.cycles);
@@ -200,11 +216,7 @@ impl Emu {
     if let Some(pal) = Palette::from_pal_file(bytes) {
       self.palette = pal;
     } else {
-      println!("not a valid palette file");
+      eprintln!("not a valid palette file");
     }
-  }
-
-  pub fn load_disk(&mut self, bytes: &[u8]) {
-    todo!()
   }
 }
