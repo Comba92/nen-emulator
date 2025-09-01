@@ -170,11 +170,16 @@ impl CartHeader {
     } else if version == 0 && bytes[12..=15].iter().all(|x| *x == 0) {
       // https://www.nesdev.org/wiki/INES#Variant_comparison
       // iNES with PRG RAM and TV system field
-      header.wram_size = bytes[8] as usize * 8 * 1024;
+      // header.wram_size = bytes[8] as usize * 8 * 1024;
+      header.wram_size = 32 * 1024;
+
       header.region = match bytes[9] {
         1 => Region::PAL,
         _ => Region::NTSC,
       };
+    } else {
+      // archaic iNes, default wram to 8kb
+      header.wram_size = 8 * 1024;
     }
 
     // if chr rom is 0, default to 8kb
@@ -199,7 +204,7 @@ impl Cart {
     };
 
     // DEBUG
-    println!("{:?}", header);
+    println!("[DEBUG] {:?}", header);
 
     Ok(Self {
       header,

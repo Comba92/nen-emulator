@@ -1,12 +1,12 @@
 pub mod emu;
 pub mod cpu;
 pub mod cart;
+mod disk;
 mod bus;
 mod mapper;
 mod ppu;
 mod apu;
 
-mod disk;
 pub mod games_db;
 
 mod utils {
@@ -46,7 +46,6 @@ impl Palette {
     colors.try_into().ok().map(|x| Self(x))
   }
 }
-
 
 pub mod joypad {
   bitflags::bitflags! {

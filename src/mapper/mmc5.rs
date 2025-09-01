@@ -17,7 +17,7 @@ pub struct MMC5 {
   fill_color: u8,
 
   nametbl_fetch_count: usize,
-  last_exattribute: u8,
+  last_nametbl_addr: u16,
 
   wram_protect: u8,
   exram_mode: u8,
@@ -62,7 +62,7 @@ impl MMC5 {
         let handler = if mem.wram.is_empty() {
           CpuHandler::Mapper
         } else if self.wram_protect == 0x6 {
-          CpuHandler::WramRW
+          CpuHandler::Wram
         } else {
           CpuHandler::WramReadOnly
         };
@@ -110,7 +110,7 @@ impl MMC5 {
   // TODO: update chr banks only when necessary
   fn update_chr_banks(&mut self, mem: &mut Bus) {
     // in 8x8 sprites mode, in 16x8 sprites mode and rendering sprites, in vblank use last written low registers
-    let use_low_regs = !self.ppu_big_sprites
+    let use_low_regs = !(self.ppu_big_sprites && self.ppu_substituion)
       || (self.nametbl_fetch_count >= 32 && self.nametbl_fetch_count < 48)
       || (!self.ppu_in_frame && self.last_chr_wrote <= 0x5127);
 
@@ -350,21 +350,22 @@ impl Mapper for MMC5 {
 
   fn special_read(&mut self, mem: &mut Bus, addr: u16) -> u8 {
     // extended attributes only work on background tiles
-    if self.exram_mode == 1 && self.ppu_in_frame && (self.nametbl_fetch_count < 32 || self.nametbl_fetch_count >= 40) {
+    if self.exram_mode == 1 && self.ppu_in_frame && (self.nametbl_fetch_count < 32 || self.nametbl_fetch_count >= 48) {
+        //  The extended attributes are 1-screen mirrored; in other words, they apply the same for all nametables. 
+      let exram_offset = self.last_nametbl_addr as usize & 0x3ff;
+      let exattr = mem.vram[0x800 + exram_offset];
+
       if addr < 0x2000 {
         // pattern fetch
 
         // In other words, this works as if the nametable was extended from 8-bit to 14-bit tile offsets, 
         // with the ExRAM holding the upper 6-bits and the 2-bit palette value, while the nametable selected through $5105 contains the lower 8 bits. 
-        let chr_bank = ((self.chr_hi as u16) << 6) | (self.last_exattribute as u16 & 0x3f);
+        let chr_bank = ((self.chr_hi as u16) << 6) | (exattr as u16 & 0x3f);
         let chr_addr = (chr_bank << 12) + (addr & 0xfff);
         mem.chr[chr_addr as usize]
       } else if addr & 0x3ff < 0x3c0 {
         // normal nametbl fetch
-        //  The extended attributes are 1-screen mirrored; in other words, they apply the same for all nametables. 
-        let exram_offset = addr as usize & 0x3ff;
-        let exattr = mem.vram[0x800 + exram_offset];
-        self.last_exattribute = exattr;
+        self.last_nametbl_addr = addr;
 
         let vram_addr = addr - 0x2000;
         let table = (vram_addr) / 0x400;
@@ -376,7 +377,7 @@ impl Mapper for MMC5 {
         }
       } else {
         // attribute fetch
-        let palette = self.last_exattribute >> 6;
+        let palette = (exattr >> 6) as u8;
         (palette << 6) | (palette << 4) | (palette << 2) | palette
       }
     } else {
@@ -425,7 +426,7 @@ impl Mapper for MMC5 {
       self.nametbl_fetch_count += 1;
       
       // there are 16 dummy nametables fetches during sprites rendering
-      if self.ppu_in_frame && matches!(self.nametbl_fetch_count, 32 | 48) {
+      if self.ppu_in_frame {
         self.update_chr_banks(mem);
       }
     }

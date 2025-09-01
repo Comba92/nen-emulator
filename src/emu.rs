@@ -81,6 +81,7 @@ impl Game {
     let game = match cart {
       Ok(cart) => Game::Cart(cart),
       Err(_) => {
+        // try to parse as fds rom if not valid nes rom
         let disk = Disk::from(bytes).map_err(|_| "not a valid iNes/NES2.0 or FDS rom")?;
         Game::Disk(disk)
       }
@@ -101,7 +102,7 @@ impl Emu {
         (mem, mapper)
       }
       Game::Disk(disk) => {
-        return Err("loaded disk, not supported yet".to_string());
+        // return Err("loaded disk, not supported yet".to_string());
         Bus::with_disk(disk)
       },
     };

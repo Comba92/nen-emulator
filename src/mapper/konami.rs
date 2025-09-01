@@ -1,6 +1,5 @@
 use crate::{bus::{Bus, Banking, CpuHandler, IrqFlags}, emu::Mirroring, mapper::Mapper, utils::byte_set_lo};
 
-
 // https://www.nesdev.org/wiki/VRC1
 #[derive(Default)]
 pub struct VRC1 {

@@ -206,12 +206,13 @@ bitflags::bitflags! {
     const FRAME = 1 << 0;
     const DMC = 1 << 2;
     const MAPPER = 1 << 3;
+    const DISK = 1 << 4;
   }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum CpuHandler {
-  Ram, Ppu, IO, WramRW, WramReadOnly, Prg, Mapper, PrgInWram, PrgMMC5, PpuMMC5
+  Ram, Ppu, IO, Wram, WramReadOnly, Prg, Mapper, PrgInWram, PrgMMC5, PpuMMC5
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -257,7 +258,7 @@ impl Bus {
   pub fn with_cart(cart: Cart) -> Self {
     let banks = BanksHandler::new(&cart.header);
 
-    let wram_handler = if cart.header.wram_size > 0 { CpuHandler::WramRW } else { CpuHandler::Mapper };
+    let wram_handler = if cart.header.wram_size > 0 { CpuHandler::Wram } else { CpuHandler::Mapper };
     let chr_handler = if cart.header.has_chr_ram { PpuHandler::ChrRam } else { PpuHandler::ChrRom };
 
     let cpu_handlers_8kb = [
@@ -329,22 +330,24 @@ impl Bus {
     let mut banks = BanksHandler::default();
 
     // keep like this so we can just use the standard prg handler
-    banks.prg = Banking::new(8 * 1024, 8 * 1024, 4);
+    banks.prg = Banking::new(8 * 1024, 32 * 1024, 4);
+    banks.prg.set_page_to_last_bank(3);
     let mut prg = vec![0; 8 * 1024];
     prg.copy_from_slice(include_bytes!("../utils/disksys.rom"));
-    banks.wram = Banking::new(32 * 1024, 32 * 1024, 4);
+    banks.wram = Banking::new(32 * 1024, 32 * 1024, 1);
 
     banks.chr = Banking::new(8 * 1024, 8 * 1024, 1);
-    banks.vram = Banking::new(2 * 1024, 4 * 1024, 2);
+    banks.vram = Banking::new(2 * 1024, 4 * 1024, 4);
+    banks.vram.mirror(&Mirroring::Horizontal);
 
     let cpu_handlers_8kb = [
       CpuHandler::Ram,
       CpuHandler::Ppu,
       CpuHandler::IO,
-      CpuHandler::WramRW,
-      CpuHandler::WramRW,
-      CpuHandler::WramRW,
-      CpuHandler::WramRW,
+      CpuHandler::Wram,
+      CpuHandler::Wram,
+      CpuHandler::Wram,
+      CpuHandler::Wram,
       CpuHandler::Prg,
     ];
 
@@ -370,9 +373,9 @@ impl Bus {
     let mut mem = Self {
       ram: [0; 2 * 1024],
       prg,
+      wram: vec![0; 32 * 1024],
       chr: vec![0; 8 * 1024],
-      vram: vec![0; 32 * 1024],
-      wram: vec![0; 2 * 1024],
+      vram: vec![0; 2 * 1024],
       palettes: [0; 32],
 
       cpu_handlers_8kb,
@@ -394,7 +397,7 @@ impl Bus {
     };
 
     let mut fds = mapper::FDS::new(&mut mem);
-    fds.sides = disk.sides;
+    fds.disks = disk.sides;
 
     (mem, fds as Box<dyn Mapper>)
   }
@@ -403,14 +406,14 @@ impl Bus {
     if self.wram.is_empty() { return; }
     
     if cond {
-      self.set_wram_handlers(CpuHandler::WramRW);
+      self.set_wram_handlers(CpuHandler::Wram);
     } else {
       self.set_wram_handlers(CpuHandler::Mapper);
     }
   }
 
   pub fn set_wram_handlers(&mut self, handler: CpuHandler) {
-    if !self.wram.is_empty() || !matches!(handler, CpuHandler::WramRW | CpuHandler::WramReadOnly) {
+    if !self.wram.is_empty() || !matches!(handler, CpuHandler::Wram | CpuHandler::WramReadOnly) {
       self.cpu_handlers_8kb[3] = handler;
     }
   }
@@ -458,11 +461,11 @@ impl Emu {
         } else if addr == 0x4016 {
           self.joypad.read() | (mem.cpu_data_bus & 0xe0)
         } else {
-          self.mapper.cart_read(mem, addr) | mem.cpu_data_bus 
+          self.mapper.cart_read(mem, addr)
         }
       }
       CpuHandler::Mapper => self.mapper.cart_read(mem, addr),
-      CpuHandler::WramRW | CpuHandler::WramReadOnly => mem.wram[mem.banks.wram.translate(addr - 0x6000)],
+      CpuHandler::Wram | CpuHandler::WramReadOnly => mem.wram[mem.banks.wram.translate(addr - 0x6000)],
       CpuHandler::Prg => mem.prg[mem.banks.prg.translate(addr - 0x8000)],
       CpuHandler::PrgInWram => mem.prg[mem.banks.wram.translate(addr - 0x6000)],
       
@@ -516,7 +519,7 @@ impl Emu {
 
       // TODO: this could just be prg_write...
       CpuHandler::Mapper => self.mapper.cart_write(mem, addr, val as u16),
-      CpuHandler::WramRW => mem.wram[mem.banks.wram.translate(addr - 0x6000)] = val,
+      CpuHandler::Wram => mem.wram[mem.banks.wram.translate(addr - 0x6000)] = val,
       CpuHandler::Prg | CpuHandler::PrgInWram | CpuHandler::PrgMMC5 => {
         self.mapper.prg_write(mem, addr, val as u16);
       }

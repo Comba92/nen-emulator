@@ -3,6 +3,8 @@ pub struct Disk {
 }
 
 // https://github.com/SourMesen/Mesen2/blob/fabc9a62174f8734a113df6d244f5539ef6b8fcf/Core/NES/Loaders/FdsLoader.cpp#L21
+// https://forums.nesdev.org/viewtopic.php?t=18668
+// https://forums.nesdev.org/viewtopic.php?f=3&t=8712
 impl Disk {
   const FDS_MAGIC: &[u8] = &[0x46, 0x44, 0x53, 0x1A];
   const FDS_HEADER_SIZE: usize = 16;
@@ -43,6 +45,9 @@ impl Disk {
       // Before the start of the disk : At least 26150 bits, 28300 typical.
       side_data.resize(28300 / 8, 0);
       side_data.push(0x80);
+      // side_data.push(0xde);
+      // side_data.push(0xad);
+      
 
       assert_eq!(img[0], 1);
       println!("{:?}", str::from_utf8(&img[1..15]));
@@ -100,15 +105,4 @@ impl Disk {
 
     Ok(Self { sides: disk })
   }
-}
-
-#[test]
-fn parse_test() {
-  let bytes = include_bytes!("../roms/metroid.fds");
-  Disk::from(bytes);
-
-  println!("\n=====\n\n");
-
-  let bytes = include_bytes!("../roms/Super Mario Brothers 2 (Japan).fds");
-  Disk::from(bytes);
 }

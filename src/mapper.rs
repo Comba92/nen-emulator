@@ -541,7 +541,7 @@ impl Mapper for MMC3 {
         let mode = val >> 6;
         let handler = match mode {
           // 0b10, enabled, allow writes
-          2 => CpuHandler::WramRW,
+          2 => CpuHandler::Wram,
           // 0b11, enabled, deny writes
           3 => CpuHandler::WramReadOnly,
           _ => CpuHandler::Mapper,
@@ -836,10 +836,9 @@ impl Mapper for BandaiFCG {
     })
   }
 
-  fn cart_read(&mut self, _mem: &mut Bus, _addr: u16) -> u8 {
+  fn cart_read(&mut self, mem: &mut Bus, _addr: u16) -> u8 {
     // TODO: eeprom read for 16, 157, 159
-
-    0
+    mem.cpu_data_bus
   }
 
   fn cart_write(&mut self, mem: &mut Bus, addr: u16, val: u16) {
@@ -1013,7 +1012,7 @@ impl Mapper for Namco129_163 {
 
   fn cart_read(&mut self, mem: &mut Bus, addr: u16) -> u8 {
     // TODO: use mask
-    if self.mapper != 19 { return 0 }
+    if self.mapper != 19 { return mem.cpu_data_bus }
 
     match addr {
       0x5000..=0x57ff => self.irq_count as u8,
@@ -1643,7 +1642,7 @@ impl Mapper for SunsoftFME7 {
           let mode = val & 0x40 > 0;
 
           if mode != self.uses_wram {
-            let handler = if mode { CpuHandler::WramRW } else { CpuHandler::PrgInWram };
+            let handler = if mode { CpuHandler::Wram } else { CpuHandler::PrgInWram };
             mem.set_wram_handlers(handler);
 
             mem.banks.wram.set_page(0, val & 0x3f);
@@ -1739,13 +1738,61 @@ impl Mapper for SunsoftFME7 {
   }
 }
 
+
+// https://www.nesdev.org/wiki/Family_Computer_Disk_System
+// https://www.nesdev.org/wiki/FDS_RAM_adaptor_cable_pinout
 #[derive(Default)]
 pub struct FDS {
-  pub sides: Vec<Vec<u8>>,
+  pub disks: Vec<Vec<u8>>,
+  disk_current: u8,
+  disk_position: usize,
 
-  irq_reload: u16,
-  irq_repeat: bool,
-  irq_enabled: bool,
+  timer_count: u16,
+  timer_reload: u16,
+  timer_repeat: bool,
+  timer_enabled: bool,
+
+  disk_enabled: bool,
+  audio_enabled: bool,
+
+  reset_transfer: bool,
+  motor_enabled: bool,
+  reading: bool,
+  crc_ctrl: bool,
+  crc_enabled: bool,
+  disk_irq_enabled: bool,
+
+  crc_acc: u16,
+  crc_bad: bool,
+  disk_at_end: bool,
+  disk_scanning: bool,
+  disk_ready: bool,
+  disk_in_gap: bool,
+
+  mirroring: bool,
+
+  read_buf: u8,
+  write_buf: u8,
+
+  byte_transferred: bool,
+}
+impl FDS {
+  fn disk_read(&self) -> u8 {
+    self.disks[self.disk_current as usize][self.disk_position as usize]
+  }
+
+  fn disk_write(&mut self, val: u8) {
+    self.disks[self.disk_current as usize][self.disk_position as usize] = val;
+  }
+
+  fn update_crc(&mut self, val: u8) {
+    self.crc_acc ^= val as u16;
+    for _ in 0..8 {
+      let carry = self.crc_acc & 1;
+      self.crc_acc >>= 1;
+      self.crc_acc ^= 0x8408 * carry;
+    }
+  }
 }
 impl Mapper for FDS {
   fn new(_: &mut Bus) -> Box<Self> {
@@ -1753,32 +1800,97 @@ impl Mapper for FDS {
     Box::new(Self::default())
   }
 
+  fn cart_read(&mut self, mem: &mut Bus, addr: u16) -> u8 {
+    match addr {
+      0x4030 => {
+        let mut res = 0;
+        res |= mem.irq.contains(IrqFlags::MAPPER) as u8;
+        res |= (self.byte_transferred as u8) << 1;
+        res |= (self.mirroring as u8) << 3;
+        res |= (self.crc_bad as u8) << 4;
+        // res |= (self.byte_transferred as u8) << 7;
+        
+        self.byte_transferred = false;
+        mem.irq.remove(IrqFlags::MAPPER);
+        mem.irq.remove(IrqFlags::DISK);
+
+        res | (mem.cpu_data_bus & 0x24)
+      }
+      0x4031 => {
+        self.byte_transferred = false;
+        mem.irq.remove(IrqFlags::DISK);
+        self.read_buf
+      }
+      0x4032 => {
+        let mut res = 0;
+        // TODO: disk inserted
+        res |= (!self.disk_scanning as u8) << 1;
+        // TODO: disk write protect
+
+        mem.irq.remove(IrqFlags::DISK);
+
+        res | (mem.cpu_data_bus & 0xf8)
+      }
+      0x4033 => 0x80,
+      _ => 0xff 
+    }
+  }
+
   fn cart_write(&mut self, mem: &mut Bus, addr: u16, val: u16) {
     match addr {
-      0x4020 => self.irq_reload = byte_set_lo(self.irq_reload, val as u8),
-      0x4021 => self.irq_reload = byte_set_hi(self.irq_reload, val as u8),
+      0x4020 => self.timer_reload = byte_set_lo(self.timer_reload, val as u8),
+      0x4021 => self.timer_reload = byte_set_hi(self.timer_reload, val as u8),
     
       0x4022 => {
-        self.irq_repeat = val & 0x1 > 0;
-        self.irq_enabled = val & 0x2 > 0;
+        self.timer_repeat = val & 0x1 > 0;
+        self.timer_enabled = val & 0x2 > 0 && self.disk_enabled;
 
-        // todo: all this shif...
+        if self.timer_enabled {
+          self.timer_count = self.timer_reload;
+        } else {
+          mem.irq.remove(IrqFlags::MAPPER);
+        }
       }
 
       0x4023 => {
-        // TODO: master io enable
+        self.disk_enabled = val & 0x1 > 0;
+        self.audio_enabled = val & 0x2 > 0;
+
+        // Clearing $4023.0 will immediately stop the IRQ counter and acknowledge any pending timer IRQs.
+        if !self.disk_enabled {
+          self.timer_enabled = false;
+          mem.irq.remove(IrqFlags::MAPPER);
+          mem.irq.remove(IrqFlags::DISK);
+        }
       }
 
-      0x4024 => {
-        // TODO: write data register
+      0x4024 => if self.disk_enabled {
+        self.write_buf = val as u8;
+        self.byte_transferred = false;
       }
 
-      0x4025 => {
-        // TODO: fds ctrl
-      }
+      0x4025 => if self.disk_enabled {
+        // while high, this instructs the storage media pointer to be reset (and stay reset) at the beginning of the media
+        // while low, the media pointer is to be advanced at a constant rate, and data progressively transferred to/from the media
+        self.motor_enabled = val & 0x1 > 0;
+        // the falling edge of this signal would instruct the drive to stop its motor (and therefore end the current scan of the disk)
+        self.reset_transfer = val & 0x2 > 0;
+        // while low, this signal indicates that data appearing on the "write data" signal pin is to be written to the storage media.
+        self.reading = val & 0x4 > 0;
 
-      0x4032 => {
-        // TODO: disk status
+        let mirroring = if val & 0x8 > 0 {
+          Mirroring::Horizontal
+        } else {
+          Mirroring::Vertical
+        };
+        mem.banks.vram.mirror(&mirroring);
+        self.mirroring = val & 0x8 > 0;
+
+        self.crc_ctrl = 0x10 > 0;
+        self.disk_ready = 0x40 > 0;
+        self.disk_irq_enabled = val & 0x80 > 0;
+
+        mem.irq.remove(IrqFlags::DISK);
       }
       _ => {}
     }
@@ -1786,7 +1898,95 @@ impl Mapper for FDS {
 
   fn prg_write(&mut self, _mem: &mut Bus, _addr: u16, _val: u16) {}
 
-  fn step(&mut self, _mem: &mut Bus, _cycles: usize) {
-    
+  fn step(&mut self, mem: &mut Bus, _cycles: usize) {
+    if self.timer_enabled {
+      if self.timer_count > 0 {
+        self.timer_count -= 1;
+      } else {
+        mem.irq.insert(IrqFlags::MAPPER);
+        self.timer_count = self.timer_reload;
+        self.timer_enabled = self.timer_repeat;
+      }
+    }
+
+    if !self.motor_enabled {
+      self.disk_at_end = true;
+      self.disk_scanning = false;
+      return;
+    }
+
+    if self.reset_transfer && !self.disk_scanning { return; }
+
+    if self.disk_at_end {
+      self.disk_at_end = false;
+      self.disk_position = 0;
+      self.disk_in_gap = true;
+    }
+
+    self.disk_scanning = true;
+    let mut should_irq = self.disk_irq_enabled;
+    if self.reading {
+      let data = self.disk_read();
+
+      if !self.crc_ctrl {
+        self.update_crc(data);
+      }
+
+      if !self.disk_ready {
+        self.disk_in_gap = true;
+        self.crc_acc = 0;
+        self.crc_bad = false;
+      } else if self.disk_in_gap && data > 0 {
+        self.disk_in_gap = false;
+        should_irq = false;
+      }
+
+      if !self.disk_in_gap {
+        self.byte_transferred = true;
+        self.read_buf = data;
+        if should_irq {
+          mem.irq.insert(IrqFlags::DISK);
+        }
+      }
+
+      if self.crc_ctrl {
+        self.crc_bad = self.crc_acc > 0;
+      }
+    } else {
+      let mut data = 0;
+
+      if !self.crc_ctrl {
+        self.byte_transferred = true;
+        data = self.write_buf;
+        if should_irq {
+          mem.irq.insert(IrqFlags::DISK);
+        }
+      }
+
+      if !self.disk_ready {
+        data = 0;
+        self.crc_acc = 0;
+      }
+
+      if !self.crc_ctrl {
+        self.update_crc(data);
+      } else {
+        data = self.crc_acc as u8;
+        self.crc_acc >>= 8;
+      }
+
+      self.disk_write(data);
+      self.disk_in_gap = true;
+      self.crc_bad = false;
+    }
+
+    self.disk_position += 1;
+    if self.disk_position >= self.disks[self.disk_current as usize].len() {
+      self.motor_enabled = false;
+
+      if self.disk_irq_enabled {
+        mem.irq.insert(IrqFlags::DISK);
+      }
+    }
   }
 }
