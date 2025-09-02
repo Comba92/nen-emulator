@@ -32,12 +32,12 @@ bitflags::bitflags! {
 }
 
 #[derive(Default, Debug)]
-struct CtrlStrut {
-  vram_addr_inc: u16,
-  spr_pttrntbl_addr: u16,
-  bg_pttrntbl_addr: u16,
-  spr_size: u16,
-  vblank_nmi_enabled: bool,
+pub struct CtrlStrut {
+  pub vram_addr_inc: u16,
+  pub spr_pttrntbl_addr: u16,
+  pub bg_pttrntbl_addr: u16,
+  pub spr_size: u16,
+  pub vblank_nmi_enabled: bool,
 }
 
 #[bitfields::bitfield(u16)]
@@ -140,7 +140,7 @@ impl Default for SprScanline {
 // https://docs.rs/nes-ppu/latest/src/nes_ppu
 #[derive(Default)]
 pub struct Ppu2C02 {
-  ctrl: CtrlStrut,
+  pub ctrl: CtrlStrut,
   mask: Mask,
   stat: Status,
   

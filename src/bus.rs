@@ -1,4 +1,4 @@
-use crate::{cart::{Cart, CartHeader}, disk::Disk, emu::{Emu, Mirroring}, mapper::{self, Mapper}};
+use crate::{cart::{Cart, CartHeader}, disk::Disk, emu::{Emu, Mirroring}, mapper::{self, BoxedMapper, Mapper}};
 
 pub trait BankCfg {}
 
@@ -20,8 +20,6 @@ impl BankCfg for VramBank {}
 
 #[derive(Debug, Default)]
 pub struct Banking<T: BankCfg> {
-  real_size: usize,
-  addressable_size: u16,
   bank_size: u16,
   bank_size_shift: u16,
   pub banks_count: u16,
@@ -40,31 +38,13 @@ impl<T: BankCfg + std::fmt::Debug> Banking<T> {
     let bank_size_shift = bank_size.checked_ilog2().unwrap_or_default() as u16;
 
     Self {
-      real_size,
       bank_size,
       bank_size_shift,
       banks_count,
-      addressable_size,
 
       bankings,
       kind: std::marker::PhantomData::<T>,
     }
-  }
-
-  pub fn change_mode(&mut self, pages_count: u16) {
-    assert!(pages_count as usize <= self.bankings.len());
-
-    // we change the parameters, leaving banks array as is
-    // thus we cannot change to a bigger bank size than the original
-
-    self.bank_size = self.addressable_size / pages_count;
-    self.banks_count = (self.real_size / self.bank_size as usize) as u16;
-    self.bank_size_shift = self.bank_size.ilog2() as u16;
-  }
-
-  pub fn change_size(&mut self, size: usize) {
-    self.real_size = size;
-    self.banks_count = (self.real_size / self.bank_size as usize) as u16;
   }
 
   pub fn set_page(&mut self, page: u8, bank: u16) {
@@ -323,7 +303,7 @@ impl Bus {
     }
   }
 
-  pub fn with_disk(disk: Disk) -> (Self, Box<dyn Mapper + Send>) {
+  pub fn with_disk(disk: Disk) -> (Self, BoxedMapper) {
     let mut header = CartHeader::default();
     header.mapper = 20;
 
@@ -399,7 +379,7 @@ impl Bus {
     let mut fds = mapper::FDS::new(&mut mem);
     fds.disks = disk.sides;
 
-    (mem, fds as mapper::BoxedMapper)
+    (mem, fds as BoxedMapper)
   }
 
   pub fn wram_enable(&mut self, cond: bool) {
@@ -527,6 +507,31 @@ impl Emu {
     self.mem.cpu_data_bus = val;
   }
 
+  pub fn ppu_debug_read(&mut self, addr: u16) -> u8 {
+    let mem = &mut self.mem;
+    
+    let addr = addr & 0x3fff;
+    let handler_id = (addr >> 10) % 16;
+    let handler = mem.ppu_handlers_1kb[handler_id as usize];
+
+    let res = match handler {
+      PpuHandler::ChrRom | PpuHandler::ChrRam => mem.chr[mem.banks.chr.translate(addr)],
+      PpuHandler::Vram => mem.vram[mem.banks.vram.translate(addr - 0x2000)],
+      PpuHandler::VramInChr => mem.vram[mem.banks.vram.translate(addr)],
+      PpuHandler::Palette => {
+        if matches!(addr, 0x3f00..=0x3fff) {
+          self.ppu_palette_read(addr)
+        } else {
+          // Video memory's data bus is multiplexed with the low byte of the address bus on pins 31 through 38. Thus a read from an address with no memory connected will usually return the low byte of the address.
+          mem.ppu_addr_bus as u8
+        }
+      }
+      PpuHandler::ChrMMC5 | PpuHandler::VramMMC5 => self.mapper.special_read(mem, addr),
+    };
+
+    res
+  }
+
   pub fn update_ppu_bus(&mut self, addr: u16) {
     self.mem.ppu_addr_bus = addr;
     self.mapper.notify_ppu_addr(&mut self.mem, self.cpu.cycles);
@@ -565,7 +570,7 @@ impl Emu {
     res
   }
 
-  pub fn ppu_palette_read(&mut self, addr: u16) -> u8 {
+  pub fn ppu_palette_read(&self, addr: u16) -> u8 {
     let pal = addr as usize & 31;
     let res = if pal % 4 == 0 {
       self.mem.palettes[pal & 0xf]

@@ -194,7 +194,7 @@ impl Emu {
     self.apu.cycles -= cycles_run;
   }
 
-  pub fn get_video_rgba(&mut self, buf: &mut [u8; 256 * 240 * 4]) {
+  pub fn get_video_rgba(&self, buf: &mut [u8; 256 * 240 * 4]) {
     for (i, color) in self.videobuf.iter()
       .map(|byte| self.palette.0[*byte as usize])
       .enumerate()
@@ -203,6 +203,48 @@ impl Emu {
       buf[i * 4 + 1] = color.1;
       buf[i * 4 + 2] = color.2;
       buf[i * 4 + 3] = 255;
+    }
+  }
+
+  pub fn get_nametables_rgba(&mut self, buf: &mut [u8; 256 * 240 * 4 * 4]) {
+    let pttrntbl = self.ppu.ctrl.bg_pttrntbl_addr;
+    
+    for table in 0..4 {
+      let region_y = if table <= 1 { 0 } else { 256 * 240 * 4 * 2 };
+      let region_x = if table == 0 || table == 2 { 0 } else { 256 * 4 };
+
+      for i in 0usize..960 {
+        let nametbl_addr = 0x2000 + (table * 1024) + i;
+        let tile_id = self.ppu_debug_read(nametbl_addr as u16);
+        let pttrn_addr = pttrntbl + ((tile_id as u16) << 4);
+        let attr_addr = (0x23c0 + (table * 1024)) | (((i/32)/4) << 3) | ((i%32)/4);
+        
+        let mut attr = self.ppu_debug_read(attr_addr as u16);
+        if (i/32) & 0x2 > 0 { attr >>= 4; }
+        if (i%32) & 0x2 > 0 { attr >>= 2; }
+        attr &= 0x3;
+
+        for row in 0..8 {
+          let pttrn_lo = self.ppu_debug_read(pttrn_addr + row).reverse_bits();
+          let pttrn_hi = self.ppu_debug_read(pttrn_addr + row + 8).reverse_bits();
+
+          for col in 0..8 {
+            let pixel = (((pttrn_hi >> col) & 1) << 1) | ((pttrn_lo >> col) & 1);
+            let pixel_color = self.ppu_palette_read((attr*4 + pixel) as u16);
+            let color = self.palette.0[pixel_color as usize];
+
+            // row is 256 * 4 * 2 bytes long
+            let y = region_y + (256 * 4 * 2 * ((i/32)*8 + row as usize));
+            // pixel is 4 bytes long
+            let x = region_x + (4 * ((i%32)*8 + col as usize));
+
+            buf[y + x + 0] = color.0;
+            buf[y + x + 1] = color.1;
+            buf[y + x + 2] = color.2;
+            buf[y + x + 3] = 255;
+          }
+        }
+      }
     }
   }
 

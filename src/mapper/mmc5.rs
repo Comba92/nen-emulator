@@ -21,6 +21,7 @@ pub struct MMC5 {
 
   wram_protect: u8,
   exram_mode: u8,
+  exram_count: u8,
 
   irq_enabled: bool,
   irq_pending: bool,
@@ -133,16 +134,16 @@ impl MMC5 {
 
     match self.chr_mode {
       // 8kb
-      0 => chr.set_pages_unaligned(0, self.chr_regs[7], 8),
+      0 => chr.set_pages_unaligned(0, self.chr_regs[7] << 3, 8),
       // 4kb
       1 => {
-        chr.set_pages_unaligned(0, self.chr_regs[3], 4);
-        chr.set_pages_unaligned(4, self.chr_regs[7], 4);
+        chr.set_pages_unaligned(0, self.chr_regs[3] << 2, 4);
+        chr.set_pages_unaligned(4, self.chr_regs[7] << 2, 4);
       }
       // 2kb
       2 =>  for i in 0..4 {
         // only odds chr_regs
-        chr.set_pages_unaligned(i, self.chr_regs[i as usize * 2 + 1], 2);
+        chr.set_pages_unaligned(i, self.chr_regs[i as usize * 2 + 1] << 1, 2);
       }
       // 1kb
       _ => for i in 0..8 {
@@ -159,18 +160,18 @@ impl MMC5 {
 
     match self.chr_mode {
       // 8kb
-      0 => chr.set_pages_unaligned(0, self.chr_regs[11], 8),
+      0 => chr.set_pages_unaligned(0, self.chr_regs[11] << 3, 8),
       // 4kb
       1 => {
-        chr.set_pages_unaligned(0, self.chr_regs[11], 4);
-        chr.set_pages_unaligned(4, self.chr_regs[11], 4);
+        chr.set_pages_unaligned(0, self.chr_regs[11] << 2, 4);
+        chr.set_pages_unaligned(4, self.chr_regs[11] << 2, 4);
       }
       // 2kb
       2 =>  {
-        chr.set_pages_unaligned(0, self.chr_regs[9], 2);
-        chr.set_pages_unaligned(2, self.chr_regs[11], 2);
-        chr.set_pages_unaligned(4, self.chr_regs[9], 2);
-        chr.set_pages_unaligned(6, self.chr_regs[11], 2);
+        chr.set_pages_unaligned(0, self.chr_regs[9] << 1, 2);
+        chr.set_pages_unaligned(2, self.chr_regs[11] << 1, 2);
+        chr.set_pages_unaligned(4, self.chr_regs[9] << 1, 2);
+        chr.set_pages_unaligned(6, self.chr_regs[11] << 1, 2);
       }
       // 1kb
       _ => for i in 0..4 {
@@ -294,8 +295,7 @@ impl Mapper for MMC5 {
         let nametbl = (val >> (i * 2)) & 0x3;
         // exram is mapped to the third nametable, fill mode to fourth
         mem.banks.vram.set_page(i, nametbl as u16);
-      }
-    }
+      }} 
 
       0x5106 => self.fill_tile = val,
       0x5107 => self.fill_color = val & 0x3,
@@ -339,12 +339,13 @@ impl Mapper for MMC5 {
       }
 
       0x5c00..=0x5fff => {
-        let exram_addr = 0x800 + (addr as usize - 0x5c00);
-
         // in mode 0 and 1, can only write during rendering
         // in mode 2, can always write
+        let exram_addr = 0x800 + (addr as usize - 0x5c00);
         if matches!((self.exram_mode, self.ppu_in_frame), (0 | 1, true) | (2, _)) {
           mem.vram[exram_addr] = val;
+        } else {
+          mem.vram[exram_addr] = 0;
         }
       }
       _ => {}
@@ -355,72 +356,63 @@ impl Mapper for MMC5 {
     // extended attributes only work on background tiles
     if self.exram_mode == 1 && self.ppu_in_frame && (self.nametbl_fetch_count < 32 || self.nametbl_fetch_count >= 48) {
         //  The extended attributes are 1-screen mirrored; in other words, they apply the same for all nametables. 
-      let exram_offset = self.last_nametbl_addr as usize & 0x3ff;
-      let exattr = mem.vram[0x800 + exram_offset];
-
-      if addr < 0x2000 {
-        // pattern fetch
-
-        // In other words, this works as if the nametable was extended from 8-bit to 14-bit tile offsets, 
-        // with the ExRAM holding the upper 6-bits and the 2-bit palette value, while the nametable selected through $5105 contains the lower 8 bits. 
-        let chr_bank = ((self.chr_hi as u16) << 6) | (exattr as u16 & 0x3f);
-        let chr_addr = (chr_bank << 12) + (addr & 0xfff);
-        mem.chr[chr_addr as usize]
-      } else if addr & 0x3ff < 0x3c0 {
-        // normal nametbl fetch
+      if addr & 0x2000 > 0 && addr & 0x3ff < 0x3c0 {
         self.last_nametbl_addr = addr;
+        self.exram_count = 3;
+      } else if self.exram_count > 0 {
+        self.exram_count -= 1;  
 
-        let vram_addr = addr - 0x2000;
-        let table = (vram_addr) / 0x400;
-  
-        if mem.banks.vram.bankings[table as usize] == 0xc00 {
-          self.fill_tile
+        let exram_offset = self.last_nametbl_addr as usize & 0x3ff;
+        let exattr = mem.vram[0x800 + exram_offset];
+
+        if self.exram_count == 2 {
+          // attribute fetch
+          let palette = (exattr >> 6) as u8;
+          return (palette << 6) | (palette << 4) | (palette << 2) | palette
         } else {
-          mem.vram[mem.banks.vram.translate(vram_addr)]
-        }
-      } else {
-        // attribute fetch
-        let palette = (exattr >> 6) as u8;
-        (palette << 6) | (palette << 4) | (palette << 2) | palette
-      }
-    } else {
-      // not in extended attribute mode
-
-      if addr < 0x2000 {
-        // normal chr read
-        return mem.chr[mem.banks.chr.translate(addr)]
-      }
-
-      let vram_addr = addr - 0x2000;
-      let table = (vram_addr) / 0x400;
-
-      if vram_addr & 0x3ff < 0x3c0 {
-        // nametables, normal fetch
-        if mem.banks.vram.bankings[table as usize] == 0xc00 {
-          self.fill_tile
-        } else {
-          match self.exram_mode {
-            2 | 3 => 0,
-            _ => mem.vram[mem.banks.vram.translate(vram_addr)]
-          }
-        }
-      } else {
-        // attributes, special fetch
-        if mem.banks.vram.bankings[table as usize] == 0xc00 {
-          // if table is mapped to fill mode (fourth table)
-          // Each byte of the attribute table normally contains four 2-bit palette indexes. The two bits in this register are copied for all four indexes. 
-          (self.fill_color << 6) | (self.fill_color << 4) | (self.fill_color << 2) | self.fill_color
-        } else {
-          // table is mapped to normal vram, normal attribute fetch
-          // if exram mode is 2 or 3, any table mapped to exram should read 0
-          match self.exram_mode {
-            2 | 3 => 0,
-            _ => mem.vram[mem.banks.vram.translate(vram_addr)]
-          }
+          // In other words, this works as if the nametable was extended from 8-bit to 14-bit tile offsets, 
+          // with the ExRAM holding the upper 6-bits and the 2-bit palette value, while the nametable selected through $5105 contains the lower 8 bits. 
+          let chr_bank = ((self.chr_hi as u16) << 6) | (exattr as u16 & 0x3f);
+          let chr_addr = (chr_bank << 12) + (addr & 0xfff);
+          return mem.chr[chr_addr as usize]
         }
       }
     }
-  } 
+
+    if addr < 0x2000 {
+      // normal chr read
+      return mem.chr[mem.banks.chr.translate(addr)]
+    }
+
+    let vram_addr = addr - 0x2000;
+    let table = (vram_addr) / 0x400;
+
+    if vram_addr & 0x3ff < 0x3c0 {
+      // nametables, normal fetch
+      if mem.banks.vram.bankings[table as usize] == 0xc00 {
+        self.fill_tile
+      } else {
+        match self.exram_mode {
+          2 | 3 => 0,
+          _ => mem.vram[mem.banks.vram.translate(vram_addr)]
+        }
+      }
+    } else {
+      // attributes, special fetch
+      if mem.banks.vram.bankings[table as usize] == 0xc00 {
+        // if table is mapped to fill mode (fourth table)
+        // Each byte of the attribute table normally contains four 2-bit palette indexes. The two bits in this register are copied for all four indexes. 
+        (self.fill_color << 6) | (self.fill_color << 4) | (self.fill_color << 2) | self.fill_color
+      } else {
+        // table is mapped to normal vram, normal attribute fetch
+        // if exram mode is 2 or 3, any table mapped to exram should read 0
+        match self.exram_mode {
+          2 | 3 => 0,
+          _ => mem.vram[mem.banks.vram.translate(vram_addr)]
+        }
+      }
+    }
+  }
 
   // https://www.nesdev.org/wiki/MMC5#Scanline_Detection_and_Scanline_IRQ
   fn notify_ppu_addr(&mut self, mem: &mut Bus, _cycles: usize) {
@@ -446,7 +438,6 @@ impl Mapper for MMC5 {
         if !self.ppu_in_frame {
           self.ppu_in_frame = true;
           self.irq_count = 0;
-          self.update_chr_banks(mem);
         } else {
           self.irq_count += 1;
           // Value $00 is a special case that will not produce IRQ pending conditions

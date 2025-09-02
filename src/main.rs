@@ -1,7 +1,7 @@
 use std::io::{BufReader, Read, Seek};
 
 use nes_emulator::{emu::Emu, joypad::Button};
-use sdl2::{event::Event, keyboard::Keycode, pixels::PixelFormatEnum};
+use sdl2::{event::{Event, WindowEvent}, keyboard::Keycode, pixels::PixelFormatEnum};
 
 fn load_rom(path: &str) -> Result<Emu, Box<dyn std::error::Error>> {
     let mut bytes = Vec::new();
@@ -25,17 +25,22 @@ fn load_rom(path: &str) -> Result<Emu, Box<dyn std::error::Error>> {
 fn main() {
     let sdl = sdl2::init().unwrap();
     let video = sdl.video().unwrap();
+    let audio = sdl.audio().unwrap();
+
     let window = video.window("NesEmu", 256 * 3, 240 * 3)
         .position_centered()
         .resizable()
         .build().unwrap();
-    let audio = sdl.audio().unwrap();
 
-    let timer = sdl.timer().unwrap();
     let mut canvas = window.into_canvas()
-        .accelerated()
         .build().unwrap();
     canvas.set_logical_size(256, 240).unwrap();
+
+    let debug_window = video.window("Debug", 256 * 2, 240 * 2)
+        .resizable()
+        .build().unwrap();
+    let mut debug_canvas = debug_window.into_canvas()
+        .build().unwrap();
 
     let audiospec = sdl2::audio::AudioSpecDesired {
         channels: Some(1),
@@ -47,21 +52,27 @@ fn main() {
     println!("{:?}", audiodev.spec());
 
     let mut events = sdl.event_pump().unwrap();
+    let timer = sdl.timer().unwrap();
 
     let texture_creator  = canvas.texture_creator();
-        
     let mut tex = texture_creator
         .create_texture_streaming(PixelFormatEnum::RGBA32, 256, 240)
         .unwrap();
-
     tex.set_scale_mode(sdl2::render::ScaleMode::Nearest);
+
+    let debug_texture_creator  = debug_canvas.texture_creator();
+    let mut debug_tex = debug_texture_creator
+        .create_texture_streaming(PixelFormatEnum::RGBA32, 256 * 2, 240 * 2)
+        .unwrap();
+    debug_tex.set_scale_mode(sdl2::render::ScaleMode::Nearest);
 
     let mut emu = Emu::new(include_bytes!("../roms/super mario.nes")).unwrap();
 
     let mut framebuf = [0; 256 * 240 * 4];
-    let mut frame_rate = 1 + (1.0 / emu.frame_rate() * 1000.0) as u64;
-    println!("{frame_rate}");
+    let mut debug_framebuf = [0; 256 * 240 * 4 * 4];
 
+    let mut frame_rate = (1.0 / emu.frame_rate() * 1000.0).round() as u64;
+    println!("{frame_rate}");
 
     let mut avg_missed = 0;
     let mut frames_missed = 0;
@@ -72,6 +83,12 @@ fn main() {
         for event in events.poll_iter() {
             match event {
                 Event::Quit { .. } => break 'running,
+                Event::Window { window_id, win_event, .. } => {
+                    match win_event {
+                        WindowEvent::Close => break 'running,
+                        _ => {}
+                    }
+                }
                 Event::DropFile { filename, .. } => {
                     let bytes = std::fs::read(&filename).unwrap();
                     
@@ -85,7 +102,7 @@ fn main() {
                     match new_emu {
                         Ok(res) => {
                             emu = res;
-                            frame_rate = 1 + (1.0 / emu.frame_rate() * 1000.0) as u64;
+                            frame_rate = (1.0 / emu.frame_rate() * 1000.0).round() as u64;
                             println!("{frame_rate}");
                             audiodev.clear();
                         },
@@ -150,13 +167,24 @@ fn main() {
         emu.get_video_rgba(&mut framebuf);
         canvas.set_draw_color(sdl2::pixels::Color::GREY);
         canvas.clear();
-        
+
         tex.with_lock(None, |pixels, _| {
             pixels.copy_from_slice(&framebuf);
         }).unwrap();
 
         canvas.copy(&tex, None, None).unwrap();
         canvas.present();
+
+        emu.get_nametables_rgba(&mut debug_framebuf);
+        debug_canvas.set_draw_color(sdl2::pixels::Color::GREY);
+        debug_canvas.clear();    
+
+        debug_tex.with_lock(None, |pixels, _| {
+            pixels.copy_from_slice(&debug_framebuf);
+        }).unwrap();
+
+        debug_canvas.copy(&debug_tex, None, None).unwrap();
+        debug_canvas.present();
 
         let frame_duration = timer.ticks64() - frame_start;
 
