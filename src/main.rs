@@ -36,11 +36,12 @@ fn main() {
         .build().unwrap();
     canvas.set_logical_size(256, 240).unwrap();
 
-    let debug_window = video.window("Debug", 256 * 2, 240 * 2)
-        .resizable()
-        .build().unwrap();
-    let mut debug_canvas = debug_window.into_canvas()
-        .build().unwrap();
+    // let debug_window = video.window("Debug", 256 * 2 * 2, 240 * 2 * 2)
+    //     .resizable()
+    //     .build().unwrap();
+    // let mut debug_canvas = debug_window.into_canvas()
+    //     .build().unwrap();
+
 
     let audiospec = sdl2::audio::AudioSpecDesired {
         channels: Some(1),
@@ -60,19 +61,20 @@ fn main() {
         .unwrap();
     tex.set_scale_mode(sdl2::render::ScaleMode::Nearest);
 
-    let debug_texture_creator  = debug_canvas.texture_creator();
-    let mut debug_tex = debug_texture_creator
-        .create_texture_streaming(PixelFormatEnum::RGBA32, 256 * 2, 240 * 2)
-        .unwrap();
-    debug_tex.set_scale_mode(sdl2::render::ScaleMode::Nearest);
+    // let debug_texture_creator  = debug_canvas.texture_creator();
+    // let mut debug_tex = debug_texture_creator
+    //     .create_texture_streaming(PixelFormatEnum::RGBA32, 256 * 2, 240 * 2)
+    //     .unwrap();
+    // debug_tex.set_scale_mode(sdl2::render::ScaleMode::Nearest);
 
     let mut emu = Emu::new(include_bytes!("../roms/super mario.nes")).unwrap();
 
     let mut framebuf = [0; 256 * 240 * 4];
-    let mut debug_framebuf = [0; 256 * 240 * 4 * 4];
+    let mut debug_framebuf = Box::new([0; 256 * 240 * 4 * 4]);
 
     let mut frame_rate = (1.0 / emu.frame_rate() * 1000.0).round() as u64;
     println!("{frame_rate}");
+
 
     let mut avg_missed = 0;
     let mut frames_missed = 0;
@@ -112,14 +114,14 @@ fn main() {
                 Event::KeyDown { keycode, .. } => {
                     if let Some(keycode) = keycode {
                         match keycode {
-                            Keycode::W => emu.joypad.set_button(Button::Up, true),
-                            Keycode::A => emu.joypad.set_button(Button::Left, true),
-                            Keycode::S => emu.joypad.set_button(Button::Down, true),
-                            Keycode::D => emu.joypad.set_button(Button::Right, true),
-                            Keycode::K => emu.joypad.set_button(Button::A, true),
-                            Keycode::J => emu.joypad.set_button(Button::B, true),
-                            Keycode::M => emu.joypad.set_button(Button::Start, true),
-                            Keycode::N => emu.joypad.set_button(Button::Select, true),
+                            Keycode::W => emu.set_button(Button::Up, true),
+                            Keycode::A => emu.set_button(Button::Left, true),
+                            Keycode::S => emu.set_button(Button::Down, true),
+                            Keycode::D => emu.set_button(Button::Right, true),
+                            Keycode::K => emu.set_button(Button::A, true),
+                            Keycode::J => emu.set_button(Button::B, true),
+                            Keycode::M => emu.set_button(Button::Start, true),
+                            Keycode::N => emu.set_button(Button::Select, true),
                             _ => {}
                         }
                     }
@@ -128,14 +130,14 @@ fn main() {
                 Event::KeyUp { keycode, .. } => {
                     if let Some(keycode) = keycode {
                         match keycode {
-                            Keycode::W => emu.joypad.set_button(Button::Up, false),
-                            Keycode::A => emu.joypad.set_button(Button::Left, false),
-                            Keycode::S => emu.joypad.set_button(Button::Down, false),
-                            Keycode::D => emu.joypad.set_button(Button::Right, false),
-                            Keycode::K => emu.joypad.set_button(Button::A, false),
-                            Keycode::J => emu.joypad.set_button(Button::B, false),
-                            Keycode::M => emu.joypad.set_button(Button::Start, false),
-                            Keycode::N => emu.joypad.set_button(Button::Select, false),
+                            Keycode::W => emu.set_button(Button::Up, false),
+                            Keycode::A => emu.set_button(Button::Left, false),
+                            Keycode::S => emu.set_button(Button::Down, false),
+                            Keycode::D => emu.set_button(Button::Right, false),
+                            Keycode::K => emu.set_button(Button::A, false),
+                            Keycode::J => emu.set_button(Button::B, false),
+                            Keycode::M => emu.set_button(Button::Start, false),
+                            Keycode::N => emu.set_button(Button::Select, false),
                             _ => {}
                         }
                     }
@@ -175,16 +177,16 @@ fn main() {
         canvas.copy(&tex, None, None).unwrap();
         canvas.present();
 
-        emu.get_nametables_rgba(&mut debug_framebuf);
-        debug_canvas.set_draw_color(sdl2::pixels::Color::GREY);
-        debug_canvas.clear();    
+        // emu.get_nametables_rgba(&mut debug_framebuf);
+        // debug_canvas.set_draw_color(sdl2::pixels::Color::GREY);
+        // debug_canvas.clear();    
 
-        debug_tex.with_lock(None, |pixels, _| {
-            pixels.copy_from_slice(&debug_framebuf);
-        }).unwrap();
+        // debug_tex.with_lock(None, |pixels, _| {
+        //     pixels.copy_from_slice(&*debug_framebuf);
+        // }).unwrap();
 
-        debug_canvas.copy(&debug_tex, None, None).unwrap();
-        debug_canvas.present();
+        // debug_canvas.copy(&debug_tex, None, None).unwrap();
+        // debug_canvas.present();
 
         let frame_duration = timer.ticks64() - frame_start;
 

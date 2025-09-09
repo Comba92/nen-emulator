@@ -214,10 +214,6 @@ pub struct Bus {
   // 16kb / 1kb = 16
   pub ppu_handlers_1kb: [PpuHandler; 16],
 
-  // TODO: consider keeping this in PPU
-  // TODO: palettes are weird, accessing them doesnt change ppu addr bus, investigate
-  pub palettes: [u8; 32],
-
   pub cpu_addr_bus: u16,
   pub cpu_data_bus: u8,
   pub ppu_addr_bus: u16,
@@ -282,7 +278,6 @@ impl Bus {
       chr: cart.chr,
       vram: vec![0; 2 * 1024],
       wram: vec![0; cart.header.wram_size],
-      palettes: [0; 32],
 
       cpu_handlers_8kb,
       ppu_handlers_1kb,
@@ -356,7 +351,6 @@ impl Bus {
       wram: vec![0; 32 * 1024],
       chr: vec![0; 8 * 1024],
       vram: vec![0; 2 * 1024],
-      palettes: [0; 32],
 
       cpu_handlers_8kb,
       ppu_handlers_1kb,
@@ -520,7 +514,7 @@ impl Emu {
       PpuHandler::VramInChr => mem.vram[mem.banks.vram.translate(addr)],
       PpuHandler::Palette => {
         if matches!(addr, 0x3f00..=0x3fff) {
-          self.ppu_palette_read(addr)
+          self.ppu.palettes_read(addr)
         } else {
           // Video memory's data bus is multiplexed with the low byte of the address bus on pins 31 through 38. Thus a read from an address with no memory connected will usually return the low byte of the address.
           mem.ppu_addr_bus as u8
@@ -549,12 +543,14 @@ impl Emu {
       PpuHandler::Vram => mem.vram[mem.banks.vram.translate(addr - 0x2000)],
       PpuHandler::VramInChr => mem.vram[mem.banks.vram.translate(addr)],
       PpuHandler::Palette => {
-        if matches!(addr, 0x3f00..=0x3fff) {
-          self.ppu_palette_read(addr)
+        let res = if matches!(addr, 0x3f00..=0x3fff) {
+          self.ppu.palettes_read(addr)
         } else {
           // Video memory's data bus is multiplexed with the low byte of the address bus on pins 31 through 38. Thus a read from an address with no memory connected will usually return the low byte of the address.
           mem.ppu_addr_bus as u8
-        }
+        };
+        println!("Reading palette ram at {addr:04x} {res:02x}");
+        res
       }
       
       PpuHandler::ChrMMC5 | PpuHandler::VramMMC5 => self.mapper.special_read(mem, addr),
@@ -566,17 +562,6 @@ impl Emu {
     }
 
     self.mem.ppu_data_bus = res;
-
-    res
-  }
-
-  pub fn ppu_palette_read(&self, addr: u16) -> u8 {
-    let pal = addr as usize & 31;
-    let res = if pal % 4 == 0 {
-      self.mem.palettes[pal & 0xf]
-    } else {
-      self.mem.palettes[pal]
-    };
 
     res
   }
@@ -595,16 +580,16 @@ impl Emu {
       PpuHandler::Palette => {
         if matches!(addr, 0x3f00..=0x3fff) {
           let addr = addr as usize & 31;
-          let val = val & 0b11_1111;
+          let val = val & 0x3f;
           
           // if we're writing a transparent color
           if addr % 4 == 0 {
             // write both backdrop colors
-            mem.palettes[addr & 0xf] = val;
-            mem.palettes[addr & 0xf + 0xf] = val;
+            self.ppu.palettes[addr & 0xf] = val;
+            self.ppu.palettes[addr & 0xf + 0xf] = val;
           } else {
             // write palette color as is
-            mem.palettes[addr] = val;
+            self.ppu.palettes[addr] = val;
           }
 
           // shouldn't set ppu_addr_bus

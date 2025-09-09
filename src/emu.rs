@@ -1,4 +1,4 @@
-use crate::{apu::ApuRP2A, bus::Bus, cart::Cart, cpu::{self, Cpu6502}, disk::Disk, joypad::Joypad, mapper::{self, Mapper, NROM}, ppu::Ppu2C02, Palette};
+use crate::{apu::ApuRP2A, bus::Bus, cart::Cart, cpu::{self, Cpu6502}, disk::Disk, joypad::{Button, Joypad}, mapper::{self, Mapper, NROM}, ppu::Ppu2C02, Palette};
 
 #[derive(Default)]
 pub struct EmuSettings {
@@ -230,7 +230,7 @@ impl Emu {
 
           for col in 0..8 {
             let pixel = (((pttrn_hi >> col) & 1) << 1) | ((pttrn_lo >> col) & 1);
-            let pixel_color = self.ppu_palette_read((attr*4 + pixel) as u16);
+            let pixel_color = self.ppu.palettes_read((attr*4 + pixel) as u16);
             let color = self.palette.0[pixel_color as usize];
 
             // row is 256 * 4 * 2 bytes long
@@ -260,5 +260,9 @@ impl Emu {
     } else {
       eprintln!("not a valid palette file");
     }
+  }
+
+  pub fn set_button(&mut self, btn: Button, state: bool) {
+    self.joypad.buttons.set(btn, state);
   }
 }

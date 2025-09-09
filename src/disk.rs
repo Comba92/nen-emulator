@@ -10,14 +10,13 @@ impl Disk {
   const FDS_HEADER_SIZE: usize = 16;
   const SIDE_SIZE: usize = 65500;
 
-  fn push_and_add_gaps(data: &mut Vec<u8>, block: &[u8]) {
+  fn push_gaps_and_data(data: &mut Vec<u8>, block: &[u8]) {
     // Gap between blocks : At least 480 bits, 976 bits typical.
-    data.extend_from_slice(block);
-    data.resize(data.len() + 976/8, 0);
-    
+    data.extend(std::iter::repeat_n(0, 976/8));
     // Gaps are teminated by a single '1' bit. In terms of bytes, it would be $80, as the data is stored in little endian format. 
     data.push(0x80);
-
+    
+    data.extend_from_slice(block);
     // At the end of each block, a 16-bit CRC is stored.
     // fake CRC value
     data.push(0xde);
@@ -48,8 +47,6 @@ impl Disk {
       // Before the start of the disk : At least 26150 bits, 28300 typical.
       side_data.resize(28300 / 8, 0);
       side_data.push(0x80);
-      // side_data.push(0xde);
-      // side_data.push(0xad);
       
       if img[0] != 1 {
         return Err("no valid side info block")
@@ -65,7 +62,10 @@ impl Disk {
       }
 
       // disk info block is 0x38 (56) bytes
-      Self::push_and_add_gaps(&mut side_data, &img[..0x38]);
+      side_data.extend_from_slice(&img[..0x38]);
+      // Self::push_gaps_and_data(&mut side_data, &img[..0x38]);
+      side_data.push(0xde);
+      side_data.push(0xad);
 
       if img[0x38] != 2 {
         return Err("no valid file amount block")
@@ -74,7 +74,7 @@ impl Disk {
 
       let files_count = img[0x39];
       // file info block is 2 bytes
-      Self::push_and_add_gaps(&mut side_data, &img[0x38..0x3a]);
+      Self::push_gaps_and_data(&mut side_data, &img[0x38..0x3a]);
 
       let mut file = &img[0x3a..];
       println!();
@@ -96,7 +96,7 @@ impl Disk {
         println!("FILE SIZE: {}", file_size);
 
         // file header block is 0x10 (16) bytes
-        Self::push_and_add_gaps(&mut side_data, &file[..0x10]);
+        Self::push_gaps_and_data(&mut side_data, &file[..0x10]);
 
         assert_eq!(file[0x10], 4);
         if file[0x10] != 4 {
@@ -105,7 +105,7 @@ impl Disk {
 
         parsed_bytes += 0x11 + file_size;
         // TODO: handle case when we go over 65500 bytes
-        Self::push_and_add_gaps(&mut side_data, &file[0x11..0x11 + file_size]);
+        Self::push_gaps_and_data(&mut side_data, &file[0x11..0x11 + file_size]);
         file = &file[0x11 + file_size..];
         println!()
       }

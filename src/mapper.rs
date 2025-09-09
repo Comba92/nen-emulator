@@ -1899,6 +1899,7 @@ impl Mapper for FDS {
       0x4024 => if self.disk_enabled {
         self.write_buf = val as u8;
         self.byte_transferred = false;
+        mem.irq.remove(IrqFlags::DISK);
       }
 
       0x4025 => if self.disk_enabled {

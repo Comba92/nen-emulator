@@ -31,13 +31,24 @@ bitflags::bitflags! {
   }
 }
 
-#[derive(Default, Debug)]
+#[derive(Debug)]
 pub struct CtrlStrut {
   pub vram_addr_inc: u16,
   pub spr_pttrntbl_addr: u16,
   pub bg_pttrntbl_addr: u16,
   pub spr_size: u16,
   pub vblank_nmi_enabled: bool,
+}
+impl Default for CtrlStrut {
+  fn default() -> Self {
+    Self {
+      vram_addr_inc: 1,
+      spr_pttrntbl_addr: 0,
+      bg_pttrntbl_addr: 0,
+      spr_size: 8,
+      vblank_nmi_enabled: false,
+    }
+  }
 }
 
 #[bitfields::bitfield(u16)]
@@ -159,6 +170,9 @@ pub struct Ppu2C02 {
   spr_scanline: SprScanline,
   pub dma: Dma,
 
+  // TODO: palettes are weird, accessing them doesnt change ppu addr bus, investigate
+  pub palettes: [u8; 32],
+
   pub cycle: i16,
   pub scanline: i16,
   scanline_last: i16,
@@ -197,6 +211,22 @@ impl Ppu2C02 {
 
     let shift = ((v & 0x40) >> 4) | (v & 0x02);
     (attr >> shift) & 0b11
+  }
+
+  pub fn palettes_read(&self, addr: u16) -> u8 {
+    let pal = addr as usize & 31;
+    let res = if pal % 4 == 0 {
+      self.palettes[pal & 0xf]
+    } else {
+      self.palettes[pal]
+    };
+
+    res
+  }
+
+  pub fn oam_write(&mut self, val: u8) {
+    self.oam.0[self.oam_addr as usize] = val;
+    self.oam_addr = self.oam_addr.wrapping_add(1);
   }
 
   // https://www.nesdev.org/wiki/PPU_scrolling#Tile_and_attribute_fetching
@@ -352,11 +382,6 @@ impl Ppu2C02 {
     // }
   }
 
-  pub fn oam_write(&mut self, val: u8) {
-    self.oam.0[self.oam_addr as usize] = val;
-    self.oam_addr = self.oam_addr.wrapping_add(1);
-  }
-
   pub fn reset(&mut self) {
     *self = Ppu2C02 {
       scanline: -1,
@@ -369,7 +394,7 @@ impl Ppu2C02 {
 }
 
 impl Emu {
-  fn increase_addr(&mut self) {
+  fn increase_vram_addr(&mut self) {
     let ppu = &mut self.ppu;
     // if !ppu.is_rendering() {
       ppu.v.0 = (ppu.v.0 + ppu.ctrl.vram_addr_inc) & 0x3fff;
@@ -517,21 +542,23 @@ impl Emu {
     
     let res = if self.ppu.v.0 >= 0x3f00 {
     // https://www.nesdev.org/wiki/PPU_registers#Reading_palette_RAM
-    // WARNING: older PPUs did not have this problem
-      self.ppu_palette_read(self.ppu.v.0) | self.ppu.open_bus & 0xc0
+    // The value on the nametable at $2700 through $27FF should be put in the buffer when reading from palette RAM at $3F00 through $3FFF.
+      self.ppu.ppu_data = self.ppu_dispatch_read(self.ppu.v.0 & 0x27ff);    
+      self.ppu.palettes_read(self.ppu.v.0) | self.ppu.open_bus & 0xc0
     } else {
-      self.ppu.ppu_data
+      let val = self.ppu.ppu_data;
+      self.ppu.ppu_data = self.ppu_dispatch_read(self.ppu.v.0);
+      val
     };
     
-    self.ppu.ppu_data = self.ppu_dispatch_read(self.ppu.v.0);
-    self.increase_addr();
+    self.increase_vram_addr();
 
     res
   }
 
   fn ppu_write8(&mut self, val: u8) {
     self.ppu_dispatch_write(self.ppu.v.0, val);
-    self.increase_addr();
+    self.increase_vram_addr();
   }
 
   fn bg_fetch_step(&mut self) {
@@ -694,12 +721,12 @@ impl Emu {
 
   fn bg_color_from_palette(&mut self, palette: u8, pixel: u8) -> u8 {
     let addr = (palette << 2) | pixel;
-    self.ppu_palette_read(0x3f00 | addr as u16)
+    self.ppu.palettes_read(0x3f00 | addr as u16)
   }
 
   fn spr_color_from_palette(&mut self, palette: u8, pixel: u8) -> u8 {
     let addr = (palette << 2) | pixel;
-    self.ppu_palette_read(0x3f10 | addr as u16)
+    self.ppu.palettes_read(0x3f10 | addr as u16)
   }
 
   fn render_pixel(&mut self) {

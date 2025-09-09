@@ -66,7 +66,7 @@ pub mod joypad {
   pub struct Joypad {
     polling: bool,
     curr_btn: u8,
-    buttons: Button,
+    pub buttons: Button,
   }
 
   impl Joypad {
@@ -83,10 +83,6 @@ pub mod joypad {
     pub fn write(&mut self, val: u8) {
       self.polling = val & 1 == 0;
       self.curr_btn = if self.polling { 0 } else { self.curr_btn };
-    }
-
-    pub fn set_button(&mut self, btn: Button, state: bool) {
-      self.buttons.set(btn, state);
     }
   }
 }

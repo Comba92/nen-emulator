@@ -49,6 +49,8 @@ pub struct Cpu6502 {
   op_addr: u16,
 
   nmi_to_handle: bool,
+  // the effect of toggling this flag is delayed 1 instruction when caused by SEI, CLI, or PLP.
+  irq_to_set: Option<bool>,
   pub cycles: usize,
 }
 
@@ -66,7 +68,7 @@ impl Emu {
   pub fn cpu_reset(&mut self) {
     self.cpu.pc = self.cpu_read16(RST_VECTOR);
     self.cpu.p |= Status::IrqDisable;
-    self.cpu.sp -= 3;
+    self.cpu.sp = self.cpu.sp.wrapping_sub(3);
   }
 
   fn cpu_read8(&mut self, addr: u16) -> u8 {
@@ -647,7 +649,8 @@ impl Emu {
     self.get_op_val();
   }
 
-  
+
+  // == Illegal Opcodes ==
   fn lax(&mut self) {
     // self.lda();
     // self.ldx();
@@ -1320,7 +1323,7 @@ impl Emu {
       0xfb => self.isb(),
       0xfc => self.nop(),
       0xff => self.isb(),
-      _ => unreachable!("illegal opcode 0x{opcode:02X} at address 0x{:04X} reached, system jammed", self.cpu.pc)
+      _ => eprintln!("illegal opcode 0x{opcode:02X} at address 0x{:04X} reached", self.cpu.pc)
     }
   }
 }
