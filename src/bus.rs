@@ -543,14 +543,12 @@ impl Emu {
       PpuHandler::Vram => mem.vram[mem.banks.vram.translate(addr - 0x2000)],
       PpuHandler::VramInChr => mem.vram[mem.banks.vram.translate(addr)],
       PpuHandler::Palette => {
-        let res = if matches!(addr, 0x3f00..=0x3fff) {
+        if matches!(addr, 0x3f00..=0x3fff) {
           self.ppu.palettes_read(addr)
         } else {
           // Video memory's data bus is multiplexed with the low byte of the address bus on pins 31 through 38. Thus a read from an address with no memory connected will usually return the low byte of the address.
           mem.ppu_addr_bus as u8
-        };
-        println!("Reading palette ram at {addr:04x} {res:02x}");
-        res
+        }
       }
       
       PpuHandler::ChrMMC5 | PpuHandler::VramMMC5 => self.mapper.special_read(mem, addr),

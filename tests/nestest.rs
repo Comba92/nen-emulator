@@ -43,7 +43,7 @@ fn logline_from_emu(emu: &Emu) -> LogLine {
   logline.p = emu.cpu.p;
   logline.sp = emu.cpu.sp;
 
-  logline.ppu_cycles = emu.ppu.cycle as usize;
+  logline.ppu_cycles = emu.ppu.dots as usize;
   logline.scanlines = emu.ppu.scanline as usize;
   logline.cpu_cycles = emu.cpu.cycles;
 
@@ -57,7 +57,7 @@ fn nestest_no_graphics() {
   let mut emu = Emu::new(include_bytes!("../roms/nestest.nes")).unwrap();
   emu.cpu.pc = 0xc000;
   emu.cpu.cycles =  7;
-  emu.ppu.cycle  = 21;
+  emu.ppu.dots  = 21;
   emu.ppu.scanline = 0;
   // emu.cpu.p = Status::IrqDisable | Status::Unused;
 

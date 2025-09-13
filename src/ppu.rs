@@ -173,7 +173,7 @@ pub struct Ppu2C02 {
   // TODO: palettes are weird, accessing them doesnt change ppu addr bus, investigate
   pub palettes: [u8; 32],
 
-  pub cycle: i16,
+  pub dots: i16,
   pub scanline: i16,
   scanline_last: i16,
   pub pixel: usize,
@@ -421,11 +421,11 @@ impl Emu {
       // Reading on the same PPU clock or one later reads it as set, clears it, and suppresses the NMI for that frame.
       //  Reading two or more PPU clocks before/after it's set behaves normally (reads flag's value, clears it, and doesn't affect NMI operation). 
 
-        if ppu.scanline == 241 && ppu.cycle <= 2 {
-          if ppu.cycle == 0 {
+        if ppu.scanline == 241 && ppu.dots <= 2 {
+          if ppu.dots == 0 {
             ppu.stat.remove(Status::Vblank);
             ppu.vblank_suppress = true;
-          } else if ppu.cycle <= 2 {
+          } else if ppu.dots <= 2 {
             ppu.stat.insert(Status::Vblank);
           }
           
@@ -514,13 +514,11 @@ impl Emu {
         match ppu.w {
           false => {
             // The 16-bit address is written to PPUADDR one byte at a time, high byte first.
-            // ppu.ppu_addr = byte_hi_set(ppu.ppu_addr, val);
             ppu.t.0 = byte_set_hi(ppu.t.0, val);
             // bit 14 of the internal t register that holds the data written to PPUADDR is forced to 0 when writing the PPUADDR high byte.
             ppu.t.0 &= 0x3fff;
           }
           true => {
-            // ppu.ppu_addr = byte_lo_set(ppu.ppu_addr, val);
             ppu.t.0 = byte_set_lo(ppu.t.0, val);
             ppu.v.0 = ppu.t.0;
             self.update_ppu_bus(self.ppu.v.0);
@@ -568,7 +566,7 @@ impl Emu {
     // we dont care, and do evrything on the first dot
 
     // we do cycle - 1 as we skip the idle cycle to be aligned to 8
-    match (self.ppu.cycle - 1) % 8 {
+    match (self.ppu.dots - 1) % 8 {
       // https://www.nesdev.org/wiki/PPU_scrolling#Tile_and_attribute_fetching
       0 => {
         self.ppu.shifter_load_from_fetcher();
@@ -601,7 +599,7 @@ impl Emu {
     let ppu = &mut self.ppu;
     
     // these are still aligned by 8
-    match (ppu.cycle - 1) % 8 {
+    match (ppu.dots - 1) % 8 {
       0 => {
         // unused nt fetch
         self.ppu_dispatch_read(self.ppu.nametbl_addr());
@@ -611,7 +609,7 @@ impl Emu {
         self.ppu_dispatch_read(self.ppu.nametbl_addr());
       }
       4 => {
-        let spr_id = (ppu.cycle - 257) / 8;
+        let spr_id = (ppu.dots - 257) / 8;
         let sprite = &ppu.oam_tmp[spr_id as usize];
 
         let pttrn_addr = ppu.spr_pttrn_addr(sprite);
@@ -624,7 +622,7 @@ impl Emu {
         self.ppu.oam_tmp[spr_id as usize].pttrn_lo = pttrn;
       }
       6 => {
-        let spr_id = (ppu.cycle - 257) / 8;
+        let spr_id = (ppu.dots - 257) / 8;
         let sprite = &ppu.oam_tmp[spr_id as usize];
 
         let pttrn_addr = ppu.fetcher.pttrn_addr;
@@ -655,8 +653,8 @@ impl Emu {
       }
     }
 
-    ppu.stat.set(Status::SprOvfl, ppu.rendering_enabled() && ppu.oam_tmp.len() > 8);
     ppu.oam_tmp_count = ppu.oam_tmp.len().min(8) as u8;
+    ppu.stat.set(Status::SprOvfl, ppu.oam_tmp_count > 8);
 
     // we always make secondary oam have 8 sprites, so sprite fetching works
     if ppu.oam_tmp.len() < 8 {
@@ -731,7 +729,7 @@ impl Emu {
 
   fn render_pixel(&mut self) {
     let ppu = &mut self.ppu;
-    let pixel_x = ppu.cycle as usize - 1;
+    let pixel_x = ppu.dots as usize - 1;
     
     let in_lstrip  = pixel_x < 8;
     let bg_visible  = !in_lstrip || ppu.mask.contains(Mask::ShowBgLeft);
@@ -790,10 +788,10 @@ impl Emu {
       0..=239 => self.render_step(),
       
       // During VBlank and when rendering is disabled, the value on the PPU address bus is the current value of the v register. 
-      240 => if self.ppu.cycle == 1 && !self.ppu.rendering_enabled() {
+      240 => if self.ppu.dots == 1 && !self.ppu.rendering_enabled() {
         self.update_ppu_bus(self.ppu.v.0);
       }
-      241 => if self.ppu.cycle == 1 {
+      241 => if self.ppu.dots == 1 {
         self.ppu.stat.set(Status::Vblank, !self.ppu.vblank_suppress);
         self.mem.nmi = self.ppu.ctrl.vblank_nmi_enabled && !self.ppu.nmi_suppress;
 
@@ -802,12 +800,12 @@ impl Emu {
       _ => {}
     }
 
-    self.mem.ppu_cycle = self.ppu.cycle;
+    self.mem.ppu_cycle = self.ppu.dots;
     let ppu = &mut self.ppu;
 
-    ppu.cycle += 1;
-    if ppu.cycle >= 341 {
-      ppu.cycle = 0;
+    ppu.dots += 1;
+    if ppu.dots >= 341 {
+      ppu.dots = 0;
       ppu.scanline += 1;
 
       self.mem.ppu_scanline = self.ppu.scanline;
@@ -834,14 +832,14 @@ impl Emu {
     let ppu = &mut self.ppu;
 
     if !ppu.rendering_enabled() {
-      if matches!(ppu.cycle, 1..=256) {
+      if matches!(ppu.dots, 1..=256) {
         self.videobuf[self.ppu.pixel] = self.bg_color_from_palette(0, 0);
         self.ppu.pixel += 1;
       }
       return;
     }
 
-    match ppu.cycle {
+    match ppu.dots {
       1..=255 => {
         // render pixel goes after the fetch, because at this time, the new tile hasnt been loaded into the shifters yet
         self.bg_fetch_step();
@@ -869,14 +867,14 @@ impl Emu {
     let ppu = &mut self.ppu;
 
     if !ppu.rendering_enabled() {
-      if ppu.cycle == 1 {
+      if ppu.dots == 1 {
         ppu.stat.clear();
       }
 
       return;
     }
     
-    match ppu.cycle {
+    match ppu.dots {
       1 => {
         ppu.stat.clear();
         self.bg_fetch_step();
@@ -898,7 +896,7 @@ impl Emu {
       337 => { self.ppu_dispatch_read(self.ppu.nametbl_addr()); }
       339 => {
         if ppu.odd_frame && !ppu.rendering_enabled() {
-          ppu.cycle += 1;
+          ppu.dots += 1;
         }
         self.ppu_dispatch_read(self.ppu.nametbl_addr());
       }

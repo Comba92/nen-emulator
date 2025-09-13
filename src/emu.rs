@@ -165,6 +165,9 @@ impl Emu {
   pub fn cpu_tick(&mut self) {
     self.cpu.cycles += 1;
 
+    self.apu_step();
+    self.mapper.step(&mut self.mem, self.cpu.cycles);
+
     self.ppu_step();
     self.ppu_step();
     self.ppu_step();
@@ -176,9 +179,6 @@ impl Emu {
       }
       _ => {}
     }
-    
-    self.apu_step();
-    self.mapper.step(&mut self.mem, self.cpu.cycles);
   }
 
   pub fn step_until_vblank(&mut self) {
@@ -194,7 +194,7 @@ impl Emu {
     self.apu.cycles -= cycles_run;
   }
 
-  pub fn get_video_rgba(&self, buf: &mut [u8; 256 * 240 * 4]) {
+  pub fn get_video_rgba(&self, buf: &mut [u8]) {
     for (i, color) in self.videobuf.iter()
       .map(|byte| self.palette.0[*byte as usize])
       .enumerate()
@@ -206,7 +206,7 @@ impl Emu {
     }
   }
 
-  pub fn get_nametables_rgba(&mut self, buf: &mut [u8; 256 * 240 * 4 * 4]) {
+  pub fn get_nametables_rgba(&mut self, buf: &mut [u8]) {
     let pttrntbl = self.ppu.ctrl.bg_pttrntbl_addr;
     
     for table in 0..4 {

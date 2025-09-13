@@ -7,18 +7,22 @@ fn load_rom(path: &str) -> Result<Emu, Box<dyn std::error::Error>> {
     let mut bytes = Vec::new();
     let mut file = std::fs::File::open(path)?;
 
-    let _ = zip::read::ZipArchive::new(BufReader::new(&file))
-        .map_err(|e| e.into())
-        .and_then(|mut archive| {
-            archive.by_index(0)
-            .map_err(|e| e.into())
-            .and_then(|mut zip| {
-                zip.read_to_end(&mut bytes)
-            })
-        }).or_else(|_| {
-            file.rewind().and_then(|_| BufReader::new(&file).read_to_end(&mut bytes))
+    BufReader::new(&file).read_to_end(&mut bytes)
+        .or_else(|_| {
+            file.rewind().and_then(|_|
+                zip::read::ZipArchive::new(BufReader::new(&file))
+                .map_err(|e| e.into())
+                .and_then(|mut archive| {
+                    archive.by_index(0)
+                    .map_err(|e| e.into())
+                    .and_then(|mut zip| {
+                        zip.read_to_end(&mut bytes)
+                    })
+                })
+            )
         })?;
 
+    println!("{:x?}", &bytes[..4]);
     Emu::new(&bytes).map_err(|e| e.into())
 }
 
@@ -69,12 +73,8 @@ fn main() {
 
     let mut emu = Emu::new(include_bytes!("../roms/super mario.nes")).unwrap();
 
-    let mut framebuf = [0; 256 * 240 * 4];
-    let mut debug_framebuf = Box::new([0; 256 * 240 * 4 * 4]);
-
     let mut frame_rate = (1.0 / emu.frame_rate() * 1000.0).round() as u64;
     println!("{frame_rate}");
-
 
     let mut avg_missed = 0;
     let mut frames_missed = 0;
@@ -98,7 +98,7 @@ fn main() {
                         emu.load_palette(&bytes);
                         continue;
                     }
-
+                    
                     let new_emu = load_rom(&filename);
 
                     match new_emu {
@@ -165,13 +165,11 @@ fn main() {
             frames_missed = 0;
         }
 
-        
-        emu.get_video_rgba(&mut framebuf);
         canvas.set_draw_color(sdl2::pixels::Color::GREY);
         canvas.clear();
 
         tex.with_lock(None, |pixels, _| {
-            pixels.copy_from_slice(&framebuf);
+            emu.get_video_rgba(pixels);
         }).unwrap();
 
         canvas.copy(&tex, None, None).unwrap();
