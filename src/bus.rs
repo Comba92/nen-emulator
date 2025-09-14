@@ -1,35 +1,24 @@
 use crate::{cart::{Cart, CartHeader}, disk::Disk, emu::{Emu, Mirroring}, mapper::{self, BoxedMapper, Mapper}};
 
 pub trait BankCfg {}
-
-#[derive(Debug, Default)]
-pub struct PrgBank;
-impl BankCfg for PrgBank {}
-
-#[derive(Debug, Default)]
-pub struct ChrBank;
-impl BankCfg for ChrBank {}
-
-#[derive(Debug, Default)]
-pub struct WramBank;
-impl BankCfg for WramBank {}
-
-#[derive(Debug, Default)]
-pub struct VramBank;
-impl BankCfg for VramBank {}
+#[derive(Debug, Default)] pub struct PrgBank; impl BankCfg for PrgBank {}
+#[derive(Debug, Default)] pub struct ChrBank; impl BankCfg for ChrBank {}
+#[derive(Debug, Default)] pub struct WramBank; impl BankCfg for WramBank {}
+#[derive(Debug, Default)] pub struct VramBank; impl BankCfg for VramBank {}
 
 #[derive(Debug, Default)]
 pub struct Banking<T: BankCfg> {
   bank_size: u16,
   bank_size_shift: u16,
   pub banks_count: u16,
+  pub start_addr: u16,
 
   pub bankings: Vec<usize>,
   kind: std::marker::PhantomData<T>,
 }
 
 impl<T: BankCfg + std::fmt::Debug> Banking<T> {
-  pub fn new(real_size: usize, addressable_size: u16, pages_count: u16) -> Self {
+  pub fn new(real_size: usize, start_addr: u16, addressable_size: u16, pages_count: u16) -> Self {
     let bankings = vec![0; pages_count as usize];
     let bank_size = addressable_size / pages_count;
     let banks_count = (real_size / bank_size as usize) as u16;
@@ -41,6 +30,7 @@ impl<T: BankCfg + std::fmt::Debug> Banking<T> {
       bank_size,
       bank_size_shift,
       banks_count,
+      start_addr,
 
       bankings,
       kind: std::marker::PhantomData::<T>,
@@ -95,7 +85,7 @@ impl<T: BankCfg + std::fmt::Debug> Banking<T> {
   pub fn translate(&self, addr: u16) -> usize {
     // let page = (addr % self.pages_size) / self.bank_size;
     // let page = (addr >> self.bank_size_shift) as usize % self.bankings.len();
-    let page = (addr >> self.bank_size_shift) as usize;
+    let page = ((addr - self.start_addr) >> self.bank_size_shift) as usize;
 
     // i do not expect to write outside the slots array here either.
     // self.bankings[page] + (addr % self.bank_size)
@@ -106,25 +96,25 @@ impl<T: BankCfg + std::fmt::Debug> Banking<T> {
 
 impl Banking<PrgBank> {
   pub fn new_prg(header: &CartHeader, pages_count: u16) -> Self {
-    Self::new(header.prg_size, 32 * 1024, pages_count)
+    Self::new(header.prg_size, 0x8000, 32 * 1024, pages_count)
   }
 }
 
 impl Banking<ChrBank> {
   pub fn new_chr(header: &CartHeader, pages_count: u16) -> Self {
-    Self::new(header.chr_size, 8 * 1024, pages_count)
+    Self::new(header.chr_size, 0, 8 * 1024, pages_count)
   }
 }
 
 impl Banking<WramBank> {
   pub fn new_wram(header: &CartHeader, pages_count: u16) -> Self {
-    Self::new(header.wram_size, 8 * 1024, pages_count)
+    Self::new(header.wram_size, 0x6000, 8 * 1024, pages_count)
   }
 }
 
 impl Banking<VramBank> {
   pub fn new_vram(header: &CartHeader) -> Self {
-    let mut res = Self::new(2 * 1024, 4 * 1024, 4);
+    let mut res = Self::new(2 * 1024, 0x2000, 4 * 1024, 4);
     res.mirror(&header.mirroring);
     res
   }
@@ -192,12 +182,12 @@ bitflags::bitflags! {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum CpuHandler {
-  Ram, Ppu, IO, Wram, WramReadOnly, Prg, Mapper, PrgInWram, PrgMMC5, PpuMMC5
+  Ram, Ppu, IO, Wram, WramReadOnly, Prg, Mapper, PrgMMC5, PpuMMC5
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum PpuHandler {
-  ChrRom, ChrRam, Vram, Palette, VramInChr, ChrMMC5, VramMMC5
+  ChrRom, ChrRam, Vram, Palette, ChrMMC5, VramMMC5
 }
 
 // TODO: access prg, chr, sram, vram with unsafe uncheked get, as index bounds cannot be optimized
@@ -305,14 +295,14 @@ impl Bus {
     let mut banks = BanksHandler::default();
 
     // keep like this so we can just use the standard prg handler
-    banks.prg = Banking::new(8 * 1024, 32 * 1024, 4);
+    banks.prg = Banking::new(8 * 1024, 0xe000, 8 * 1024, 1);
     banks.prg.set_page_to_last_bank(3);
     let mut prg = vec![0; 8 * 1024];
     prg.copy_from_slice(include_bytes!("../utils/disksys.rom"));
-    banks.wram = Banking::new(32 * 1024, 32 * 1024, 1);
+    banks.wram = Banking::new(32 * 1024, 0x6000, 32 * 1024, 1);
 
-    banks.chr = Banking::new(8 * 1024, 8 * 1024, 1);
-    banks.vram = Banking::new(2 * 1024, 4 * 1024, 4);
+    banks.chr = Banking::new(8 * 1024, 0, 8 * 1024, 1);
+    banks.vram = Banking::new(2 * 1024, 0x2000, 4 * 1024, 4);
     banks.vram.mirror(&Mirroring::Horizontal);
 
     let cpu_handlers_8kb = [
@@ -411,7 +401,7 @@ impl Bus {
   }
 
   pub fn set_4screen_mirroring(&mut self) {
-    self.banks.vram = Banking::new(4 * 1024, 4 * 1024, 4);
+    self.banks.vram = Banking::new(4 * 1024, 0x2000, 4 * 1024, 4);
     self.banks.vram.mirror(&Mirroring::FourScreens);
     self.vram.resize(4 * 1024, 0);
   }
@@ -436,13 +426,12 @@ impl Emu {
         }
       }
       CpuHandler::Mapper => self.mapper.cart_read(mem, addr),
-      CpuHandler::Wram | CpuHandler::WramReadOnly => mem.wram[mem.banks.wram.translate(addr - 0x6000)],
-      CpuHandler::Prg => mem.prg[mem.banks.prg.translate(addr - 0x8000)],
-      CpuHandler::PrgInWram => mem.prg[mem.banks.wram.translate(addr - 0x6000)],
+      CpuHandler::Wram | CpuHandler::WramReadOnly => mem.wram[mem.banks.wram.translate(addr)],
+      CpuHandler::Prg => mem.prg[mem.banks.prg.translate(addr)],
       
       CpuHandler::PrgMMC5 => {
         self.mapper.notify_cpu_addr(mem, addr, None);
-        mem.prg[mem.banks.prg.translate(addr - 0x8000)]
+        mem.prg[mem.banks.prg.translate(addr)]
       }
     };
     
@@ -485,8 +474,8 @@ impl Emu {
 
       // TODO: this could just be prg_write...
       CpuHandler::Mapper => self.mapper.cart_write(mem, addr, val),
-      CpuHandler::Wram => mem.wram[mem.banks.wram.translate(addr - 0x6000)] = val,
-      CpuHandler::Prg | CpuHandler::PrgInWram | CpuHandler::PrgMMC5 => {
+      CpuHandler::Wram => mem.wram[mem.banks.wram.translate(addr)] = val,
+      CpuHandler::Prg | CpuHandler::PrgMMC5 => {
         self.mapper.prg_write(mem, addr, val);
       }
       CpuHandler::WramReadOnly => {},
@@ -510,8 +499,7 @@ impl Emu {
 
     let res = match handler {
       PpuHandler::ChrRom | PpuHandler::ChrRam => mem.chr[mem.banks.chr.translate(addr)],
-      PpuHandler::Vram => mem.vram[mem.banks.vram.translate(addr - 0x2000)],
-      PpuHandler::VramInChr => mem.vram[mem.banks.vram.translate(addr)],
+      PpuHandler::Vram => mem.vram[mem.banks.vram.translate(addr)],
       PpuHandler::Palette => {
         if matches!(addr, 0x3f00..=0x3fff) {
           self.ppu.palettes_read(addr)
@@ -540,8 +528,7 @@ impl Emu {
 
     let res = match handler {
       PpuHandler::ChrRom | PpuHandler::ChrRam => mem.chr[mem.banks.chr.translate(addr)],
-      PpuHandler::Vram => mem.vram[mem.banks.vram.translate(addr - 0x2000)],
-      PpuHandler::VramInChr => mem.vram[mem.banks.vram.translate(addr)],
+      PpuHandler::Vram => mem.vram[mem.banks.vram.translate(addr)],
       PpuHandler::Palette => {
         if matches!(addr, 0x3f00..=0x3fff) {
           self.ppu.palettes_read(addr)
@@ -573,8 +560,7 @@ impl Emu {
     match mem.ppu_handlers_1kb[handler as usize] {
       PpuHandler::ChrRom | PpuHandler::ChrMMC5 => {}
       PpuHandler::ChrRam => mem.chr[mem.banks.chr.translate(addr)] = val,
-      PpuHandler::Vram | PpuHandler::VramMMC5 => mem.vram[mem.banks.vram.translate(addr - 0x2000)] = val,
-      PpuHandler::VramInChr => mem.vram[mem.banks.vram.translate(addr)] = val,
+      PpuHandler::Vram | PpuHandler::VramMMC5 => mem.vram[mem.banks.vram.translate(addr)] = val,
       PpuHandler::Palette => {
         if matches!(addr, 0x3f00..=0x3fff) {
           let addr = addr as usize & 31;

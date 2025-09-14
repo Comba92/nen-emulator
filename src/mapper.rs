@@ -125,7 +125,7 @@ impl Mapper for CNROM {
 
     mem.banks.chr = Banking::new_chr(&mem.header, 1);
     // The Namco game Hayauchi Super Igo adds 2 KiB of PRG-RAM, denoted using mapper 3 and the appropriate value in the header's PRG-RAM size field.
-    mem.banks.wram = Banking::new(2 * 1024, 2 * 1024, 4);
+    mem.banks.wram = Banking::new(2 * 1024, 0x6000, 2 * 1024, 4);
     Box::new(Self)
   }
 
@@ -939,13 +939,14 @@ struct NTDEC2722 {
 }
 impl Mapper for NTDEC2722 {
   fn new(mem: &mut Bus) -> Box<Self> {
-    mem.banks.prg = Banking::new_prg(&mem.header, 4);
-    mem.set_wram_handlers(CpuHandler::PrgInWram);
+    mem.banks.prg = Banking::new(mem.header.prg_size, 0x6000, 40 * 1024, 5);
+    mem.set_wram_handlers(CpuHandler::Prg);
 
-    mem.banks.wram.set_page(0, 6);
-    mem.banks.prg.set_page(0, 4);
-    mem.banks.prg.set_page(1, 5);
-    mem.banks.prg.set_page(3, 7);
+    mem.banks.prg.set_page(0, 6);
+    mem.banks.prg.set_page(1, 4);
+    mem.banks.prg.set_page(2, 5);
+    // page 3 is controlled by register 0xe000
+    mem.banks.prg.set_page(4, 7);
 
     Box::new(Self::default())
   }
@@ -962,7 +963,7 @@ impl Mapper for NTDEC2722 {
       0xc000 => if self.submapper == 1 {
         // TODO: submapper 1 stuff
       }
-      0xe000 => mem.banks.prg.set_page(2, val as u16),
+      0xe000 => mem.banks.prg.set_page(3, val as u16),
       _ => {}
     }
   }
@@ -1010,14 +1011,12 @@ impl Mapper for Namco129_163 {
 
     if mem.header.mapper == 19 {
       // namco 129/163
-      mem.banks.chr = Banking::new(mem.header.chr_size, 12 * 1024, 12);
-      mem.banks.vram = Banking::new(2 * 1024, 12 * 1024, 12);
-      mem.set_vram_handlers(PpuHandler::VramInChr);  
+      mem.banks.chr = Banking::new(mem.header.chr_size, 0, 12 * 1024, 12);
+      mem.banks.vram = Banking::new(2 * 1024, 0, 12 * 1024, 12);
     } else if mem.header.mapper == 210 {
       // namco 175/340
       mem.banks.chr = Banking::new_chr(&mem.header, 8);
     }
-  
 
     Box::new(Self {
       // exram: [0; 128],
@@ -1067,13 +1066,12 @@ impl Mapper for Namco129_163 {
     match (addr, self.mapper) {
       (0x8000..=0xdfff, 19) => {
         let page = ((addr - 0x8000) / 0x800) as u8;
-
         let nametbl_enabled = (page >= 8) || (page < 4 && !self.chr_ram0) || (page >= 4 && !self.chr_ram1);
 
         if val >= 0xe0 && nametbl_enabled {
           // use nametables
           mem.banks.vram.set_page(page, val as u16 & 1);
-          mem.ppu_handlers_1kb[page as usize] = PpuHandler::VramInChr;
+          mem.ppu_handlers_1kb[page as usize] = PpuHandler::Vram;
         } else {
           // use chr
           mem.banks.chr.set_page(page, val as u16);
@@ -1323,21 +1321,21 @@ struct NapoleonSenki;
 impl Mapper for NapoleonSenki {
   fn new(mem: &mut Bus) -> Box<Self> {
     mem.banks.prg = Banking::new_prg(&mem.header, 1);
-    mem.banks.chr = Banking::new(mem.header.chr_size, 2 * 1024, 1);
+    mem.banks.chr = Banking::new(mem.header.chr_size, 0, 2 * 1024, 1);
     
     // this games provides 8kb of chr ram + 2kb of vram
-    // we simulate chr ram by extending our vram from 0x0000 to 0x2fff, even if we dont use 0x0000..=0x07ff
-    mem.vram.resize(12 * 1024, 0);
-    mem.banks.vram = Banking::new(12 * 1024, 12 * 1024, 6);
+    // we simulate chr ram by extending our vram from 0x0800 to 0x2fff
+    mem.vram.resize(10 * 1024, 0);
+    mem.banks.vram = Banking::new(10 * 1024, 0x800, 10 * 1024, 5);
     
-    for i in 1..6 {
+    for i in 0..5 {
       mem.banks.vram.bankings[i] = i * 2048;
       // I HAVE NO CLUE WHAT THIS DOENST WORK and have to manually set the pages..
       // mem.banks.vram.set_page(i as u8, i);
     }
 
     for i in 2..12 {
-      mem.ppu_handlers_1kb[i] = PpuHandler::VramInChr;
+      mem.ppu_handlers_1kb[i] = PpuHandler::Vram;
     }
 
     Box::new(Self)
@@ -1509,7 +1507,7 @@ impl Sunsoft4 {
 impl Mapper for Sunsoft4 {
   fn new(mem: &mut Bus) -> Box<Self> {
     mem.banks.prg.set_page_to_last_bank(1);
-    mem.banks.chr = Banking::new(mem.header.chr_size, 12 * 1024, 12);
+    mem.banks.chr = Banking::new(mem.header.chr_size, 0, 12 * 1024, 12);
     mem.banks.chr.set_pages_aligned2(0, 0);
     mem.banks.chr.set_pages_aligned2(2, 2);
     mem.banks.chr.set_pages_aligned2(4, 4);
@@ -1653,8 +1651,8 @@ struct SunsoftFME7 {
 impl Mapper for SunsoftFME7 {
   fn new(mem: &mut Bus) -> Box<Self> {
     // TODO: set this to 5 banks and addressable size of 40kb
-    mem.banks.prg = Banking::new_prg(&mem.header, 4);
-    mem.banks.prg.set_page_to_last_bank(3);
+    mem.banks.prg = Banking::new(mem.header.prg_size, 0x6000, 40 * 1024, 5);
+    mem.banks.prg.set_page_to_last_bank(4);
     mem.banks.chr = Banking::new_chr(&mem.header, 8);
 
     Box::new(Self {
@@ -1674,16 +1672,17 @@ impl Mapper for SunsoftFME7 {
           let mode = val & 0x40 > 0;
 
           if mode != self.uses_wram {
-            let handler = if mode { CpuHandler::Wram } else { CpuHandler::PrgInWram };
+            let handler = if mode { CpuHandler::Wram } else { CpuHandler::Prg };
             mem.set_wram_handlers(handler);
 
             mem.banks.wram.set_page(0, val as u16 & 0x3f);
+            mem.banks.prg.set_page(0, val as u16 & 0x3f);
             self.uses_wram = mode;
           }
 
           mem.wram_enable(val & 0x80 > 0);
         }
-        0x9..=0xb => mem.banks.prg.set_page(self.cpu_command - 9, val as u16),
+        0x9..=0xb => mem.banks.prg.set_page(self.cpu_command - 9 + 1, val as u16),
         0xc => {
           let mirroring = match val & 0b11 {
               0 => Mirroring::Vertical,

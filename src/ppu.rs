@@ -104,7 +104,8 @@ impl Sprite {
       // bits 2-4 of attribute are empty, we can use them to store spr0hit
       attr: (bytes[2] & !0x1c) | (((index == 0) as u8) << 2),
       x: bytes[3],
-      ..Default::default()
+      pttrn_hi: 0,
+      pttrn_lo: 0,
     }
   }
 

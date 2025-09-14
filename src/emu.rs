@@ -42,28 +42,6 @@ pub enum Region {
   #[default] NTSC, PAL
 }
 
-// TODO: control all default implementations
-impl Default for Emu {
-  fn default() -> Self {
-    Self {
-      cpu: Cpu6502::new(),
-      ppu: Ppu2C02::new(&Region::default()),
-      apu: ApuRP2A::new(&Region::default()),
-      joypad: Joypad::default(),
-      mem: Bus::with_cart(Cart::default()),
-      mapper: Box::new(NROM),
-
-      frame_ready: false,
-
-      videobuf: [0; 256 * 240],
-      audiobuf: [0; 2 * 1024],
-
-      palette: Palette::default(),
-      settings: EmuSettings::default()
-    }
-  }
-}
-
 pub enum Game {
   Cart(Cart),
   Disk(Disk)

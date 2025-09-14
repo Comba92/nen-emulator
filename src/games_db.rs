@@ -64,11 +64,13 @@ impl From<&GameData> for CartHeader {
       mapper: value.mapper,
       submapper: value.submapper,
       has_battery: value.has_battery,
+      expansions: value.expansions,
 
       // if we made a header here, it means it was headerless
       format: HeaderFormat::Headerless,
       
-      ..Default::default()
+      alt_mirroring: false,
+      has_trainer: false,
     }
   }
 }
@@ -180,14 +182,14 @@ fn count_prgram() {
   dbg!(only_prgnvram);
 
   let interesting = GAMES_DB.games.iter()
-  .filter_map(|x| if x.prgram_size > 0 && x.prgnvram_size > 0 && x.mapper <= 5 {
+  .filter_map(|x| if x.prgram_size > 0 && x.prgnvram_size > 0 && x.mapper <= 255 {
     Some((&x.title, x.mapper))
   } else {
     None
   })
   .collect::<Vec<_>>();
 
-  println!("{:?}", interesting);
+  println!("{:#?}", interesting);
 
   let games_with_both = GAMES_DB.games.iter()
     .filter(|x| x.prgram_size > 0 && x.prgnvram_size > 0)
@@ -210,7 +212,7 @@ fn count_chr() {
     .filter(|x| x.chr_size > 0 && x.chrram_size > 0 && x.mapper <= 5 || x.mapper == 119)
     .collect::<Vec<_>>();
 
-  println!("{:?}", interesting);
+  println!("{:#?}", interesting);
 
   let games_with_both = GAMES_DB.games.iter()
     .filter(|x| x.chr_size > 0 && x.chrram_size > 0)
@@ -223,6 +225,6 @@ fn count_mmc5_ram() {
   let count = GAMES_DB.games.iter()
     .filter(|x| x.mapper == 5 && x.chrram_size > 0)
     .collect::<Vec<_>>();
-  println!("{count:?}");
+  println!("{count:#?}");
 }
 }

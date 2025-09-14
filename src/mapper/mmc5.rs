@@ -196,7 +196,7 @@ impl Mapper for MMC5 {
     mem.banks.chr = Banking::new_chr(&mem.header, 8);
 
     // wram can be mapped in range 0x6000..=0xdfff (32kb)
-    mem.banks.wram = Banking::new(mem.header.wram_size, 32 * 1024, 4);
+    mem.banks.wram = Banking::new(mem.header.wram_size, 0x6000, 32 * 1024, 4);
     mem.set_prg_handlers(CpuHandler::PrgMMC5);
     mem.cpu_handlers_8kb[1] = CpuHandler::PpuMMC5;
 
@@ -360,6 +360,7 @@ impl Mapper for MMC5 {
       if addr & 0x2000 > 0 && addr & 0x3ff < 0x3c0 {
         self.last_nametbl_addr = addr;
         self.exram_count = 3;
+
       } else if self.exram_count > 0 {
         self.exram_count -= 1;
 
@@ -385,17 +386,16 @@ impl Mapper for MMC5 {
       return mem.chr[mem.banks.chr.translate(addr)]
     }
 
-    let vram_addr = addr - 0x2000;
-    let table = (vram_addr) / 0x400;
+    let table = (addr - 0x2000) / 0x400;
 
-    if vram_addr & 0x3ff < 0x3c0 {
+    if addr & 0x3ff < 0x3c0 {
       // nametables, normal fetch
       if mem.banks.vram.bankings[table as usize] == 0xc00 {
         self.fill_tile
       } else {
         match self.exram_mode {
           2 | 3 => 0,
-          _ => mem.vram[mem.banks.vram.translate(vram_addr)]
+          _ => mem.vram[mem.banks.vram.translate(addr)]
         }
       }
     } else {
@@ -409,7 +409,7 @@ impl Mapper for MMC5 {
         // if exram mode is 2 or 3, any table mapped to exram should read 0
         match self.exram_mode {
           2 | 3 => 0,
-          _ => mem.vram[mem.banks.vram.translate(vram_addr)]
+          _ => mem.vram[mem.banks.vram.translate(addr)]
         }
       }
     }
