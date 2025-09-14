@@ -224,9 +224,25 @@ impl Ppu2C02 {
     res
   }
 
+  fn oam_read(&mut self) -> u8 {
+    if self.is_rendering() {
+      // https://www.nesdev.org/wiki/PPU_sprite_evaluation#Details
+      // https://forums.nesdev.org/viewtopic.php?p=141975#p141975
+      if self.dots < 64 { 0xff }
+      else if self.dots < 256 { 0 }
+      else if self.dots < 320 { 0xff }
+      else { self.oam_tmp[0].y }
+    } else {
+      self.oam.0[self.oam_addr as usize]
+    }
+  }
+
   pub fn oam_write(&mut self, val: u8) {
-    self.oam.0[self.oam_addr as usize] = val;
-    self.oam_addr = self.oam_addr.wrapping_add(1);
+    // Writes to OAMDATA during rendering (on the pre-render line and the visible lines 0–239, provided either sprite or background rendering is enabled) do not modify values in OAM, but do perform a glitchy increment of OAMADDR, bumping only the high 6 bits
+    if !self.is_rendering() {
+      self.oam.0[self.oam_addr as usize] = val;
+      self.oam_addr = self.oam_addr.wrapping_add(1);
+    }
   }
 
   // https://www.nesdev.org/wiki/PPU_scrolling#Tile_and_attribute_fetching
@@ -440,7 +456,7 @@ impl Emu {
         res | (ppu.open_bus & 0x1f)
       }
       // OamData
-      0x2004 => ppu.oam.0[ppu.oam_addr as usize],
+      0x2004 => self.ppu.oam_read(),
       // PpuData
       0x2007 => self.ppu_read8(),
 
@@ -487,10 +503,8 @@ impl Emu {
         // self.mapper.notify_ppu_mask(val);
       }
       // OamAddr
-      // TODO: behaviour during rendering: https://www.nesdev.org/wiki/PPU_registers#OAMADDR_-_Sprite_RAM_address_($2003_write)
       0x2003 => ppu.oam_addr = val,
       // OamData
-      // TODO: behaviour during rendering: https://www.nesdev.org/wiki/PPU_registers#OAMDATA_-_Sprite_RAM_data_($2004_read/write)
       0x2004 => ppu.oam_write(val),
       // Scroll
       0x2005 => {
@@ -653,8 +667,8 @@ impl Emu {
       }
     }
 
+    ppu.stat.set(Status::SprOvfl, ppu.oam_tmp.len() > 8);
     ppu.oam_tmp_count = ppu.oam_tmp.len().min(8) as u8;
-    ppu.stat.set(Status::SprOvfl, ppu.oam_tmp_count > 8);
 
     // we always make secondary oam have 8 sprites, so sprite fetching works
     if ppu.oam_tmp.len() < 8 {

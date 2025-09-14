@@ -571,8 +571,8 @@ impl Emu {
     let handler = (addr >> 10) % 16;
 
     match mem.ppu_handlers_1kb[handler as usize] {
-      PpuHandler::ChrRom => {}
-      PpuHandler::ChrRam | PpuHandler::ChrMMC5 => mem.chr[mem.banks.chr.translate(addr)] = val,
+      PpuHandler::ChrRom | PpuHandler::ChrMMC5 => {}
+      PpuHandler::ChrRam => mem.chr[mem.banks.chr.translate(addr)] = val,
       PpuHandler::Vram | PpuHandler::VramMMC5 => mem.vram[mem.banks.vram.translate(addr - 0x2000)] = val,
       PpuHandler::VramInChr => mem.vram[mem.banks.vram.translate(addr)] = val,
       PpuHandler::Palette => {

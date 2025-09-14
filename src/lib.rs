@@ -29,6 +29,7 @@ mod utils {
   }
 }
 
+// TODO: move to emu.rs
 struct Palette(pub [(u8, u8, u8); 64]);
 impl Default for Palette {
   fn default() -> Self { Self([(0, 0, 0); 64]) }
@@ -47,6 +48,7 @@ impl Palette {
   }
 }
 
+// TODO: move to emu.rs
 pub mod joypad {
   bitflags::bitflags! {
     #[derive(Default)]
@@ -87,6 +89,8 @@ pub mod joypad {
   }
 }
 
+
+// TODO: move to emu.rs
 pub mod dma {
   #[derive(Default)]
   pub struct Dma {

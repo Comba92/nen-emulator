@@ -5,47 +5,31 @@ use sdl2::{event::{Event, WindowEvent}, keyboard::Keycode, pixels::PixelFormatEn
 
 fn load_rom(path: &str) -> Result<Emu, Box<dyn std::error::Error>> {
     let mut bytes = Vec::new();
-    let mut file = std::fs::File::open(path)?;
+    let file = std::fs::File::open(path)?;
+    let mut reader = BufReader::new(&file);
 
-    BufReader::new(&file).read_to_end(&mut bytes)
-        .or_else(|_| {
-            file.rewind().and_then(|_|
-                zip::read::ZipArchive::new(BufReader::new(&file))
-                .map_err(|e| e.into())
-                .and_then(|mut archive| {
-                    archive.by_index(0)
-                    .map_err(|e| e.into())
-                    .and_then(|mut zip| {
-                        zip.read_to_end(&mut bytes)
-                    })
-                })
-            )
-        })?;
-
-    println!("{:x?}", &bytes[..4]);
-    Emu::new(&bytes).map_err(|e| e.into())
+    zip::read::ZipArchive::new(BufReader::new(&file))
+        .map_err(|e| e.to_string())
+        .and_then(|mut archive| {
+            archive.by_index(0)
+            .map_err(|e| e.to_string())
+            .and_then(|mut zip| {
+                zip.read_to_end(&mut bytes)
+                .map_err(|e| e.to_string())
+                .and_then(|_| Emu::new(&bytes))
+            })
+        })
+        .or_else(|_| reader.rewind()
+            .and_then(|_| reader.read_to_end(&mut bytes))
+            .map_err(|e| e.to_string())
+            .and_then(|_| Emu::new(&bytes)))
+        .map_err(|e| e.into())
 }
 
 fn main() {
     let sdl = sdl2::init().unwrap();
     let video = sdl.video().unwrap();
     let audio = sdl.audio().unwrap();
-
-    let window = video.window("NesEmu", 256 * 3, 240 * 3)
-        .position_centered()
-        .resizable()
-        .build().unwrap();
-
-    let mut canvas = window.into_canvas()
-        .build().unwrap();
-    canvas.set_logical_size(256, 240).unwrap();
-
-    // let debug_window = video.window("Debug", 256 * 2 * 2, 240 * 2 * 2)
-    //     .resizable()
-    //     .build().unwrap();
-    // let mut debug_canvas = debug_window.into_canvas()
-    //     .build().unwrap();
-
 
     let audiospec = sdl2::audio::AudioSpecDesired {
         channels: Some(1),
@@ -59,12 +43,27 @@ fn main() {
     let mut events = sdl.event_pump().unwrap();
     let timer = sdl.timer().unwrap();
 
+    
+    let window = video.window("NesEmu", 256 * 3, 240 * 3)
+        .position_centered()
+        .resizable()
+        .build().unwrap();
+
+    let mut canvas = window.into_canvas()
+        .build().unwrap();
+    canvas.set_logical_size(256, 240).unwrap();
     let texture_creator  = canvas.texture_creator();
     let mut tex = texture_creator
         .create_texture_streaming(PixelFormatEnum::RGBA32, 256, 240)
         .unwrap();
     tex.set_scale_mode(sdl2::render::ScaleMode::Nearest);
 
+
+    // let debug_window = video.window("Debug", 256 * 2 * 2, 240 * 2 * 2)
+    // .resizable()
+    // .build().unwrap();
+    // let mut debug_canvas = debug_window.into_canvas()
+    //     .build().unwrap();
     // let debug_texture_creator  = debug_canvas.texture_creator();
     // let mut debug_tex = debug_texture_creator
     //     .create_texture_streaming(PixelFormatEnum::RGBA32, 256 * 2, 240 * 2)
@@ -74,7 +73,6 @@ fn main() {
     let mut emu = Emu::new(include_bytes!("../roms/super mario.nes")).unwrap();
 
     let mut frame_rate = (1.0 / emu.frame_rate() * 1000.0).round() as u64;
-    println!("{frame_rate}");
 
     let mut avg_missed = 0;
     let mut frames_missed = 0;
@@ -105,7 +103,6 @@ fn main() {
                         Ok(res) => {
                             emu = res;
                             frame_rate = (1.0 / emu.frame_rate() * 1000.0).round() as u64;
-                            println!("{frame_rate}");
                             audiodev.clear();
                         },
                         Err (e) => eprintln!("{e}"),
@@ -175,12 +172,11 @@ fn main() {
         canvas.copy(&tex, None, None).unwrap();
         canvas.present();
 
-        // emu.get_nametables_rgba(&mut debug_framebuf);
         // debug_canvas.set_draw_color(sdl2::pixels::Color::GREY);
         // debug_canvas.clear();    
 
         // debug_tex.with_lock(None, |pixels, _| {
-        //     pixels.copy_from_slice(&*debug_framebuf);
+        //     emu.get_nametables_rgba(pixels);
         // }).unwrap();
 
         // debug_canvas.copy(&debug_tex, None, None).unwrap();

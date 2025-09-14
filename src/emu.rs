@@ -1,4 +1,4 @@
-use crate::{apu::ApuRP2A, bus::Bus, cart::Cart, cpu::{self, Cpu6502}, disk::Disk, joypad::{Button, Joypad}, mapper::{self, Mapper, NROM}, ppu::Ppu2C02, Palette};
+use crate::{apu::ApuRP2A, bus::Bus, cart::Cart, cpu::{self, Cpu6502}, disk::Disk, joypad::{Button, Joypad}, mapper::{self, BoxedMapper, Mapper, NROM}, ppu::Ppu2C02, Palette};
 
 #[derive(Default)]
 pub struct EmuSettings {
@@ -98,7 +98,7 @@ impl Emu {
     let (mem, mapper) = match game {
       Game::Cart(cart) => {
         let mut mem = Bus::with_cart(cart);
-        let mapper = mapper::new(&mut mem)?;
+        let mapper: BoxedMapper = mapper::new(&mut mem)?;
         (mem, mapper)
       }
       Game::Disk(disk) => {

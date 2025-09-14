@@ -1,3 +1,5 @@
+use std::ops::Neg;
+
 use crate::{apu, bus::{Bus, Banking, CpuHandler, IrqFlags, PpuHandler}, mapper::Mapper};
 
 #[derive(Default)]
@@ -42,6 +44,7 @@ pub struct MMC5 {
   audio_cycles: usize,
 }
 impl MMC5 {
+  // TODO: handle different sram chips
   fn update_prg_banks(&mut self, mem: &mut Bus) {
     let wram = &mut mem.banks.wram;
     let prg = &mut mem.banks.prg;
@@ -62,10 +65,8 @@ impl MMC5 {
 
         let handler = if mem.wram.is_empty() {
           CpuHandler::Mapper
-        } else if self.wram_protect == 0x6 {
-          CpuHandler::Wram
         } else {
-          CpuHandler::WramReadOnly
+          CpuHandler::Wram
         };
 
         mem.cpu_handlers_8kb[3 + page as usize] = handler;
@@ -203,8 +204,8 @@ impl Mapper for MMC5 {
     // exram is mapped to third, fill screen is mapped to fourth
     mem.set_4screen_mirroring();
     // needed to substitute attribute tables reads
-    mem.set_vram_handlers(PpuHandler::VramMMC5);
     mem.set_chr_handlers(PpuHandler::ChrMMC5);
+    mem.set_vram_handlers(PpuHandler::VramMMC5);
 
     let mut res = Self::default();
     // The Koei games never write to this register, apparently relying on the MMC5 defaulting to mode 3 at power on. 
@@ -345,7 +346,7 @@ impl Mapper for MMC5 {
         if matches!((self.exram_mode, self.ppu_in_frame), (0 | 1, true) | (2, _)) {
           mem.vram[exram_addr] = val;
         } else {
-          mem.vram[exram_addr] = 0;
+          // mem.vram[exram_addr] = 0;
         }
       }
       _ => {}
@@ -355,12 +356,12 @@ impl Mapper for MMC5 {
   fn special_read(&mut self, mem: &mut Bus, addr: u16) -> u8 {
     // extended attributes only work on background tiles
     if self.exram_mode == 1 && self.ppu_in_frame && (self.nametbl_fetch_count < 32 || self.nametbl_fetch_count >= 48) {
-        //  The extended attributes are 1-screen mirrored; in other words, they apply the same for all nametables. 
+      // The extended attributes are 1-screen mirrored; in other words, they apply the same for all nametables. 
       if addr & 0x2000 > 0 && addr & 0x3ff < 0x3c0 {
         self.last_nametbl_addr = addr;
         self.exram_count = 3;
       } else if self.exram_count > 0 {
-        self.exram_count -= 1;  
+        self.exram_count -= 1;
 
         let exram_offset = self.last_nametbl_addr as usize & 0x3ff;
         let exattr = mem.vram[0x800 + exram_offset];
@@ -372,9 +373,9 @@ impl Mapper for MMC5 {
         } else {
           // In other words, this works as if the nametable was extended from 8-bit to 14-bit tile offsets, 
           // with the ExRAM holding the upper 6-bits and the 2-bit palette value, while the nametable selected through $5105 contains the lower 8 bits. 
-          let chr_bank = ((self.chr_hi as u16) << 6) | (exattr as u16 & 0x3f);
-          let chr_addr = (chr_bank << 12) + (addr & 0xfff);
-          return mem.chr[chr_addr as usize]
+          let chr_bank = ((self.chr_hi as usize) << 6) | (exattr as usize & 0x3f);
+          let chr_addr = (chr_bank << 12) + (addr as usize & 0xfff);
+          return mem.chr[chr_addr]
         }
       }
     }
@@ -476,6 +477,7 @@ impl Mapper for MMC5 {
     }
     
     // envelope and length counter are fixed to a 240hz update rate.
+    // TODO: PAL version
     if self.audio_cycles > (1789773 / 240) {
       self.audio_cycles -= 1789773 / 240;
       self.p0.len.step();
@@ -526,7 +528,6 @@ impl Mapper for MMC5 {
 
   // The sound output of the square channels are equivalent in volume to the corresponding APU channels, but the polarity of all MMC5 channels is reversed compared to the APU. 
   fn sample(&self) -> f32 {
-    // ((self.p0.sample() + self.p1.sample()) as f32).neg()
-    0.0
+    ((self.p0.sample() + self.p1.sample()) as f32).neg()
   }
 }
