@@ -8,10 +8,10 @@ pub trait BankCfg {}
 
 #[derive(Debug, Default)]
 pub struct Banking<T: BankCfg> {
+  pub banks_count: u16,
   bank_size: u16,
   bank_size_shift: u16,
-  pub banks_count: u16,
-  pub start_addr: u16,
+  start_addr: u16,
 
   pub bankings: Vec<usize>,
   kind: std::marker::PhantomData<T>,
@@ -21,10 +21,9 @@ impl<T: BankCfg + std::fmt::Debug> Banking<T> {
   pub fn new(real_size: usize, start_addr: u16, addressable_size: u16, pages_count: u16) -> Self {
     let bankings = vec![0; pages_count as usize];
     let bank_size = addressable_size / pages_count;
-    let banks_count = (real_size / bank_size as usize) as u16;
-
     // https://stackoverflow.com/questions/25787613/division-and-multiplication-by-power-of-2
-    let bank_size_shift = bank_size.checked_ilog2().unwrap_or_default() as u16;
+    let bank_size_shift = bank_size.ilog2() as u16;
+    let banks_count = (real_size / bank_size as usize) as u16;
 
     Self {
       bank_size,
@@ -64,12 +63,6 @@ impl<T: BankCfg + std::fmt::Debug> Banking<T> {
   pub fn set_pages_aligned8(&mut self, page: u8, bank: u16) {
     let bank = bank & !0x7;
     for i in 0..8 {
-      self.set_page(page + i, bank + i as u16);
-    }
-  }
-
-  pub fn set_pages_unaligned(&mut self, page: u8, bank: u16, count: u8) {
-    for i in 0..count {
       self.set_page(page + i, bank + i as u16);
     }
   }
@@ -133,20 +126,14 @@ impl Banking<VramBank> {
         self.set_page(2, 0);
         self.set_page(3, 1);
       }
-      Mirroring::LowTable => {
-        for i in 0..self.bankings.len() {
-          self.set_page(i as u8, 0);
-        }
+      Mirroring::LowTable => for i in 0..self.bankings.len() {
+        self.set_page(i as u8, 0);
       }
-      Mirroring::HighTable => {
-        for i in 0..self.bankings.len() {
-          self.set_page(i as u8, 1);
-        }
+      Mirroring::HighTable => for i in 0..self.bankings.len() {
+        self.set_page(i as u8, 1);
       }
-      Mirroring::FourScreens => {
-        for i in 0..self.bankings.len() {
-          self.set_page(i as u8, i as u16);
-        }
+      Mirroring::FourScreens => for i in 0..self.bankings.len() {
+        self.set_page(i as u8, i as u16);
       }
     }
   }
@@ -296,9 +283,7 @@ impl Bus {
 
     // keep like this so we can just use the standard prg handler
     banks.prg = Banking::new(8 * 1024, 0xe000, 8 * 1024, 1);
-    banks.prg.set_page_to_last_bank(3);
-    let mut prg = vec![0; 8 * 1024];
-    prg.copy_from_slice(include_bytes!("../utils/disksys.rom"));
+    let prg = include_bytes!("../utils/disksys.rom").to_vec();
     banks.wram = Banking::new(32 * 1024, 0x6000, 32 * 1024, 1);
 
     banks.chr = Banking::new(8 * 1024, 0, 8 * 1024, 1);
@@ -508,7 +493,9 @@ impl Emu {
           mem.ppu_addr_bus as u8
         }
       }
-      PpuHandler::ChrMMC5 | PpuHandler::VramMMC5 => self.mapper.special_read(mem, addr),
+      // PpuHandler::ChrMMC5 | PpuHandler::VramMMC5 => self.mapper.special_read(mem, addr),
+      PpuHandler::ChrMMC5 => mem.chr[mem.banks.chr.translate(addr)],
+      PpuHandler::VramMMC5 => mem.vram[mem.banks.vram.translate(addr)],
     };
 
     res

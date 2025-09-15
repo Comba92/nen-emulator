@@ -1,3 +1,5 @@
+use crate::{emu::Emu, joypad::Button};
+
 pub mod emu;
 pub mod cpu;
 pub mod cart;
@@ -29,8 +31,7 @@ mod utils {
   }
 }
 
-// TODO: move to emu.rs
-struct Palette(pub [(u8, u8, u8); 64]);
+pub struct Palette(pub [(u8, u8, u8); 64]);
 impl Default for Palette {
   fn default() -> Self { Self([(0, 0, 0); 64]) }
 }
@@ -48,7 +49,6 @@ impl Palette {
   }
 }
 
-// TODO: move to emu.rs
 pub mod joypad {
   bitflags::bitflags! {
     #[derive(Default)]
@@ -89,8 +89,6 @@ pub mod joypad {
   }
 }
 
-
-// TODO: move to emu.rs
 pub mod dma {
   #[derive(Default)]
   pub struct Dma {
@@ -103,5 +101,19 @@ pub mod dma {
       self.addr = addr;
       self.remaining = count;
     }
+  }
+}
+
+impl Emu {
+  pub fn load_palette(&mut self, bytes: &[u8]) {
+    if let Some(pal) = Palette::from_pal_file(bytes) {
+      self.palette = pal;
+    } else {
+      eprintln!("not a valid palette file");
+    }
+  }
+  
+  pub fn set_button(&mut self, btn: Button, state: bool) {
+    self.joypad.buttons.set(btn, state);
   }
 }

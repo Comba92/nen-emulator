@@ -132,19 +132,12 @@ impl CartHeader {
       let prg_ram_shift = bytes[10] & 0xf;
       let prg_nvram_shift = bytes[10] >> 4;
 
-      // TODO: some MMC5 games have both, handle that case
+      // MMC5 games might have two different ram chips, we take the sum of sram and wram
       // https://www.nesdev.org/wiki/MMC5#PRG-RAM_configurations
-
       let prg_ram_size = if prg_ram_shift > 0 { 64 << prg_ram_shift} else { 0 };
       let prg_nvram_size = if prg_nvram_shift > 0 { 64 << prg_nvram_shift} else { 0 };
       // we only take nvram is ram is zero
-      header.wram_size = if prg_ram_shift > 0 {
-        prg_ram_size
-      } else if prg_nvram_shift > 0 {
-        prg_nvram_size
-      } else {
-        0
-      };
+      header.wram_size = prg_ram_size + prg_nvram_size;
       header.volatile_ram_size = prg_ram_size;
       header.non_volatile_ram_size = prg_nvram_size;
 
@@ -160,7 +153,6 @@ impl CartHeader {
         } else {
           8 * 1024
         };
-
       }
 
       header.region = match bytes[12] & 0b11 {

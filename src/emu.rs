@@ -24,7 +24,7 @@ pub struct Emu {
   pub videobuf: [u8; 256 * 240],
   audiobuf: [i16; 2 * 1024],
 
-  palette: Palette,
+  pub palette: Palette,
   pub settings: EmuSettings,
 }
 
@@ -48,6 +48,8 @@ pub enum Game {
 }
 impl Game {
   pub fn new(bytes: &[u8]) -> Result<Self, String> {
+    // TODO: make this better
+    
     let cart = Cart::new(bytes);
 
     let game = match cart {
@@ -230,17 +232,5 @@ impl Emu {
   pub fn get_audio(&mut self) -> &[i16] {
     let read = self.apu.blip.0.read_samples(&mut self.audiobuf[..self.apu.blip.0.samples_avail() as usize], false);
     &self.audiobuf[..read]
-  }
-
-  pub fn load_palette(&mut self, bytes: &[u8]) {
-    if let Some(pal) = Palette::from_pal_file(bytes) {
-      self.palette = pal;
-    } else {
-      eprintln!("not a valid palette file");
-    }
-  }
-
-  pub fn set_button(&mut self, btn: Button, state: bool) {
-    self.joypad.buttons.set(btn, state);
   }
 }

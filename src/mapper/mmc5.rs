@@ -1,6 +1,8 @@
 use std::ops::Neg;
-
 use crate::{apu, bus::{Bus, Banking, CpuHandler, IrqFlags, PpuHandler}, mapper::Mapper};
+
+#[derive(Default, PartialEq, Debug)]
+enum WramKind { #[default] SingleChip, DoubleChip16kb, DoubleChip64kb }
 
 #[derive(Default)]
 pub struct MMC5 {
@@ -15,15 +17,14 @@ pub struct MMC5 {
   chr_hi: u8,
   last_chr_wrote: u16,
 
-  fill_tile: u8,
-  fill_color: u8,
-
   nametbl_fetch_count: usize,
   last_nametbl_addr: u16,
 
+  wram_kind: WramKind,
   wram_protect: u8,
+  wram_writable: bool,
+
   exram_mode: u8,
-  exram_count: u8,
 
   irq_enabled: bool,
   irq_pending: bool,
@@ -41,18 +42,11 @@ pub struct MMC5 {
 
   p0: apu::Pulse,
   p1: apu::Pulse,
-  audio_cycles: usize,
 }
 impl MMC5 {
-  // TODO: handle different sram chips
   fn update_prg_banks(&mut self, mem: &mut Bus) {
     let wram = &mut mem.banks.wram;
     let prg = &mut mem.banks.prg;
-  
-    // always on wram page 0
-    wram.set_page(0, self.prg_regs[0] & 0x7f);
-    // always on rom, so forcefully set high bit to 1
-    self.prg_regs[4] |= 0x80;
 
     let mut set_bank = |page, bank| {
       if bank & 0x80 > 0 {
@@ -61,17 +55,30 @@ impl MMC5 {
         mem.cpu_handlers_8kb[3 + page as usize] = CpuHandler::PrgMMC5;
       } else {
         // ram
-        wram.set_page(page, bank & 0x7f);
 
-        let handler = if mem.wram.is_empty() {
-          CpuHandler::Mapper
-        } else {
-          CpuHandler::Wram
+        // mutliple ram chips logic
+        let block = (bank & 0x4 > 0) as u16;
+        let bank = match self.wram_kind {
+          WramKind::SingleChip => bank,
+          WramKind::DoubleChip16kb => block,
+          WramKind::DoubleChip64kb => (block * (wram.banks_count/2)) + (bank & 0x3),
         };
+        wram.set_page(page, bank);
 
+        let handler = if mem.wram.is_empty() || (self.wram_kind == WramKind::SingleChip && block > 0) {
+          CpuHandler::Mapper
+        } else if self.wram_writable {
+          CpuHandler::Wram
+        } else {
+          CpuHandler::WramReadOnly
+        };
         mem.cpu_handlers_8kb[3 + page as usize] = handler;
       }
     };
+
+    // always on wram page 0
+    // cut bit 7 as this has to be in wram
+    set_bank(0, self.prg_regs[0] & 0x7f);
 
     // 5114 only in mode 3
     if self.prg_mode == 3 {
@@ -93,6 +100,8 @@ impl MMC5 {
     }
 
     // 5117 in all modes
+    // always on rom, so forcefully set high bit to 1
+    self.prg_regs[4] |= 0x80;
     let reg5117 = self.prg_regs[4];
     if matches!(self.prg_mode, 2 | 3) {
       set_bank(4, reg5117);
@@ -131,8 +140,8 @@ impl MMC5 {
   fn update_chr_low_regs(&mut self, mem: &mut Bus) {
     // Caution: Unlike the MMC1 and unlike PRG banking on the MMC5, the banks are always indexed by the currently selected size.
     // When using 2kb, 4kb or 8kb bank sizes, the registers hold bank index of that larger size, and lower bits are *not* ignored. 
+    // shifting is needed
     let chr = &mut mem.banks.chr;
-
     match self.chr_mode {
       // 8kb
       0 => chr.set_pages_aligned8(0, self.chr_regs[7] << 3),
@@ -154,9 +163,6 @@ impl MMC5 {
   }
 
   fn update_chr_high_regs(&mut self, mem: &mut Bus) {
-    // Caution: Unlike the MMC1 and unlike PRG banking on the MMC5, the banks are always indexed by the currently selected size.
-    // When using 2kb, 4kb or 8kb bank sizes, the registers hold bank index of that larger size, and lower bits are *not* ignored. 
-    // shifting is needed
     let chr = &mut mem.banks.chr;
 
     match self.chr_mode {
@@ -213,6 +219,15 @@ impl Mapper for MMC5 {
     // All known games have their reset vector in the last bank of PRG ROM, and the vector points to an address greater than or equal to $E000.
     // This tells us that $5117 must have a reliable power-on value of $FF. 
     res.prg_regs[4] = 0xff;
+
+    // https://www.nesdev.org/wiki/MMC5#PRG-RAM_configurations
+    res.wram_kind = if mem.wram.len() == 16 * 1024 {
+      WramKind::DoubleChip16kb
+    } else if mem.wram.len() == 64 * 1024 {
+      WramKind::DoubleChip64kb
+    } else {
+      WramKind::SingleChip
+    };
 
     res.update_prg_banks(mem);
     res.update_chr_banks(mem);
@@ -280,26 +295,28 @@ impl Mapper for MMC5 {
 
       0x5102 => {
         self.wram_protect = (self.wram_protect & 0xc) | (val & 0x3);
-        // self.wram_protect == 0x6
-        // TODO: wram rw
+        self.wram_writable = self.wram_protect == 0x6;
       }
       0x5103 => {
         self.wram_protect = (self.wram_protect & 0x3) | ((val & 0x3) << 2);
-        // self.wram_protect == 0x6
-        // TODO: wram rw
+        self.wram_writable = self.wram_protect == 0x6;
       }
 
-      // TODO: only update when necessary
       0x5104 => self.exram_mode = val & 0x3,
 
-      0x5105 => {for i in 0..4 {
+      0x5105 => for i in 0..4 {
         let nametbl = (val >> (i * 2)) & 0x3;
         // exram is mapped to the third nametable, fill mode to fourth
         mem.banks.vram.set_page(i, nametbl as u16);
-      }} 
+      }
 
-      0x5106 => self.fill_tile = val,
-      0x5107 => self.fill_color = val & 0x3,
+      0x5106 => mem.vram[0xc00..0xfc0].fill(val),
+      0x5107 => {
+        // Each byte of the attribute table normally contains four 2-bit palette indexes. The two bits in this register are copied for all four indexes. 
+        let color = val & 0x3;
+        let attribute = (color << 6) | (color << 4) | (color << 2) | color;
+        mem.vram[0xfc0..0x1000].fill(attribute);
+      }
 
       // TODO: only update when necessary
       0x5113..=0x5117 => {
@@ -346,7 +363,7 @@ impl Mapper for MMC5 {
         if matches!((self.exram_mode, self.ppu_in_frame), (0 | 1, true) | (2, _)) {
           mem.vram[exram_addr] = val;
         } else {
-          // mem.vram[exram_addr] = 0;
+          mem.vram[exram_addr] = 0;
         }
       }
       _ => {}
@@ -356,61 +373,36 @@ impl Mapper for MMC5 {
   fn special_read(&mut self, mem: &mut Bus, addr: u16) -> u8 {
     // extended attributes only work on background tiles
     if self.exram_mode == 1 && self.ppu_in_frame && (self.nametbl_fetch_count < 32 || self.nametbl_fetch_count >= 48) {
-      // The extended attributes are 1-screen mirrored; in other words, they apply the same for all nametables. 
-      if addr & 0x2000 > 0 && addr & 0x3ff < 0x3c0 {
-        self.last_nametbl_addr = addr;
-        self.exram_count = 3;
-
-      } else if self.exram_count > 0 {
-        self.exram_count -= 1;
-
+      // The extended attributes are 1-screen mirrored; in other words, they apply the same for all nametables.
+      if addr < 0x2000 {
+        // In other words, this works as if the nametable was extended from 8-bit to 14-bit tile offsets, 
+        // with the ExRAM holding the upper 6-bits and the 2-bit palette value, while the nametable selected through $5105 contains the lower 8 bits.
         let exram_offset = self.last_nametbl_addr as usize & 0x3ff;
         let exattr = mem.vram[0x800 + exram_offset];
-
-        if self.exram_count == 2 {
-          // attribute fetch
-          let palette = (exattr >> 6) as u8;
-          return (palette << 6) | (palette << 4) | (palette << 2) | palette
-        } else {
-          // In other words, this works as if the nametable was extended from 8-bit to 14-bit tile offsets, 
-          // with the ExRAM holding the upper 6-bits and the 2-bit palette value, while the nametable selected through $5105 contains the lower 8 bits. 
-          let chr_bank = ((self.chr_hi as usize) << 6) | (exattr as usize & 0x3f);
-          let chr_addr = (chr_bank << 12) + (addr as usize & 0xfff);
-          return mem.chr[chr_addr]
-        }
+        let chr_bank = ((self.chr_hi as usize) << 6) | (exattr as usize & 0x3f);
+        let chr_addr = (chr_bank << 12) + (addr as usize & 0xfff);
+        return mem.chr[chr_addr]
+      } else if addr & 0x3ff < 0x3c0 {
+        self.last_nametbl_addr = addr;
+        return mem.vram[mem.banks.vram.translate(addr)];
+      } else {
+        // attribute fetch
+        let exram_offset = self.last_nametbl_addr as usize & 0x3ff;
+        let exattr = mem.vram[0x800 + exram_offset];
+        let palette = (exattr >> 6) as u8;
+        return (palette << 6) | (palette << 4) | (palette << 2) | palette
       }
     }
 
     if addr < 0x2000 {
       // normal chr read
       return mem.chr[mem.banks.chr.translate(addr)]
-    }
-
-    let table = (addr - 0x2000) / 0x400;
-
-    if addr & 0x3ff < 0x3c0 {
-      // nametables, normal fetch
-      if mem.banks.vram.bankings[table as usize] == 0xc00 {
-        self.fill_tile
-      } else {
-        match (self.exram_mode, self.ppu_in_frame) {
-          (2 | 3, false) => 0,
-          _ => mem.vram[mem.banks.vram.translate(addr)]
-        }
-      }
     } else {
-      // attributes, special fetch
-      if mem.banks.vram.bankings[table as usize] == 0xc00 {
-        // if table is mapped to fill mode (fourth table)
-        // Each byte of the attribute table normally contains four 2-bit palette indexes. The two bits in this register are copied for all four indexes. 
-        (self.fill_color << 6) | (self.fill_color << 4) | (self.fill_color << 2) | self.fill_color
-      } else {
-        // table is mapped to normal vram, normal attribute fetch
-        // if exram mode is 2 or 3, during blanking any table mapped to exram should read 0
-        match (self.exram_mode, self.ppu_in_frame) {
-          (2 | 3, false) => 0,
-          _ => mem.vram[mem.banks.vram.translate(addr)]
-        }
+      // nametables 
+      // if exram mode is 2 or 3, during blanking any table mapped to exram should read 0
+      match (self.exram_mode, self.ppu_in_frame) {
+        (2 | 3, false) => 0,
+        _ => mem.vram[mem.banks.vram.translate(addr)]
       }
     }
   }
@@ -463,7 +455,7 @@ impl Mapper for MMC5 {
     self.ppu_idle_countdown = 3;
   }
 
-  fn step(&mut self, mem: &mut Bus, _cycles: usize) {
+  fn step(&mut self, mem: &mut Bus, cycles: usize) {
     if self.ppu_idle_countdown > 0 {
       self.ppu_idle_countdown -= 1;
       if self.ppu_idle_countdown == 0 {
@@ -473,21 +465,19 @@ impl Mapper for MMC5 {
       }
     }
 
-    if self.audio_cycles % 2 == 1 {
+    if cycles % 2 == 1 {
       self.p0.step_divider();
       self.p1.step_divider();
     }
     
     // envelope and length counter are fixed to a 240hz update rate.
-    // TODO: PAL version
-    if self.audio_cycles > (1789773 / 240) {
-      self.audio_cycles -= 1789773 / 240;
+    // 240hz is aproximately 14914 cpu cycles
+    if cycles % 14914 == 0 {
       self.p0.len.step();
       self.p0.env.step();
       self.p1.len.step();
       self.p1.env.step();
     }
-    self.audio_cycles += 1;
   }
 
   fn notify_cpu_addr(&mut self, mem: &mut Bus, addr: u16, val: Option<u8>) {
@@ -529,7 +519,7 @@ impl Mapper for MMC5 {
   fn prg_write(&mut self, _: &mut Bus, _: u16, _: u8) {}
 
   // The sound output of the square channels are equivalent in volume to the corresponding APU channels, but the polarity of all MMC5 channels is reversed compared to the APU. 
-  fn sample(&self) -> f32 {
-    ((self.p0.sample() + self.p1.sample()) as f32).neg()
+  fn sample(&self) -> f64 {
+    (self.p0.sample() as f64 + self.p1.sample() as f64).neg()
   }
 }

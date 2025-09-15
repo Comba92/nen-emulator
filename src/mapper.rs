@@ -1,3 +1,5 @@
+use std::ops::Neg;
+
 use crate::{bus::{Banking, Bus, ChrBank, CpuHandler, IrqFlags, PpuHandler}, emu::Mirroring, utils::{byte_set_hi, byte_set_lo}};
 
 mod konami;
@@ -24,7 +26,7 @@ pub trait Mapper {
 
   fn special_read(&mut self, _mem: &mut Bus, _addr: u16) -> u8 { 0 }
 
-  fn sample(&self) -> f32 { 0.0 }
+  fn sample(&self) -> f64 { 0.0 }
 }
 
 pub type BoxedMapper = Box<dyn Mapper + Send>; 
@@ -992,6 +994,7 @@ impl Mapper for NTDEC2722 {
 // https://www.nesdev.org/wiki/INES_Mapper_210
 // TODO: audio
 // TODO: exram save data
+
 struct Namco129_163 {
   // exram: [u8; 128],
   irq_count: u16,
@@ -1584,31 +1587,41 @@ mod sunsoft_fme7 {
   use crate::apu::{self, DividerCounter};
 
   // https://www.nesdev.org/wiki/Sunsoft_5B_audio
-  // TODO: incomplete
   pub struct Tone {
     pub enabled: bool,
-    div: apu::DividerCounter,
+    pub div: apu::DividerCounter,
     pub volume: u8,
-    pub period: u16,
     step: u16,
-    tone_high: bool,
+    flip: bool,
   }
   impl Default for Tone {
     fn default() -> Self {
-      let mut res = Self {
+      Self {
         div: DividerCounter::default(),
         enabled: false,
         volume: 0,
-        period: 0,
         step: 0,
-        tone_high: false,
-      };
-
-      res.div.period = 15;
-      res
+        flip: false,
+      }
     }
   }
   impl Tone {
+    // https://github.com/SourMesen/Mesen2/blob/fabc9a62174f8734a113df6d244f5539ef6b8fcf/Core/NES/Mappers/Audio/Sunsoft5bAudio.h#L99
+    pub const TABLE: [u8; 16] = {
+      let mut lut = [0; 0x10];
+      
+      let mut i = 1;
+      let mut out: f64 = 1.0;
+      while i < 16 {
+        out *= 1.1885022274370184377301224648922;
+        out *= 1.1885022274370184377301224648922;
+        lut[i] = out as u8;
+        i += 1;
+      }
+
+      lut
+    };
+
     pub fn step(&mut self) {
       // Unlike the 2A03 and VRC6 pulse channels' frequency formulas, the formula for 5B does not add 1 to the period.
       // A period value of 0 appears to produce the same result as a period value of 1, for tone[1], noise and envelope[2]. 
@@ -1616,16 +1629,13 @@ mod sunsoft_fme7 {
       // Correct behaviour can be implemented as a counter that counts up on every 16th clock cycle until it is equal to or greater than the period register,
       // at which point the output flips and the counter resets to 0. 
       self.div.step(|| {
-        self.step += 1;
-        if self.step >= self.period {
-          self.step = 0;
-          self.tone_high = !self.tone_high;
-        }
+        self.step = (self.step + 1) & 0xf;
+        self.flip = !self.flip;
       });
     }
 
     pub fn sample(&self) -> u8 {
-      if self.enabled && self.tone_high { self.volume } else { 0 }
+      if self.enabled && self.step < 0x8 { Self::TABLE[self.volume as usize] } else { 0 }
     }
   }
 }
@@ -1713,33 +1723,24 @@ impl Mapper for SunsoftFME7 {
         if !self.audio_enabled { return; }
 
         match self.audio_command {
-          0x0 => self.ta.period = byte_set_lo(self.ta.period, val),
-          0x1 => self.ta.period = byte_set_hi(self.ta.period, val & 0xf),
+          0x0 => self.ta.div.period = byte_set_lo(self.ta.div.period, val),
+          0x1 => self.ta.div.period = byte_set_hi(self.ta.div.period, val & 0xf),
 
-          0x2 => self.tb.period = byte_set_lo(self.ta.period, val),
-          0x3 => self.tb.period = byte_set_hi(self.ta.period, val & 0xf),
+          0x2 => self.tb.div.period = byte_set_lo(self.tb.div.period, val),
+          0x3 => self.tb.div.period = byte_set_hi(self.tb.div.period, val & 0xf),
 
-          0x4 => self.tc.period = byte_set_lo(self.ta.period, val),
-          0x5 => self.tc.period = byte_set_hi(self.ta.period, val & 0xf),
+          0x4 => self.tc.div.period = byte_set_lo(self.tc.div.period, val),
+          0x5 => self.tc.div.period = byte_set_hi(self.tc.div.period, val & 0xf),
 
-          0x6 => {
-            // Noise period
-          }
           0x7 => {
-            self.ta.enabled = val & 0x1 > 0;
-            self.tb.enabled = val & 0x2 > 0;
-            self.tc.enabled = val & 0x4 > 0;
+            self.ta.enabled = val & 0x1 == 0;
+            self.tb.enabled = val & 0x2 == 0;
+            self.tc.enabled = val & 0x4 == 0;
           }
 
-          0x8 => {
-            self.ta.volume = val & 0xf;
-          }
-          0x9 => {
-            self.tb.volume = val & 0xf;
-          }
-          0xa => {
-            self.tc.volume = val & 0xf;
-          }
+          0x8 => self.ta.volume = val & 0xf,
+          0x9 => self.tb.volume = val & 0xf,
+          0xa => self.tc.volume = val & 0xf,
 
           // This audio hardware was only used in one game, Gimmick!
           // Because this game did not use many features of the chip (e.g. noise, envelope), its features are often only partially implemented by emulators. 
@@ -1750,7 +1751,7 @@ impl Mapper for SunsoftFME7 {
     }
   }
 
-  fn step(&mut self, mem: &mut Bus, _cycles: usize) {
+  fn step(&mut self, mem: &mut Bus, cycles: usize) {
     if self.irq_count_enabled {
       self.irq_count = self.irq_count.wrapping_sub(1);
       
@@ -1759,13 +1760,16 @@ impl Mapper for SunsoftFME7 {
       }
     }
 
-    self.ta.step();
-    self.tb.step();
-    self.tc.step();
+    if cycles % 2 == 1 {
+      self.ta.step();
+      self.tb.step();
+      self.tc.step();
+    }
   }
 
-  fn sample(&self) -> f32 {
-    (self.ta.sample() + self.tb.sample() + self.tc.sample()) as f32
+  fn sample(&self) -> f64 {
+    // It is very loud compared to other audio expansion carts. 
+    0.45 * (self.ta.sample() as f64 + self.tb.sample() as f64 + self.tc.sample() as f64)
   }
 }
 

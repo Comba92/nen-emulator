@@ -43,13 +43,7 @@ impl From<&GameData> for CartHeader {
       8 * 1024
     };
 
-    let wram_size = if value.prgram_size > 0 {
-      value.prgram_size
-    } else if value.prgnvram_size > 0 {
-      value.prgnvram_size
-    } else {
-      0
-    };
+    let wram_size = value.prgram_size + value.prgnvram_size;
 
     Self {
       prg_size: value.prg_size,
@@ -183,7 +177,7 @@ fn count_prgram() {
 
   let interesting = GAMES_DB.games.iter()
   .filter_map(|x| if x.prgram_size > 0 && x.prgnvram_size > 0 && x.mapper <= 255 {
-    Some((&x.title, x.mapper))
+    Some((&x.title, x.mapper, x.prgram_size, x.prgnvram_size))
   } else {
     None
   })

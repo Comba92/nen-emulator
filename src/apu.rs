@@ -100,6 +100,7 @@ impl Envelope {
   }
 }
 
+#[derive(Default)]
 struct Sweep {
   div: DividerCounter,
   enabled: bool,
@@ -107,18 +108,6 @@ struct Sweep {
   reload: bool,
   shift: u8,
   target_period: u16,
-}
-impl Default for Sweep {
-  fn default() -> Self {
-    Self {
-      div: Default::default(),
-      enabled: false,
-      negate: true,
-      reload: false,
-      shift: 0,
-      target_period: 0,
-    }
-  }
 }
 
 // TODO: implement this for audio stuff, to have a lil cleaner interface
@@ -450,12 +439,35 @@ pub struct ApuRP2A {
   frame_irq_disable: bool,
   frame_mode: FrameMode,
 
-  prev_sample: f32,
+  prev_sample: f64,
   pub blip: AudioBuf,
   pub cycles: usize,
 }
 
 impl ApuRP2A {
+  // https://www.nesdev.org/wiki/APU_Mixer#Lookup_Table
+  const PULSE_TABLE: [f64; 31] = {
+    let mut lut = [0.0; 31];
+    let mut i = 0;
+    while i < lut.len() {
+      lut[i] = 95.52 / (8128.0 / i as f64 + 100.0);
+      i += 1;
+    }
+
+    lut
+  };
+
+  const TND_TABLE: [f64; 203] = {
+    let mut lut = [0.0; 203];
+    let mut i = 0;
+    while i < lut.len() {
+      lut[i] = 163.67 / (24329.0 / i as f64 + 100.0);
+      i += 1;
+    }
+
+    lut
+  };
+
   pub fn new(region: &Region) -> Self {
     Self {
       noise: Noise::new(),
@@ -638,15 +650,15 @@ impl Emu {
     apu.tri.step_divider();
     apu.dmc.step_divider();
 
-    // TODO: lookup table method
-    let pulse = 0.00752 * (apu.p0.sample() + apu.p1.sample()) as f32;
-    let tnd = 
-      0.00851 * apu.tri.sample() as f32
-      + 0.00494 * apu.noise.sample() as f32
-      + 0.00335 * apu.dmc.sample() as f32;
+    // let pulse = 0.00752 * (apu.p0.sample() as f32 + apu.p1.sample() as f32);
+    // let tnd = 
+    //   0.00851 * apu.tri.sample() as f32
+    //   + 0.00494 * apu.noise.sample() as f32
+    //   + 0.00335 * apu.dmc.sample() as f32;
 
+    let pulse = ApuRP2A::PULSE_TABLE[(apu.p0.sample() + apu.p1.sample()) as usize];
+    let tnd = ApuRP2A::TND_TABLE[(3 * apu.tri.sample() + 2 * apu.noise.sample() + apu.dmc.sample()) as usize];
     let ext = self.mapper.sample() * 0.00568;
-
     
     let sample = (pulse + tnd + ext) * 40000.0;
     let delta = sample - apu.prev_sample;

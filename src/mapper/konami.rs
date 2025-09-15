@@ -1,3 +1,5 @@
+use std::ops::Neg;
+
 use crate::{bus::{Bus, Banking, CpuHandler, IrqFlags}, emu::Mirroring, mapper::Mapper, utils::byte_set_lo};
 
 // https://www.nesdev.org/wiki/VRC1
@@ -631,8 +633,8 @@ impl Mapper for VRC6 {
     }
   }
 
-  fn sample(&self) -> f32 {
-    (self.p0.sample() + self.p1.sample() + self.saw.sample()) as f32
+  fn sample(&self) -> f64 {
+    (self.p0.sample() as f64 + self.p1.sample() as f64 + self.saw.sample() as f64).neg()
   }
 }
 
