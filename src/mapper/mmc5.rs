@@ -135,16 +135,16 @@ impl MMC5 {
 
     match self.chr_mode {
       // 8kb
-      0 => chr.set_pages_unaligned(0, self.chr_regs[7] << 3, 8),
+      0 => chr.set_pages_aligned8(0, self.chr_regs[7] << 3),
       // 4kb
       1 => {
-        chr.set_pages_unaligned(0, self.chr_regs[3] << 2, 4);
-        chr.set_pages_unaligned(4, self.chr_regs[7] << 2, 4);
+        chr.set_pages_aligned4(0, self.chr_regs[3] << 2);
+        chr.set_pages_aligned4(4, self.chr_regs[7] << 2);
       }
       // 2kb
       2 =>  for i in 0..4 {
         // only odds chr_regs
-        chr.set_pages_unaligned(i, self.chr_regs[i as usize * 2 + 1] << 1, 2);
+        chr.set_pages_aligned2(i, self.chr_regs[i as usize * 2 + 1] << 1);
       }
       // 1kb
       _ => for i in 0..8 {
@@ -161,18 +161,18 @@ impl MMC5 {
 
     match self.chr_mode {
       // 8kb
-      0 => chr.set_pages_unaligned(0, self.chr_regs[11] << 3, 8),
+      0 => chr.set_pages_aligned8(0, self.chr_regs[11] << 3),
       // 4kb
       1 => {
-        chr.set_pages_unaligned(0, self.chr_regs[11] << 2, 4);
-        chr.set_pages_unaligned(4, self.chr_regs[11] << 2, 4);
+        chr.set_pages_aligned4(0, self.chr_regs[11] << 2);
+        chr.set_pages_aligned4(4, self.chr_regs[11] << 2);
       }
       // 2kb
       2 =>  {
-        chr.set_pages_unaligned(0, self.chr_regs[9] << 1, 2);
-        chr.set_pages_unaligned(2, self.chr_regs[11] << 1, 2);
-        chr.set_pages_unaligned(4, self.chr_regs[9] << 1, 2);
-        chr.set_pages_unaligned(6, self.chr_regs[11] << 1, 2);
+        chr.set_pages_aligned2(0, self.chr_regs[9] << 1);
+        chr.set_pages_aligned2(2, self.chr_regs[11] << 1);
+        chr.set_pages_aligned2(4, self.chr_regs[9] << 1);
+        chr.set_pages_aligned2(6, self.chr_regs[11] << 1);
       }
       // 1kb
       _ => for i in 0..4 {
@@ -393,8 +393,8 @@ impl Mapper for MMC5 {
       if mem.banks.vram.bankings[table as usize] == 0xc00 {
         self.fill_tile
       } else {
-        match self.exram_mode {
-          2 | 3 => 0,
+        match (self.exram_mode, self.ppu_in_frame) {
+          (2 | 3, false) => 0,
           _ => mem.vram[mem.banks.vram.translate(addr)]
         }
       }
@@ -406,9 +406,9 @@ impl Mapper for MMC5 {
         (self.fill_color << 6) | (self.fill_color << 4) | (self.fill_color << 2) | self.fill_color
       } else {
         // table is mapped to normal vram, normal attribute fetch
-        // if exram mode is 2 or 3, any table mapped to exram should read 0
-        match self.exram_mode {
-          2 | 3 => 0,
+        // if exram mode is 2 or 3, during blanking any table mapped to exram should read 0
+        match (self.exram_mode, self.ppu_in_frame) {
+          (2 | 3, false) => 0,
           _ => mem.vram[mem.banks.vram.translate(addr)]
         }
       }
@@ -426,6 +426,8 @@ impl Mapper for MMC5 {
         self.update_chr_banks(mem);
       }
     }
+
+    // TODO: not working correctly in super mario zap n dash
 
     // The MMC5 detects scanlines by first looking for three consecutive PPU reads from the same nametable address in the range $2xxx. 
     // the scanline gets detected when the PPU does the attribute table byte read, which is at PPU cycle 4.
