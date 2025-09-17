@@ -158,26 +158,6 @@ mod vrc {
         self.prescaler += 341;
       }
     }
-
-    //   let mut clock = || {
-    //     if self.count >= 0xff {
-    //       self.count = self.latch;
-    //       mem.irq.insert(IrqFlags::MAPPER);
-    //     } else {
-    //       self.count += 1;
-    //     }
-    //   };
-
-    //   if self.mode_scanline {
-    //     self.prescaler -= 3;
-    //     if self.prescaler <= 0 {
-    //       self.prescaler += 341;
-    //       clock();
-    //     }
-    //   } else {
-    //     clock();
-    //   }
-    // }
   }
 }
 

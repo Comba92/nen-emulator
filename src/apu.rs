@@ -18,7 +18,7 @@ impl DividerCounter {
     }
   }
 
-  fn reload(&mut self) {
+  pub fn reload(&mut self) {
     self.count = self.period + 1;
   }
 }

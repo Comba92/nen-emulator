@@ -73,7 +73,7 @@ fn nestest_no_graphics() {
     // println!("Line {} OK", i+1);
     
     cycles = emu.cpu.cycles;
-    emu.emu_step();
+    emu.cpu_step();
   });
 
   println!("Result: {} {}", emu.cpu_dispatch_read(0x2), emu.cpu_dispatch_read(0x3));

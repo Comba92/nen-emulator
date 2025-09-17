@@ -370,7 +370,7 @@ impl Mapper for MMC5 {
     }
   }
 
-  fn ppu_substitution_read(&mut self, mem: &mut Bus, addr: u16) -> u8 {
+  fn ppu_special_read(&mut self, mem: &mut Bus, addr: u16) -> u8 {
     // extended attributes only work on background tiles
     if self.exram_mode == 1 && self.ppu_in_frame && (self.nametbl_fetch_count < 32 || self.nametbl_fetch_count >= 48) {
       if addr < 0x2000 {
@@ -475,8 +475,8 @@ impl Mapper for MMC5 {
     // 240hz is aproximately 14914 cpu cycles
     if cycles % 14914 == 0 {
       self.p0.len.step();
-      self.p0.env.step();
       self.p1.len.step();
+      self.p0.env.step();
       self.p1.env.step();
     }
   }

@@ -345,7 +345,7 @@ impl Bus {
       banks,
     };
 
-    let mut fds = mapper::FDS::new(&mut mem);
+    let mut fds = mapper::fds::FDS::new(&mut mem);
     fds.disks = disk.sides;
 
     (mem, fds as BoxedMapper)
@@ -527,7 +527,7 @@ impl Emu {
         }
       }
       
-      PpuHandler::ChrMMC5 | PpuHandler::VramMMC5 => self.mapper.ppu_substitution_read(mem, addr),
+      PpuHandler::ChrMMC5 | PpuHandler::VramMMC5 => self.mapper.ppu_special_read(mem, addr),
     };
 
     // shouldn't set ppu_addr_bus

@@ -1,4 +1,4 @@
-use crate::{apu::ApuRP2A, bus::Bus, cart::Cart, cpu::{self, Cpu6502}, disk::Disk, joypad::{Button, Joypad}, mapper::{self, BoxedMapper, Mapper, NROM}, ppu::Ppu2C02, Palette};
+use crate::{apu::ApuRP2A, bus::Bus, cart::Cart, cpu::{self, Cpu6502}, disk::Disk, joypad::Joypad, mapper::{self, BoxedMapper, Mapper}, ppu::Ppu2C02, Palette};
 
 #[derive(Default)]
 pub struct EmuSettings {

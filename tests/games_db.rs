@@ -89,16 +89,16 @@ struct XmlRomDataMisc {
 }
 
 
-fn sha1_str_to_arr(s: &str) -> [u8; 20] {
-  let mut vec = Vec::new();
-  for pair in s.as_bytes().chunks(2) {
-    let str = String::from_iter(pair.iter().map(|b| *b as char));
-    let num =  u8::from_str_radix(&str, 16).unwrap();
-    vec.push(num);
-  }
+// fn sha1_str_to_arr(s: &str) -> [u8; 20] {
+//   let mut vec = Vec::new();
+//   for pair in s.as_bytes().chunks(2) {
+//     let str = String::from_iter(pair.iter().map(|b| *b as char));
+//     let num =  u8::from_str_radix(&str, 16).unwrap();
+//     vec.push(num);
+//   }
 
-  vec.try_into().unwrap()
-}
+//   vec.try_into().unwrap()
+// }
 
 fn crc32_str_to_int(s: &str) -> u32 {
   u32::from_str_radix(s, 16).unwrap()

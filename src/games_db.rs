@@ -214,6 +214,7 @@ fn count_chr() {
     .collect::<BTreeSet<_>>();
   println!("{:#?}", games_with_both);
 }
+
 #[test]
 fn count_mmc5_ram() {
   let count = GAMES_DB.games.iter()
