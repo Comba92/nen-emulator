@@ -90,19 +90,19 @@ struct ShifterData {
 #[derive(Default, Debug, Clone)]
 struct Sprite {
   y: u8,
-  nametbl: u8,
+  tile_id: u8,
   attr: u8,
   x: u8,
   pttrn_lo: u8,
   pttrn_hi: u8,
 }
 impl Sprite {
-  pub fn new(index: u8, bytes: &[u8]) -> Self {
+  pub fn new(index: u8, visible: bool, bytes: &[u8]) -> Self {
     Self {
       y: bytes[0],
-      nametbl: bytes[1],
-      // bits 2-4 of attribute are empty, we can use them to store spr0hit
-      attr: (bytes[2] & !0x1c) | (((index == 0) as u8) << 2),
+      tile_id: bytes[1],
+      // bits 2-4 of attribute are empty, we can use them to store spr0hit and visibility
+      attr: (bytes[2] & !0x1c) | (((index == 0) as u8) << 2) | ((visible as u8) << 3),
       x: bytes[3],
       pttrn_hi: 0,
       pttrn_lo: 0,
@@ -111,7 +111,8 @@ impl Sprite {
 
   pub fn empty() -> Self {
     Self {
-      nametbl: 0xff,
+      tile_id: 0xff,
+      attr: 0x20,
       ..Default::default()
     }
   }
@@ -119,6 +120,8 @@ impl Sprite {
   pub fn palette(&self) -> u8 { self.attr & 0b11 }
   // we stored spr0 in unused bits of attribute to save memory
   pub fn spr0(&self) -> bool { self.attr & 0x4 != 0 }
+  // we stored visible in unused bits of attribute to save memory
+  pub fn visible(&self) -> bool { self.attr & 0x8 != 0 }
   // 0: in front of background; 1: behind background
   pub fn priority(&self) -> bool { self.attr & 0x20 == 0 }
   pub fn flip_hori(&self) -> bool { self.attr & 0x40 != 0 }
@@ -284,7 +287,7 @@ impl Ppu2C02 {
     if self.ctrl.spr_size == 8 {
       // 8x8 sprites
       self.ctrl.spr_pttrntbl_addr 
-      | ((sprite.nametbl as u16) << 4)
+      | ((sprite.tile_id as u16) << 4)
       | fine_y & 0b111
     } else {
       // 8x16 sprites
@@ -293,8 +296,8 @@ impl Ppu2C02 {
       if sprite.flip_vert() { bottom_tile = !bottom_tile; }
       
       // For 8x16 sprites (bit 5 of PPUCTRL set), the PPU ignores the pattern table selection and selects a pattern table from bit 0 of this number. 
-      (sprite.nametbl as u16 & 1) << 12
-      | (((sprite.nametbl & !1) as u16 | bottom_tile as u16) << 4)
+      (sprite.tile_id as u16 & 1) << 12
+      | (((sprite.tile_id & !1) as u16 | bottom_tile as u16) << 4)
       | fine_y & 0b111
     }
   }
@@ -630,10 +633,12 @@ impl Emu {
         let pttrn_addr = ppu.spr_pttrn_addr(sprite);
         ppu.fetcher.pttrn_addr = pttrn_addr;
         let flip_hori = sprite.flip_hori();
+        let visible = sprite.visible();
 
         let mut pttrn = self.ppu_dispatch_read(pttrn_addr);
         if flip_hori { pttrn = pttrn.reverse_bits(); }
 
+        if !visible { return; }
         self.ppu.oam_tmp[spr_id as usize].pttrn_lo = pttrn;
       }
       6 => {
@@ -642,10 +647,12 @@ impl Emu {
 
         let pttrn_addr = ppu.fetcher.pttrn_addr;
         let flip_hori = sprite.flip_hori();
+        let visible = sprite.visible();
 
         let mut pttrn = self.ppu_dispatch_read(pttrn_addr + 8);
         if flip_hori { pttrn = pttrn.reverse_bits(); }
 
+        if !visible { return; }
         self.ppu.oam_tmp[spr_id as usize].pttrn_hi = pttrn;
       }
       _ => {}
@@ -663,7 +670,7 @@ impl Emu {
       // we are rendering the NEXT scanline, so we don't want to subtract 1 from y
       let dist = ppu.scanline - y as i16;
       if 0 <= dist && dist < ppu.ctrl.spr_size as i16 {
-        let sprite = Sprite::new(i as u8, &ppu.oam.0[i..i+4]);
+        let sprite = Sprite::new(i as u8, ppu.oam_tmp.len() <= 8, &ppu.oam.0[i..i+4]);
         ppu.oam_tmp.push(sprite);
       }
     }
@@ -687,6 +694,7 @@ impl Emu {
 
       for i in 8..self.ppu.oam_tmp.len() {
         let sprite = &self.ppu.oam_tmp[i as usize];
+
         let pttrn_addr = self.ppu.spr_pttrn_addr(sprite);
         let flip_hori = sprite.flip_hori();
 
