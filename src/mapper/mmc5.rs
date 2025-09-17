@@ -17,14 +17,13 @@ pub struct MMC5 {
   chr_hi: u8,
   last_chr_wrote: u16,
 
-  nametbl_fetch_count: usize,
-  last_nametbl_addr: u16,
-
   wram_kind: WramKind,
   wram_protect: u8,
   wram_writable: bool,
 
   exram_mode: u8,
+  exattr_curr_val: u8,
+  nametbl_fetch_count: usize,
 
   irq_enabled: bool,
   irq_pending: bool,
@@ -52,7 +51,7 @@ impl MMC5 {
       if bank & 0x80 > 0 {
         // rom
         prg.set_page(page - 1, bank & 0x7f);
-        mem.cpu_handlers_8kb[3 + page as usize] = CpuHandler::PrgMMC5;
+        mem.cpu_handlers_8kb[3 + page as usize] = CpuHandler::PrgSpecial;
       } else {
         // ram
 
@@ -202,8 +201,8 @@ impl Mapper for MMC5 {
     mem.banks.chr = Banking::new_chr(&mem.header, 8);
 
     // wram can be mapped in range 0x6000..=0xdfff (32kb)
-    mem.banks.wram = Banking::new(mem.header.wram_size, 0x6000, 32 * 1024, 4);
-    mem.set_prg_handlers(CpuHandler::PrgMMC5);
+    mem.banks.wram = Banking::new(0x6000, mem.header.wram_size, 32 * 1024, 4);
+    mem.set_prg_handlers(CpuHandler::PrgSpecial);
     mem.cpu_handlers_8kb[1] = CpuHandler::PpuMMC5;
 
     // we simulate exram by extending vram to 4 screens
@@ -218,6 +217,7 @@ impl Mapper for MMC5 {
     res.prg_mode = 3;
     // All known games have their reset vector in the last bank of PRG ROM, and the vector points to an address greater than or equal to $E000.
     // This tells us that $5117 must have a reliable power-on value of $FF. 
+    res.prg_regs = [0x80; 5];
     res.prg_regs[4] = 0xff;
 
     // https://www.nesdev.org/wiki/MMC5#PRG-RAM_configurations
@@ -370,26 +370,27 @@ impl Mapper for MMC5 {
     }
   }
 
-  fn special_read(&mut self, mem: &mut Bus, addr: u16) -> u8 {
+  fn ppu_substitution_read(&mut self, mem: &mut Bus, addr: u16) -> u8 {
     // extended attributes only work on background tiles
     if self.exram_mode == 1 && self.ppu_in_frame && (self.nametbl_fetch_count < 32 || self.nametbl_fetch_count >= 48) {
-      // The extended attributes are 1-screen mirrored; in other words, they apply the same for all nametables.
       if addr < 0x2000 {
+        // chr fetch
         // In other words, this works as if the nametable was extended from 8-bit to 14-bit tile offsets, 
         // with the ExRAM holding the upper 6-bits and the 2-bit palette value, while the nametable selected through $5105 contains the lower 8 bits.
-        let exram_offset = self.last_nametbl_addr as usize & 0x3ff;
-        let exattr = mem.vram[0x800 + exram_offset];
-        let chr_bank = ((self.chr_hi as usize) << 6) | (exattr as usize & 0x3f);
+
+        // IMPORTANT to extend the type size here. notice the shift left by 12?? 
+        let chr_bank = ((self.chr_hi as usize) << 6) | (self.exattr_curr_val as usize & 0x3f);
         let chr_addr = (chr_bank << 12) + (addr as usize & 0xfff);
         return mem.chr[chr_addr]
       } else if addr & 0x3ff < 0x3c0 {
-        self.last_nametbl_addr = addr;
+        // nametabl fetch
+        // The extended attributes are 1-screen mirrored; in other words, they apply the same for all nametables.
+        let exram_offset = addr as usize & 0x3ff;
+        self.exattr_curr_val = mem.vram[0x800 + exram_offset];
         return mem.vram[mem.banks.vram.translate(addr)];
       } else {
         // attribute fetch
-        let exram_offset = self.last_nametbl_addr as usize & 0x3ff;
-        let exattr = mem.vram[0x800 + exram_offset];
-        let palette = (exattr >> 6) as u8;
+        let palette = (self.exattr_curr_val >> 6) as u8;
         return (palette << 6) | (palette << 4) | (palette << 2) | palette
       }
     }

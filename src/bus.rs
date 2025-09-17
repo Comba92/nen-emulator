@@ -18,7 +18,7 @@ pub struct Banking<T: BankCfg> {
 }
 
 impl<T: BankCfg + std::fmt::Debug> Banking<T> {
-  pub fn new(real_size: usize, start_addr: u16, addressable_size: u16, pages_count: u16) -> Self {
+  pub fn new(start_addr: u16, real_size: usize, addressable_size: u16, pages_count: u16) -> Self {
     let bankings = vec![0; pages_count as usize];
     let bank_size = addressable_size / pages_count;
     // https://stackoverflow.com/questions/25787613/division-and-multiplication-by-power-of-2
@@ -89,25 +89,25 @@ impl<T: BankCfg + std::fmt::Debug> Banking<T> {
 
 impl Banking<PrgBank> {
   pub fn new_prg(header: &CartHeader, pages_count: u16) -> Self {
-    Self::new(header.prg_size, 0x8000, 32 * 1024, pages_count)
+    Self::new(0x8000, header.prg_size, 32 * 1024, pages_count)
   }
 }
 
 impl Banking<ChrBank> {
   pub fn new_chr(header: &CartHeader, pages_count: u16) -> Self {
-    Self::new(header.chr_size, 0, 8 * 1024, pages_count)
+    Self::new(0, header.chr_size, 8 * 1024, pages_count)
   }
 }
 
 impl Banking<WramBank> {
   pub fn new_wram(header: &CartHeader, pages_count: u16) -> Self {
-    Self::new(header.wram_size, 0x6000, 8 * 1024, pages_count)
+    Self::new(0x6000, header.wram_size, 8 * 1024, pages_count)
   }
 }
 
 impl Banking<VramBank> {
   pub fn new_vram(header: &CartHeader) -> Self {
-    let mut res = Self::new(2 * 1024, 0x2000, 4 * 1024, 4);
+    let mut res = Self::new(0x2000, 2 * 1024, 4 * 1024, 4);
     res.mirror(&header.mirroring);
     res
   }
@@ -169,7 +169,7 @@ bitflags::bitflags! {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum CpuHandler {
-  Ram, Ppu, IO, Wram, WramReadOnly, Prg, Mapper, PrgMMC5, PpuMMC5
+  Ram, Ppu, IO, Wram, WramReadOnly, Prg, OpenBus, Mapper, PrgSpecial, PpuMMC5
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -282,12 +282,12 @@ impl Bus {
     let mut banks = BanksHandler::default();
 
     // keep like this so we can just use the standard prg handler
-    banks.prg = Banking::new(8 * 1024, 0xe000, 8 * 1024, 1);
+    banks.prg = Banking::new(0xe000, 8 * 1024, 8 * 1024, 1);
     let prg = include_bytes!("../utils/disksys.rom").to_vec();
-    banks.wram = Banking::new(32 * 1024, 0x6000, 32 * 1024, 1);
+    banks.wram = Banking::new(0x6000, 32 * 1024, 32 * 1024, 1);
 
-    banks.chr = Banking::new(8 * 1024, 0, 8 * 1024, 1);
-    banks.vram = Banking::new(2 * 1024, 0x2000, 4 * 1024, 4);
+    banks.chr = Banking::new(0x0000, 8 * 1024, 8 * 1024, 1);
+    banks.vram = Banking::new(0x2000, 2 * 1024, 4 * 1024, 4);
     banks.vram.mirror(&Mirroring::Horizontal);
 
     let cpu_handlers_8kb = [
@@ -298,7 +298,7 @@ impl Bus {
       CpuHandler::Wram,
       CpuHandler::Wram,
       CpuHandler::Wram,
-      CpuHandler::Prg,
+      CpuHandler::PrgSpecial,
     ];
 
     let ppu_handlers_1kb = [
@@ -386,7 +386,7 @@ impl Bus {
   }
 
   pub fn set_4screen_mirroring(&mut self) {
-    self.banks.vram = Banking::new(4 * 1024, 0x2000, 4 * 1024, 4);
+    self.banks.vram = Banking::new(0x2000, 4 * 1024, 4 * 1024, 4);
     self.banks.vram.mirror(&Mirroring::FourScreens);
     self.vram.resize(4 * 1024, 0);
   }
@@ -413,8 +413,9 @@ impl Emu {
       CpuHandler::Mapper => self.mapper.cart_read(mem, addr),
       CpuHandler::Wram | CpuHandler::WramReadOnly => mem.wram[mem.banks.wram.translate(addr)],
       CpuHandler::Prg => mem.prg[mem.banks.prg.translate(addr)],
-      
-      CpuHandler::PrgMMC5 => {
+      CpuHandler::OpenBus => mem.cpu_data_bus,
+
+      CpuHandler::PrgSpecial => {
         self.mapper.notify_cpu_addr(mem, addr, None);
         mem.prg[mem.banks.prg.translate(addr)]
       }
@@ -460,15 +461,16 @@ impl Emu {
       // TODO: this could just be prg_write...
       CpuHandler::Mapper => self.mapper.cart_write(mem, addr, val),
       CpuHandler::Wram => mem.wram[mem.banks.wram.translate(addr)] = val,
-      CpuHandler::Prg | CpuHandler::PrgMMC5 => {
+      CpuHandler::Prg => {
         self.mapper.prg_write(mem, addr, val);
       }
-      CpuHandler::WramReadOnly => {},
+      CpuHandler::WramReadOnly | CpuHandler::OpenBus => {},
 
       CpuHandler::PpuMMC5 => {
         self.mapper.notify_cpu_addr(mem, addr, Some(val));
         self.ppu_reg_write(addr & 0x2007, val);
       }
+      CpuHandler::PrgSpecial => {}
     }
 
     self.mem.cpu_addr_bus = addr;
@@ -493,7 +495,7 @@ impl Emu {
           mem.ppu_addr_bus as u8
         }
       }
-      // PpuHandler::ChrMMC5 | PpuHandler::VramMMC5 => self.mapper.special_read(mem, addr),
+
       PpuHandler::ChrMMC5 => mem.chr[mem.banks.chr.translate(addr)],
       PpuHandler::VramMMC5 => mem.vram[mem.banks.vram.translate(addr)],
     };
@@ -525,7 +527,7 @@ impl Emu {
         }
       }
       
-      PpuHandler::ChrMMC5 | PpuHandler::VramMMC5 => self.mapper.special_read(mem, addr),
+      PpuHandler::ChrMMC5 | PpuHandler::VramMMC5 => self.mapper.ppu_substitution_read(mem, addr),
     };
 
     // shouldn't set ppu_addr_bus

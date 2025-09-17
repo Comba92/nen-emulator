@@ -119,6 +119,8 @@ fn main() {
                             Keycode::J => emu.set_button(Button::B, true),
                             Keycode::M => emu.set_button(Button::Start, true),
                             Keycode::N => emu.set_button(Button::Select, true),
+                            Keycode::NUM_0 => emu.mapper.special_input(),
+                            Keycode::R => emu.emu_reset(),
                             _ => {}
                         }
                     }
@@ -143,13 +145,13 @@ fn main() {
             }
         }
 
-        emu.step_until_vblank();
+        emu.emu_step_until_vblank();
         audiodev.queue_audio(emu.get_audio()).unwrap();
 
-        while audiodev.size()/2 < audiodev.spec().samples as u32 * 2 {
+        while audiodev.size()/2 < audiodev.spec().samples as u32 * 3 {
             // run for another frame
 
-            emu.step_until_vblank();
+            emu.emu_step_until_vblank();
             audiodev.queue_audio(emu.get_audio()).unwrap();
 
             frames_missed += 1;

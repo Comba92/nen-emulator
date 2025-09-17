@@ -496,6 +496,17 @@ impl ApuRP2A {
     self.tri.len.step();
     self.noise.len.step();
   }
+
+  pub fn reset(&mut self) {
+    *self = Self {
+      blip: std::mem::take(&mut self.blip),
+      noise: Noise::new(),
+      dmc: Dmc::new(),
+      ..Default::default()
+    };
+
+    self.blip.0.clear();
+  }
 }
 
 impl Emu {

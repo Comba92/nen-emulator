@@ -161,7 +161,7 @@ impl Emu {
     }
   }
 
-  pub fn step_until_vblank(&mut self) {
+  pub fn emu_step_until_vblank(&mut self) {
     let cycles = self.cpu.cycles;
     while !self.frame_ready {
       self.cpu_step();
@@ -172,6 +172,12 @@ impl Emu {
 
     self.apu.blip.0.end_frame(self.apu.cycles as u32);
     self.apu.cycles -= cycles_run;
+  }
+
+  pub fn emu_reset(&mut self) {
+    self.cpu_reset();
+    self.ppu.reset();
+    self.apu.reset();
   }
 
   pub fn get_video_rgba(&self, buf: &mut [u8]) {

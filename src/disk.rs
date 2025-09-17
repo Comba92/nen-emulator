@@ -3,6 +3,7 @@ pub struct Disk {
 }
 
 // https://github.com/SourMesen/Mesen2/blob/fabc9a62174f8734a113df6d244f5539ef6b8fcf/Core/NES/Loaders/FdsLoader.cpp#L21
+// https://github.com/ares-emulator/ares/blob/0b2a85f80321aca7af9df37555edfdd5c4d22a9c/mia/medium/famicom-disk-system.cpp
 // https://forums.nesdev.org/viewtopic.php?t=18668
 // https://forums.nesdev.org/viewtopic.php?f=3&t=8712
 impl Disk {
@@ -103,10 +104,10 @@ impl Disk {
           return Err("no valid file data block");
         }
 
-        parsed_bytes += 0x11 + file_size;
+        parsed_bytes += 0x10 + file_size + 1;
         // TODO: handle case when we go over 65500 bytes
-        Self::push_gaps_and_data(&mut side_data, &file[0x11..0x11 + file_size]);
-        file = &file[0x11 + file_size..];
+        Self::push_gaps_and_data(&mut side_data, &file[0x10..0x10 + file_size + 1]);
+        file = &file[0x10 + file_size + 1..];
         println!()
       }
 
@@ -116,6 +117,8 @@ impl Disk {
       if side_data.len() < Self::SIDE_SIZE {
         side_data.resize(Self::SIDE_SIZE, 0);
       }
+      println!("Final after resize side size: {}", side_data.len());
+
       disk.push(side_data);
     }
 

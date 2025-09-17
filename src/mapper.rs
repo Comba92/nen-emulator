@@ -24,7 +24,8 @@ pub trait Mapper {
   fn notify_ppu_addr(&mut self, _mem: &mut Bus, _cycles: usize) {}
   fn notify_cpu_addr(&mut self, _mem: &mut Bus, _addr: u16, _val: Option<u8>) {}
 
-  fn special_read(&mut self, _mem: &mut Bus, _addr: u16) -> u8 { 0 }
+  fn ppu_substitution_read(&mut self, _mem: &mut Bus, _addr: u16) -> u8 { 0 }
+  fn special_input(&mut self) {}
 
   fn sample(&self) -> f64 { 0.0 }
 }
@@ -127,7 +128,7 @@ impl Mapper for CNROM {
 
     mem.banks.chr = Banking::new_chr(&mem.header, 1);
     // The Namco game Hayauchi Super Igo adds 2 KiB of PRG-RAM, denoted using mapper 3 and the appropriate value in the header's PRG-RAM size field.
-    mem.banks.wram = Banking::new(2 * 1024, 0x6000, 2 * 1024, 4);
+    mem.banks.wram = Banking::new(0x6000, 2 * 1024, 2 * 1024, 4);
     Box::new(Self)
   }
 
@@ -181,7 +182,7 @@ mod mmc1 {
 }
 
 // Needs NES2.0 / db support for WRAM (NEW FINDING: only SOROM games have 2 different kind of RAM))
-// TODO: prg rom write delay
+
 #[derive(Default, Debug)]
 struct MMC1 {
   shift_reg: u8,
@@ -941,7 +942,7 @@ struct NTDEC2722 {
 }
 impl Mapper for NTDEC2722 {
   fn new(mem: &mut Bus) -> Box<Self> {
-    mem.banks.prg = Banking::new(mem.header.prg_size, 0x6000, 40 * 1024, 5);
+    mem.banks.prg = Banking::new(0x6000, mem.header.prg_size, 40 * 1024, 5);
     mem.set_wram_handlers(CpuHandler::Prg);
 
     mem.banks.prg.set_page(0, 6);
@@ -1014,8 +1015,8 @@ impl Mapper for Namco129_163 {
 
     if mem.header.mapper == 19 {
       // namco 129/163
-      mem.banks.chr = Banking::new(mem.header.chr_size, 0, 12 * 1024, 12);
-      mem.banks.vram = Banking::new(2 * 1024, 0, 12 * 1024, 12);
+      mem.banks.chr = Banking::new(0x0000, mem.header.chr_size, 12 * 1024, 12);
+      mem.banks.vram = Banking::new(0x0000, 2 * 1024, 12 * 1024, 12);
     } else if mem.header.mapper == 210 {
       // namco 175/340
       mem.banks.chr = Banking::new_chr(&mem.header, 8);
@@ -1324,12 +1325,12 @@ struct NapoleonSenki;
 impl Mapper for NapoleonSenki {
   fn new(mem: &mut Bus) -> Box<Self> {
     mem.banks.prg = Banking::new_prg(&mem.header, 1);
-    mem.banks.chr = Banking::new(mem.header.chr_size, 0, 2 * 1024, 1);
+    mem.banks.chr = Banking::new(0x0000, mem.header.chr_size, 2 * 1024, 1);
     
     // this games provides 8kb of chr ram + 2kb of vram
     // we simulate chr ram by extending our vram from 0x0800 to 0x2fff
     mem.vram.resize(10 * 1024, 0);
-    mem.banks.vram = Banking::new(10 * 1024, 0x800, 10 * 1024, 5);
+    mem.banks.vram = Banking::new(0x800, 10 * 1024, 10 * 1024, 5);
     
     for i in 0..5 {
       mem.banks.vram.bankings[i] = i * 2048;
@@ -1510,7 +1511,7 @@ impl Sunsoft4 {
 impl Mapper for Sunsoft4 {
   fn new(mem: &mut Bus) -> Box<Self> {
     mem.banks.prg.set_page_to_last_bank(1);
-    mem.banks.chr = Banking::new(mem.header.chr_size, 0, 12 * 1024, 12);
+    mem.banks.chr = Banking::new(0, mem.header.chr_size, 12 * 1024, 12);
     mem.banks.chr.set_pages_aligned2(0, 0);
     mem.banks.chr.set_pages_aligned2(2, 2);
     mem.banks.chr.set_pages_aligned2(4, 4);
@@ -1660,8 +1661,7 @@ struct SunsoftFME7 {
 }
 impl Mapper for SunsoftFME7 {
   fn new(mem: &mut Bus) -> Box<Self> {
-    // TODO: set this to 5 banks and addressable size of 40kb
-    mem.banks.prg = Banking::new(mem.header.prg_size, 0x6000, 40 * 1024, 5);
+    mem.banks.prg = Banking::new(0x6000, mem.header.prg_size, 40 * 1024, 5);
     mem.banks.prg.set_page_to_last_bank(4);
     mem.banks.chr = Banking::new_chr(&mem.header, 8);
 
@@ -1717,7 +1717,6 @@ impl Mapper for SunsoftFME7 {
         self.audio_command = val & 0x0f;
         self.audio_enabled = val & 0xf0 == 0;
       }
-      // TODO: audio partially implemented, not working
       // 0xe000..=0xffff
       0xe000 => {
         if !self.audio_enabled { return; }
@@ -1776,11 +1775,19 @@ impl Mapper for SunsoftFME7 {
 
 // https://www.nesdev.org/wiki/Family_Computer_Disk_System
 // https://www.nesdev.org/wiki/FDS_RAM_adaptor_cable_pinout
+// https://forums.nesdev.org/viewtopic.php?p=91528 
 #[derive(Default)]
 pub struct FDS {
   pub disks: Vec<Vec<u8>>,
-  disk_current: u8,
-  disk_position: usize,
+  disk_select: usize,
+  disk_inserted: bool,
+  head: usize,
+  spin_delay: usize,
+  eject_delay: usize,
+  swap_delay: usize,
+
+  data_buf: u8,
+  disk_irq_pending: bool,
 
   timer_count: u16,
   timer_reload: u16,
@@ -1790,49 +1797,47 @@ pub struct FDS {
   disk_enabled: bool,
   audio_enabled: bool,
 
-  reset_transfer: bool,
+  disk_reset: bool,
   motor_enabled: bool,
-  reading: bool,
+  read_mode: bool,
+  mirroring: bool,
   crc_ctrl: bool,
   crc_enabled: bool,
   disk_irq_enabled: bool,
 
-  crc_acc: u16,
-  crc_bad: bool,
   disk_at_end: bool,
-  disk_scanning: bool,
-  disk_ready: bool,
+  disk_spinning: bool,
   disk_in_gap: bool,
-
-  mirroring: bool,
-
-  read_buf: u8,
-  write_buf: u8,
-
-  byte_transferred: bool,
 }
 impl FDS {
   fn disk_read(&self) -> u8 {
-    self.disks[self.disk_current as usize][self.disk_position as usize]
+    self.disks[self.disk_select][self.head]
   }
 
   fn disk_write(&mut self, val: u8) {
-    self.disks[self.disk_current as usize][self.disk_position as usize] = val;
+    self.disks[self.disk_select][self.head] = val;
   }
 
-  fn update_crc(&mut self, val: u8) {
-    self.crc_acc ^= val as u16;
-    for _ in 0..8 {
-      let carry = self.crc_acc & 1;
-      self.crc_acc >>= 1;
-      self.crc_acc ^= 0x8408 * carry;
-    }
-  }
+  // fn update_crc(&mut self, val: u8) {
+  //   self.crc_acc ^= val as u16;
+  //   for _ in 0..8 {
+  //     let carry = self.crc_acc & 1;
+  //     self.crc_acc >>= 1;
+  //     self.crc_acc ^= 0x8408 * carry;
+  //   }
+  // }
 }
+
+mod fds {
+
+}
+
 impl Mapper for FDS {
   fn new(_: &mut Bus) -> Box<Self> {
     // everything is initialized in the bus constructor
-    Box::new(Self::default())
+    let mut res = Self::default();
+    res.disk_inserted = true;
+    Box::new(res)
   }
 
   fn cart_read(&mut self, mem: &mut Bus, addr: u16) -> u8 {
@@ -1840,33 +1845,32 @@ impl Mapper for FDS {
       0x4030 => {
         let mut res = 0;
         res |= mem.irq.contains(IrqFlags::MAPPER) as u8;
-        res |= (self.byte_transferred as u8) << 1;
         res |= (self.mirroring as u8) << 3;
-        res |= (self.crc_bad as u8) << 4;
-        // res |= (self.byte_transferred as u8) << 7;
+        // bit 4 is set if crc check fails
+        // res |= (self.disk_at_end as u8) << 6;
+        res |= (self.disk_irq_pending as u8) << 7;
         
-        self.byte_transferred = false;
+        self.disk_irq_pending = false;
         mem.irq.remove(IrqFlags::MAPPER);
         mem.irq.remove(IrqFlags::DISK);
 
-        res | (mem.cpu_data_bus & 0x24)
+        res
       }
       0x4031 => {
-        self.byte_transferred = false;
+        self.disk_irq_pending = false;
         mem.irq.remove(IrqFlags::DISK);
-        self.read_buf
+        self.data_buf
       }
       0x4032 => {
         let mut res = 0;
-        // TODO: disk inserted
-        res |= (!self.disk_scanning as u8) << 1;
-        // TODO: disk write protect
+        res |= !self.disk_inserted as u8;
+        res |= ((!self.disk_inserted || !self.disk_spinning) as u8) << 1;
+        res |= (!self.disk_inserted as u8) << 2;
 
         mem.irq.remove(IrqFlags::DISK);
 
         res | (mem.cpu_data_bus & 0xf8)
       }
-      0x4033 => 0x80,
       _ => 0xff 
     }
   }
@@ -1900,19 +1904,20 @@ impl Mapper for FDS {
       }
 
       0x4024 => if self.disk_enabled {
-        self.write_buf = val as u8;
-        self.byte_transferred = false;
+        self.data_buf = val as u8;
+        self.disk_irq_pending = false;
         mem.irq.remove(IrqFlags::DISK);
       }
 
       0x4025 => if self.disk_enabled {
+        // the falling edge of this signal would instruct the drive to stop its motor (and therefore end the current scan of the disk)
+        self.motor_enabled = val & 0x1 > 0;
+
         // while high, this instructs the storage media pointer to be reset (and stay reset) at the beginning of the media
         // while low, the media pointer is to be advanced at a constant rate, and data progressively transferred to/from the media
-        self.motor_enabled = val & 0x1 > 0;
-        // the falling edge of this signal would instruct the drive to stop its motor (and therefore end the current scan of the disk)
-        self.reset_transfer = val & 0x2 > 0;
+        self.disk_reset = val & 0x2 > 0;
         // while low, this signal indicates that data appearing on the "write data" signal pin is to be written to the storage media.
-        self.reading = val & 0x4 > 0;
+        self.read_mode = val & 0x4 > 0;
 
         let mirroring = if val & 0x8 > 0 {
           Mirroring::Horizontal
@@ -1922,8 +1927,11 @@ impl Mapper for FDS {
         mem.banks.vram.mirror(&mirroring);
         self.mirroring = val & 0x8 > 0;
 
-        self.crc_ctrl = 0x10 > 0;
-        self.disk_ready = 0x40 > 0;
+        // ROM BIOS subroutines set this bit while processing the CRC data at the end of a block.
+        self.crc_ctrl = val & 0x10 > 0;
+
+        // This bit is typically set while the disk head is in a GAP period on the disk.
+        self.crc_enabled = val & 0x40 > 0;
         self.disk_irq_enabled = val & 0x80 > 0;
 
         mem.irq.remove(IrqFlags::DISK);
@@ -1934,6 +1942,7 @@ impl Mapper for FDS {
 
   fn prg_write(&mut self, _mem: &mut Bus, _addr: u16, _val: u8) {}
 
+  // https://forums.nesdev.org/viewtopic.php?p=91528#p91528
   fn step(&mut self, mem: &mut Bus, _cycles: usize) {
     if self.timer_enabled {
       if self.timer_count > 0 {
@@ -1945,84 +1954,136 @@ impl Mapper for FDS {
       }
     }
 
-    if !self.motor_enabled {
+    if self.swap_delay > 0 {
+      self.swap_delay -= 1;
+      if self.swap_delay == 0 {
+        println!("Disk swapped");
+        self.disk_inserted = true;
+      }
+    }
+
+    // Motor is stopped, head should stay at end
+    if !self.disk_inserted || !self.motor_enabled {
       self.disk_at_end = true;
-      self.disk_scanning = false;
+      self.disk_spinning = false;
       return;
     }
 
-    if self.reset_transfer && !self.disk_scanning { return; }
+    // Head should stay at start, unless it is already spinning (in that case disk_reset is ignored)
+    if self.disk_reset && !self.disk_spinning { return; }
 
+    // Head is at end, rewind disk with delay. also we should set disk_in_gap, as disk starts with a gap
     if self.disk_at_end {
+      self.spin_delay = 50_000;
       self.disk_at_end = false;
-      self.disk_position = 0;
+      self.head = 0;
       self.disk_in_gap = true;
     }
 
-    self.disk_scanning = true;
-    let mut should_irq = self.disk_irq_enabled;
-    if self.reading {
+    if self.spin_delay > 0 {
+      self.spin_delay -= 1;
+      return;
+    }
+
+    self.disk_spinning = true;
+
+    if self.read_mode {
       let data = self.disk_read();
 
-      if !self.crc_ctrl {
-        self.update_crc(data);
-      }
-
-      if !self.disk_ready {
+      // During reads, setting this bit instructs the 2C33 to wait for the first set bit (block start mark) to be read off the disk,
+      // before accumulating any serial data in the FDS's internal shift registers, and setting the byte transfer ready flag for the first time (and then every 8-bit subsequent transfer afterwards).
+      if !self.crc_enabled {
         self.disk_in_gap = true;
-        self.crc_acc = 0;
-        self.crc_bad = false;
       } else if self.disk_in_gap && data > 0 {
+        // if we are in a gap and we find a nonzero value, we reached the end of a gap
         self.disk_in_gap = false;
-        should_irq = false;
-      }
-
-      if !self.disk_in_gap {
-        self.byte_transferred = true;
-        self.read_buf = data;
-        if should_irq {
+      } else if !self.disk_in_gap {
+        // we are in data section
+        self.data_buf = data;
+        if self.disk_irq_enabled {
           mem.irq.insert(IrqFlags::DISK);
         }
-      }
-
-      if self.crc_ctrl {
-        self.crc_bad = self.crc_acc > 0;
       }
     } else {
       let mut data = 0;
 
       if !self.crc_ctrl {
-        self.byte_transferred = true;
-        data = self.write_buf;
-        if should_irq {
+        data = self.data_buf;
+        if self.disk_irq_enabled {
           mem.irq.insert(IrqFlags::DISK);
         }
       }
 
-      if !self.disk_ready {
+      // During writes, setting this bit instructs the 2C33 to immediately load the contents of $4024 into a shift register, 
+      // set the byte transfer flag, start writing the data from the shift register onto the disk, and repeat this process on subsequent 8-bit transfers.
+      // While this bit is 0, data in $4024 is ignored, and a stream of 0's is written to the disk instead.
+      if !self.crc_enabled {
+        // we are in a gap, don't write anything
         data = 0;
-        self.crc_acc = 0;
-      }
-
-      if !self.crc_ctrl {
-        self.update_crc(data);
-      } else {
-        data = self.crc_acc as u8;
-        self.crc_acc >>= 8;
+      } else if self.crc_ctrl {
+        // fake crc
+        data = 0x69;
       }
 
       self.disk_write(data);
       self.disk_in_gap = true;
-      self.crc_bad = false;
     }
 
-    self.disk_position += 1;
-    if self.disk_position >= self.disks[self.disk_current as usize].len() {
+    self.head += 1;
+    if self.head >= self.disks[self.disk_select as usize].len() {
+      // stop motor, so that it gets rewinded
       self.motor_enabled = false;
-
       if self.disk_irq_enabled {
         mem.irq.insert(IrqFlags::DISK);
       }
+    } else {
+      // we read a byte from disk, set a delay so that cpu has time to handle the IRQ before fetching a new byte from disk
+      self.spin_delay = 149;
     }
+  }
+
+  fn notify_cpu_addr(&mut self, _mem: &mut Bus, addr: u16, _val: Option<u8>) {
+    // eventual bios hooks here
+    match addr {
+      0xe1f8 => {
+        println!("[BIOS: ${addr:04x}] LoadFiles()");
+      }
+      0xe237 => {
+        println!("[BIOS: ${addr:04x}] AppendFile()");
+      }
+      0xe239 => {
+        println!("[BIOS: ${addr:04x}] WriteFile()");
+      }
+      0xe2b7 => {
+        println!("[BIOS: ${addr:04x}] CheckFileCount()");
+      }
+      0xe2bb => {
+        println!("[BIOS: ${addr:04x}] AdjustFileCount()");
+      }
+      0xe301 => {
+        println!("[BIOS: ${addr:04x}] SetFileCount1()");
+      }
+      0xe305 => {
+        println!("[BIOS: ${addr:04x}] SetFileCount()");
+      }
+      0xe32a => {
+        println!("[BIOS: ${addr:04x}] GetDiskInfo()");
+      }
+      0xe445 => {
+        // TODO: automatic side picker
+        println!("[BIOS: ${addr:04x}] CheckDiskHeader()");
+      }
+
+      _ => {}
+    }
+  }
+
+  fn special_input(&mut self) {
+    self.disk_select = (self.disk_select + 1) % self.disks.len();
+    // the old disk is ejected. set a delay before inserting the new one
+    self.disk_inserted = false;
+    self.swap_delay = 1_000_000;
+
+    println!("Current disk selected: {:?}", self.disk_select);
   }
 }
