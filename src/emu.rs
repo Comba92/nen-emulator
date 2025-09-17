@@ -11,6 +11,14 @@ pub struct EmuSettings {
   pub audio_frequency: usize,
   pub volume: f32,
 }
+impl EmuSettings {
+  pub fn new() -> Self {
+    Self {
+      no_sprite_limit: true,
+      ..Default::default()
+    }
+  }
+}
 
 pub struct Emu {
   pub cpu: Cpu6502,
@@ -101,7 +109,7 @@ impl Emu {
       palette,
       
       frame_ready: false,
-      settings: EmuSettings::default()
+      settings: EmuSettings::new()
     };
 
     emu.cpu.pc = emu.cpu_read16(cpu::RST_VECTOR);

@@ -84,7 +84,6 @@ impl Disk {
       for i in 0..files_count {
         println!("FILE {i}");
 
-        assert_eq!(file[0], 3);
         if file[0] != 3 {
           return Err("no valid file header block");
         }
@@ -99,7 +98,6 @@ impl Disk {
         // file header block is 0x10 (16) bytes
         Self::push_gaps_and_data(&mut side_data, &file[..0x10]);
 
-        assert_eq!(file[0x10], 4);
         if file[0x10] != 4 {
           return Err("no valid file data block");
         }

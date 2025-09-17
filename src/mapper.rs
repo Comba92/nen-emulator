@@ -993,16 +993,161 @@ impl Mapper for NTDEC2722 {
 
 // https://www.nesdev.org/wiki/INES_Mapper_019
 // https://www.nesdev.org/wiki/INES_Mapper_210
-// TODO: audio
-// TODO: exram save data
+
+mod namco {
+  pub(super) struct Audio {
+    pub enabled: bool,
+    ram: [u8; 128],
+    addr: u8,
+    auto_incr: bool,
+    channel_curr: u8,
+    outputs: [i16; 8],
+  }
+  impl Default for Audio {
+    fn default() -> Self {
+      Self {
+        enabled: false,
+        ram: [0; 128],
+        addr: 0,
+        auto_incr: false,
+        channel_curr: 0,
+        outputs: [0; 8],
+      }
+    }
+  }
+  impl Audio {
+    const FREQ_LO: usize = 0;
+    const PHASE_LO: usize = 1;
+    const FREQ_MI: usize = 2;
+    const PHASE_MI: usize = 3;
+    const FREQ_HI: usize = 4;
+    const PHASE_HI: usize = 5;
+    const WAVE_ADDR: usize = 6;
+    const VOLUME: usize = 7;
+
+    pub fn write_addr(&mut self, val: u8) {
+      self.addr = val & 0x7f;
+      self.auto_incr = val & 0x80 > 0;
+    }
+
+    pub fn read_data(&mut self) -> u8 {
+      let res = self.ram[self.addr as usize];
+
+      if self.auto_incr {
+        self.addr = (self.addr + 1) & 0x7f;
+      }
+      res
+    }
+
+    pub fn write_data(&mut self, val: u8) {
+      self.ram[self.addr as usize] = val;
+
+      if self.auto_incr {
+        self.addr = (self.addr + 1) & 0x7f;
+      }
+    }
+
+    fn wave_freq(&self, channel: u8) -> u32 {
+      let channel = 0x40 + 8 * channel as usize;
+      let mut freq = 0;
+      freq |=  self.ram[channel + Self::FREQ_LO] as u32;
+      freq |= (self.ram[channel + Self::FREQ_MI] as u32) << 8;
+      freq |= (self.ram[channel + Self::FREQ_HI] as u32 & 0x3) << 16;
+      freq
+    }
+
+    fn wave_phase(&self, channel: u8) -> u32 {
+      let channel = 0x40 + 8 * channel as usize;
+      let mut phase = 0;
+      phase |=  self.ram[channel + Self::PHASE_LO] as u32;
+      phase |= (self.ram[channel + Self::PHASE_MI] as u32) << 8;
+      phase |= (self.ram[channel + Self::PHASE_HI] as u32) << 16;
+      phase
+    }
+
+    fn set_wave_phase(&mut self, channel: u8, val: u32) {
+      let channel = 0x40 + 8 * channel as usize;
+      self.ram[channel + Self::PHASE_LO] = val as u8;
+      self.ram[channel + Self::PHASE_MI] = (val >> 8) as u8;
+      self.ram[channel + Self::PHASE_HI] = (val >> 16) as u8;
+    }
+
+    fn wave_len(&self, channel: u8) -> u32 {
+      256 - (self.ram[0x40 + 8 * channel as usize + Self::FREQ_HI] as u32 & 0xfc)
+    }
+
+    fn wave_addr(&self, channel: u8) -> u8 {
+      // address in 4bit samples, not bytes
+      self.ram[0x40 + 8 * channel as usize + Self::WAVE_ADDR]
+    }
+
+    fn wave_pos(&self, channel: u8) -> u8 {
+      // The high byte of the 24-bit phase value directly determines the current sample position of the channel
+      self.ram[0x40 + 8 * channel as usize + Self::PHASE_HI]
+    }
+
+    fn wave_volume(&self, channel: u8) -> u8 {
+      self.ram[0x40 + 8 * channel as usize + Self::VOLUME] & 0xf
+    }
+
+    fn channels_enabled(&self) -> u8 {
+      1 + ((self.ram[0x7f] >> 4) & 0x7)
+    }
+
+    fn waves_update(&mut self) {
+      let channel = 7 - self.channel_curr;
+
+      let freq = self.wave_freq(channel);
+      let mut phase = self.wave_phase(channel);
+      let len = self.wave_len(channel);
+      let addr = self.wave_addr(channel);
+      let volume = self.wave_volume(channel);
+      
+      phase = (phase + freq) % (len << 16);
+      self.set_wave_phase(channel, phase);
+      let offset = self.wave_pos(channel);
+      
+      // The 'A' bits dictate where in the internal sound RAM the waveform starts. 'A' is the address in 4-bit samples, therefore a value of $02 would be the low 4 bits of address $01. A value of $03 would be the high 4 bits of address $01.
+      let sample_pos = (addr + offset) as usize & 0xff; 
+      let sample = if sample_pos % 2 == 0 {
+        // low bits
+        self.ram[sample_pos/2] & 0xf
+      } else {
+        // high bits
+        self.ram[sample_pos/2] >> 4
+      };
+      
+      self.outputs[channel as usize] = (sample as i16 - 8) * volume as i16;
+      self.channel_curr = (self.channel_curr + 1) % self.channels_enabled();
+    }
+
+    pub fn step(&mut self, cycles: usize) {
+      if !self.enabled { return; }
+
+      if cycles % 15 == 0 {
+        self.waves_update();
+      }
+    }
+
+    pub fn sample(&self) -> f64 {
+      let sum = self.outputs.iter()
+        .rev() // start from last
+        .take(self.channels_enabled() as usize) // take only enabled
+        .sum::<i16>();
+
+      0.5 * (sum / self.channels_enabled() as i16) as f64
+    }
+  }
+}
 
 struct Namco129_163 {
-  // exram: [u8; 128],
   irq_count: u16,
   irq_enabled: bool,
 
   chr_ram0: bool,
   chr_ram1: bool,
+
+  audio: namco::Audio,
 
   mapper: u16,
   submapper: u8,
@@ -1011,6 +1156,8 @@ impl Mapper for Namco129_163 {
   fn new(mem: &mut Bus) -> Box<Self> {
     mem.banks.prg = Banking::new_prg(&mem.header, 4);
     mem.banks.prg.set_page_to_last_bank(3);
+
+    // TODO: save ram
     mem.banks.wram = Banking::new_wram(&mem.header, 4);
 
     if mem.header.mapper == 19 {
@@ -1023,13 +1170,11 @@ impl Mapper for Namco129_163 {
     }
 
     Box::new(Self {
-      // exram: [0; 128],
       irq_count: 0,
       irq_enabled: false,
-
       chr_ram0: false,
       chr_ram1: false,
-
+      audio: namco::Audio::default(),
       mapper: mem.header.mapper,
       submapper: mem.header.submapper,
     })
@@ -1040,6 +1185,7 @@ impl Mapper for Namco129_163 {
     if self.mapper != 19 { return mem.cpu_data_bus }
 
     match addr {
+      0x4800..=0x4fff => self.audio.read_data(),
       0x5000..=0x57ff => self.irq_count as u8,
       0x5800..=0x5fff => ((self.irq_enabled as u8) << 7) | (self.irq_count >> 8) as u8,
       _ => mem.cpu_data_bus
@@ -1051,6 +1197,7 @@ impl Mapper for Namco129_163 {
 
     // TODO: use mask
     match addr {
+      0x4800..=0x4fff => self.audio.write_data(val),
       0x5000..=0x57ff => {
         self.irq_count = byte_set_lo(self.irq_count, val);
         mem.irq.remove(IrqFlags::MAPPER);
@@ -1098,7 +1245,7 @@ impl Mapper for Namco129_163 {
 
       (0xe000..=0xe7ff, _) => {
         mem.banks.prg.set_page(0, val as u16 & 0x3f);
-        // TODO: disable sound
+        self.audio.enabled = val & 0x40 == 0;
 
         // namco 340 only
         if self.mapper == 210 && self.submapper == 2 {
@@ -1121,6 +1268,7 @@ impl Mapper for Namco129_163 {
         mem.banks.prg.set_page(2, val as u16 & 0x3f);
       }
       (0xf800..=0xffff, 19) => {
+        self.audio.write_addr(val);
         // TODO: write protect for exram for mapper 19
         // TODO: this works with 2kb windows, we cant really do it with 8kb handlers...
       }
@@ -1128,7 +1276,7 @@ impl Mapper for Namco129_163 {
     }
   }
 
-  fn step(&mut self, mem: &mut Bus, _: usize) {
+  fn step(&mut self, mem: &mut Bus, cycles: usize) {
     if self.mapper == 19 {
       if self.irq_enabled && self.irq_count < 0x7fff {
         self.irq_count += 1;
@@ -1136,7 +1284,13 @@ impl Mapper for Namco129_163 {
           mem.irq.insert(IrqFlags::MAPPER);
         }
       }
+
+      self.audio.step(cycles);
     }
+  }
+
+  fn sample(&self) -> f64 {
+    self.audio.sample()
   }
 }
 
@@ -1768,7 +1922,7 @@ impl Mapper for SunsoftFME7 {
 
   fn sample(&self) -> f64 {
     // It is very loud compared to other audio expansion carts. 
-    0.45 * (self.ta.sample() as f64 + self.tb.sample() as f64 + self.tc.sample() as f64)
+    0.5 * (self.ta.sample() as f64 + self.tb.sample() as f64 + self.tc.sample() as f64)
   }
 }
 
@@ -1829,7 +1983,10 @@ impl FDS {
 }
 
 mod fds {
+  struct Audio {
+    ram: [u8; 64],
 
+  }
 }
 
 impl Mapper for FDS {
@@ -1847,7 +2004,7 @@ impl Mapper for FDS {
         res |= mem.irq.contains(IrqFlags::MAPPER) as u8;
         res |= (self.mirroring as u8) << 3;
         // bit 4 is set if crc check fails
-        // res |= (self.disk_at_end as u8) << 6;
+        res |= (self.disk_at_end as u8) << 6;
         res |= (self.disk_irq_pending as u8) << 7;
         
         self.disk_irq_pending = false;
