@@ -56,6 +56,7 @@ impl FDS {
   // }
 }
 
+// https://github.com/SourMesen/Mesen2/tree/master/Core/NES/Mappers/FDS
 mod fds {
   use crate::utils::{byte_set_hi, byte_set_lo};
 
@@ -83,7 +84,7 @@ mod fds {
       if !self.enabled { self.volume_gain = self.speed; }
     }
 
-    pub fn step(&mut self) {
+    fn step(&mut self) {
       if !self.enabled || self.master_speed == 0 { return; }
 
       if self.timer > 0 {
@@ -106,30 +107,63 @@ mod fds {
   #[derive(Default)]
   pub struct Mod {
     pub env: Env,
-    pub count: u8,
-    carry: bool,
+    pub count: i8,
     halted: bool,
+    buf: Buffer,
+    pos: u8,
+    acc: u16,
   }
   impl Mod {
+    const TABLE: [i8; 8] = [0, 1, 2, 4, -128, -4, -2, -1];
+
+    // 0x4087
     pub fn write_ctrl(&mut self, val: u8) {
       self.env.freq = byte_set_hi(self.env.freq, val & 0xf);
-      self.carry = val & 0x40 > 0;
       self.halted = val & 0x80 > 0;
-    }
-
-    pub fn write_table(&mut self, val: u8) {
       if self.halted {
-
+        self.acc = 0;
       }
     }
+
+    // 0x4085
+    pub fn write_count(&mut self, val: u8) {
+      let val = val & 0x7f;
+      self.count = if val < 64 {
+        val as i8
+      } else {
+        64 - (val as i8)
+      }
+    }
+
+    fn step(&mut self) {
+      if self.halted { return; }
+
+      self.acc += self.env.freq;
+      if self.acc < self.env.freq {
+        let val = self.buf.0[self.pos as usize];
+        let lut = Self::TABLE[val as usize];
+
+        self.write_count(if lut == -128 { 0 } else { (self.count + lut) as u8 });
+        self.pos = (self.pos + 1) % 64;
+      }
+    }
+
+    // fn sample(&self) -> u8 {
+    //   let mut tmp = self.count as i16 * self.env.volume_gain as i16;
+    //   if tmp & 0x0f > 0 && tmp & 0x800 == 0 { tmp += 0x20; }
+
+    //   tmp += 0x400;
+    //   tmp = (tmp >> 4) & 0xff;
+      
+    // }
   }
 
-  pub struct WaveRam(pub [u8; 64]);
-  impl Default for WaveRam { fn default() -> Self { Self([0; 64]) } }
+  pub struct Buffer(pub [u8; 64]);
+  impl Default for Buffer { fn default() -> Self { Self([0; 64]) } }
 
   #[derive(Default)]
   pub struct Audio {
-    pub ram: WaveRam,
+    pub ram: Buffer,
     pub ram_writable: bool,
     pub wave_pos: u8,
     wave_acc: u32,
@@ -161,7 +195,15 @@ mod fds {
       if self.wave_halted {
         self.wave_pos = 0;
       }
-      todo!("bit 7 makes envelope run 4x faster and stops mod table acc");
+    }
+
+    // 0x4088
+    pub fn write_table(&mut self, val: u8) {
+      if self.modl.halted {
+        self.modl.buf.0[self.modl.pos as usize] = val & 0x7;
+        self.modl.buf.0[self.modl.pos as usize + 1] = val & 0x7;
+        self.modl.pos = (self.modl.pos + 2) % 64;
+      }
     }
 
     pub fn step(&mut self, clocks: usize) {
@@ -220,7 +262,7 @@ impl Mapper for FDS {
 
       0x4040..=0x407f => {
         let pos = if self.audio.ram_writable {
-          addr as usize - 0x4040
+          (addr as usize - 0x4040) % 64
         } else {
           self.audio.wave_pos as usize
         };
@@ -312,10 +354,10 @@ impl Mapper for FDS {
       0x4083 => self.audio.write_ctrl(val),
 
       0x4084 => self.audio.modl.env.write_ctrl(val),
-      0x4085 => self.audio.modl.count = val & 0x7f,
+      0x4085 => self.audio.modl.write_count(val),
       0x4086 => self.audio.modl.env.write_freq_lo(val),
       0x4087 => self.audio.modl.write_ctrl(val),
-      0x4088 => self.audio.modl.write_table(val),
+      0x4088 => self.audio.write_table(val),
 
       0x4089 => {
         self.audio.master_volume = match val & 0x3 {
