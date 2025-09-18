@@ -63,18 +63,20 @@ mod fds {
   #[derive(Default)]
   pub struct Env {
     enabled: bool,
-    pub master_speed: u8,
     speed: u8,
-    timer: u16,
+    direction: bool,
     pub freq: u16,
     pub volume_gain: u8,
-    direction: bool,
+    timer: u16,
+    pub master_speed: u8,
   }
   impl Env {
+    // 0x4082 / 0x4084
     pub fn write_freq_lo(&mut self, val: u8) {
       self.freq = byte_set_lo(self.freq, val);
     }
 
+    // 0x4080 // 0x4085
     pub fn write_ctrl(&mut self, val: u8) {
       self.enabled = val & 0x80 == 0;
       self.direction = val & 0x40 > 0;
@@ -93,7 +95,7 @@ mod fds {
         self.reset_timer();
 
         match self.direction {
-          true  => self.volume_gain = (self.volume_gain + 1).min(32),
+          true  => self.volume_gain = (self.volume_gain + 1).min(31),
           false => self.volume_gain = self.volume_gain.saturating_sub(1),
         }
       }
@@ -109,29 +111,45 @@ mod fds {
     pub env: Env,
     pub count: i8,
     halted: bool,
-    buf: Buffer,
+    tbl: Table,
     pos: u8,
     acc: u16,
+    output: i32,
   }
   impl Mod {
     const TABLE: [i8; 8] = [0, 1, 2, 4, -128, -4, -2, -1];
 
+    // 0x4085
+    pub fn write_count(&mut self, val: u8) {
+      // (7-bit signed; minimum $40; maximum $3F)
+      // The mod counter is a signed 7-bit value, and will wrap if overflowed, i.e. 63 + 1 = -64 after wrap, and -64 - 1 = 63. 
+      let val = val as i16;
+      self.count = if val >= 64 {
+        val - 128
+      } else if val < -64 {
+        val + 128
+      } else {
+        val
+      } as i8;
+    }
+
     // 0x4087
     pub fn write_ctrl(&mut self, val: u8) {
       self.env.freq = byte_set_hi(self.env.freq, val & 0xf);
+      self.env.reset_timer();
+      
       self.halted = val & 0x80 > 0;
       if self.halted {
         self.acc = 0;
       }
     }
 
-    // 0x4085
-    pub fn write_count(&mut self, val: u8) {
-      let val = val & 0x7f;
-      self.count = if val < 64 {
-        val as i8
-      } else {
-        64 - (val as i8)
+    // 0x4088
+    pub fn write_table(&mut self, val: u8) {
+      if self.halted {
+        self.tbl.0[(self.pos as usize) % 64] = val & 0x7;
+        self.tbl.0[(self.pos as usize + 1) % 64] = val & 0x7;
+        self.pos = (self.pos + 2) % 64;
       }
     }
 
@@ -140,48 +158,102 @@ mod fds {
 
       self.acc += self.env.freq;
       if self.acc < self.env.freq {
-        let val = self.buf.0[self.pos as usize];
-        let lut = Self::TABLE[val as usize];
+        let val = self.tbl.0[self.pos as usize];
+        let adj = Self::TABLE[val as usize];
 
-        self.write_count(if lut == -128 { 0 } else { (self.count + lut) as u8 });
+        let count = if adj == -128 { 0 } else { self.count + adj };
+        self.write_count(count as u8);
         self.pos = (self.pos + 1) % 64;
       }
     }
 
-    // fn sample(&self) -> u8 {
-    //   let mut tmp = self.count as i16 * self.env.volume_gain as i16;
-    //   if tmp & 0x0f > 0 && tmp & 0x800 == 0 { tmp += 0x20; }
+    // https://www.nesdev.org/wiki/FDS_audio#Modulation_unit
+    pub fn update(&mut self, pitch: u16) {
+      // 1. multiply counter by gain
+      let mut temp = self.count as i32 * self.env.volume_gain as i32;
+            
+      let mut remainder = temp & 0xf;
+      temp >>= 4;
 
-    //   tmp += 0x400;
-    //   tmp = (tmp >> 4) & 0xff;
-      
-    // }
+      if remainder > 0 && temp & 0x80 == 0 {
+        temp += if self.count < 0 { -1 } else { 2 };
+      }
+
+      if temp >= 192 {
+        temp -= 256;
+      } else if temp < -64 {
+        temp += 256;
+      }
+
+      temp = pitch as i32 * temp;
+      remainder = temp & 0x3f;
+      temp >>= 6;
+      if remainder >= 32 {
+        temp += 1;
+      }
+
+      self.output = temp;
+      // 2. round up to 6 bits only if sign positive (ignoring bit 4)
+      // if tmp & 0x0f > 0 && tmp & 0x800 == 0 { tmp += 0x20; }
+
+      // 3. drop 4 bits and center to 0x40
+      // tmp += 0x400;
+      // tmp = (tmp >> 4) & 0xff;
+
+      // 4. multiply by pitch to get the 20-bit unsigned result
+      // (self.env.freq as i32 * tmp) & 0xf_ffff
+    }
   }
 
-  pub struct Buffer(pub [u8; 64]);
-  impl Default for Buffer { fn default() -> Self { Self([0; 64]) } }
+  #[derive(Default)]
+  pub struct Wave {
+    ram: Table,
+    pub ram_writable: bool,
+    pos: u8,
+    acc: i32,
+    halted: bool,
+  }
+
+  pub struct Table(pub [u8; 64]);
+  impl Default for Table { fn default() -> Self { Self([0; 64]) } }
 
   #[derive(Default)]
   pub struct Audio {
-    pub ram: Buffer,
-    pub ram_writable: bool,
-    pub wave_pos: u8,
-    wave_acc: u32,
-    wave_output: u8,
-    wave_halted: bool,
-
-    freq: u16,
     env_halted: bool,
-    pub master_volume: f32,
+    pub master_volume: u8,
 
     pub env: Env,
     pub modl: Mod,
+    pub wave: Wave,
   }
   impl Audio {
+    const VOLUMES: [u8; 4] = [36, 24, 17, 14];
+
+    // 0x4040
+    pub fn ram_read(&self, addr: u16) -> u8 {
+      let pos = if self.wave.ram_writable {
+        (addr as usize - 0x4040) % 64
+      } else {
+        self.wave.pos as usize
+      };
+
+      self.wave.ram.0[pos] | 0x40
+    }
+
+    // 0x4040
+    pub fn ram_write(&mut self, addr: u16, val: u8) {
+      if self.wave.ram_writable {
+        self.wave.ram.0[addr as usize - 0x4040] = val & 0x3f;
+      }
+    }
+
     // 0x4083
     pub fn write_ctrl(&mut self, val: u8) {
-      self.env.freq = byte_set_hi(self.freq, val & 0xf);
+      self.env.freq = byte_set_hi(self.env.freq, val & 0xf);
+      self.modl.update(self.env.freq);
+      
       self.env_halted = val & 0x40 > 0;
+
 
       // Bit 6 halts just the envelopes without halting the waveform, and also resets both of their timers. 
       if self.env_halted {
@@ -191,30 +263,35 @@ mod fds {
 
       // The high bit of this register halts the waveform and resets its phase to 0. Note that if halted it will output the constant value at $4040, and writes to the volume register $4080 or master volume $4089 will affect the output.
       // The envelopes are not ticked while the waveform is halted. 
-      self.wave_halted = val & 0x80 > 0;
-      if self.wave_halted {
-        self.wave_pos = 0;
+      self.wave.halted = val & 0x80 > 0;
+      if self.wave.halted {
+        self.wave.pos = 0;
       }
     }
 
-    // 0x4088
-    pub fn write_table(&mut self, val: u8) {
-      if self.modl.halted {
-        self.modl.buf.0[self.modl.pos as usize] = val & 0x7;
-        self.modl.buf.0[self.modl.pos as usize + 1] = val & 0x7;
-        self.modl.pos = (self.modl.pos + 2) % 64;
-      }
-    }
-
-    pub fn step(&mut self, clocks: usize) {
-      if !self.wave_halted && !self.env_halted {
+    pub fn step(&mut self, _cycles: usize) {
+      if !self.wave.halted && !self.env_halted {
         self.env.step();
         self.modl.env.step();
+        self.modl.update(self.env.freq);
       }
 
-      if clocks % 16 == 0 {
-        self.wave_pos = (self.wave_pos + 1) % 64; 
+      self.modl.step();
+      self.modl.update(self.env.freq);
+
+      let sum = self.env.freq as i32 + self.modl.output;
+      if !self.wave.halted && sum > 0 {
+        self.wave.acc += sum;
+        if self.wave.acc < sum {
+          self.wave.pos = (self.wave.pos + 1) % 64; 
+        }
       }
+    }
+    
+    pub fn sample(&self) -> f64 {
+      let level = self.env.volume_gain.min(32) as i32 * Self::VOLUMES[self.master_volume as usize] as i32; // max level: 1152
+      let output = (self.wave.ram.0[self.wave.pos as usize] as i32 * level) as f64 / 1152.0;
+      output as f64
     }
   }
 }
@@ -260,24 +337,16 @@ impl Mapper for FDS {
         res | (mem.cpu_data_bus & 0xf8)
       }
 
-      0x4040..=0x407f => {
-        let pos = if self.audio.ram_writable {
-          (addr as usize - 0x4040) % 64
-        } else {
-          self.audio.wave_pos as usize
-        };
+      0x4040..=0x407f => self.audio.ram_read(addr),
 
-        self.audio.ram.0[pos] | 0x40
-      }
-
-      0x4090 => self.audio.env.volume_gain | 0x40,
-      0x4091 => todo!("wave acc read"),
-      0x4092 => self.audio.modl.env.volume_gain | 0x40,
-      0x4093 => todo!("mod table addr acc"),
-      0x4094 => todo!("mod counter gain res"),
-      0x4095 => todo!("mod counter incr"),
-      0x4096 => todo!("wavetable value"),
-      0x4097 => todo!("mod counter value"),
+      0x4090 => self.audio.env.volume_gain & 0x3f | 0x40,
+      // 0x4091 => todo!("wave acc read"),
+      0x4092 => self.audio.modl.env.volume_gain & 0x3f | 0x40,
+      // 0x4093 => todo!("mod table addr acc"),
+      // 0x4094 => todo!("mod counter gain res"),
+      // 0x4095 => todo!("mod counter incr"),
+      // 0x4096 => todo!("wavetable value"),
+      // 0x4097 => todo!("mod counter value"),
       _ => 0xff
     }
   }
@@ -344,34 +413,37 @@ impl Mapper for FDS {
         mem.irq.remove(IrqFlags::DISK);
       }
 
-      0x4040..=0x407f => if self.audio.ram_writable {
-        self.audio.ram.0[addr as usize - 0x4040] = val & 0x3f;
-      }
+      0x4040..=0x407f => self.audio.ram_write(addr, val),
 
       // TODO: disable registers if audio is disabled
       0x4080 => self.audio.env.write_ctrl(val),
-      0x4082 => self.audio.env.write_freq_lo(val),
+      0x4082 => {
+        self.audio.env.write_freq_lo(val);
+        self.audio.modl.update(self.audio.env.freq);
+      }
+
       0x4083 => self.audio.write_ctrl(val),
 
-      0x4084 => self.audio.modl.env.write_ctrl(val),
-      0x4085 => self.audio.modl.write_count(val),
+      0x4084 => {
+        self.audio.modl.env.write_ctrl(val);
+        self.audio.modl.update(self.audio.env.freq);
+      }
+      0x4085 => {
+        self.audio.modl.write_count(val);
+        self.audio.modl.update(self.audio.env.freq);
+      }
       0x4086 => self.audio.modl.env.write_freq_lo(val),
       0x4087 => self.audio.modl.write_ctrl(val),
-      0x4088 => self.audio.write_table(val),
+      0x4088 => self.audio.modl.write_table(val),
 
       0x4089 => {
-        self.audio.master_volume = match val & 0x3 {
-          0 => 1.0,
-          1 => 2.0/3.0,
-          2 => 2.0/4.0,
-          _ => 2.0/5.0,
-        };
-        self.audio.ram_writable = val & 0x80 > 0;
+        self.audio.master_volume = val & 0x3;
+        self.audio.wave.ram_writable = val & 0x80 > 0;
       }
-     0x408a => {
-      self.audio.env.master_speed = val;
-      self.audio.modl.env.master_speed = val;
-     }
+      0x408a => {
+        self.audio.env.master_speed = val;
+        self.audio.modl.env.master_speed = val;
+      }
       
       _ => {}
     }
@@ -380,7 +452,7 @@ impl Mapper for FDS {
   fn prg_write(&mut self, _mem: &mut Bus, _addr: u16, _val: u8) {}
 
   // https://forums.nesdev.org/viewtopic.php?p=91528#p91528
-  fn step(&mut self, mem: &mut Bus, _cycles: usize) {
+  fn step(&mut self, mem: &mut Bus, cycles: usize) {
     if self.timer_enabled {
       if self.timer_count > 0 {
         self.timer_count -= 1;
@@ -389,6 +461,10 @@ impl Mapper for FDS {
         self.timer_count = self.timer_reload;
         self.timer_enabled = self.timer_repeat;
       }
+    }
+
+    if self.audio_enabled {
+      self.audio.step(cycles);
     }
 
     if self.eject_delay > 0 {
@@ -524,7 +600,5 @@ impl Mapper for FDS {
     println!("Current disk selected: {:?}", self.disk_select);
   }
 
-  fn sample(&self) -> f64 {
-    0.0
-  }
+  fn sample(&self) -> f64 { self.audio.sample() }
 }
