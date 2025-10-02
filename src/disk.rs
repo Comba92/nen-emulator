@@ -1,6 +1,7 @@
 pub struct Disk {
   pub sides: Vec<Vec<u8>>,
 }
+// TODO: cleanup
 
 // https://github.com/SourMesen/Mesen2/blob/fabc9a62174f8734a113df6d244f5539ef6b8fcf/Core/NES/Loaders/FdsLoader.cpp#L21
 // https://github.com/ares-emulator/ares/blob/0b2a85f80321aca7af9df37555edfdd5c4d22a9c/mia/medium/famicom-disk-system.cpp
@@ -8,6 +9,7 @@ pub struct Disk {
 // https://forums.nesdev.org/viewtopic.php?f=3&t=8712
 impl Disk {
   const FDS_MAGIC: &[u8] = &[0x46, 0x44, 0x53, 0x1A];
+  const FDS_NINTENDO_STR: &[u8] = "*NINTENDO-HVC*".as_bytes();
   const FDS_HEADER_SIZE: usize = 16;
   const SIDE_SIZE: usize = 65500;
 
@@ -53,6 +55,10 @@ impl Disk {
         return Err("no valid side info block")
       }
       println!("{:?}", str::from_utf8(&img[1..15]));
+      if &img[1..15] != Self::FDS_NINTENDO_STR {
+        return Err("not a valid FDS rom");
+      }
+
       println!("GAME NAME [{:?}]", str::from_utf8(&img[0x10..0x13]));
 
       println!("SIDE NUMBER: {}", img[0x15]);
@@ -81,11 +87,10 @@ impl Disk {
       println!();
 
       let mut parsed_bytes = 0x3a;
-      for i in 0..files_count {
-        println!("FILE {i}");
-
+      for _ in 0..files_count {
         if file[0] != 3 {
-          return Err("no valid file header block");
+          break;
+          // return Err("no valid file header block");
         }
         println!("FILE NUMBER: {}", file[1]);
         println!("FILE ID: {}", file[2]);
@@ -99,7 +104,8 @@ impl Disk {
         Self::push_gaps_and_data(&mut side_data, &file[..0x10]);
 
         if file[0x10] != 4 {
-          return Err("no valid file data block");
+          break;
+          // return Err("no valid file data block");
         }
 
         parsed_bytes += 0x10 + file_size + 1;

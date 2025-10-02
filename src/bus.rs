@@ -17,6 +17,7 @@ pub struct Banking<T: BankCfg> {
   kind: std::marker::PhantomData<T>,
 }
 
+// TODO: this system currently has a problem; the pages_count doesn't take into account the actual size vs addressable size. for example, if 16kb are provided for prg, no mirroring will occur (it has to be set to 2 pages manually)
 impl<T: BankCfg + std::fmt::Debug> Banking<T> {
   pub fn new(start_addr: u16, real_size: usize, addressable_size: u16, pages_count: u16) -> Self {
     let bankings = vec![0; pages_count as usize];

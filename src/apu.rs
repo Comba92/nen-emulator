@@ -618,7 +618,7 @@ impl Emu {
         if apu.frame_irq_disable {
           self.mem.irq.remove(bus::IrqFlags::FRAME);
         }
-        apu.frame_count = 1;
+        apu.frame_count = 0;
 
         // TODO: Writing to $4017 resets the frame counter and the quarter/half frame triggers happen simultaneously, but only on "odd" cycles (and only after the first "even" cycle after the write occurs) – thus, it happens either 2 or 3 cycles after the write (i.e. on the 2nd or 3rd cycle of the next instruction). After 2 or 3 clock cycles (depending on when the write is performed), the timer is reset. 
       }
@@ -626,7 +626,7 @@ impl Emu {
     }
   }
 
-  pub fn read_dmc_sample(&mut self, sample: u8) {
+  pub fn dmc_sample_read(&mut self, sample: u8) {
     let dmc = &mut self.apu.dmc;
     
     dmc.buffer = Some(sample);

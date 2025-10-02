@@ -229,24 +229,27 @@ impl Ppu2C02 {
   }
 
   fn oam_read(&mut self) -> u8 {
-    if self.is_rendering() {
-      // https://www.nesdev.org/wiki/PPU_sprite_evaluation#Details
-      // https://forums.nesdev.org/viewtopic.php?p=141975#p141975
-      if self.dots < 64 { 0xff }
-      else if self.dots < 256 { 0 }
-      else if self.dots < 320 { 0xff }
-      else { self.oam_tmp[0].y }
-    } else {
-      self.oam.0[self.oam_addr as usize]
-    }
+    // if self.is_rendering() {
+    //   // https://www.nesdev.org/wiki/PPU_sprite_evaluation#Details
+    //   // https://forums.nesdev.org/viewtopic.php?p=141975#p141975
+    //   if self.dots < 64 { 0xff }
+    //   else if self.dots < 256 { 0 }
+    //   else if self.dots < 320 { 0xff }
+    //   else { self.oam_tmp[0].y }
+    // } else {
+    //   self.oam.0[self.oam_addr as usize]
+    // }
+    self.oam.0[self.oam_addr as usize]
   }
 
   pub fn oam_write(&mut self, val: u8) {
     // Writes to OAMDATA during rendering (on the pre-render line and the visible lines 0–239, provided either sprite or background rendering is enabled) do not modify values in OAM, but do perform a glitchy increment of OAMADDR, bumping only the high 6 bits
-    if !self.is_rendering() {
-      self.oam.0[self.oam_addr as usize] = val;
-      self.oam_addr = self.oam_addr.wrapping_add(1);
-    }
+    // if !self.is_rendering() {
+    //   self.oam.0[self.oam_addr as usize] = val;
+    //   self.oam_addr = self.oam_addr.wrapping_add(1);
+    // }
+    self.oam.0[self.oam_addr as usize] = val;
+    self.oam_addr = self.oam_addr.wrapping_add(1);
   }
 
   // https://www.nesdev.org/wiki/PPU_scrolling#Tile_and_attribute_fetching
@@ -481,10 +484,15 @@ impl Emu {
         let old_nmi_enabled = ppu.ctrl.vblank_nmi_enabled;
         let new_nmi_enabled = val & 0x80 != 0;
 
-        // Changing NMI enable from 0 to 1 while the vblank flag in PPUSTATUS is 1 will immediately trigger an NMI.
         if !old_nmi_enabled && new_nmi_enabled && ppu.stat.contains(Status::Vblank) {
+          // Changing NMI enable from 0 to 1 while the vblank flag in PPUSTATUS is 1 will immediately trigger an NMI.
           self.mem.nmi = true;
+        } else if !new_nmi_enabled {
+          // NMI shouldn't occur when disabled 0-1-2 PPU clock after VBL
+          self.mem.nmi = if ppu.scanline == 241 && ppu.dots <= 2 { false } else { self.mem.nmi };
         }
+
+
         ppu.ctrl.vblank_nmi_enabled = new_nmi_enabled;
 
         ppu.t.set_nametbl_x(val & 1);
@@ -811,10 +819,10 @@ impl Emu {
       0..=239 => self.render_step(),
       
       // During VBlank and when rendering is disabled, the value on the PPU address bus is the current value of the v register. 
-      240 => if self.ppu.dots == 1 && !self.ppu.rendering_enabled() {
+      240 => if self.ppu.dots == 0 && !self.ppu.rendering_enabled() {
         self.update_ppu_bus(self.ppu.v.0);
       }
-      241 => if self.ppu.dots == 1 {
+      241 => if self.ppu.dots == 0 {
         self.ppu.stat.set(Status::Vblank, !self.ppu.vblank_suppress);
         self.mem.nmi = self.ppu.ctrl.vblank_nmi_enabled && !self.ppu.nmi_suppress;
 
@@ -826,6 +834,7 @@ impl Emu {
     self.mem.ppu_cycle = self.ppu.dots;
     let ppu = &mut self.ppu;
 
+    // TODO: clean this shit up
     ppu.dots += 1;
     if ppu.dots >= 341 {
       ppu.dots = 0;
@@ -890,7 +899,7 @@ impl Emu {
     let ppu = &mut self.ppu;
 
     if !ppu.rendering_enabled() {
-      if ppu.dots == 1 {
+      if ppu.dots == 0 {
         ppu.stat.clear();
       }
 
@@ -898,7 +907,7 @@ impl Emu {
     }
     
     match ppu.dots {
-      1 => {
+      0 => {
         ppu.stat.clear();
         self.bg_fetch_step();
       }
@@ -918,7 +927,7 @@ impl Emu {
       }
       337 => { self.ppu_dispatch_read(self.ppu.nametbl_addr()); }
       339 => {
-        if ppu.odd_frame && !ppu.rendering_enabled() {
+        if ppu.odd_frame && ppu.mask.contains(Mask::BgEnable) {
           ppu.dots += 1;
         }
         self.ppu_dispatch_read(self.ppu.nametbl_addr());

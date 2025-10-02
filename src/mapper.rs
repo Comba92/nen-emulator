@@ -1746,7 +1746,6 @@ mod sunsoft_fme7 {
     pub div: apu::DividerCounter,
     pub volume: u8,
     step: u16,
-    flip: bool,
   }
   impl Default for Tone {
     fn default() -> Self {
@@ -1755,7 +1754,6 @@ mod sunsoft_fme7 {
         enabled: false,
         volume: 0,
         step: 0,
-        flip: false,
       }
     }
   }
@@ -1784,7 +1782,6 @@ mod sunsoft_fme7 {
       // at which point the output flips and the counter resets to 0. 
       self.div.step(|| {
         self.step = (self.step + 1) & 0xf;
-        self.flip = !self.flip;
       });
     }
 
@@ -1797,7 +1794,6 @@ mod sunsoft_fme7 {
 // https://www.nesdev.org/wiki/Sunsoft_FME-7
 #[derive(Default)]
 struct SunsoftFME7 {
-  uses_wram: bool,
   cpu_command: u8,
 
   irq_enabled: bool,
@@ -1819,7 +1815,6 @@ impl Mapper for SunsoftFME7 {
     mem.banks.chr = Banking::new_chr(&mem.header, 8);
 
     Box::new(Self {
-      uses_wram: true,
       ..Default::default()
     })
   }
@@ -1827,25 +1822,20 @@ impl Mapper for SunsoftFME7 {
   fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
     match addr & 0xe000 {
       // 0x8000..=0x9fff
-      0x8000 => self.cpu_command = val as u8 & 0b1111,
+      0x8000 => self.cpu_command = val as u8 & 0xf,
       // 0xa000..=0xbfff
       0xa000 => match self.cpu_command {
         0..=7 => mem.banks.chr.set_page(self.cpu_command, val as u16),
         8 => {
-          let mode = val & 0x40 > 0;
+          let handler = if val & 0x40 > 0 { CpuHandler::Wram } else { CpuHandler::Prg };
+          mem.set_wram_handlers(handler);
 
-          if mode != self.uses_wram {
-            let handler = if mode { CpuHandler::Wram } else { CpuHandler::Prg };
-            mem.set_wram_handlers(handler);
-
-            mem.banks.wram.set_page(0, val as u16 & 0x3f);
-            mem.banks.prg.set_page(0, val as u16 & 0x3f);
-            self.uses_wram = mode;
-          }
+          mem.banks.wram.set_page(0, val as u16 & 0x3f);
+          mem.banks.prg.set_page(0, val as u16 & 0x3f);
 
           mem.wram_enable(val & 0x80 > 0);
         }
-        0x9..=0xb => mem.banks.prg.set_page(self.cpu_command - 9 + 1, val as u16),
+        0x9..=0xb => mem.banks.prg.set_page(self.cpu_command - 9 + 1, val as u16 & 0x3f),
         0xc => {
           let mirroring = match val & 0b11 {
               0 => Mirroring::Vertical,

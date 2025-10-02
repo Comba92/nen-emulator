@@ -132,7 +132,7 @@ impl Emu {
 
       self.cpu_tick();
       let byte = self.cpu_dispatch_read(self.apu.dmc.dma.addr);
-      self.read_dmc_sample(byte);
+      self.dmc_sample_read(byte);
     }
     
     if self.ppu.dma.remaining > 0 {
