@@ -8,22 +8,29 @@ fn load_rom(path: &str) -> Result<Emu, Box<dyn std::error::Error>> {
     let file = std::fs::File::open(path)?;
     let mut reader = BufReader::new(&file);
 
-    zip::read::ZipArchive::new(BufReader::new(&file))
-        .map_err(|e| e.to_string())
-        .and_then(|mut archive| {
-            archive.by_index(0)
-            .map_err(|e| e.to_string())
-            .and_then(|mut zip| {
-                zip.read_to_end(&mut bytes)
-                .map_err(|e| e.to_string())
-                .and_then(|_| Emu::new(&bytes))
-            })
-        })
-        .or_else(|_| reader.rewind()
-            .and_then(|_| reader.read_to_end(&mut bytes))
-            .map_err(|e| e.to_string())
-            .and_then(|_| Emu::new(&bytes)))
+    // check if it is a zip file first
+    zip::read::ZipArchive::new(&mut reader)
         .map_err(|e| e.into())
+        .and_then(|mut archive| archive.by_index(0)
+            .map_err(|e| e.into())
+            .and_then(|mut zip| zip.read_to_end(&mut bytes)
+                .map_err(|e| e.into())
+                .and_then(|_| Emu::new(&bytes))
+            )
+        )
+        // else, load the file rom directly
+        .or_else(|_| {
+            // read_to_end doesn't clear the buffer
+            bytes.clear();
+            reader.rewind()
+                .map_err(|e| e.into())
+                .and_then(|_| reader.read_to_end(&mut bytes)
+                    .map_err(|e| e.into())
+                    .and_then(|_| Emu::new(&bytes))
+                )
+        })
+        // else, nothing left to do, it is not a rom file
+        .or_else(|_| Err("not a valid NES rom file".into()))
 }
 
 fn main() {

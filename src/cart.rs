@@ -24,9 +24,6 @@ pub struct CartHeader {
   pub prg_size: usize,
   pub chr_size: usize,
   pub wram_size: usize,
-
-  pub volatile_ram_size: usize,
-  pub non_volatile_ram_size: usize,
   
   pub mirroring: Mirroring,
   pub alt_mirroring: bool,
@@ -138,8 +135,6 @@ impl CartHeader {
       let prg_nvram_size = if prg_nvram_shift > 0 { 64 << prg_nvram_shift} else { 0 };
       // we only take nvram is ram is zero
       header.wram_size = prg_ram_size + prg_nvram_size;
-      header.volatile_ram_size = prg_ram_size;
-      header.non_volatile_ram_size = prg_nvram_size;
 
       // we only take chr ram if chr rom is zero
       if header.chr_size == 0 {
@@ -183,17 +178,17 @@ impl CartHeader {
 }
 
 impl Cart {
-  pub fn new(rom_bytes: &[u8]) -> Result<Self, &'static str> {
-    let header = CartHeader::from(rom_bytes)?;
+  pub fn from(bytes: &[u8]) -> Result<Self, &'static str> {
+    let header = CartHeader::from(bytes)?;
 
     // only iNes supported
     let rom_start = header.len();
-    let prg = rom_bytes[rom_start..rom_start+header.prg_size].to_vec();
+    let prg = bytes[rom_start..rom_start+header.prg_size].to_vec();
     let chr = if header.has_chr_ram {
       vec![0; header.chr_size]
     } else {
       let chr_start = rom_start+header.prg_size;
-      rom_bytes[chr_start..chr_start+header.chr_size].to_vec()
+      bytes[chr_start..chr_start+header.chr_size].to_vec()
     };
 
     // DEBUG

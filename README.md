@@ -28,3 +28,14 @@ https://www.reddit.com/r/EmuDev/comments/xta12t/confused_about_cycles_and_emulat
 - https://www.nesdev.org/wiki/INES_Mapper_228
 
 - https://www.nesdev.org/wiki/RAMBO-1
+
+# TODO
+- Fix MMC3 irq
+- Fix MMC5 irq & cleanup
+- Save ram
+- Savestates
+- apu fix
+- better audio
+- FDS audio
+
+- performance imprevements?

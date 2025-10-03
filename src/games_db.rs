@@ -50,9 +50,6 @@ impl From<&GameData> for CartHeader {
       chr_size,
       wram_size,
       has_chr_ram: value.chrram_size > 0,
-      volatile_ram_size: value.prgram_size,
-      non_volatile_ram_size: value.prgnvram_size,
-      
       mirroring: value.mirroring.clone(),
       region: value.region.clone(),
       mapper: value.mapper,

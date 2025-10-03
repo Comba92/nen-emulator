@@ -347,7 +347,7 @@ impl Bus {
     };
 
     let mut fds = mapper::fds::FDS::new(&mut mem);
-    fds.disks = disk.sides;
+    fds.disks = disk.sides_bytes;
 
     (mem, fds as BoxedMapper)
   }

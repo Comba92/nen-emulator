@@ -1,4 +1,4 @@
-use crate::{apu::ApuRP2A, bus::Bus, cart::Cart, cpu::{self, Cpu6502}, disk::Disk, joypad::Joypad, mapper::{self, BoxedMapper, Mapper}, ppu::Ppu2C02, Palette};
+use crate::{apu::ApuRP2A, bus::Bus, cart::{Cart, CartHeader}, cpu::{self, Cpu6502}, disk::Disk, joypad::Joypad, mapper::{self, BoxedMapper, Mapper}, ppu::Ppu2C02, Palette};
 
 #[derive(Default)]
 pub struct EmuSettings {
@@ -50,27 +50,21 @@ pub enum Region {
   #[default] NTSC, PAL
 }
 
+type LoadError = Box<dyn std::error::Error>;
+
 pub enum Game {
   Cart(Cart),
   Disk(Disk)
 }
 impl Game {
-  pub fn new(bytes: &[u8]) -> Result<Self, String> {
-    // TODO: make this better
-    
-    let cart = Cart::new(bytes);
-
-    let game = match cart {
-      Ok(cart) => Game::Cart(cart),
-      Err(e1) => {
-        // try to parse as fds rom if not valid nes rom
-        let disk = Disk::from(bytes)
-          .map_err(|e2| format!("not a valid iNes/NES2.0 or FDS rom: {e1}, {e2}"))?;
-        Game::Disk(disk)
-      }
-    };
-
-    Ok(game)
+  pub fn new(bytes: &[u8]) -> Result<Self, LoadError> {
+    if CartHeader::is_valid_ines(bytes) {
+      Ok(Game::Cart(Cart::from(bytes)?))
+    } else if Disk::is_valid_fds(bytes) {
+      Ok(Game::Disk(Disk::from(bytes)?))
+    } else {
+      return Err("not a valid NES rom file".into());
+    }
   }
 }
 
@@ -80,7 +74,7 @@ impl Emu {
   pub const NTSC_FRAME_RATE: f32 = 60.0988;
   pub const PAL_FRAME_RATE:  f32 = 50.0070;
 
-  pub fn new(rom: &[u8]) -> Result<Self, String> {
+  pub fn new(rom: &[u8]) -> Result<Self, LoadError> {
     let game = Game::new(rom)?;
 
     let (mem, mapper) = match game {
@@ -159,6 +153,7 @@ impl Emu {
     self.ppu_step();
     self.ppu_step();
     self.ppu_step();
+
     // PAL systems additionally run 3.2 PPU cycles per CPU cycle
     // meaning, every 5 CPU cycles there is an additional PPU cycle 
     match self.mem.header.region {
