@@ -7,6 +7,7 @@ pub struct EmuSettings {
   pub disable_background: bool,
   pub disable_sprites: bool,
   pub pal_borders: bool,
+  pub battery_saving: bool,
 
   pub audio_frequency: usize,
   pub volume: f32,
@@ -181,6 +182,26 @@ impl Emu {
     self.cpu_reset();
     self.ppu.reset();
     self.apu.reset();
+  }
+
+  pub fn save_battery(&mut self) -> Option<&[u8]> {
+    if self.mem.header.has_battery {
+      // TODO: handle multiple ram chip cases (MMC1, MMC5)
+      Some(&self.mem.wram)
+    } else {
+      None
+    }
+  }
+
+  pub fn load_battery(&mut self, bytes: &[u8]) -> Result<(), LoadError> {
+    if !self.mem.header.has_battery {
+      return Err("game has not battery".into())
+    } else if bytes.len() != self.mem.wram.len() {
+      return Err("invalid save ram dump provided, size doesn't match".into())
+    } else {
+      self.mem.wram.copy_from_slice(bytes);
+      Ok(())
+    }
   }
 
   pub fn get_video_rgba(&self, buf: &mut [u8]) {

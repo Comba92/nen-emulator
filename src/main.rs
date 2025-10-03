@@ -1,4 +1,4 @@
-use std::io::{BufReader, Read, Seek};
+use std::{fs, io::{BufReader, BufWriter, Read, Seek, Write}, path};
 
 use nes_emulator::{emu::Emu, joypad::Button};
 use sdl2::{event::{Event, WindowEvent}, keyboard::Keycode, pixels::PixelFormatEnum};
@@ -6,7 +6,7 @@ use sdl2::{event::{Event, WindowEvent}, keyboard::Keycode, pixels::PixelFormatEn
 fn load_rom(path: &str) -> Result<Emu, Box<dyn std::error::Error>> {
     let mut bytes = Vec::new();
     let file = std::fs::File::open(path)?;
-    let mut reader = BufReader::new(&file);
+    let mut reader = BufReader::new(file);
 
     // check if it is a zip file first
     zip::read::ZipArchive::new(&mut reader)
@@ -78,6 +78,7 @@ fn main() {
     // debug_tex.set_scale_mode(sdl2::render::ScaleMode::Nearest);
 
     let mut emu = Emu::new(include_bytes!("../roms/super mario.nes")).unwrap();
+    let mut rom_filename = "../roms/super mario.nes".to_string();
 
     let mut frame_rate = (1.0 / emu.frame_rate() * 1000.0).round() as u64;
 
@@ -97,18 +98,43 @@ fn main() {
                     }
                 }
                 Event::DropFile { filename, .. } => {
-                    let bytes = std::fs::read(&filename).unwrap();
-                    
                     if filename.ends_with(".pal") {
-                        emu.load_palette(&bytes);
+                        let buf = fs::read(filename).unwrap();
+                        emu.load_palette(&buf);
                         continue;
                     }
                     
                     let new_emu = load_rom(&filename);
-
                     match new_emu {
                         Ok(res) => {
+                            // save current game battery
+                            if let Some(sram) = emu.save_battery() {
+                                let mut save_path = path::PathBuf::from(&rom_filename);
+                                save_path.set_extension("sram");
+
+                                let file = fs::File::create(&save_path).unwrap();
+                                let mut writer = BufWriter::new(file);
+                                writer.write_all(sram).unwrap();
+                                println!("Battery saved to {save_path:?}");
+                            }
+
+                            rom_filename = filename;
                             emu = res;
+
+                            // load current game battery if any
+                            let mut load_path = path::PathBuf::from(&rom_filename);
+                            load_path.set_extension("sram");
+                            if let Ok(file) = fs::File::open(&load_path) {
+                                let mut buf = Vec::new();
+                                let mut reader = BufReader::new(file);
+                                reader.read_to_end(&mut buf).unwrap();
+                                let res = emu.load_battery(&buf);
+                                match res {
+                                    Err(e) => eprintln!("{e}"),
+                                    _ => println!("Battery loaded from {load_path:?}"),
+                                }
+                            }
+
                             frame_rate = (1.0 / emu.frame_rate() * 1000.0).round() as u64;
                             audiodev.clear();
                         },
