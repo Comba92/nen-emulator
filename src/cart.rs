@@ -9,10 +9,9 @@ pub struct Cart {
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub enum HeaderFormat {
-  #[default] Headerless, INes, Nes2_0, Unif,
+  #[default] Headerless, INes, Nes2_0
 }
 
-// TODO: just hold a static reference to game data here retard
 // https://www.nesdev.org/wiki/INES
 #[derive(Default, Debug, Clone)]
 pub struct CartHeader {
@@ -53,7 +52,6 @@ impl CartHeader {
   pub fn len(&self) -> usize {
     match self.format {
       HeaderFormat::Headerless => 0,
-      HeaderFormat::Unif => Self::UNIF_HEADER_SIZE,
       HeaderFormat::INes | HeaderFormat::Nes2_0 => 
         if self.has_trainer { Self::INES_HEADER_SIZE + Self::TRAINER_SIZE } else { Self::INES_HEADER_SIZE },
     }
@@ -86,9 +84,8 @@ impl CartHeader {
   }
 
   pub fn parse(bytes: &[u8]) -> Result<Self, &'static str> {
-    // TODO: UNIF support
     if Self::is_valid_unif(bytes) {
-      return Err("valid UNIF ROM, but not yet supported by this emulator")
+      return Err("valid UNIF ROM, but not supported by this emulator")
     }
     
     if !Self::is_valid_ines(bytes) {

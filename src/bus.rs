@@ -315,9 +315,9 @@ impl Bus {
       PpuHandler::Vram,
       PpuHandler::Vram,
       PpuHandler::Vram,
-      PpuHandler::Palette,
-      PpuHandler::Palette,
-      PpuHandler::Palette,
+      PpuHandler::Vram,
+      PpuHandler::Vram,
+      PpuHandler::Vram,
       PpuHandler::Palette
     ];
 
@@ -518,24 +518,20 @@ impl Emu {
 
     let res = match handler {
       PpuHandler::ChrRom | PpuHandler::ChrRam => mem.chr[mem.banks.chr.translate(addr)],
-      PpuHandler::Vram => mem.vram[mem.banks.vram.translate(addr)],
+      PpuHandler::Vram => mem.vram[mem.banks.vram.translate(addr & 0x2fff)],
       PpuHandler::Palette => {
         if matches!(addr, 0x3f00..=0x3fff) {
           self.ppu.palettes_read(addr)
         } else {
-          // Video memory's data bus is multiplexed with the low byte of the address bus on pins 31 through 38. Thus a read from an address with no memory connected will usually return the low byte of the address.
-          mem.ppu_addr_bus as u8
+          // normal vram mirrors read
+          self.mem.vram[self.mem.banks.vram.translate(addr & 0x2fff)]
         }
       }
       
       PpuHandler::ChrMMC5 | PpuHandler::VramMMC5 => self.mapper.ppu_special_read(mem, addr),
     };
 
-    // shouldn't set ppu_addr_bus
-    if handler != PpuHandler::Palette {
-      self.update_ppu_bus(addr);
-    }
-
+    self.update_ppu_bus(addr);
     self.mem.ppu_data_bus = res;
 
     res
@@ -550,7 +546,7 @@ impl Emu {
     match mem.ppu_handlers_1kb[handler as usize] {
       PpuHandler::ChrRom | PpuHandler::ChrMMC5 => {}
       PpuHandler::ChrRam => mem.chr[mem.banks.chr.translate(addr)] = val,
-      PpuHandler::Vram | PpuHandler::VramMMC5 => mem.vram[mem.banks.vram.translate(addr)] = val,
+      PpuHandler::Vram | PpuHandler::VramMMC5 => mem.vram[mem.banks.vram.translate(addr & 0x2fff)] = val,
       PpuHandler::Palette => {
         if matches!(addr, 0x3f00..=0x3fff) {
           let addr = addr as usize & 31;
@@ -565,9 +561,9 @@ impl Emu {
             // write palette color as is
             self.ppu.palettes[addr] = val;
           }
-
-          // shouldn't set ppu_addr_bus
-          return;
+        } else {
+          // normal vram mirrors write
+          mem.vram[mem.banks.vram.translate(addr & 0x2fff)] = val
         }
       }
     }

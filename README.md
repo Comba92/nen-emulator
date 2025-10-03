@@ -6,9 +6,6 @@ https://www.reddit.com/r/EmuDev/comments/xta12t/confused_about_cycles_and_emulat
 - https://www.nesdev.org/wiki/List_of_mappers
 - https://www.nesdev.org/wiki/NES_2.0_submappers
 
-
-- https://www.nesdev.org/wiki/MMC5
-
 // vs system
 - https://www.nesdev.org/wiki/INES_Mapper_099
 
@@ -28,14 +25,20 @@ https://www.reddit.com/r/EmuDev/comments/xta12t/confused_about_cycles_and_emulat
 - https://www.nesdev.org/wiki/INES_Mapper_228
 
 - https://www.nesdev.org/wiki/RAMBO-1
+- https://www.nesdev.org/wiki/UNROM_512
+- https://www.nesdev.org/wiki/GTROM
 
 # TODO
 - Fix MMC3 irq
 - Fix MMC5 irq & cleanup
-- Save ram
+- save ram for mmc1/mmc5
 - Savestates
 - apu fix
 - better audio
 - FDS audio
+
+- check perf of unchecked accesses to memory vectors
+- cpu irq disable delay
+- unknown palette bug
 
 - performance imprevements?

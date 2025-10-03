@@ -7,32 +7,27 @@ fn load_rom(path: &str) -> Result<Emu, Box<dyn std::error::Error>> {
     let mut bytes = Vec::new();
     let file = std::fs::File::open(path)?;
     let mut reader = BufReader::new(file);
+    reader.read_to_end(&mut bytes)?;
 
-    // check if it is a zip file first
-    zip::read::ZipArchive::new(&mut reader)
-        .map_err(|e| e.into())
-        .and_then(|mut archive| archive.by_index(0)
-            .map_err(|e| e.into())
-            .and_then(|mut zip| zip.read_to_end(&mut bytes)
-                .map_err(|e| e.into())
-                .and_then(|_| Emu::new(&bytes))
-            )
-        )
-        // else, load the file rom directly
-        .or_else(|_| {
-            // read_to_end doesn't clear the buffer
+    let res = Emu::new(&bytes);
+    match res {
+        Ok(_) => res,
+        Err(_) => {
+            reader.rewind()?;
             bytes.clear();
-            reader.rewind()
-                .map_err(|e| e.into())
-                .and_then(|_| reader.read_to_end(&mut bytes)
-                    .map_err(|e| e.into())
-                    .and_then(|_| Emu::new(&bytes))
-                )
-        })
-        // else, nothing left to do, it is not a rom file
-        .or_else(|_| Err("not a valid NES rom file".into()))
-}
 
+            if let Ok(mut archive) = zip::read::ZipArchive::new(&mut reader) {
+                // it is a zip file
+                let mut zip = archive.by_index(0)?;
+                zip.read_to_end(&mut bytes)?;
+                Emu::new(&bytes)
+            } else {
+                // not a zip file either
+                res
+            }
+        }
+    }
+}
 fn main() {
     let sdl = sdl2::init().unwrap();
     let video = sdl.video().unwrap();

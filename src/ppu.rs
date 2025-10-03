@@ -193,10 +193,11 @@ pub struct Ppu2C02 {
 
 impl Ppu2C02 {
   pub fn new(region: &Region) -> Self {
+    // pre render scanline not counted (its treated as -1)
     let scanlines_count = match region {
-      Region::NTSC => 260,
+      Region::NTSC => 261,
       // PAL NES PPUs render 70 vblank scanlines instead of 20
-      Region::PAL => 310,
+      Region::PAL => 311,
     };
 
     Self {
@@ -491,8 +492,6 @@ impl Emu {
           // NMI shouldn't occur when disabled 0-1-2 PPU clock after VBL
           self.mem.nmi = if ppu.scanline == 241 && ppu.dots <= 2 { false } else { self.mem.nmi };
         }
-
-
         ppu.ctrl.vblank_nmi_enabled = new_nmi_enabled;
 
         ppu.t.set_nametbl_x(val & 1);
@@ -502,8 +501,6 @@ impl Emu {
         ppu.ctrl.spr_pttrntbl_addr = if val & 0x8 == 0 { 0 } else { 0x1000 };
         ppu.ctrl.bg_pttrntbl_addr = if val & 0x10 == 0 { 0 } else { 0x1000 };
         ppu.ctrl.spr_size = if val & 0x20 == 0 { 8 } else { 16 };
-
-        // self.mapper.notify_ppu_ctrl(val);
       }
       // Mask
       0x2001 => {
@@ -512,7 +509,6 @@ impl Emu {
           // During VBlank and when rendering is disabled, the value on the PPU address bus is the current value of the v register. 
           self.update_ppu_bus(self.ppu.v.0);
         }
-        // self.mapper.notify_ppu_mask(val);
       }
       // OamAddr
       0x2003 => ppu.oam_addr = val,
@@ -762,6 +758,7 @@ impl Emu {
     let ppu = &mut self.ppu;
     let pixel_x = ppu.dots as usize - 1;
     
+    // TODO: should be moved to different function for first 8 pixels?
     let in_lstrip  = pixel_x < 8;
     let bg_visible  = !in_lstrip || ppu.mask.contains(Mask::ShowBgLeft);
     let spr_visible = !in_lstrip || ppu.mask.contains(Mask::ShowSprLeft);
@@ -798,8 +795,8 @@ impl Emu {
       self.bg_color_from_palette(0, 0)
     };
 
-    // TODO: mask greyscale and color emphasis
-    if self.ppu.mask.contains(Mask::GreyScale) { 
+    // TODO: color emphasis
+    if self.ppu.mask.contains(Mask::GreyScale) {
       self.videobuf[self.ppu.pixel] = color_id & 0x30;
     } else {
       self.videobuf[self.ppu.pixel] = color_id;
@@ -843,7 +840,7 @@ impl Emu {
       self.mem.ppu_scanline = self.ppu.scanline;
       let ppu = &mut self.ppu;
       
-      if ppu.scanline > ppu.scanline_last {
+      if ppu.scanline >= ppu.scanline_last {
         ppu.scanline = -1;
         
         self.mem.ppu_scanline = self.ppu.scanline;

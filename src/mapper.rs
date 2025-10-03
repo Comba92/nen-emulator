@@ -13,7 +13,6 @@ use fds::*;
 pub trait Mapper {
   fn new(mem: &mut Bus) -> Box<Self> where Self: Sized;
   // 0x8000..=0xffff
-  // TODO: turn back val to u8... ?
   fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u8);
   
   // 0x4020..=0x5fff
@@ -50,6 +49,7 @@ pub fn new(mem: &mut Bus) -> Result<BoxedMapper, String> {
     20 => FDS::new(mem),
     21 | 22 | 23 | 25 => VRC2_4::new(mem),
     24 | 26 => VRC6::new(mem),
+    29 => Homebrews29::new(mem),
     31 => NSF::new(mem),
     34 | 177 | 241 => NINA00x_BNROM::new(mem),
     // 32 => IremG101::new(mem),
@@ -578,7 +578,9 @@ impl Mapper for MMC3 {
       }
 
       // (0xc000..=0xdfff, true)
-      0xc000 => self.irq_latch = val,
+      0xc000 => {
+        self.irq_latch = val;
+      }
       
       // (0xc000..=0xdfff, false)
       0xc001 => {
@@ -893,7 +895,7 @@ impl Mapper for BandaiFCG {
 
 // https://www.nesdev.org/wiki/INES_Mapper_152
 // https://www.nesdev.org/wiki/INES_Mapper_070
-// TODO: very similiar to Sunsoft89
+// very similiar to Sunsoft89
 struct Bandai74 {
   mapper: u16,
 }
@@ -1269,7 +1271,7 @@ impl Mapper for Namco129_163 {
       (0xf800..=0xffff, 19) => {
         self.audio.write_addr(val);
         // TODO: write protect for exram for mapper 19
-        // TODO: this works with 2kb windows, we cant really do it with 8kb handlers...
+        // this works with 2kb windows, we cant really do it with 8kb handlers...
       }
       _ => {}
     }
@@ -1680,7 +1682,7 @@ impl Mapper for Sunsoft4 {
     // TODO: licensing IC
     match addr >> 12 {
       0x6 | 0x7 => {
-        // TODO: Licensing IC Nantettatte Baseball
+        // Licensing IC Nantettatte Baseball
       }
 
       _ => {}
@@ -1803,7 +1805,6 @@ struct SunsoftFME7 {
   audio_command: u8,
   audio_enabled: bool,
 
-  // TODO: put these fuckers in an array
   ta: sunsoft_fme7::Tone,
   tb: sunsoft_fme7::Tone,
   tc: sunsoft_fme7::Tone,
@@ -1912,5 +1913,18 @@ impl Mapper for SunsoftFME7 {
   fn sample(&self) -> f64 {
     // It is very loud compared to other audio expansion carts. 
     0.5 * (self.ta.sample() as f64 + self.tb.sample() as f64 + self.tc.sample() as f64)
+  }
+}
+
+struct Homebrews29;
+impl Mapper for Homebrews29 {
+  fn new(mem: &mut Bus) -> Box<Self> {
+    mem.banks.prg.set_page_to_last_bank(1);
+    Box::new(Self)
+  }
+
+  fn prg_write(&mut self, mem: &mut Bus, _: u16, val: u8) {
+    mem.banks.prg.set_page(0, (val >> 2) as u16 & 0x7);
+    mem.banks.chr.set_page(0, val as u16 & 0x3);
   }
 }

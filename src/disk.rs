@@ -63,8 +63,7 @@ impl Disk {
     // we only check for the first side nintendo bytes
     bytes[rom_start] == 1 && &bytes[rom_start+1..rom_start+15] == Self::FDS_NINTENDO_STR
   }
-
-  // TODO: clean up
+  
   pub fn from(bytes: &[u8]) -> Result<Self, &'static str> {
     let (rom_start, sides_count) = if &bytes[..4] == Self::FDS_MAGIC {
       (Self::FDS_HEADER_SIZE, bytes[4] as usize)

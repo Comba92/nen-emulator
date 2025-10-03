@@ -619,7 +619,6 @@ impl Mapper for VRC6 {
 }
 
 // https://www.nesdev.org/wiki/VRC7
-// TODO: incomplete
 #[derive(Default)]
 pub struct VRC7 {
   irq: vrc::Irq,
@@ -663,7 +662,7 @@ impl Mapper for VRC7 {
         };
         mem.banks.vram.mirror(&mirroring);
 
-        // TODO: audio
+        // TODO: audio (it's pretty hard)
 
         mem.wram_enable(val & 0x80 > 0);
       }
