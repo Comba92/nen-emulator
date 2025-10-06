@@ -29,16 +29,19 @@ https://www.reddit.com/r/EmuDev/comments/xta12t/confused_about_cycles_and_emulat
 - https://www.nesdev.org/wiki/GTROM
 
 # TODO
-- Fix MMC3 irq
-- Fix MMC5 irq & cleanup
 - save ram for mmc1/mmc5
+- ppu mask update delay (battletoads)
 - Savestates
+- Fastforwarding
 - apu fix
 - better audio
 - FDS audio
 
+- better reset
 - check perf of unchecked accesses to memory vectors
 - cpu irq disable delay
 - unknown palette bug
+
+- merge with nen-emulator
 
 - performance imprevements?

@@ -15,7 +15,7 @@ pub struct EmuSettings {
 impl EmuSettings {
   pub fn new() -> Self {
     Self {
-      no_sprite_limit: true,
+      // no_sprite_limit: true,
       ..Default::default()
     }
   }
@@ -150,7 +150,7 @@ impl Emu {
 
     self.apu_step();
     self.mapper.step(&mut self.mem, self.cpu.cycles);
-
+    
     self.ppu_step();
     self.ppu_step();
     self.ppu_step();
@@ -182,6 +182,9 @@ impl Emu {
     self.cpu_reset();
     self.ppu.reset();
     self.apu.reset();
+
+    // TODO: should reload wram!
+    // TODO: some mappers need to be reset too
   }
 
   pub fn save_battery(&mut self) -> Option<&[u8]> {

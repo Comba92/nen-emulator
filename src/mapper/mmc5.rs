@@ -31,8 +31,11 @@ pub struct MMC5 {
   irq_count: u16,
   ppu_in_frame: bool,
 
+  // needed for correct irq
+  irq_delay: u8,
+
   ppu_same_addr_count: usize,
-  last_ppu_addr: Option<u16>,
+  ppu_last_addr: Option<u16>,
   ppu_idle_countdown: usize,
 
   multiplicand: u8,
@@ -190,7 +193,7 @@ impl MMC5 {
 
   fn reset_irq(&mut self, mem: &mut Bus) {
     self.ppu_in_frame = false;
-    self.last_ppu_addr = None;
+    self.ppu_last_addr = None;
     self.irq_count = 0;
     mem.irq.remove(IrqFlags::MAPPER);
   }
@@ -397,13 +400,15 @@ impl Mapper for MMC5 {
 
     if addr < 0x2000 {
       // normal chr read
-      return mem.chr[mem.banks.chr.translate(addr)]
+      mem.chr[mem.banks.chr.translate(addr)]
     } else {
-      // nametables 
-      // if exram mode is 2 or 3, during blanking any table mapped to exram should read 0
-      match (self.exram_mode, self.ppu_in_frame) {
-        (2 | 3, false) => 0,
-        _ => mem.vram[mem.banks.vram.translate(addr)]
+      // nametables
+      let vram_addr = mem.banks.vram.translate(addr);
+      if matches!(vram_addr, 0x800..0xc00) && self.exram_mode > 1 {
+        // exram reads as 0
+        0
+      } else {
+        mem.vram[vram_addr]
       }
     }
   }
@@ -411,7 +416,13 @@ impl Mapper for MMC5 {
   // https://www.nesdev.org/wiki/MMC5#Scanline_Detection_and_Scanline_IRQ
   fn notify_ppu_addr(&mut self, mem: &mut Bus, _cycles: usize) {
     // nametable tile fetches, we also count attribute fetches
-    if mem.ppu_addr_bus & 0x2000 > 0 && mem.ppu_addr_bus & 0x3ff < 0x3c0 {
+    if !matches!(mem.ppu_addr_bus, 0x2000..0x3000) {
+      self.ppu_last_addr = Some(mem.ppu_addr_bus);
+      self.ppu_idle_countdown = 3;
+      return;
+    }
+
+    if mem.ppu_addr_bus & 0x3ff < 0x3c0 {
       self.nametbl_fetch_count += 1;
       
       // there are 16 dummy nametables fetches during sprites rendering
@@ -420,11 +431,9 @@ impl Mapper for MMC5 {
       }
     }
 
-    // TODO: not working correctly in super mario zap n dash
-
     // The MMC5 detects scanlines by first looking for three consecutive PPU reads from the same nametable address in the range $2xxx. 
     // the scanline gets detected when the PPU does the attribute table byte read, which is at PPU cycle 4.
-    if mem.ppu_addr_bus & 0x2000 > 0 && self.last_ppu_addr.is_some_and(|x| x == mem.ppu_addr_bus) {
+    if self.ppu_last_addr.is_some_and(|x| x == mem.ppu_addr_bus) {
       self.ppu_same_addr_count += 1;
 
       if self.ppu_same_addr_count >= 2 {
@@ -435,24 +444,17 @@ impl Mapper for MMC5 {
           self.ppu_in_frame = true;
           self.irq_count = 0;
         } else {
-          self.irq_count += 1;
-          // Value $00 is a special case that will not produce IRQ pending conditions
-          if self.irq_count == self.irq_cmp {
-            self.irq_pending = true;
-            // The IRQ pending flag is raised when the desired scanline is reached regardless of whether or not the scanline IRQ is enabled, i.e. even after a 0 was written to the scanline IRQ enable flag. 
-            // However, an actual IRQ is only sent to the CPU if both the scanline IRQ enable flag and IRQ pending flag are set. 
-            // A $5203 value of $00 is a special case where the comparison is never true.
-            if self.irq_enabled {
-              mem.irq.insert(IrqFlags::MAPPER);
-            }
-          }
+          // currently, this happens at ppu dot 1 (for some reason)
+          // we need the irq to be set at ppu dot 4, we put a little delay here.
+          // seems to be working well enough for all games
+          self.irq_delay = 2;
         }
       }
     } else {
       self.ppu_same_addr_count = 0;
     }
 
-    self.last_ppu_addr = Some(mem.ppu_addr_bus);
+    self.ppu_last_addr = Some(mem.ppu_addr_bus);
     self.ppu_idle_countdown = 3;
   }
 
@@ -461,8 +463,26 @@ impl Mapper for MMC5 {
       self.ppu_idle_countdown -= 1;
       if self.ppu_idle_countdown == 0 {
         self.ppu_in_frame = false;
-        self.last_ppu_addr = None;
+        self.ppu_last_addr = None;
         self.update_chr_banks(mem);
+      }
+    }
+
+    // delay solution which works perfectly for now
+    if self.irq_delay > 0 {
+      self.irq_delay -= 1; 
+      if self.irq_delay == 0 {
+        self.irq_count += 1;
+        // Value $00 is a special case that will not produce IRQ pending conditions
+        if self.irq_count == self.irq_cmp {
+          self.irq_pending = true;
+          // The IRQ pending flag is raised when the desired scanline is reached regardless of whether or not the scanline IRQ is enabled, i.e. even after a 0 was written to the scanline IRQ enable flag. 
+          // However, an actual IRQ is only sent to the CPU if both the scanline IRQ enable flag and IRQ pending flag are set. 
+          // A $5203 value of $00 is a special case where the comparison is never true.
+          if self.irq_enabled {
+            mem.irq.insert(IrqFlags::MAPPER);
+          }
+        }
       }
     }
 
@@ -501,7 +521,7 @@ impl Mapper for MMC5 {
           self.reset_irq(mem);
         } else if !ppu_sub {
           self.ppu_in_frame = false;
-          self.last_ppu_addr = None;
+          self.ppu_last_addr = None;
         }
         
         self.ppu_substituion = ppu_sub;

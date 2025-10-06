@@ -594,7 +594,7 @@ impl Emu {
         self.ppu.shifter_load_from_fetcher();
         self.ppu.fetcher.nametbl = self.ppu_dispatch_read(self.ppu.nametbl_addr());
       }
-      2 => {        
+      2 => {
         let attr = self.ppu_dispatch_read(self.ppu.attribute_addr());
         // we fetched the attribute, now we have to extract the correct 2 bits
         self.ppu.fetcher.attribute = self.ppu.palette_from_attribute(attr);
@@ -702,8 +702,8 @@ impl Emu {
         let pttrn_addr = self.ppu.spr_pttrn_addr(sprite);
         let flip_hori = sprite.flip_hori();
 
-        let mut pttrn_lo = self.ppu_dispatch_read(pttrn_addr);
-        let mut pttrn_hi = self.ppu_dispatch_read(pttrn_addr + 8);
+        let mut pttrn_lo = self.ppu_debug_read(pttrn_addr);
+        let mut pttrn_hi = self.ppu_debug_read(pttrn_addr + 8);
         
         if flip_hori {
           pttrn_lo = pttrn_lo.reverse_bits(); 
@@ -822,29 +822,22 @@ impl Emu {
       241 => if self.ppu.dots == 0 {
         self.ppu.stat.set(Status::Vblank, !self.ppu.vblank_suppress);
         self.mem.nmi = self.ppu.ctrl.vblank_nmi_enabled && !self.ppu.nmi_suppress;
-
+        
         self.frame_ready = true;
+        self.mem.ppu_frame += 1;
       }
       _ => {}
     }
 
-    self.mem.ppu_cycle = self.ppu.dots;
     let ppu = &mut self.ppu;
-
     // TODO: clean this shit up
     ppu.dots += 1;
     if ppu.dots >= 341 {
       ppu.dots = 0;
       ppu.scanline += 1;
 
-      self.mem.ppu_scanline = self.ppu.scanline;
-      let ppu = &mut self.ppu;
-      
       if ppu.scanline >= ppu.scanline_last {
         ppu.scanline = -1;
-        
-        self.mem.ppu_scanline = self.ppu.scanline;
-        let ppu = &mut self.ppu;
         
         ppu.pixel = 0;
         ppu.odd_frame = !ppu.odd_frame;
@@ -855,6 +848,10 @@ impl Emu {
         ppu.spr_scanline.0.fill(0.into());
       }
     }
+
+    // TODO: for debug
+    self.mem.ppu_cycle = self.ppu.dots;
+    self.mem.ppu_scanline = self.ppu.scanline;
   }
 
   fn render_step(&mut self) {

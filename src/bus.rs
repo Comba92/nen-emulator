@@ -200,6 +200,7 @@ pub struct Bus {
   // TODO: remove these, only used for DEBUG porpuoses
   pub ppu_cycle: i16,
   pub ppu_scanline: i16,
+  pub ppu_frame: usize,
 
   pub nmi: bool,
   pub irq: IrqFlags,
@@ -267,6 +268,7 @@ impl Bus {
       
       ppu_cycle: 0,
       ppu_scanline: 0,
+      ppu_frame: 0,
       
       nmi: false,
       irq: IrqFlags::empty(),
@@ -338,6 +340,7 @@ impl Bus {
       
       ppu_cycle: 0,
       ppu_scanline: 0,
+      ppu_frame: 0,
       
       nmi: false,
       irq: IrqFlags::empty(),
@@ -499,6 +502,7 @@ impl Emu {
 
       PpuHandler::ChrMMC5 => mem.chr[mem.banks.chr.translate(addr)],
       PpuHandler::VramMMC5 => mem.vram[mem.banks.vram.translate(addr)],
+      // PpuHandler::ChrMMC5 | PpuHandler::VramMMC5 => self.mapper.ppu_special_read(mem, addr),
     };
 
     res
