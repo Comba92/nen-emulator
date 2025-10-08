@@ -1,4 +1,4 @@
-use blip_buf::BlipBuf;
+use crate::blip::BlipBuf;
 
 use crate::{bus::{self, IrqFlags}, dma::Dma, emu::{Emu, Region}, utils::{byte_set_hi, byte_set_lo}};
 
@@ -422,7 +422,7 @@ impl AudioBuf {
       Region::NTSC => Emu::NTSC_CLOCK_RATE,
       Region::PAL => Emu::PAL_CLOCK_RATE
     };
-    blip.set_rates(clock_rate as f64, 48000.0);
+    blip.set_rates(clock_rate as f64, 48000.0).unwrap();
     Self(blip)
   }
 }
@@ -435,9 +435,10 @@ pub struct ApuRP2A {
   noise: Noise,
   pub dmc: Dmc,
 
-  frame_count: u16,
+  frame_count: usize,
   frame_irq_disable: bool,
   frame_mode: FrameMode,
+  frame_write_delay: u8,
 
   prev_sample: f64,
   pub blip: AudioBuf,
@@ -485,16 +486,16 @@ impl ApuRP2A {
   }
 
   fn frame_half_step(&mut self) {
-    self.frame_quarter_step();
-
     self.p0.len.step();
     self.p1.len.step();
-
+    
     self.p0.step_sweep(true);
     self.p1.step_sweep(false);
-
+    
     self.tri.len.step();
     self.noise.len.step();
+
+    self.frame_quarter_step();
   }
 
   pub fn reset(&mut self) {
@@ -565,7 +566,7 @@ impl Emu {
         apu.noise.looping = val & 0x80 != 0;
         self.apu.noise.div.period = match self.region() {
           Region::NTSC => Noise::TABLE_NTSC[val as usize & 0xf],
-          Region::PAL => Noise::TABLE_PAL[val as usize & 0xf]
+          Region::PAL  => Noise::TABLE_PAL[val as usize & 0xf]
         };
       }
       0x400f => {
@@ -595,11 +596,11 @@ impl Emu {
       0x4013 => apu.dmc.sample_len = ((val as u16) * 16) + 1,
 
       0x4015 => {
-        apu.p0.len.enable (val & 0x1 != 0);
-        apu.p1.len.enable (val & 0x2 != 0);
-        apu.tri.enable(val & 0x4 != 0);
-        apu.noise.len.enable(val & 0x8 != 0);
-        apu.dmc.enable(val & 0x10 != 0);
+        apu.p0.len.enable (val & 0x1 > 0);
+        apu.p1.len.enable (val & 0x2 > 0);
+        apu.tri.enable(val & 0x4 > 0);
+        apu.noise.len.enable(val & 0x8 > 0);
+        apu.dmc.enable(val & 0x10 > 0);
       
         self.mem.irq.remove(IrqFlags::DMC);
       }
@@ -618,9 +619,10 @@ impl Emu {
         if apu.frame_irq_disable {
           self.mem.irq.remove(bus::IrqFlags::FRAME);
         }
-        apu.frame_count = 0;
 
-        // TODO: Writing to $4017 resets the frame counter and the quarter/half frame triggers happen simultaneously, but only on "odd" cycles (and only after the first "even" cycle after the write occurs) – thus, it happens either 2 or 3 cycles after the write (i.e. on the 2nd or 3rd cycle of the next instruction). After 2 or 3 clock cycles (depending on when the write is performed), the timer is reset. 
+        // Writing to $4017 resets the frame counter and the quarter/half frame triggers happen simultaneously, but only on "odd" cycles (and only after the first "even" cycle after the write occurs)
+        // thus, it happens either 2 or 3 cycles after the write (i.e. on the 2nd or 3rd cycle of the next instruction). After 2 or 3 clock cycles (depending on when the write is performed), the timer is reset.
+        apu.frame_write_delay = if self.cpu.cycles % 2 == 1 { 2 } else { 3 };
       }
         _ => {}
     }
@@ -636,7 +638,7 @@ impl Emu {
     if dmc.dma.addr == 0 { dmc.dma.addr = 0x8000; }
 
     // EXTREMELY IMPORTANT to subtract this BEFORE, or else last byte won't be handled next tick
-    dmc.dma.remaining -= 1;
+    dmc.dma.remaining = dmc.dma.remaining.saturating_sub(1);
     if dmc.dma.remaining == 0 {
       if dmc.looping {
         dmc.restart_sample();
@@ -647,19 +649,29 @@ impl Emu {
   }
 
   pub fn apu_step(&mut self) {
-    self.frame_count_step();
-    
-    if self.cpu.cycles % 2 == 1 {
-      self.apu.p0.step_divider();
-      self.apu.p1.step_divider();
-      self.apu.noise.step_divider();
-    }
-
     let apu = &mut self.apu;
     
     // The triangle channel's timer is clocked on every CPU cycle, but the pulse, noise, and DMC timers are clocked only on every second CPU cycle and thus produce only even periods.
     apu.tri.step_divider();
     apu.dmc.step_divider();
+
+    if self.cpu.cycles % 2 == 1 {
+      apu.p0.step_divider();
+      apu.p1.step_divider();
+      apu.noise.step_divider();
+    }
+
+    // should be clocked each second cpu cycle, but we have doubled the apu cycles steps
+    self.frame_count_step();
+
+    let apu = &mut self.apu;
+
+    if apu.frame_write_delay > 0 {
+      apu.frame_write_delay -= 1;
+      if apu.frame_write_delay == 0 {
+        apu.frame_count = 0;
+      }
+    }
 
     // let pulse = 0.00752 * (apu.p0.sample() as f32 + apu.p1.sample() as f32);
     // let tnd = 
@@ -667,14 +679,17 @@ impl Emu {
     //   + 0.00494 * apu.noise.sample() as f32
     //   + 0.00335 * apu.dmc.sample() as f32;
 
-    let pulse = ApuRP2A::PULSE_TABLE[(apu.p0.sample() + apu.p1.sample()) as usize];
-    let tnd = ApuRP2A::TND_TABLE[(3 * apu.tri.sample() + 2 * apu.noise.sample() + apu.dmc.sample()) as usize];
-    let ext = self.mapper.sample() * 0.00568;
+    let pulse_sum = (apu.p0.sample() + apu.p1.sample()) as usize;
+    let pulse = ApuRP2A::PULSE_TABLE[pulse_sum];
+    let tnd_sum = (3 * apu.tri.sample() + 2 * apu.noise.sample() + apu.dmc.sample()) as usize;
+    let tnd = ApuRP2A::TND_TABLE[tnd_sum];
+    // TODO: multiply value should be put inside sample function, not here
+    let ext = self.mapper.sample() * 0.00768;
     
-    let sample = (pulse + tnd + ext) * 40000.0;
+    let sample = (pulse + tnd + ext) * 30000.0;
     let delta = sample - apu.prev_sample;
 
-    apu.blip.0.add_delta(apu.cycles as u32, delta as i32);
+    apu.blip.0.add_delta(apu.cycles, delta as i16);
     apu.prev_sample = sample;
 
     apu.cycles += 1;
@@ -683,6 +698,7 @@ impl Emu {
   fn frame_count_step(&mut self) {
     // The sequencer is clocked on every other CPU cycle, so 2 CPU cycles = 1 APU cycle
     
+    // TODO: change this so that the table is copied to a local one at construction, with the correct const table 
     match self.region() {
       Region::NTSC => self.frame_count_step_ntsc(),
       Region::PAL => self.frame_count_step_pal(),
@@ -691,41 +707,99 @@ impl Emu {
 
   fn frame_count_step_ntsc(&mut self) {
     let apu = &mut self.apu;
+
+    // The sequencer is clocked on every other CPU cycle, so 2 CPU cycles = 1 APU cycle.
+    // Every value is multiplied by two respect to the wiki
+    // https://www.nesdev.org/wiki/APU_Frame_Counter
     match (apu.frame_count, &apu.frame_mode) {
-      (3728 | 11185, _) => apu.frame_quarter_step(),
-      (7456, _) => apu.frame_half_step(),
-      (14914, FrameMode::Step4) => {
+      (7456 | 22370, _) => apu.frame_quarter_step(),
+      (14914, _) => apu.frame_half_step(),
+      (29828, FrameMode::Step4) => {
         if !apu.frame_irq_disable {
           self.mem.irq.insert(IrqFlags::FRAME);
         }
-        
-        apu.frame_count = 0;
+      }
+      (29829, FrameMode::Step4) => {
+        if !apu.frame_irq_disable {
+          self.mem.irq.insert(IrqFlags::FRAME);
+        }
         apu.frame_half_step();
       }
-      (18640, FrameMode::Step5) => {
+      (29830, FrameMode::Step4) => {
+        if !apu.frame_irq_disable {
+          self.mem.irq.insert(IrqFlags::FRAME);
+        }
         apu.frame_count = 0;
+      }
+      (37280, FrameMode::Step5) => {
         apu.frame_half_step();
+        apu.frame_count = 0;
       }
       _ => {}
     }
 
     self.apu.frame_count += 1;
   }
+
+  // fn frame_count_step_ntsc(&mut self) {
+  //   let apu = &mut self.apu;
+
+  //   // The sequencer is clocked on every other CPU cycle, so 2 CPU cycles = 1 APU cycle.
+  //   // Every value is multiplied by two respect to the wiki
+  //   // https://www.nesdev.org/wiki/APU_Frame_Counter
+  //   match (apu.frame_count, &apu.frame_mode) {
+  //     (32728 | 11185, _) => apu.frame_quarter_step(),
+  //     (7456, _) => apu.frame_half_step(),
+  //     (14914, FrameMode::Step4) => {
+  //       if !apu.frame_irq_disable {
+  //         self.mem.irq.insert(IrqFlags::FRAME);
+  //       }
+  //     }
+  //     (14915, FrameMode::Step4) => {
+  //       if !apu.frame_irq_disable {
+  //         self.mem.irq.insert(IrqFlags::FRAME);
+  //       }
+  //       apu.frame_half_step();
+  //     }
+  //     (14916, FrameMode::Step4) => {
+  //       if !apu.frame_irq_disable {
+  //         self.mem.irq.insert(IrqFlags::FRAME);
+  //       }
+  //       apu.frame_count = 0;
+  //     }
+  //     (18640, FrameMode::Step5) => {
+  //       apu.frame_count = 0;
+  //       apu.frame_half_step();
+  //     }
+  //     _ => {}
+  //   }
+
+  //   self.apu.frame_count += 1;
+  // }
 
   fn frame_count_step_pal(&mut self) {
     let apu = &mut self.apu;
     match (apu.frame_count, &apu.frame_mode) {
-      (4156 | 12469, _) => apu.frame_quarter_step(),
-      (8313, _) => apu.frame_half_step(),
-      (16626, FrameMode::Step4) => {
+      (8312 | 16626, _) => apu.frame_quarter_step(),
+      (24938, _) => apu.frame_half_step(),
+      (33252, FrameMode::Step4) => {
         if !apu.frame_irq_disable {
           self.mem.irq.insert(IrqFlags::FRAME);
         }
-        
-        apu.frame_count = 0;
+      }
+      (33253, FrameMode::Step4) => {
+        if !apu.frame_irq_disable {
+          self.mem.irq.insert(IrqFlags::FRAME);
+        }
         apu.frame_half_step();
       }
-      (20782, FrameMode::Step5) => {
+      (33254, FrameMode::Step4) => {
+        if !apu.frame_irq_disable {
+          self.mem.irq.insert(IrqFlags::FRAME);
+        }
+        apu.frame_count = 0;
+      }
+      (41564, FrameMode::Step5) => {
         apu.frame_count = 0;
         apu.frame_half_step();
       }
@@ -734,4 +808,36 @@ impl Emu {
 
     self.apu.frame_count += 1;
   }
+
+  // fn frame_count_step_pal(&mut self) {
+  //   let apu = &mut self.apu;
+  //   match (apu.frame_count, &apu.frame_mode) {
+  //     (4156 | 12469, _) => apu.frame_quarter_step(),
+  //     (8313, _) => apu.frame_half_step(),
+  //     (16626, FrameMode::Step4) => {
+  //       if !apu.frame_irq_disable {
+  //         self.mem.irq.insert(IrqFlags::FRAME);
+  //       }
+  //     }
+  //     (16627, FrameMode::Step4) => {
+  //       if !apu.frame_irq_disable {
+  //         self.mem.irq.insert(IrqFlags::FRAME);
+  //       }
+  //       apu.frame_half_step();
+  //     }
+  //     (16628, FrameMode::Step4) => {
+  //       if !apu.frame_irq_disable {
+  //         self.mem.irq.insert(IrqFlags::FRAME);
+  //       }
+  //       apu.frame_count = 0;
+  //     }
+  //     (20782, FrameMode::Step5) => {
+  //       apu.frame_count = 0;
+  //       apu.frame_half_step();
+  //     }
+  //     _ => {}
+  //   }
+
+  //   self.apu.frame_count += 1;
+  // }
 }

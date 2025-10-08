@@ -8,6 +8,7 @@ mod bus;
 mod mapper;
 mod ppu;
 mod apu;
+mod blip;
 
 pub mod games_db;
 

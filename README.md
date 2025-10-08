@@ -33,6 +33,7 @@ https://www.reddit.com/r/EmuDev/comments/xta12t/confused_about_cycles_and_emulat
 - ppu mask update delay (battletoads)
 - Savestates
 - Fastforwarding
+
 - apu fix
 - better audio
 - FDS audio

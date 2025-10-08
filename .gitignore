@@ -3,3 +3,6 @@
 /db_tests
 *.nes
 *.fds
+*.zip
+*.sram
+*.rom

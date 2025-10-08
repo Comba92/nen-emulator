@@ -44,7 +44,6 @@ fn main() {
 
     let mut events = sdl.event_pump().unwrap();
     let timer = sdl.timer().unwrap();
-
     
     let window = video.window("NesEmu", 256 * 3, 240 * 3)
         .position_centered()

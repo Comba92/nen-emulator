@@ -174,7 +174,7 @@ impl Emu {
 
     self.frame_ready = false;
 
-    self.apu.blip.0.end_frame(self.apu.cycles as u32);
+    self.apu.blip.0.end_frame(self.apu.cycles).unwrap();
     self.apu.cycles -= cycles_run;
   }
 
@@ -263,7 +263,7 @@ impl Emu {
 
   // TODO: if audio isn't read, the buffer will overflow and panic
   pub fn get_audio(&mut self) -> &[i16] {
-    let read = self.apu.blip.0.read_samples(&mut self.audiobuf[..self.apu.blip.0.samples_avail() as usize], false);
+    let read = self.apu.blip.0.read_samples(&mut self.audiobuf[..self.apu.blip.0.avail as usize], false);
     &self.audiobuf[..read]
   }
 }
