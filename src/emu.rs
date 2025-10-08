@@ -64,7 +64,8 @@ impl Game {
     } else if Disk::is_valid_fds(bytes) {
       Ok(Game::Disk(Disk::from(bytes)?))
     } else {
-      return Err("not a valid NES rom file".into());
+      // might be headless rom
+      Ok(Game::Cart(Cart::from(bytes)?))
     }
   }
 }

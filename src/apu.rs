@@ -102,9 +102,11 @@ impl Envelope {
 
 #[derive(Default)]
 struct Sweep {
-  div: DividerCounter,
+  count: u8,
+  period: u8,
   enabled: bool,
   negate: bool,
+  complement: bool,
   reload: bool,
   shift: u8,
   target_period: u16,
@@ -124,7 +126,7 @@ pub struct Pulse {
   pub env: Envelope,
   sweep: Sweep,
   duty_seq: u8,
-  duty_cycle: u8, 
+  duty_cycle: u8,
 }
 
 impl Pulse {
@@ -134,6 +136,12 @@ impl Pulse {
     [0, 0, 0, 0, 1, 1, 1, 1],
     [1, 1, 1, 1, 1, 1, 0, 0]
   ];
+
+  pub fn new(complement: bool) -> Self {
+    let mut res = Self::default();
+    res.sweep.complement = complement;
+    res
+  }
 
   pub fn write_ctrl(&mut self, val: u8) {
     self.env.set(val);
@@ -145,19 +153,23 @@ impl Pulse {
     let sweep = &mut self.sweep;
 
     sweep.enabled = val & 0x80 != 0;
-    sweep.div.period = ((val as u16) >> 4) & 0b111;
+    sweep.period = (val >> 4) & 0b111;
     sweep.negate = val & 0x8 != 0;
     sweep.shift = val & 0b111;
     sweep.reload = true;
+
+    self.update_target_period();
   }
 
   pub fn write_timer_lo(&mut self, val: u8) {
     self.div.period = byte_set_lo(self.div.period, val);
+    self.update_target_period();
   }
 
   pub fn write_timer_hi(&mut self, val: u8) {
     self.div.period = byte_set_hi(self.div.period, val & 0b111);
     self.len.load(val);
+    self.update_target_period();
 
     self.duty_seq = 0;
     self.env.start = true;
@@ -170,35 +182,38 @@ impl Pulse {
   }
 
   fn is_muted(&self) -> bool {
+    // TODO: precompute this
     // Thus to fully disable the sweep unit, a program must additionally turn on the Negate flag, such as by writing $08. This ensures that the target period is not greater than the current period and therefore not greater than $7FF. 
-    self.div.period < 8 || (!self.sweep.negate && self.div.period > 0x7ff)
+    self.div.period < 8 || (!self.sweep.negate && self.sweep.target_period > 0x7ff)
   }
 
-  fn step_sweep(&mut self, complement: bool) {
-    // https://www.nesdev.org/wiki/APU_Sweep#Updating_the_period
-
-    let is_muted = self.is_muted();
+  fn update_target_period(&mut self) {
     let sweep = &mut self.sweep;
 
-    sweep.div.step(|| {
-      if sweep.enabled && sweep.shift > 0 && !is_muted {
-        let period = self.div.period;
+    let change_amt = self.div.period >> sweep.shift;
+    if sweep.negate {
+      sweep.target_period = self.div.period.saturating_sub(change_amt);
+      sweep.target_period -= sweep.complement as u16;
+    } else {
+      sweep.target_period = self.div.period + change_amt;
+    }
+  }
 
-        let change_amt = period >> sweep.shift;
-        if sweep.negate {
-          // TODO: not sure about this
-          sweep.target_period = period.saturating_sub(change_amt);
-          sweep.target_period -= complement as u16;
-        }
-        else {
-          sweep.target_period = period + change_amt;
-        }
-        self.div.period = sweep.target_period;
+  fn step_sweep(&mut self) {
+    // https://www.nesdev.org/wiki/APU_Sweep#Updating_the_period
+    if self.sweep.count > 0 {
+      self.sweep.count -= 1;
+    } else {
+      if self.sweep.enabled && self.sweep.shift > 0 && !self.is_muted() {
+        self.div.period = self.sweep.target_period;
+        self.update_target_period();
       }
-    });
+      self.sweep.count = self.sweep.period;
+    }
 
+    let sweep = &mut self.sweep;
     if sweep.reload {
-      sweep.div.count = sweep.div.period + 1;
+      sweep.count = sweep.period;
       sweep.reload = false;
     }
   }
@@ -312,7 +327,7 @@ impl Noise {
     // TODO: precompute output
 
     if self.len.count > 0 {
-      !(self.shift & 1 == 0) as u8 * self.env.volume()
+      (self.shift & 1 > 0) as u8 * self.env.volume()
     } else {
       0
     }
@@ -471,6 +486,8 @@ impl ApuRP2A {
 
   pub fn new(region: &Region) -> Self {
     Self {
+      p0: Pulse::new(true),
+      p1: Pulse::new(false),
       noise: Noise::new(),
       dmc: Dmc::new(),
       blip: AudioBuf::new(region),
@@ -489,8 +506,8 @@ impl ApuRP2A {
     self.p0.len.step();
     self.p1.len.step();
     
-    self.p0.step_sweep(true);
-    self.p1.step_sweep(false);
+    self.p0.step_sweep();
+    self.p1.step_sweep();
     
     self.tri.len.step();
     self.noise.len.step();

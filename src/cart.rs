@@ -62,7 +62,7 @@ impl CartHeader {
 
     match header {
       Ok(mut header) => {
-        // DEBUG
+        // TODO: remove DEBUG
         if let Some(entry) = GAMES_DB.query(&bytes[header.len()..]) {
           println!("==[GAME LOADED]==\n{:?}", entry);
         }
@@ -77,9 +77,16 @@ impl CartHeader {
         }
         Ok(header)
       }
-      Err(e) => GAMES_DB.query(bytes)
-        .ok_or(e)
-        .map(|x| x.into()),
+      Err(e) => {
+        // TODO: remove DEBUG
+        if let Some(entry) = GAMES_DB.query(bytes) {
+          println!("==[GAME LOADED]==\n{:?}", entry);
+        }
+
+        GAMES_DB.query(bytes)
+          .ok_or(e)
+          .map(|x| x.into())
+      }
     }
   }
 
