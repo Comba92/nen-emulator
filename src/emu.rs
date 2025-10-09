@@ -190,7 +190,18 @@ impl Emu {
 
   pub fn save_battery(&mut self) -> Option<&[u8]> {
     if self.mem.header.has_battery {
-      // TODO: handle multiple ram chip cases (MMC1, MMC5)
+      if self.mem.header.mapper == 1 && self.mem.wram.len() == 16 * 1024 {
+        // https://www.nesdev.org/wiki/MMC1#SxROM_board_types
+        // Even if the SOROM and SZROM boards utilizes a battery, it is connected to only one PRG-RAM chip. The first RAM chip will not retain its data, but the second one will.
+        return Some(&self.mem.wram[8 * 1024..])
+      }
+
+      if self.mem.header.mapper == 5 && self.mem.wram.len() == 16 * 1024 {
+        // https://www.nesdev.org/wiki/MMC5#Other_PRG-RAM_notes
+        // Games with 16K PRG-RAM only battery-save the first 8K.
+        return Some(&self.mem.wram[..8 * 1024])
+      }
+
       Some(&self.mem.wram)
     } else {
       None

@@ -29,12 +29,11 @@ https://www.reddit.com/r/EmuDev/comments/xta12t/confused_about_cycles_and_emulat
 - https://www.nesdev.org/wiki/GTROM
 
 # TODO
-- save ram for mmc1/mmc5
 - Savestates
 - Fastforwarding
 
-- better audio
 - FDS audio
+- MMC5 irq fix + unknown exram mode glitches
 
 - better public interface
 - build script
