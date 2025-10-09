@@ -9,14 +9,13 @@ ram64kb = []
 [dependencies]
 bitfields = "1.0.0"
 bitflags = "2.9.1"
-blip_buf = "0.1.5"
 sdl2 = "0.38.0"
 bitcode = "0.6.6"
 flate2 = "1.1.2"
 # sha1_smol = "1.0.1"
 crc32fast = "1.5.0"
 getrandom = "0.3.3"
-zip = "4.5.0"
+zip = "5.1.1"
 
 [dev-dependencies]
 bincode = { version = "2.0.1", features = ["serde"] }

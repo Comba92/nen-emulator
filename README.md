@@ -30,13 +30,15 @@ https://www.reddit.com/r/EmuDev/comments/xta12t/confused_about_cycles_and_emulat
 
 # TODO
 - save ram for mmc1/mmc5
-- ppu mask update delay (battletoads)
 - Savestates
 - Fastforwarding
 
-- apu fix
 - better audio
 - FDS audio
+
+- better public interface
+- build script
+- release config
 
 - better reset
 - check perf of unchecked accesses to memory vectors

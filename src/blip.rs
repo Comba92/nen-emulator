@@ -13,14 +13,12 @@ const DELTA_UNIT: usize = 1 << DELTA_BITS;
 const FRAC_BITS: usize = TIME_BITS - PRE_SHIFT;
 
 const BLIP_MAX_RATIO: usize = 1 << 20;
-const BLIP_MAX_FRAME: usize = 4000;
 
 pub struct BlipBuf {
   factor: usize,
   offset: usize,
   pub avail: usize,
   integrator: isize,
-  // TODO: might require to be Boxed as it is very big 
   samples: Vec<isize>,
 }
 
@@ -28,7 +26,7 @@ impl BlipBuf {
   pub fn new(size: usize) -> Self {
     Self {
       factor: TIME_UNIT / BLIP_MAX_RATIO,
-      offset: 0,
+      offset: TIME_UNIT / BLIP_MAX_RATIO / 2,
       avail: 0,
       integrator: 0,
       samples: vec![0; size + BUF_EXTRA],
@@ -103,7 +101,7 @@ impl BlipBuf {
     Ok(())
   }
 
-  pub fn add_delta(&mut self, time: usize, delta: i16) {
+  pub fn add_delta(&mut self, time: usize, delta: f64) {
     let fixed = (time * self.factor + self.offset) >> PRE_SHIFT;
     let out = self.avail + (fixed >> FRAC_BITS);
     // if out > self.samples.len() { return Err("buffer size was exceeded") }
@@ -124,7 +122,7 @@ impl BlipBuf {
     }
   }
 
-  pub fn add_delta_fast(&mut self, time: usize, delta: i16) {
+  pub fn add_delta_fast(&mut self, time: usize, delta: f64) {
     let fixed = (time * self.factor + self.offset) >> PRE_SHIFT;
     let out = self.avail + (fixed >> FRAC_BITS);
     // if out > self.samples.len() { return Err("buffer size was exceeded") }

@@ -1,4 +1,4 @@
-use crate::{bus::{Banking, Bus, ChrBank, CpuHandler, IrqFlags, PpuHandler}, emu::Mirroring, utils::{byte_set_hi, byte_set_lo}};
+use crate::{apu::ApuRP2A, bus::{Banking, Bus, ChrBank, CpuHandler, IrqFlags, PpuHandler}, emu::Mirroring, utils::{byte_set_hi, byte_set_lo}};
 
 mod konami;
 use konami::*;
@@ -1132,13 +1132,13 @@ mod namco {
       }
     }
 
-    pub fn sample(&self) -> f64 {
+    pub fn sample(&self) -> i16 {
       let sum = self.outputs.iter()
         .rev() // start from last
         .take(self.channels_enabled() as usize) // take only enabled
         .sum::<i16>();
 
-      0.5 * (sum / self.channels_enabled() as i16) as f64
+      sum / self.channels_enabled() as i16
     }
   }
 }
@@ -1291,7 +1291,7 @@ impl Mapper for Namco129_163 {
   }
 
   fn sample(&self) -> f64 {
-    self.audio.sample()
+    self.audio.sample() as f64 * (ApuRP2A::EXT_MIX * 0.5)
   }
 }
 
@@ -1782,9 +1782,9 @@ mod sunsoft_fme7 {
       
       // Correct behaviour can be implemented as a counter that counts up on every 16th clock cycle until it is equal to or greater than the period register,
       // at which point the output flips and the counter resets to 0. 
-      self.div.step(|| {
+      if self.div.step() {
         self.step = (self.step + 1) & 0xf;
-      });
+      }
     }
 
     pub fn sample(&self) -> u8 {
@@ -1912,7 +1912,7 @@ impl Mapper for SunsoftFME7 {
 
   fn sample(&self) -> f64 {
     // It is very loud compared to other audio expansion carts. 
-    0.5 * (self.ta.sample() as f64 + self.tb.sample() as f64 + self.tc.sample() as f64)
+    (ApuRP2A::EXT_MIX * 0.3) * (self.ta.sample() as f64 + self.tb.sample() as f64 + self.tc.sample() as f64)
   }
 }
 

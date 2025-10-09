@@ -1,5 +1,5 @@
 use std::ops::Neg;
-use crate::{apu, bus::{Bus, Banking, CpuHandler, IrqFlags, PpuHandler}, mapper::Mapper};
+use crate::{apu::{self, ApuRP2A}, bus::{Banking, Bus, CpuHandler, IrqFlags, PpuHandler}, mapper::Mapper};
 
 #[derive(Default, PartialEq, Debug)]
 enum WramKind { #[default] SingleChip, DoubleChip16kb, DoubleChip64kb }
@@ -344,6 +344,7 @@ impl Mapper for MMC5 {
         self.irq_enabled = val & 0x80 > 0;
       
         if self.irq_enabled && self.irq_pending {
+          println!("{}", mem.ppu_cycle);
           mem.irq.insert(IrqFlags::MAPPER);
         } else if !self.irq_enabled {
           mem.irq.remove(IrqFlags::MAPPER);
@@ -447,7 +448,7 @@ impl Mapper for MMC5 {
           // currently, this happens at ppu dot 1 (for some reason)
           // we need the irq to be set at ppu dot 4, we put a little delay here.
           // seems to be working well enough for all games
-          self.irq_delay = 2;
+          self.irq_delay = 4;
         }
       }
     } else {
@@ -480,6 +481,7 @@ impl Mapper for MMC5 {
           // However, an actual IRQ is only sent to the CPU if both the scanline IRQ enable flag and IRQ pending flag are set. 
           // A $5203 value of $00 is a special case where the comparison is never true.
           if self.irq_enabled {
+            println!("{}", mem.ppu_cycle);
             mem.irq.insert(IrqFlags::MAPPER);
           }
         }
@@ -541,6 +543,7 @@ impl Mapper for MMC5 {
 
   // The sound output of the square channels are equivalent in volume to the corresponding APU channels, but the polarity of all MMC5 channels is reversed compared to the APU. 
   fn sample(&self) -> f64 {
-    (self.p0.sample() as f64 + self.p1.sample() as f64).neg()
+    let res = (self.p0.sample() as f64 + self.p1.sample() as f64).neg();
+    res * ApuRP2A::EXT_MIX
   }
 }

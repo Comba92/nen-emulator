@@ -9,12 +9,13 @@ pub struct DividerCounter {
 }
 
 impl DividerCounter {
-  pub fn step<F: FnOnce()>(&mut self, callback: F){
+  pub fn step(&mut self) -> bool {
     if self.count > 0 {
       self.count -= 1;
+      false
     } else {
       self.reload();
-      callback();
+      true
     }
   }
 
@@ -61,25 +62,26 @@ pub struct Envelope {
   use_volume: bool,
   decay: u8,
   div: DividerCounter,
+  pub volume: u8,
 }
 
 impl Envelope {
   pub fn step(&mut self) {
-    // TODO: volume can be precomputed here
-
-    self.div.step(|| {
+    if self.div.step() {
       if self.decay > 0 {
         self.decay -= 1;
+        self.update_volume();
       } else if self.looping {
         self.decay = 15;
+        self.update_volume();
       }
-    });
+    }
 
     if self.start {
       self.start = false;
       self.decay = 15;
       self.div.reload();
-      return;
+      self.update_volume();
     }
   }
 
@@ -88,15 +90,15 @@ impl Envelope {
     self.use_volume = val & 0x10 != 0;
     self.div.period = val as u16 & 0xf;
 
-    // TODO: volume can be precomputed here 
+    self.update_volume();
   }
 
-  fn volume(&self) -> u8 {
-    if self.use_volume {
+  fn update_volume(&mut self) {
+    self.volume = if self.use_volume {
       self.div.period as u8
     } else {
       self.decay
-    }
+    };
   }
 }
 
@@ -176,9 +178,9 @@ impl Pulse {
   }
 
   pub fn step_divider(&mut self) {
-    self.div.step(|| {
+    if self.div.step() {
       self.duty_seq = (self.duty_seq + 1) % Self::DUTIES[0].len() as u8;
-    });
+    }
   }
 
   fn is_muted(&self) -> bool {
@@ -222,7 +224,7 @@ impl Pulse {
     if self.len.count > 0 && !self.is_muted() {
       // TODO: might be difficult, but output can be precomputed
       let seq = Self::DUTIES[self.duty_cycle as usize][self.duty_seq as usize];
-      seq * self.env.volume()
+      seq * self.env.volume
     } else {
       0
     }
@@ -247,13 +249,13 @@ impl Triangle {
   ];
 
   fn step_divider(&mut self) {
-    self.div.step(|| {
+    if self.div.step() {
       // The sequencer is clocked by the timer as long as both the linear counter and the length counter are nonzero.
       
       if self.len.count > 0 && self.linear_count > 0 {
         self.sequence = (self.sequence + 1) % Self::TABLE.len() as u8;
       }
-    });
+    }
   }
 
   fn linear_step(&mut self) {
@@ -314,20 +316,20 @@ impl Noise {
   }
 
   fn step_divider(&mut self) {
-    self.div.step(|| {
+    if self.div.step() {
       let bit = if self.looping { 6 } else { 1 };
       let feedback = (self.shift & 1) ^ ((self.shift >> bit) & 1);
       self.shift >>= 1;
       // Bit 14, the leftmost bit, is set to the feedback calculated earlier
       self.shift |= feedback << 14;
-    });
+    }
   }
 
   fn sample(&self) -> u8 {
     // TODO: precompute output
 
     if self.len.count > 0 {
-      (self.shift & 1 > 0) as u8 * self.env.volume()
+      (self.shift & 1 > 0) as u8 * self.env.volume
     } else {
       0
     }
@@ -372,7 +374,7 @@ impl Dmc {
   pub fn step_divider(&mut self) {
     // https://www.nesdev.org/wiki/APU_DMC#Output_unit
 
-    self.div.step(|| {
+    if self.div.step() {
       if !self.silence {
         if self.shift & 1 == 1 && self.output <= 125 {
           self.output += 2;
@@ -381,7 +383,6 @@ impl Dmc {
         }
         self.shift >>= 1;
       }
-      
       
       if self.bits_remaining > 0 {
         self.bits_remaining -= 1;
@@ -396,7 +397,7 @@ impl Dmc {
           None => self.silence = true,
         }
       }
-    });
+    }
   }
 
   fn restart_sample(&mut self) {
@@ -462,27 +463,27 @@ pub struct ApuRP2A {
 
 impl ApuRP2A {
   // https://www.nesdev.org/wiki/APU_Mixer#Lookup_Table
-  const PULSE_TABLE: [f64; 31] = {
-    let mut lut = [0.0; 31];
-    let mut i = 0;
-    while i < lut.len() {
-      lut[i] = 95.52 / (8128.0 / i as f64 + 100.0);
-      i += 1;
-    }
+  // const PULSE_TABLE: [f64; 31] = {
+  //   let mut lut = [0.0; 31];
+  //   let mut i = 0;
+  //   while i < lut.len() {
+  //     lut[i] = 95.52 / (8128.0 / i as f64 + 100.0);
+  //     i += 1;
+  //   }
 
-    lut
-  };
+  //   lut
+  // };
 
-  const TND_TABLE: [f64; 203] = {
-    let mut lut = [0.0; 203];
-    let mut i = 0;
-    while i < lut.len() {
-      lut[i] = 163.67 / (24329.0 / i as f64 + 100.0);
-      i += 1;
-    }
+  // const TND_TABLE: [f64; 203] = {
+  //   let mut lut = [0.0; 203];
+  //   let mut i = 0;
+  //   while i < lut.len() {
+  //     lut[i] = 163.67 / (24329.0 / i as f64 + 100.0);
+  //     i += 1;
+  //   }
 
-    lut
-  };
+  //   lut
+  // };
 
   pub fn new(region: &Region) -> Self {
     Self {
@@ -525,6 +526,11 @@ impl ApuRP2A {
 
     self.blip.0.clear();
   }
+
+  // https://forums.nesdev.org/viewtopic.php?t=12449
+  const PULSE_MAX: f64 = 15.0;
+  const PULSE_STRENGTH: f64 = 95.88 / ((8128.0 / Self::PULSE_MAX) + 100.0);
+  pub const EXT_MIX: f64 = Self::PULSE_STRENGTH / Self::PULSE_MAX;
 }
 
 impl Emu {
@@ -591,8 +597,8 @@ impl Emu {
         apu.noise.env.start = true;
       }
       0x4010 => {
-        apu.dmc.looping = val & 0x40 != 0;
-        apu.dmc.irq_enabled = val & 0x80 != 0;
+        apu.dmc.looping = val & 0x40 > 0;
+        apu.dmc.irq_enabled = val & 0x80 > 0;
 
         if !apu.dmc.irq_enabled {
           self.mem.irq.remove(IrqFlags::DMC);
@@ -690,23 +696,29 @@ impl Emu {
       }
     }
 
+    /* Linear Approximation */
     // let pulse = 0.00752 * (apu.p0.sample() as f32 + apu.p1.sample() as f32);
     // let tnd = 
     //   0.00851 * apu.tri.sample() as f32
     //   + 0.00494 * apu.noise.sample() as f32
     //   + 0.00335 * apu.dmc.sample() as f32;
 
-    let pulse_sum = (apu.p0.sample() + apu.p1.sample()) as usize;
-    let pulse = ApuRP2A::PULSE_TABLE[pulse_sum];
-    let tnd_sum = (3 * apu.tri.sample() + 2 * apu.noise.sample() + apu.dmc.sample()) as usize;
-    let tnd = ApuRP2A::TND_TABLE[tnd_sum];
-    // TODO: multiply value should be put inside sample function, not here
-    let ext = self.mapper.sample() * 0.00768;
+    /* Lookup table */
+    // let pulse_sum = (apu.p0.sample() + apu.p1.sample()) as usize;
+    // let pulse = ApuRP2A::PULSE_TABLE[pulse_sum];
+    // let tnd_sum = (3 * apu.tri.sample() + 2 * apu.noise.sample() + apu.dmc.sample()) as usize;
+    // let tnd = ApuRP2A::TND_TABLE[tnd_sum];
+
+    let pulse = 95.88 / ((8128.0 / (apu.p0.sample() as f64 + apu.p1.sample() as f64)) + 100.0);
+    let tnd_sum = (apu.tri.sample() as f64 / 8227.0) + (apu.noise.sample() as f64 / 12241.0) + (apu.dmc.sample() as f64 / 22638.0);
+    let tnd = 159.79 / ((1.0 / tnd_sum) + 100.0);
+
+    let ext = self.mapper.sample();
     
     let sample = (pulse + tnd + ext) * 30000.0;
     let delta = sample - apu.prev_sample;
 
-    apu.blip.0.add_delta(apu.cycles, delta as i16);
+    apu.blip.0.add_delta(apu.cycles, delta);
     apu.prev_sample = sample;
 
     apu.cycles += 1;

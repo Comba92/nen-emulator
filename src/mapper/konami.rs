@@ -1,6 +1,6 @@
 use std::ops::Neg;
 
-use crate::{bus::{Bus, Banking, CpuHandler, IrqFlags}, emu::Mirroring, mapper::Mapper, utils::byte_set_lo};
+use crate::{apu::ApuRP2A, bus::{Banking, Bus, CpuHandler, IrqFlags}, emu::Mirroring, mapper::Mapper, utils::byte_set_lo};
 
 // https://www.nesdev.org/wiki/VRC1
 #[derive(Default)]
@@ -360,9 +360,9 @@ mod vrc6 {
     }
 
     pub fn step(&mut self) {
-      self.div.step(|| {
+      if self.div.step() {
         self.step = (self.step + 1) % 16;
-      });
+      }
     }
 
     pub fn sample(&self) -> u8 {
@@ -401,7 +401,7 @@ mod vrc6 {
     }
 
     pub fn step(&mut self) {
-      self.div.step(|| {
+      if self.div.step() {
         self.count = (self.count + 1) % 14;
         
         if self.count == 0 {
@@ -410,7 +410,7 @@ mod vrc6 {
           // If A is more than 42 the accumulator will wrap, resulting in distorted sound. 
           self.acc = (self.acc + self.rate) % 42;
         }
-      });
+      }
     }
 
     pub fn sample(&self) -> u8 {
@@ -614,7 +614,9 @@ impl Mapper for VRC6 {
   }
 
   fn sample(&self) -> f64 {
-    (self.p0.sample() as f64 + self.p1.sample() as f64 + self.saw.sample() as f64).neg()
+    let res = (self.p0.sample() as f64 + self.p1.sample() as f64 + self.saw.sample() as f64).neg();
+    // https://forums.nesdev.org/viewtopic.php?t=12449
+    res * ApuRP2A::EXT_MIX
   }
 }
 
