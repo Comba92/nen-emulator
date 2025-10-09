@@ -175,7 +175,7 @@ fn main() {
         emu.emu_step_until_vblank();
         audiodev.queue_audio(emu.get_audio()).unwrap();
 
-        while audiodev.size()/2 < audiodev.spec().samples as u32 * 2 {
+        while audiodev.size()/2 < audiodev.spec().samples as u32 {
             // run for another frame
 
             emu.emu_step_until_vblank();
