@@ -9,7 +9,7 @@ fn load_rom(path: &str) -> Result<Emu, Box<dyn std::error::Error>> {
     let mut reader = BufReader::new(file);
     reader.read_to_end(&mut bytes)?;
 
-    let res = Emu::new(&bytes);
+    let res = Emu::load_rom_from_bytes(&bytes);
     match res {
         Ok(_) => res,
         Err(_) => {
@@ -20,7 +20,7 @@ fn load_rom(path: &str) -> Result<Emu, Box<dyn std::error::Error>> {
                 // it is a zip file
                 let mut zip = archive.by_index(0)?;
                 zip.read_to_end(&mut bytes)?;
-                Emu::new(&bytes)
+                Emu::load_rom_from_bytes(&bytes)
             } else {
                 // not a zip file either
                 res
@@ -71,7 +71,7 @@ fn main() {
     //     .unwrap();
     // debug_tex.set_scale_mode(sdl2::render::ScaleMode::Nearest);
 
-    let mut emu = Emu::new(include_bytes!("../roms/super mario.nes")).unwrap();
+    let mut emu = Emu::load_rom_from_bytes(include_bytes!("../roms/super mario.nes")).unwrap();
     let mut rom_filename = "../roms/super mario.nes".to_string();
 
     let mut frame_rate = (1.0 / emu.frame_rate() * 1000.0).round() as u64;
@@ -85,7 +85,7 @@ fn main() {
         for event in events.poll_iter() {
             match event {
                 Event::Quit { .. } => break 'running,
-                Event::Window { window_id, win_event, .. } => {
+                Event::Window { win_event, .. } => {
                     match win_event {
                         WindowEvent::Close => break 'running,
                         _ => {}

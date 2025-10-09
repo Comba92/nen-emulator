@@ -1,4 +1,4 @@
-use crate::{cart::{Cart, CartHeader}, disk::Disk, emu::{Emu, Mirroring}, mapper::{self, BoxedMapper, Mapper}};
+use crate::{emu::{Emu, Mirroring}, mapper::{self, BoxedMapper, Mapper}, rom::{Cart, CartHeader, Disk}};
 
 pub trait BankCfg {}
 #[derive(Debug, Default)] pub struct PrgBank; impl BankCfg for PrgBank {}
@@ -240,9 +240,9 @@ impl Bus {
       PpuHandler::Vram,
       PpuHandler::Vram,
       PpuHandler::Vram,
-      PpuHandler::Palette,
-      PpuHandler::Palette,
-      PpuHandler::Palette,
+      PpuHandler::Vram,
+      PpuHandler::Vram,
+      PpuHandler::Vram,
       PpuHandler::Palette
     ];
 
@@ -286,6 +286,8 @@ impl Bus {
 
     // keep like this so we can just use the standard prg handler
     banks.prg = Banking::new(0xe000, 8 * 1024, 8 * 1024, 1);
+    
+    // TODO: bios dynamic loading
     let prg = include_bytes!("../utils/disksys.rom").to_vec();
     banks.wram = Banking::new(0x6000, 32 * 1024, 32 * 1024, 1);
 

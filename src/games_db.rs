@@ -1,5 +1,5 @@
 use std::{collections::HashMap, io::Read, sync::LazyLock};
-use crate::{cart::{ CartHeader, HeaderFormat}, emu::{Mirroring, Region}};
+use crate::{rom::{ CartHeader, HeaderFormat}, emu::{Mirroring, Region}};
 
 #[derive(Debug, Default, bitcode::Encode, bitcode::Decode)]
 pub struct GameData {

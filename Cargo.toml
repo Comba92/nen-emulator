@@ -4,18 +4,31 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-ram64kb = []
+static = ["sdl2/bundled", "sdl2/use-pkgconfig", "sdl2/static-link"]
+
+[profile.release-opt]
+inherits = "release"
+strip = true
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
 
 [dependencies]
 bitfields = "1.0.0"
 bitflags = "2.9.1"
 sdl2 = "0.38.0"
+# used for parsing games db
 bitcode = "0.6.6"
+# used for decompressing games db
 flate2 = "1.1.2"
 # sha1_smol = "1.0.1"
+# used for hashing roms to query games db
 crc32fast = "1.5.0"
+# used for random ram at init
 getrandom = "0.3.3"
-zip = "5.1.1"
+# used for rom loading
+zip = "6.0.0"
 
 [dev-dependencies]
 bincode = { version = "2.0.1", features = ["serde"] }

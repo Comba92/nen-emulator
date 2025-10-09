@@ -2,8 +2,7 @@ use crate::{emu::Emu, joypad::Button};
 
 pub mod emu;
 pub mod cpu;
-pub mod cart;
-mod disk;
+pub mod rom;
 mod bus;
 mod mapper;
 mod ppu;
@@ -32,7 +31,7 @@ mod utils {
   }
 }
 
-pub struct Palette(pub [(u8, u8, u8); 64]);
+struct Palette(pub [(u8, u8, u8); 64]);
 impl Default for Palette {
   fn default() -> Self { Self([(0, 0, 0); 64]) }
 }
@@ -90,7 +89,7 @@ pub mod joypad {
   }
 }
 
-pub mod dma {
+mod dma {
   #[derive(Default)]
   pub struct Dma {
     pub addr: u16,

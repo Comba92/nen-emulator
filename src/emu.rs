@@ -1,4 +1,4 @@
-use crate::{apu::ApuRP2A, bus::Bus, cart::{Cart, CartHeader}, cpu::{self, Cpu6502}, disk::Disk, joypad::Joypad, mapper::{self, BoxedMapper, Mapper}, ppu::Ppu2C02, Palette};
+use crate::{apu::ApuRP2A, bus::Bus, cpu::{self, Cpu6502}, joypad::Joypad, mapper::{self, BoxedMapper, Mapper}, ppu::Ppu2C02, rom::{Cart, CartHeader, Disk}, Palette};
 
 #[derive(Default)]
 pub struct EmuSettings {
@@ -9,8 +9,14 @@ pub struct EmuSettings {
   pub pal_borders: bool,
   pub battery_saving: bool,
 
-  pub audio_frequency: usize,
+  pub audio_sample_rate: usize,
   pub volume: f32,
+  pub disable_pulse0: bool,
+  pub disable_pulse1: bool,
+  pub disable_triangle: bool,
+  pub disable_noise: bool,
+  pub disable_dmc: bool,
+  pub disable_ext_audio: bool,
 }
 impl EmuSettings {
   pub fn new() -> Self {
@@ -29,11 +35,12 @@ pub struct Emu {
   pub mem: Bus,
   pub mapper: Box<dyn Mapper>,
 
-  pub frame_ready: bool,
-  pub videobuf: [u8; 256 * 240],
+  pub(crate) frame_ready: bool,
+  pub(crate) videobuf: [u8; 256 * 240],
   audiobuf: [i16; 2 * 1024],
+  audio_read: bool,
 
-  pub palette: Palette,
+  pub(crate) palette: Palette,
   pub settings: EmuSettings,
 }
 
@@ -58,7 +65,7 @@ pub enum Game {
   Disk(Disk)
 }
 impl Game {
-  pub fn new(bytes: &[u8]) -> Result<Self, LoadError> {
+  pub fn from(bytes: &[u8]) -> Result<Self, LoadError> {
     if CartHeader::is_valid_ines(bytes) {
       Ok(Game::Cart(Cart::from(bytes)?))
     } else if Disk::is_valid_fds(bytes) {
@@ -76,8 +83,8 @@ impl Emu {
   pub const NTSC_FRAME_RATE: f32 = 60.0988;
   pub const PAL_FRAME_RATE:  f32 = 50.0070;
 
-  pub fn new(rom: &[u8]) -> Result<Self, LoadError> {
-    let game = Game::new(rom)?;
+  pub fn load_rom_from_bytes(rom: &[u8]) -> Result<Self, LoadError> {
+    let game = Game::from(rom)?;
 
     let (mem, mapper) = match game {
       Game::Cart(cart) => {
@@ -102,6 +109,7 @@ impl Emu {
 
       videobuf: [0; 256 * 240],
       audiobuf: [0; 2 * 1024],
+      audio_read: false,
       palette,
       
       frame_ready: false,
@@ -130,20 +138,8 @@ impl Emu {
     &self.mem.header.region
   }
 
-  #[deprecated]
-  pub fn emu_step(&mut self) {
-    let cycles = self.cpu.cycles;
-    self.cpu_step();
-    
-    let cycles_run = self.cpu.cycles - cycles;
-    for _ in 0..cycles_run {
-      self.ppu_step();
-      self.ppu_step();
-      self.ppu_step();
-    }
-
-    for _ in 0..cycles_run { self.apu_step();}
-    for _ in 0..cycles_run { self.mapper.step(&mut self.mem, self.cpu.cycles);}
+  pub const fn header(&self) -> &CartHeader {
+    &self.mem.header
   }
 
   pub fn cpu_tick(&mut self) {
@@ -167,6 +163,10 @@ impl Emu {
   }
 
   pub fn emu_step_until_vblank(&mut self) {
+    // TODO: temporary solution
+    if !self.audio_read { self.apu.blip.0.clear(); }
+    self.audio_read = false;
+
     let cycles = self.cpu.cycles;
     while !self.frame_ready {
       self.cpu_step();
@@ -188,7 +188,7 @@ impl Emu {
     // TODO: some mappers need to be reset too
   }
 
-  pub fn save_battery(&mut self) -> Option<&[u8]> {
+  pub fn save_battery(&self) -> Option<&[u8]> {
     if self.mem.header.has_battery {
       if self.mem.header.mapper == 1 && self.mem.wram.len() == 16 * 1024 {
         // https://www.nesdev.org/wiki/MMC1#SxROM_board_types
@@ -210,7 +210,7 @@ impl Emu {
 
   pub fn load_battery(&mut self, bytes: &[u8]) -> Result<(), LoadError> {
     if !self.mem.header.has_battery {
-      return Err("game has not battery".into())
+      return Err("game has no battery".into())
     } else if bytes.len() != self.mem.wram.len() {
       return Err("invalid save ram dump provided, size doesn't match".into())
     } else {
@@ -273,9 +273,69 @@ impl Emu {
     }
   }
 
-  // TODO: if audio isn't read, the buffer will overflow and panic
   pub fn get_audio(&mut self) -> &[i16] {
     let read = self.apu.blip.0.read_samples(&mut self.audiobuf[..self.apu.blip.0.avail as usize], false);
+    self.audio_read = true;
+    
     &self.audiobuf[..read]
+  }
+
+  pub fn load_rom_from_file(path: &str) -> Result<Self, LoadError> {
+    use std::io::{Read, Seek};
+
+    let mut bytes = Vec::new();
+    let file = std::fs::File::open(path)?;
+    let mut reader = std::io::BufReader::new(file);
+    reader.read_to_end(&mut bytes)?;
+
+    let res = Emu::load_rom_from_bytes(&bytes);
+    match res {
+      Ok(_) => res,
+      Err(_) => {
+        reader.rewind()?;
+        bytes.clear();
+
+        if let Ok(mut archive) = zip::read::ZipArchive::new(&mut reader) {
+          // it is a zip file
+          let mut zip = archive.by_index(0)?;
+          zip.read_to_end(&mut bytes)?;
+          Emu::load_rom_from_bytes(&bytes)
+        } else {
+          // not a zip file either
+          res
+        }
+      }
+    }
+  }
+
+  pub fn save_battery_to_file(&self, path: &str) -> std::io::Result<bool> {
+    use std::io::Write;
+
+    if let Some(sram) = self.save_battery() {
+      let mut save_path = std::path::PathBuf::from(&path);
+      save_path.set_extension("sram");
+
+      let file = std::fs::File::create(&save_path)?;
+      let mut writer = std::io::BufWriter::new(file);
+      writer.write_all(sram)?;
+      Ok(true)
+    } else {
+      Ok(false)
+    }
+  }
+
+  pub fn load_battery_from_file(&mut self, path: &str) -> Result<(), LoadError> {
+    use std::io::Read;
+    
+    let mut load_path = std::path::PathBuf::from(&path);
+    load_path.set_extension("sram");
+    if let Ok(file) = std::fs::File::open(&load_path) {
+      let mut buf = Vec::new();
+      let mut reader = std::io::BufReader::new(file);
+      reader.read_to_end(&mut buf)?;
+      self.load_battery(&buf)
+    } else {
+      Err("no sram dump file found".into())
+    }
   }
 }
