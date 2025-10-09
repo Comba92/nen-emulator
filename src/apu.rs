@@ -9,6 +9,7 @@ pub struct DividerCounter {
 }
 
 impl DividerCounter {
+  // TODO: are we sure we should first reload the counter and only then execute the callback?
   pub fn step(&mut self) -> bool {
     if self.count > 0 {
       self.count -= 1;
@@ -49,7 +50,7 @@ impl LengthCounter {
     }
   }
 
-  pub fn enable(&mut self, cond: bool) {
+  fn enable(&mut self, cond: bool) {
     self.enabled = cond;
     self.count = if cond { self.count } else { 0 };
   }
@@ -89,7 +90,6 @@ impl Envelope {
     self.looping    = val & 0x20 != 0;
     self.use_volume = val & 0x10 != 0;
     self.div.period = val as u16 & 0xf;
-
     self.update_volume();
   }
 
@@ -114,12 +114,6 @@ struct Sweep {
   target_period: u16,
 }
 
-// TODO: implement this for audio stuff, to have a lil cleaner interface
-pub trait Channel {
-  fn step_divider(&mut self);
-  fn sample(&self) -> u8;
-}
-
 // https://www.nesdev.org/wiki/APU_Pulse
 #[derive(Default)]
 pub struct Pulse {
@@ -129,6 +123,8 @@ pub struct Pulse {
   sweep: Sweep,
   duty_seq: u8,
   duty_cycle: u8,
+  muted: bool,
+  pub output: u8,
 }
 
 impl Pulse {
@@ -149,6 +145,8 @@ impl Pulse {
     self.env.set(val);
     self.len.halted = val & 0x10 != 0;
     self.duty_cycle = val >> 6;
+
+    self.update_output();
   }
 
   fn write_sweep(&mut self, val: u8) {
@@ -160,33 +158,53 @@ impl Pulse {
     sweep.shift = val & 0b111;
     sweep.reload = true;
 
-    self.update_target_period();
+    self.update_output();
   }
 
   pub fn write_timer_lo(&mut self, val: u8) {
     self.div.period = byte_set_lo(self.div.period, val);
-    self.update_target_period();
+    self.update_output();
   }
 
   pub fn write_timer_hi(&mut self, val: u8) {
     self.div.period = byte_set_hi(self.div.period, val & 0b111);
     self.len.load(val);
-    self.update_target_period();
-
+    
     self.duty_seq = 0;
     self.env.start = true;
+
+    self.update_output();
   }
 
   pub fn step_divider(&mut self) {
     if self.div.step() {
-      self.duty_seq = (self.duty_seq + 1) % Self::DUTIES[0].len() as u8;
+      self.duty_seq = (self.duty_seq + 1) % 8;
+      self.update_output();
     }
   }
 
-  fn is_muted(&self) -> bool {
-    // TODO: precompute this
-    // Thus to fully disable the sweep unit, a program must additionally turn on the Negate flag, such as by writing $08. This ensures that the target period is not greater than the current period and therefore not greater than $7FF. 
-    self.div.period < 8 || (!self.sweep.negate && self.sweep.target_period > 0x7ff)
+  fn step_sweep(&mut self) {
+    // https://www.nesdev.org/wiki/APU_Sweep#Updating_the_period
+    if self.sweep.count > 0 {
+      self.sweep.count -= 1;
+    } else {
+      if self.sweep.enabled && self.sweep.shift > 0 && !self.muted {
+        self.div.period = self.sweep.target_period;
+        self.update_output();
+      }
+      self.sweep.count = self.sweep.period;
+    }
+
+    let sweep = &mut self.sweep;
+    if sweep.reload {
+      sweep.count = sweep.period;
+      sweep.reload = false;
+    }
+  }
+
+  pub fn enable(&mut self, cond: bool) {
+    self.len.enable(cond);
+    self.update_output();
   }
 
   fn update_target_period(&mut self) {
@@ -201,33 +219,16 @@ impl Pulse {
     }
   }
 
-  fn step_sweep(&mut self) {
-    // https://www.nesdev.org/wiki/APU_Sweep#Updating_the_period
-    if self.sweep.count > 0 {
-      self.sweep.count -= 1;
-    } else {
-      if self.sweep.enabled && self.sweep.shift > 0 && !self.is_muted() {
-        self.div.period = self.sweep.target_period;
-        self.update_target_period();
-      }
-      self.sweep.count = self.sweep.period;
-    }
+  fn update_output(&mut self) {
+    self.update_target_period();
+    // Thus to fully disable the sweep unit, a program must additionally turn on the Negate flag, such as by writing $08. This ensures that the target period is not greater than the current period and therefore not greater than $7FF. 
+    self.muted = self.div.period < 8 || (!self.sweep.negate && self.sweep.target_period > 0x7ff);
 
-    let sweep = &mut self.sweep;
-    if sweep.reload {
-      sweep.count = sweep.period;
-      sweep.reload = false;
-    }
-  }
-
-  pub fn sample(&self) -> u8 {
-    if self.len.count > 0 && !self.is_muted() {
-      // TODO: might be difficult, but output can be precomputed
-      let seq = Self::DUTIES[self.duty_cycle as usize][self.duty_seq as usize];
-      seq * self.env.volume
+    self.output = if self.len.count > 0 && !self.muted {
+      self.env.volume * Self::DUTIES[self.duty_cycle as usize][self.duty_seq as usize]
     } else {
       0
-    }
+    };
   }
 }
 
@@ -240,6 +241,7 @@ struct Triangle {
   linear_reload: u8,
   linear_reload_flag: bool,
   sequence: u8,
+  pub output: u8,
 }
 
 impl Triangle {
@@ -254,6 +256,7 @@ impl Triangle {
       
       if self.len.count > 0 && self.linear_count > 0 {
         self.sequence = (self.sequence + 1) % Self::TABLE.len() as u8;
+        self.update_output();
       }
     }
   }
@@ -275,16 +278,15 @@ impl Triangle {
     self.linear_count = if cond { self.linear_count } else { 0 };
   }
 
-  fn sample(&self) -> u8 {
+  fn update_output(&mut self) {
     // At the expense of accuracy, these can be eliminated in an emulator e.g. by halting the triangle channel when an ultrasonic frequency is set (a timer value less than 2). 
     // Other games, e.g. Zombie Nation and Bullet-Proof Software's Tetris, "silence" the triangle channel by setting the timer to $7FF, which produces a deep rumble and quiet whine. 
     
-    // TODO: precompute output
-    if 2 <= self.div.period && self.div.period < 0x7ff {
+    self.output = if 2 <= self.div.period && self.div.period < 0x7ff {
       Self::TABLE[self.sequence as usize]
     } else {
       0
-    }
+    };
   }
 }
 
@@ -295,6 +297,7 @@ struct Noise {
   env: Envelope,
   looping: bool,
   shift: u16,
+  pub output: u8,
 }
 
 impl Noise {
@@ -322,17 +325,21 @@ impl Noise {
       self.shift >>= 1;
       // Bit 14, the leftmost bit, is set to the feedback calculated earlier
       self.shift |= feedback << 14;
+      self.update_output();
     }
   }
 
-  fn sample(&self) -> u8 {
-    // TODO: precompute output
+  fn enable(&mut self, cond: bool) {
+    self.len.enable(cond);
+    self.update_output();
+  }
 
-    if self.len.count > 0 {
+  fn update_output(&mut self) {
+    self.output = if self.len.count > 0 {
       (self.shift & 1 > 0) as u8 * self.env.volume
     } else {
       0
-    }
+    };
   }
 }
 
@@ -341,7 +348,7 @@ pub struct Dmc {
   div: DividerCounter,
   irq_enabled: bool,
   looping: bool,
-  output: u8,
+  pub output: u8,
   sample_addr: u16,
   sample_len: u16,
   
@@ -413,10 +420,6 @@ impl Dmc {
       // If the DMC bit is clear, the DMC bytes remaining will be set to 0 and the DMC will silence when it empties.
       self.dma.remaining = 0;
     }
-  }
-
-  pub fn sample(&mut self) -> u8 {
-    self.output
   }
 }
 
@@ -574,11 +577,15 @@ impl Emu {
         apu.tri.len.halted = val & 0x80 != 0;
         apu.tri.linear_reload = val & 0x7f;
       }
-      0x400a => apu.tri.div.period = byte_set_lo(apu.tri.div.period, val),
+      0x400a => {
+        apu.tri.div.period = byte_set_lo(apu.tri.div.period, val);
+        apu.tri.update_output();
+      }
       0x400b => {
         apu.tri.len.load(val);
         apu.tri.div.period = byte_set_hi(apu.tri.div.period, val & 0x7);
         apu.tri.linear_reload_flag = true;
+        apu.tri.update_output();
       }
 
       0x400c => {
@@ -619,10 +626,10 @@ impl Emu {
       0x4013 => apu.dmc.sample_len = ((val as u16) * 16) + 1,
 
       0x4015 => {
-        apu.p0.len.enable (val & 0x1 > 0);
-        apu.p1.len.enable (val & 0x2 > 0);
+        apu.p0.enable (val & 0x1 > 0);
+        apu.p1.enable (val & 0x2 > 0);
         apu.tri.enable(val & 0x4 > 0);
-        apu.noise.len.enable(val & 0x8 > 0);
+        apu.noise.enable(val & 0x8 > 0);
         apu.dmc.enable(val & 0x10 > 0);
       
         self.mem.irq.remove(IrqFlags::DMC);
@@ -709,8 +716,8 @@ impl Emu {
     // let tnd_sum = (3 * apu.tri.sample() + 2 * apu.noise.sample() + apu.dmc.sample()) as usize;
     // let tnd = ApuRP2A::TND_TABLE[tnd_sum];
 
-    let pulse = 95.88 / ((8128.0 / (apu.p0.sample() as f64 + apu.p1.sample() as f64)) + 100.0);
-    let tnd_sum = (apu.tri.sample() as f64 / 8227.0) + (apu.noise.sample() as f64 / 12241.0) + (apu.dmc.sample() as f64 / 22638.0);
+    let pulse = 95.88 / ((8128.0 / (apu.p0.output + apu.p1.output) as f64) + 100.0);
+    let tnd_sum = (apu.tri.output as f64 / 8227.0) + (apu.noise.output as f64 / 12241.0) + (apu.dmc.output as f64 / 22638.0);
     let tnd = 159.79 / ((1.0 / tnd_sum) + 100.0);
 
     let ext = self.mapper.sample();
@@ -727,7 +734,7 @@ impl Emu {
   fn frame_count_step(&mut self) {
     // The sequencer is clocked on every other CPU cycle, so 2 CPU cycles = 1 APU cycle
     
-    // TODO: change this so that the table is copied to a local one at construction, with the correct const table 
+    // 1: change this so that the table is copied to a local one at construction, with the correct const table 
     match self.region() {
       Region::NTSC => self.frame_count_step_ntsc(),
       Region::PAL => self.frame_count_step_pal(),

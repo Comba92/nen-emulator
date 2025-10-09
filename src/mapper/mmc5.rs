@@ -283,8 +283,8 @@ impl Mapper for MMC5 {
       0x5007 => self.p1.write_timer_hi(val),
 
       0x5015 => {
-        self.p0.len.enable(val & 0x1 > 0);
-        self.p1.len.enable(val & 0x2 > 0);
+        self.p0.enable(val & 0x1 > 0);
+        self.p1.enable(val & 0x2 > 0);
       }
 
       0x5100 => {
@@ -543,7 +543,7 @@ impl Mapper for MMC5 {
 
   // The sound output of the square channels are equivalent in volume to the corresponding APU channels, but the polarity of all MMC5 channels is reversed compared to the APU. 
   fn sample(&self) -> f64 {
-    let res = (self.p0.sample() as f64 + self.p1.sample() as f64).neg();
+    let res = ((self.p0.output + self.p1.output) as f64).neg();
     res * ApuRP2A::EXT_MIX
   }
 }
