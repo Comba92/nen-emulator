@@ -138,6 +138,7 @@ impl Pulse {
   pub fn new(complement: bool) -> Self {
     let mut res = Self::default();
     res.sweep.complement = complement;
+    res.sweep.negate = true;
     res
   }
 
@@ -529,12 +530,12 @@ impl ApuRP2A {
 
     self.blip.0.clear();
   }
-
-  // https://forums.nesdev.org/viewtopic.php?t=12449
-  const PULSE_MAX: f64 = 15.0;
-  const PULSE_STRENGTH: f64 = 95.88 / ((8128.0 / Self::PULSE_MAX) + 100.0);
-  pub const EXT_MIX: f64 = Self::PULSE_STRENGTH / Self::PULSE_MAX;
 }
+
+// https://forums.nesdev.org/viewtopic.php?t=12449
+const PULSE_MAX: f64 = 15.0;
+const PULSE_STRENGTH: f64 = 95.88 / ((8128.0 / PULSE_MAX) + 100.0);
+pub const EXT_MIX: f64 = PULSE_STRENGTH / PULSE_MAX;
 
 impl Emu {
   pub fn apu_reg_read(&mut self, addr: u16) -> u8 {
@@ -719,7 +720,6 @@ impl Emu {
     let pulse = 95.88 / ((8128.0 / (apu.p0.output + apu.p1.output) as f64) + 100.0);
     let tnd_sum = (apu.tri.output as f64 / 8227.0) + (apu.noise.output as f64 / 12241.0) + (apu.dmc.output as f64 / 22638.0);
     let tnd = 159.79 / ((1.0 / tnd_sum) + 100.0);
-
     let ext = self.mapper.sample();
     
     let sample = (pulse + tnd + ext) * 30000.0;

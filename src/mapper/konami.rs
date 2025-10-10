@@ -1,6 +1,6 @@
 use std::ops::Neg;
 
-use crate::{apu::ApuRP2A, bus::{Banking, Bus, CpuHandler, IrqFlags}, emu::Mirroring, mapper::Mapper, utils::byte_set_lo};
+use crate::{apu, bus::{Banking, Bus, CpuHandler, IrqFlags}, emu::Mirroring, mapper::Mapper, utils::byte_set_lo};
 
 // https://www.nesdev.org/wiki/VRC1
 #[derive(Default)]
@@ -331,10 +331,12 @@ mod vrc6 {
   pub struct Pulse {
     enabled: bool,
     div: apu::DividerCounter,
+    period: u16,
     volume: u8,
     duty: u8,
     step: u8,
     ignore_duty: bool,
+    pub output: u8, 
   }
 
   impl Pulse {
@@ -342,33 +344,38 @@ mod vrc6 {
       self.volume = val & 0xf;
       self.duty = (val >> 4) & 0x7;
       self.ignore_duty = val & 0x80 > 0;
+      self.update_output();
     }
 
-    pub fn write_freq_lo(&mut self, val: u8) {
-      self.div.period = byte_set_lo(self.div.period, val);
+    pub fn write_freq_lo(&mut self, val: u8, shift: u8) {
+      self.period = byte_set_lo(self.div.period, val);
+      self.div.period = self.period >> shift;
     }
 
     pub fn write_freq_hi(&mut self, val: u8, shift: u8) {
-      self.div.period = byte_set_hi(self.div.period, val & 0xf);
-      self.div.period >>= shift;
+      self.period = byte_set_hi(self.div.period, val & 0xf);
+      self.div.period = self.period >> shift;
 
       self.enabled = val & 0x80 > 0;
 
       if !self.enabled {
         self.step = 0;
       }
+
+      self.update_output();
     }
 
     pub fn step(&mut self) {
       if self.div.step() {
         self.step = (self.step + 1) % 16;
+        self.update_output();
       }
     }
 
-    pub fn sample(&self) -> u8 {
-      if self.enabled && (self.ignore_duty || self.step <= self.duty) {
+    pub fn update_output(&mut self) {
+      self.output = if self.enabled && (self.ignore_duty || self.step <= self.duty) {
         self.volume
-      } else { 0 }
+      } else { 0 };
     }
   }
 
@@ -379,25 +386,31 @@ mod vrc6 {
     acc: u8,
     count: u8,
     div: apu::DividerCounter,
+    period: u16,
+    pub output: u8,
   }
+
   impl Saw {
     pub fn write_ctrl(&mut self, val: u8) {
       self.rate = val & 0x3f;
     }
 
-    pub fn write_freq_lo(&mut self, val: u8) {
-      self.div.period = byte_set_lo(self.div.period, val);
+    pub fn write_freq_lo(&mut self, val: u8, shift: u8) {
+      self.period = byte_set_lo(self.div.period, val);
+      self.div.period = self.period >> shift;
     }
 
     pub fn write_freq_hi(&mut self, val: u8, shift: u8) {
-      self.div.period = byte_set_hi(self.div.period, val & 0xf);
-      self.div.period >>= shift;
+      self.period = byte_set_hi(self.div.period, val & 0xf);
+      self.div.period = self.period >> shift;
 
       self.enabled = val & 0x80 > 0;
       if !self.enabled {
         self.acc = 0;
         self.count = 0;
       }
+
+      self.update_output();
     }
 
     pub fn step(&mut self) {
@@ -410,11 +423,13 @@ mod vrc6 {
           // If A is more than 42 the accumulator will wrap, resulting in distorted sound. 
           self.acc = (self.acc + self.rate) % 42;
         }
+
+        self.update_output();
       }
     }
 
-    pub fn sample(&self) -> u8 {
-      if self.enabled { self.acc >> 3 } else { 0 }
+    pub fn update_output(&mut self) {
+      self.output = if self.enabled { self.acc >> 3 } else { 0 };
     }
   }
 }
@@ -589,15 +604,15 @@ impl Mapper for VRC6 {
       }
 
       0x9000 => self.p0.write_ctrl(val),
-      0x9001 => self.p0.write_freq_lo(val),
+      0x9001 => self.p0.write_freq_lo(val, self.audio_freq_shift),
       0x9002 => self.p0.write_freq_hi(val, self.audio_freq_shift),
 
       0xa000 => self.p1.write_ctrl(val),
-      0xa001 => self.p1.write_freq_lo(val),
+      0xa001 => self.p1.write_freq_lo(val, self.audio_freq_shift),
       0xa002 => self.p1.write_freq_hi(val, self.audio_freq_shift),
 
       0xb000 => self.saw.write_ctrl(val),
-      0xb001 => self.saw.write_freq_lo(val),
+      0xb001 => self.saw.write_freq_lo(val, self.audio_freq_shift),
       0xb002 => self.saw.write_freq_hi(val, self.audio_freq_shift),
       _ => {}
     }
@@ -614,9 +629,9 @@ impl Mapper for VRC6 {
   }
 
   fn sample(&self) -> f64 {
-    let res = (self.p0.sample() as f64 + self.p1.sample() as f64 + self.saw.sample() as f64).neg();
+    let res = (self.p0.output as f64 + self.p1.output as f64 + self.saw.output as f64).neg();
     // https://forums.nesdev.org/viewtopic.php?t=12449
-    res * ApuRP2A::EXT_MIX
+    res * apu::EXT_MIX
   }
 }
 

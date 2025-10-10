@@ -1,4 +1,4 @@
-use crate::{apu::ApuRP2A, bus::{Banking, Bus, ChrBank, CpuHandler, IrqFlags, PpuHandler}, emu::Mirroring, utils::{byte_set_hi, byte_set_lo}};
+use crate::{apu, bus::{Banking, Bus, ChrBank, CpuHandler, IrqFlags, PpuHandler}, emu::Mirroring, utils::{byte_set_hi, byte_set_lo}};
 
 mod konami;
 use konami::*;
@@ -1005,6 +1005,7 @@ mod namco {
     auto_incr: bool,
     channel_curr: u8,
     outputs: [i16; 8],
+    pub output: i16,
   }
   impl Default for Audio {
     fn default() -> Self {
@@ -1015,6 +1016,7 @@ mod namco {
         auto_incr: false,
         channel_curr: 0,
         outputs: [0; 8],
+        output: 0,
       }
     }
   }
@@ -1122,6 +1124,13 @@ mod namco {
       
       self.outputs[channel as usize] = (sample as i16 - 8) * volume as i16;
       self.channel_curr = (self.channel_curr + 1) % self.channels_enabled();
+
+      let sum = self.outputs.iter()
+        .rev() // start from last
+        .take(self.channels_enabled() as usize) // take only enabled
+        .sum::<i16>();
+
+      self.output = sum / self.channels_enabled() as i16;
     }
 
     pub fn step(&mut self, cycles: usize) {
@@ -1130,15 +1139,6 @@ mod namco {
       if cycles % 15 == 0 {
         self.waves_update();
       }
-    }
-
-    pub fn sample(&self) -> i16 {
-      let sum = self.outputs.iter()
-        .rev() // start from last
-        .take(self.channels_enabled() as usize) // take only enabled
-        .sum::<i16>();
-
-      sum / self.channels_enabled() as i16
     }
   }
 }
@@ -1291,7 +1291,7 @@ impl Mapper for Namco129_163 {
   }
 
   fn sample(&self) -> f64 {
-    self.audio.sample() as f64 * (ApuRP2A::EXT_MIX * 0.5)
+    self.audio.output as f64 * (apu::EXT_MIX * 0.5)
   }
 }
 
@@ -1740,36 +1740,29 @@ impl Mapper for Sunsoft4 {
 
 
 mod sunsoft_fme7 {
-  use crate::apu::{self, DividerCounter};
+    use crate::apu;
 
   // https://www.nesdev.org/wiki/Sunsoft_5B_audio
+  #[derive(Default)]
   pub struct Tone {
     pub enabled: bool,
     pub div: apu::DividerCounter,
     pub volume: u8,
     step: u16,
+    pub output: f64,
   }
-  impl Default for Tone {
-    fn default() -> Self {
-      Self {
-        div: DividerCounter::default(),
-        enabled: false,
-        volume: 0,
-        step: 0,
-      }
-    }
-  }
+
   impl Tone {
     // https://github.com/SourMesen/Mesen2/blob/fabc9a62174f8734a113df6d244f5539ef6b8fcf/Core/NES/Mappers/Audio/Sunsoft5bAudio.h#L99
-    pub const TABLE: [u8; 16] = {
-      let mut lut = [0; 0x10];
+    pub const TABLE: [f64; 16] = {
+      let mut lut = [0.0; 0x10];
       
       let mut i = 1;
       let mut out: f64 = 1.0;
       while i < 16 {
         out *= 1.1885022274370184377301224648922;
         out *= 1.1885022274370184377301224648922;
-        lut[i] = out as u8;
+        lut[i] = out;
         i += 1;
       }
 
@@ -1784,11 +1777,12 @@ mod sunsoft_fme7 {
       // at which point the output flips and the counter resets to 0. 
       if self.div.step() {
         self.step = (self.step + 1) & 0xf;
+        self.update_output();
       }
     }
 
-    pub fn sample(&self) -> u8 {
-      if self.enabled && self.step < 0x8 { Self::TABLE[self.volume as usize] } else { 0 }
+    pub fn update_output(&mut self) {
+      self.output = if self.enabled && self.step < 0x8 { Self::TABLE[self.volume as usize] } else { 0.0 }
     }
   }
 }
@@ -1889,6 +1883,10 @@ impl Mapper for SunsoftFME7 {
           // Because this game did not use many features of the chip (e.g. noise, envelope), its features are often only partially implemented by emulators. 
           _ => {}
         }
+
+        self.ta.update_output();
+        self.tb.update_output();
+        self.tc.update_output();
       }
       _ => {}
     }
@@ -1912,7 +1910,7 @@ impl Mapper for SunsoftFME7 {
 
   fn sample(&self) -> f64 {
     // It is very loud compared to other audio expansion carts. 
-    (ApuRP2A::EXT_MIX * 0.3) * (self.ta.sample() as f64 + self.tb.sample() as f64 + self.tc.sample() as f64)
+    (apu::EXT_MIX * 0.3) * (self.ta.output + self.tb.output + self.tc.output)
   }
 }
 

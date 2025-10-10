@@ -1,5 +1,5 @@
 use std::ops::Neg;
-use crate::{apu::{self, ApuRP2A}, bus::{Banking, Bus, CpuHandler, IrqFlags, PpuHandler}, mapper::Mapper};
+use crate::{apu, bus::{Banking, Bus, CpuHandler, IrqFlags, PpuHandler}, mapper::Mapper};
 
 #[derive(Default, PartialEq, Debug)]
 enum WramKind { #[default] SingleChip, DoubleChip16kb, DoubleChip64kb }
@@ -544,6 +544,6 @@ impl Mapper for MMC5 {
   // The sound output of the square channels are equivalent in volume to the corresponding APU channels, but the polarity of all MMC5 channels is reversed compared to the APU. 
   fn sample(&self) -> f64 {
     let res = ((self.p0.output + self.p1.output) as f64).neg();
-    res * ApuRP2A::EXT_MIX
+    res * apu::EXT_MIX
   }
 }
