@@ -1,3 +1,5 @@
+use std::path::{Path, PathBuf};
+
 use crate::{apu::ApuRP2A, bus::Bus, cpu::{self, Cpu6502}, joypad::Joypad, mapper::{self, BoxedMapper, Mapper}, ppu::Ppu2C02, rom::{Cart, CartHeader, Disk}, Palette};
 
 #[derive(Default)]
@@ -280,7 +282,7 @@ impl Emu {
     &self.audiobuf[..read]
   }
 
-  pub fn load_rom_from_file(path: &str) -> Result<Self, LoadError> {
+  pub fn load_rom_from_file<P: AsRef<Path>>(path: P) -> Result<Self, LoadError> {
     use std::io::{Read, Seek};
 
     let mut bytes = Vec::new();
@@ -308,11 +310,11 @@ impl Emu {
     }
   }
 
-  pub fn save_battery_to_file(&self, path: &str) -> std::io::Result<bool> {
+  pub fn save_battery_to_file<P: AsRef<Path>>(&self, path: P) -> std::io::Result<bool> {
     use std::io::Write;
 
     if let Some(sram) = self.save_battery() {
-      let mut save_path = std::path::PathBuf::from(&path);
+      let mut save_path = PathBuf::from(path.as_ref());
       save_path.set_extension("sram");
 
       let file = std::fs::File::create(&save_path)?;
@@ -324,10 +326,10 @@ impl Emu {
     }
   }
 
-  pub fn load_battery_from_file(&mut self, path: &str) -> Result<(), LoadError> {
+  pub fn load_battery_from_file<P: AsRef<Path>>(&mut self, path: P) -> Result<(), LoadError> {
     use std::io::Read;
     
-    let mut load_path = std::path::PathBuf::from(&path);
+    let mut load_path = PathBuf::from(path.as_ref());
     load_path.set_extension("sram");
     if let Ok(file) = std::fs::File::open(&load_path) {
       let mut buf = Vec::new();

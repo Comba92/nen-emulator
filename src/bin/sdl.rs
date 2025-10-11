@@ -3,31 +3,6 @@ use std::{fs, io::{BufReader, BufWriter, Read, Seek, Write}, path};
 use nes_emulator::{emu::Emu, joypad::Button};
 use sdl2::{event::{Event, WindowEvent}, keyboard::Keycode, pixels::PixelFormatEnum};
 
-fn load_rom(path: &str) -> Result<Emu, Box<dyn std::error::Error>> {
-    let mut bytes = Vec::new();
-    let file = std::fs::File::open(path)?;
-    let mut reader = BufReader::new(file);
-    reader.read_to_end(&mut bytes)?;
-
-    let res = Emu::load_rom_from_bytes(&bytes);
-    match res {
-        Ok(_) => res,
-        Err(_) => {
-            reader.rewind()?;
-            bytes.clear();
-
-            if let Ok(mut archive) = zip::read::ZipArchive::new(&mut reader) {
-                // it is a zip file
-                let mut zip = archive.by_index(0)?;
-                zip.read_to_end(&mut bytes)?;
-                Emu::load_rom_from_bytes(&bytes)
-            } else {
-                // not a zip file either
-                res
-            }
-        }
-    }
-}
 fn main() {
     let sdl = sdl2::init().unwrap();
     let video = sdl.video().unwrap();
@@ -38,7 +13,7 @@ fn main() {
         freq: Some(48000),
         samples: None,
     };
-    let audiodev = audio.open_queue(None, &audiospec).unwrap();
+    let audiodev = audio.open_queue::<i16, _>(None, &audiospec).unwrap();
     audiodev.resume();
     println!("{:?}", audiodev.spec());
 
@@ -71,7 +46,7 @@ fn main() {
     //     .unwrap();
     // debug_tex.set_scale_mode(sdl2::render::ScaleMode::Nearest);
 
-    let mut emu = Emu::load_rom_from_bytes(include_bytes!("../roms/super mario.nes")).unwrap();
+    let mut emu = Emu::load_rom_from_bytes(include_bytes!("../../roms/super mario.nes")).unwrap();
     let mut rom_filename = "../roms/super mario.nes".to_string();
 
     let mut frame_rate = (1.0 / emu.frame_rate() * 1000.0).round() as u64;
@@ -98,7 +73,7 @@ fn main() {
                         continue;
                     }
                     
-                    let new_emu = load_rom(&filename);
+                    let new_emu = Emu::load_rom_from_file(&filename);
                     match new_emu {
                         Ok(res) => {
                             // save current game battery
