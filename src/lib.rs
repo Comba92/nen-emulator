@@ -51,7 +51,7 @@ impl Palette {
 
 pub mod joypad {
   bitflags::bitflags! {
-    #[derive(Default)]
+    #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub struct Button: u8 {
       const A = 1 << 0;
       const B = 1 << 1;

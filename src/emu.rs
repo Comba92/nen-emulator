@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use crate::{apu::ApuRP2A, bus::Bus, cpu::{self, Cpu6502}, joypad::Joypad, mapper::{self, BoxedMapper, Mapper}, ppu::Ppu2C02, rom::{Cart, CartHeader, Disk}, Palette};
 
 #[derive(Default)]
-pub struct EmuSettings {
+pub struct Settings {
   pub random_ram: bool,
   pub no_sprite_limit: bool,
   pub disable_background: bool,
@@ -19,11 +19,13 @@ pub struct EmuSettings {
   pub disable_noise: bool,
   pub disable_dmc: bool,
   pub disable_ext_audio: bool,
+
+  pub bios: Option<Vec<u8>>, 
 }
-impl EmuSettings {
+impl Settings {
   pub fn new() -> Self {
     Self {
-      // no_sprite_limit: true,
+      no_sprite_limit: true,
       ..Default::default()
     }
   }
@@ -43,7 +45,7 @@ pub struct Emu {
   audio_read: bool,
 
   pub(crate) palette: Palette,
-  pub settings: EmuSettings,
+  pub settings: Settings,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, bitcode::Encode, bitcode::Decode)]
@@ -115,7 +117,7 @@ impl Emu {
       palette,
       
       frame_ready: false,
-      settings: EmuSettings::new()
+      settings: Settings::new()
     };
 
     emu.cpu.pc = emu.cpu_read16(cpu::RST_VECTOR);
@@ -164,7 +166,7 @@ impl Emu {
     }
   }
 
-  pub fn emu_step_until_vblank(&mut self) {
+  pub fn step_until_vblank(&mut self) {
     // TODO: temporary solution
     if !self.audio_read { self.apu.blip.0.clear(); }
     self.audio_read = false;
