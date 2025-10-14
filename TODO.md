@@ -29,7 +29,7 @@ https://www.reddit.com/r/EmuDev/comments/xta12t/confused_about_cycles_and_emulat
 - https://www.nesdev.org/wiki/GTROM
 
 # TODO
-- Savestates
+- Optimize savestates
 - Fastforwarding
 
 - FDS audio
@@ -37,6 +37,7 @@ https://www.reddit.com/r/EmuDev/comments/xta12t/confused_about_cycles_and_emulat
 
 - better public interface
 - build script?
+
 
 - better reset
 - check perf of unchecked accesses to memory vectors
@@ -46,3 +47,4 @@ https://www.reddit.com/r/EmuDev/comments/xta12t/confused_about_cycles_and_emulat
 - merge with nen-emulator
 
 - performance imprevements?
+- WASM

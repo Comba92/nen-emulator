@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use crate::{apu::ApuRP2A, bus::Bus, cpu::{self, Cpu6502}, joypad::Joypad, mapper::{self, BoxedMapper, Mapper}, ppu::Ppu2C02, rom::{Cart, CartHeader, Disk}, Palette};
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Settings {
   pub random_ram: bool,
@@ -10,10 +10,9 @@ pub struct Settings {
   pub disable_background: bool,
   pub disable_sprites: bool,
   pub pal_borders: bool,
-  pub battery_saving: bool,
 
   pub audio_sample_rate: usize,
-  pub volume: f32,
+  pub volume: f64,
   pub disable_pulse0: bool,
   pub disable_pulse1: bool,
   pub disable_triangle: bool,
@@ -21,12 +20,13 @@ pub struct Settings {
   pub disable_dmc: bool,
   pub disable_ext_audio: bool,
 
-  pub bios: Option<Vec<u8>>, 
+  pub bios: Option<Vec<u8>>,
 }
 impl Settings {
   pub fn new() -> Self {
     Self {
       no_sprite_limit: true,
+      volume: 20.0,
       ..Default::default()
     }
   }
@@ -292,14 +292,6 @@ impl Emu {
     &self.audiobuf[..read]
   }
 
-  fn buffered_read<P: AsRef<Path>>(path: P) -> Result<Vec<u8>, LoadError> {
-    use std::io::Read;
-    let mut buf = Vec::new();
-    let file = std::fs::File::open(path)?;
-    let mut reader = std::io::BufReader::new(file);
-    reader.read_to_end(&mut buf)?;
-    Ok(buf)
-  }
 
   pub fn load_rom_from_file<P: AsRef<Path>>(path: P) -> Result<Self, LoadError> {
     use std::io::{Read, Seek};

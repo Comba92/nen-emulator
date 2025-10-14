@@ -348,7 +348,6 @@ impl Mapper for MMC5 {
         self.irq_enabled = val & 0x80 > 0;
       
         if self.irq_enabled && self.irq_pending {
-          println!("{}", mem.ppu_cycle);
           mem.irq.insert(IrqFlags::MAPPER);
         } else if !self.irq_enabled {
           mem.irq.remove(IrqFlags::MAPPER);
@@ -485,7 +484,6 @@ impl Mapper for MMC5 {
           // However, an actual IRQ is only sent to the CPU if both the scanline IRQ enable flag and IRQ pending flag are set. 
           // A $5203 value of $00 is a special case where the comparison is never true.
           if self.irq_enabled {
-            println!("{}", mem.ppu_cycle);
             mem.irq.insert(IrqFlags::MAPPER);
           }
         }

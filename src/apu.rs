@@ -219,7 +219,7 @@ impl Pulse {
     let change_amt = self.div.period >> sweep.shift;
     if sweep.negate {
       sweep.target_period = self.div.period.saturating_sub(change_amt);
-      sweep.target_period -= sweep.complement as u16;
+      sweep.target_period = sweep.target_period.saturating_sub(sweep.complement as u16);
     } else {
       sweep.target_period = self.div.period + change_amt;
     }
@@ -733,7 +733,7 @@ impl Emu {
     let tnd = 159.79 / ((1.0 / tnd_sum) + 100.0);
     let ext = self.mapper.sample();
     
-    let sample = (pulse + tnd + ext) * 30000.0;
+    let sample = (pulse + tnd + ext) * (self.settings.volume * 1000.0);
     let delta = sample - apu.prev_sample;
 
     apu.blip.0.add_delta(apu.cycles, delta);
