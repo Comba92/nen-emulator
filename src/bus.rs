@@ -1,12 +1,18 @@
-use crate::{emu::{Emu, Mirroring}, mapper::{self, BoxedMapper, Mapper}, rom::{Cart, CartHeader, Disk}};
+use crate::{emu::{Emu, Mirroring}, mapper::{self, BoxedMapper, Mapper}, rom::{self, Cart, CartHeader, Disk}};
 
 pub trait BankCfg {}
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Default)] pub struct PrgBank; impl BankCfg for PrgBank {}
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Default)] pub struct ChrBank; impl BankCfg for ChrBank {}
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Default)] pub struct WramBank; impl BankCfg for WramBank {}
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Default)] pub struct VramBank; impl BankCfg for VramBank {}
 
 #[derive(Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Banking<T: BankCfg> {
   pub banks_count: u16,
   bank_size: u16,
@@ -141,6 +147,7 @@ impl Banking<VramBank> {
 }
 
 #[derive(Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct BanksHandler {
   pub prg:  Banking<PrgBank>,
   pub chr:  Banking<ChrBank>,
@@ -160,6 +167,7 @@ impl BanksHandler {
 
 bitflags::bitflags! {
   #[derive(Debug, Default, Clone)]
+  #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
   pub struct IrqFlags: u8 {
     const FRAME = 1 << 0;
     const DMC = 1 << 2;
@@ -169,17 +177,24 @@ bitflags::bitflags! {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum CpuHandler {
   Ram, Ppu, IO, Wram, WramReadOnly, Prg, OpenBus, Mapper, PrgSpecial, PpuMMC5
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum PpuHandler {
   ChrRom, ChrRam, Vram, Palette, ChrMMC5, VramMMC5
 }
 
+#[cfg(feature = "serde")]
+use serde_big_array::BigArray;
+
 // TODO: access prg, chr, sram, vram with unsafe uncheked get, as index bounds cannot be optimized
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Bus {
+  #[cfg_attr(feature = "serde", serde(with = "BigArray"))]
   ram: [u8; 2 * 1024],
   pub prg: Vec<u8>,
   pub wram: Vec<u8>,
@@ -280,6 +295,7 @@ impl Bus {
 
   pub fn with_disk(disk: Disk) -> (Self, BoxedMapper) {
     let mut header = CartHeader::default();
+    header.format = rom::HeaderFormat::FDS;
     header.mapper = 20;
 
     let mut banks = BanksHandler::default();

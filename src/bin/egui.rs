@@ -54,11 +54,11 @@ impl Default for KeyMap {
   }
 }
 
-#[derive(Default)]
+#[derive(Default, PartialEq)]
 enum EmuState {
-  Running(Box<emu::Emu>),
-  Paused(Box<emu::Emu>),
-  Stopped(Box<emu::Emu>),
+  Running,
+  Paused,
+  Stopped,
   #[default] Off,
 }
 
@@ -67,13 +67,19 @@ struct SdlCtx {
   _audio: sdl2::AudioSubsystem,
   audiodev: sdl2::audio::AudioQueue<i16>,
 }
+impl Default for SdlCtx {
+  fn default() -> Self {
+    Self::new(48000)
+  }
+}
+
 impl SdlCtx {
-  pub fn new() -> Self {
+  pub fn new(sample_rate: usize) -> Self {
     let _sdl = sdl2::init().unwrap();
     let _audio = _sdl.audio().unwrap();
     let audiospec = sdl2::audio::AudioSpecDesired {
       channels: Some(1),
-      freq: Some(48000),
+      freq: Some(sample_rate as i32),
       samples: None,
     };
     let audiodev = _audio.open_queue::<i16, _>(None, &audiospec).unwrap();
@@ -95,7 +101,7 @@ struct AppWndCtx {
 }
 
 struct AppCtx {
-  state: EmuState,
+  emu: Option<(emu::Emu, EmuState)>,
   dt: f32,
   fps: f32,
   framebuf: egui::ColorImage,
@@ -115,10 +121,10 @@ impl AppCtx {
   pub fn new(c: &eframe::CreationContext) -> Box<Self> {
     let img = egui::ColorImage::filled([256, 240], egui::Color32::TRANSPARENT);
     let tex = c.egui_ctx.load_texture("tex", img.clone(), TEX_OPTS);
-    let sdl = SdlCtx::new();
+    let sdl = SdlCtx::default();
 
     Box::new(Self {
-      state: EmuState::Off,
+      emu: None,
       dt: 0.0,
       fps: 0.0,
       framebuf: img,
@@ -139,21 +145,26 @@ impl AppCtx {
   fn load_rom<P: AsRef<std::path::Path>>(&mut self, path: P) {
     let res = emu::Emu::load_rom_from_file(&path);
     match res {
-      Ok(emu) => {
+      Ok(new_emu) => {
         self.sdl.audiodev.clear();
-        self.fps = 1.0 / emu.frame_rate();
+        self.fps = 1.0 / new_emu.frame_rate();
         
-        let emu = Box::new(emu);
-        self.state = match self.state {
-          EmuState::Off | EmuState::Stopped(_) | EmuState::Running(_) => EmuState::Running(emu),
-          EmuState::Paused(_) => {
-            self.sdl.audiodev.pause();
-            EmuState::Paused(emu)
+        let new_state = if let Some((_, old_state)) = &mut self.emu {
+          match old_state {
+            EmuState::Off | EmuState::Stopped | EmuState::Running => EmuState::Running,
+            EmuState::Paused => {
+              self.sdl.audiodev.pause();
+              EmuState::Paused
+            }
           }
+        } else {
+          EmuState::Running
         };
 
+        self.emu = Some((new_emu, new_state));
+        
         self.recents.push_front(path.as_ref().to_path_buf());
-        self.recents.truncate(8);
+        self.recents.truncate(12);
       }
       Err(e) => {
         // todo: show some kind of error
@@ -164,10 +175,7 @@ impl AppCtx {
 
 impl eframe::App for AppCtx {
   fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-    let running = match self.state {
-      EmuState::Off => false,
-      _ => true,
-    };
+    let running = self.emu.is_some();
     
     egui::TopBottomPanel::top("top")
     .show_separator_line(true)
@@ -213,78 +221,79 @@ impl eframe::App for AppCtx {
 
           ui.menu_button("🕹️ Emulation", |ui| {
             // TODO: ugly...
-            let state = mem::take(&mut self.state);
-            match state {
-              EmuState::Running(mut emu) => {
-                let pause =  ui.button("⏸ Pause");
-                ui.separator();
-                let reset = ui.button("🔄 Reset");
-                let stop = ui.button("⏹ Stop");
-
-                if pause.clicked() {
-                  self.state = EmuState::Paused(emu);
-                  self.sdl.audiodev.pause();
-                } else if reset.clicked() {
-                  emu.emu_reset();
-                  self.state = EmuState::Running(emu);
-                  self.sdl.audiodev.clear();
-                  self.sdl.audiodev.resume();
-                } else if stop.clicked() {
-                  self.state = EmuState::Stopped(emu);
-                  self.sdl.audiodev.clear();
-                  self.sdl.audiodev.pause();
-                } else {
-                  self.state = EmuState::Running(emu);
+            if let Some((emu, state)) = &mut self.emu {
+              match state {
+                EmuState::Running => {
+                  let pause =  ui.button("⏸ Pause");
+                  ui.separator();
+                  let reset = ui.button("🔄 Reset");
+                  let stop = ui.button("⏹ Stop");
+  
+                  if pause.clicked() {
+                    *state = EmuState::Paused;
+                    self.sdl.audiodev.pause();
+                  } else if reset.clicked() {
+                    emu.emu_reset();
+                    *state = EmuState::Running;
+                    self.sdl.audiodev.clear();
+                    self.sdl.audiodev.resume();
+                  } else if stop.clicked() {
+                    *state = EmuState::Stopped;
+                    self.sdl.audiodev.clear();
+                    self.sdl.audiodev.pause();
+                  } else {
+                    *state = EmuState::Running;
+                  }
                 }
-              }
-              EmuState::Paused(mut emu) => {
-                let run =  ui.button("▶ Run");
-                ui.separator();
-                let reset = ui.button("🔄 Reset");
-                let stop = ui.button("⏹ Stop");
-
-                if run.clicked() {
-                  self.state = EmuState::Running(emu);
-                  self.sdl.audiodev.resume();
-                } else if reset.clicked() {
-                  emu.emu_reset();
-                  self.state = EmuState::Running(emu);
-                  self.sdl.audiodev.clear();
-                  self.sdl.audiodev.resume();
-                } else if stop.clicked() {
-                  self.state = EmuState::Stopped(emu);
-                  self.sdl.audiodev.clear();
-                  self.sdl.audiodev.pause();
-                } else {
-                  self.state = EmuState::Paused(emu);
+                EmuState::Paused => {
+                  let run =  ui.button("▶ Run");
+                  ui.separator();
+                  let reset = ui.button("🔄 Reset");
+                  let stop = ui.button("⏹ Stop");
+  
+                  if run.clicked() {
+                    *state = EmuState::Running;
+                    self.sdl.audiodev.resume();
+                  } else if reset.clicked() {
+                    emu.emu_reset();
+                    *state = EmuState::Running;
+                    self.sdl.audiodev.clear();
+                    self.sdl.audiodev.resume();
+                  } else if stop.clicked() {
+                    *state = EmuState::Stopped;
+                    self.sdl.audiodev.clear();
+                    self.sdl.audiodev.pause();
+                  } else {
+                    *state = EmuState::Paused;
+                  }
+                },
+                EmuState::Stopped => {   
+                  let run =  ui.button("▶ Run");
+                  let reset = ui.button("🔄 Reset");
+                  ui.separator();
+                  ui.add_enabled(false, egui::Button::new("⏹ Stop"));
+  
+                  if run.clicked() {
+                    emu.emu_reset();
+                    *state = EmuState::Running;
+                    self.sdl.audiodev.resume();
+                  } else if reset.clicked() {
+                    emu.emu_reset();
+                    *state = EmuState::Running;
+                    self.sdl.audiodev.clear();
+                    self.sdl.audiodev.resume();
+                  } else {
+                    *state = EmuState::Stopped;
+                  }
                 }
-              },
-              EmuState::Stopped(mut emu) => {   
-                let run =  ui.button("▶ Run");
-                let reset = ui.button("🔄 Reset");
-                ui.separator();
-                ui.add_enabled(false, egui::Button::new("⏹ Stop"));
-
-                if run.clicked() {
-                  emu.emu_reset();
-                  self.state = EmuState::Running(emu);
-                  self.sdl.audiodev.resume();
-                } else if reset.clicked() {
-                  emu.emu_reset();
-                  self.state = EmuState::Running(emu);
-                  self.sdl.audiodev.clear();
-                  self.sdl.audiodev.resume();
-                } else {
-                  self.state = EmuState::Stopped(emu);
-                }
+                EmuState::Off => unreachable!()
               }
-              EmuState::Off => {
-                ui.add_enabled(false, egui::Button::new("▶ Run"));
-                ui.separator();
-                ui.add_enabled(false, egui::Button::new("🔄 Reset"));
-                ui.add_enabled(false, egui::Button::new("⏹ Stop"));
-              }
-            };
+            } else {
+              ui.add_enabled(false, egui::Button::new("▶ Run"));
+              ui.separator();
+              ui.add_enabled(false, egui::Button::new("🔄 Reset"));
+              ui.add_enabled(false, egui::Button::new("⏹ Stop"));
+            }
           });
           ui.menu_button("⚙️ Settings", |ui| {
             ui.checkbox(&mut self.keep_aspect_ratio, "📺 Keep Aspect Ratio");
@@ -293,7 +302,7 @@ impl eframe::App for AppCtx {
             }
 
             ui.menu_button("🖥️ Video Size", |ui| {
-              for i in 1..5 {
+              for i in 1..6 {
                 if ui.radio_value(&mut self.video_size, i, format!("{i}x")).clicked() {
                   let new_size = [256.0 * i as f32, 240.0 * i as f32];
                   // TODO: not quite right (not considering top panel row)
@@ -352,23 +361,36 @@ impl eframe::App for AppCtx {
     .collapsible(true)
     .open(&mut self.windows.rom_info_open)
     .show(ctx, |ui| {
+      let (emu, _) = self.emu.as_mut().unwrap();
+      let header = emu.header();
+
       ui.columns_const::<2, _>(|ui| {
-        ui[0].label("Game title");
-        ui[1].label("GAME TITLE HERE");
-        
         ui[0].label("Header kind");
+        ui[1].label(format!("{:?}", header.format));
 
         ui[0].label("Mapper ID");
+        ui[1].label(header.mapper.to_string());
         ui[0].label("SubMapper ID");
+        ui[1].label(header.submapper.to_string());
+
         ui[0].label("Region");
+        ui[1].label(format!("{:?}", header.region));
 
         ui[0].label("Battery");
+        ui[1].label(header.has_battery.to_string());
         ui[0].label("Trainer");
+        ui[1].label(header.has_trainer.to_string());
         ui[0].label("CHR RAM");
+        ui[1].label(header.has_chr_ram.to_string());
 
         ui[0].label("PRG size");
+        ui[1].label(format!("{} KB", header.prg_size / 1024));
+
         ui[0].label("CHR size");
+        ui[1].label(format!("{} KB", header.chr_size / 1024));
+
         ui[0].label("WRAM size");
+        ui[1].label(format!("{} KB", header.wram_size / 1024));
       });
     });
 
@@ -419,7 +441,10 @@ impl eframe::App for AppCtx {
         }
       }
       
-      if let EmuState::Running(emu) = &mut self.state {
+
+      if let Some((emu, state)) = &mut self.emu {
+        if *state != EmuState::Running { return false; }
+
         // run one emulation frame
         self.dt += i.stable_dt;
         if self.dt > self.fps {

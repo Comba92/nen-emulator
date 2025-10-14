@@ -122,6 +122,13 @@ fn main() {
                             Keycode::M => emu.set_button(Button::Start, true),
                             Keycode::N => emu.set_button(Button::Select, true),
                             Keycode::NUM_0 => emu.mapper.special_input(),
+                            #[cfg(feature = "serde")]
+                            Keycode::NUM_9 => emu.savestate("./save.tmp").unwrap(),
+                            #[cfg(feature = "serde")]
+                            Keycode::NUM_8 => {
+                                emu.loadstate("./save.tmp").unwrap();
+                                audiodev.clear();
+                            }
                             Keycode::R => emu.emu_reset(),
                             _ => {}
                         }

@@ -2,9 +2,11 @@ use std::ops::Neg;
 use crate::{apu, bus::{Banking, Bus, CpuHandler, IrqFlags, PpuHandler}, mapper::Mapper};
 
 #[derive(Default, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 enum WramKind { #[default] SingleChip, DoubleChip16kb, DoubleChip64kb }
 
 #[derive(Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct MMC5 {
   ppu_substituion: bool,
   ppu_big_sprites: bool,
@@ -198,6 +200,8 @@ impl MMC5 {
     mem.irq.remove(IrqFlags::MAPPER);
   }
 }
+
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl Mapper for MMC5 {
   fn new(mem: &mut Bus) -> Box<Self> {
     mem.banks.prg = Banking::new_prg(&mem.header, 4);

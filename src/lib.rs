@@ -31,7 +31,12 @@ mod utils {
   }
 }
 
-struct Palette(pub [(u8, u8, u8); 64]);
+
+#[cfg(feature = "serde")]
+use serde_big_array::BigArray;
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+struct Palette(#[cfg_attr(feature = "serde", serde(with = "BigArray"))] pub [(u8, u8, u8); 64]);
 impl Default for Palette {
   fn default() -> Self { Self([(0, 0, 0); 64]) }
 }
@@ -52,6 +57,7 @@ impl Palette {
 pub mod joypad {
   bitflags::bitflags! {
     #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
     pub struct Button: u8 {
       const A = 1 << 0;
       const B = 1 << 1;
@@ -65,6 +71,7 @@ pub mod joypad {
   }
   
   #[derive(Default)]
+  #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
   pub struct Joypad {
     polling: bool,
     curr_btn: u8,
@@ -91,6 +98,7 @@ pub mod joypad {
 
 mod dma {
   #[derive(Default)]
+  #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
   pub struct Dma {
     pub addr: u16,
     pub remaining: u16,

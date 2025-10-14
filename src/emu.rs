@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use crate::{apu::ApuRP2A, bus::Bus, cpu::{self, Cpu6502}, joypad::Joypad, mapper::{self, BoxedMapper, Mapper}, ppu::Ppu2C02, rom::{Cart, CartHeader, Disk}, Palette};
 
 #[derive(Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Settings {
   pub random_ram: bool,
   pub no_sprite_limit: bool,
@@ -31,6 +32,8 @@ impl Settings {
   }
 }
 
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Emu {
   pub cpu: Cpu6502,
   pub ppu: Ppu2C02,
@@ -40,8 +43,10 @@ pub struct Emu {
   pub mapper: Box<dyn Mapper>,
 
   pub(crate) frame_ready: bool,
-  pub(crate) videobuf: [u8; 256 * 240],
-  audiobuf: [i16; 2 * 1024],
+  #[cfg_attr(feature = "serde", serde(skip))]
+  pub(crate) videobuf: Vec<u8>,
+  #[cfg_attr(feature = "serde", serde(skip))]
+  audiobuf: Vec<i16>,
   audio_read: bool,
 
   pub(crate) palette: Palette,
@@ -49,6 +54,7 @@ pub struct Emu {
 }
 
 #[derive(Debug, Default, Clone, PartialEq, bitcode::Encode, bitcode::Decode)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Mirroring {
   #[default] Horizontal,
   Vertical,
@@ -57,7 +63,9 @@ pub enum Mirroring {
   FourScreens
 }
 
+
 #[derive(Debug, Default, Clone, bitcode::Encode, bitcode::Decode)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Region {
   #[default] NTSC, PAL
 }
@@ -111,8 +119,8 @@ impl Emu {
       mem,
       mapper,
 
-      videobuf: [0; 256 * 240],
-      audiobuf: [0; 2 * 1024],
+      videobuf: vec![0; 256 * 240],
+      audiobuf: vec![0; 2 * 1024],
       audio_read: false,
       palette,
       
@@ -284,6 +292,15 @@ impl Emu {
     &self.audiobuf[..read]
   }
 
+  fn buffered_read<P: AsRef<Path>>(path: P) -> Result<Vec<u8>, LoadError> {
+    use std::io::Read;
+    let mut buf = Vec::new();
+    let file = std::fs::File::open(path)?;
+    let mut reader = std::io::BufReader::new(file);
+    reader.read_to_end(&mut buf)?;
+    Ok(buf)
+  }
+
   pub fn load_rom_from_file<P: AsRef<Path>>(path: P) -> Result<Self, LoadError> {
     use std::io::{Read, Seek};
 
@@ -340,6 +357,31 @@ impl Emu {
       self.load_battery(&buf)
     } else {
       Err("no sram dump file found".into())
+    }
+  }
+
+  #[cfg(feature = "serde")]
+  pub fn savestate<P: AsRef<Path>>(&self, path: P) -> Result<(), LoadError> {
+    let file = std::fs::File::create(path)?;
+    let writer = std::io::BufWriter::new(file);
+    pot::to_writer(self, writer).map_err(|e| e.into())
+  }
+
+  #[cfg(feature = "serde")]
+  pub fn loadstate<P: AsRef<Path>>(&mut self, path: P) -> Result<(), LoadError> {
+    let file = std::fs::File::open(path)?;
+    let reader = std::io::BufReader::new(file);
+    let res: Result<Emu, _> = pot::from_reader(reader);
+
+    match res {
+      Ok(mut new_emu) => {
+        std::mem::swap(&mut self.audiobuf, &mut new_emu.audiobuf);
+        std::mem::swap(&mut self.videobuf, &mut new_emu.videobuf);
+        std::mem::swap(&mut self.apu.blip, &mut new_emu.apu.blip);
+        *self = new_emu;
+        Ok(())
+      }
+      Err(e) => Err(e.into())
     }
   }
 }

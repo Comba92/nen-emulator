@@ -3,6 +3,7 @@ use crate::blip::BlipBuf;
 use crate::{bus::{self, IrqFlags}, dma::Dma, emu::{Emu, Region}, utils::{byte_set_hi, byte_set_lo}};
 
 #[derive(Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DividerCounter {
   count: u16,
   pub period: u16,
@@ -26,6 +27,7 @@ impl DividerCounter {
 }
 
 #[derive(Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct LengthCounter {
   pub count: u8,
   enabled: bool,
@@ -57,6 +59,7 @@ impl LengthCounter {
 }
 
 #[derive(Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Envelope {
   start: bool,
   looping: bool,
@@ -103,6 +106,7 @@ impl Envelope {
 }
 
 #[derive(Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 struct Sweep {
   count: u8,
   period: u8,
@@ -116,6 +120,7 @@ struct Sweep {
 
 // https://www.nesdev.org/wiki/APU_Pulse
 #[derive(Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Pulse {
   div: DividerCounter,
   pub len: LengthCounter,
@@ -235,6 +240,7 @@ impl Pulse {
 
 // https://www.nesdev.org/wiki/APU_Triangle
 #[derive(Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 struct Triangle {
   div: DividerCounter,
   len: LengthCounter,
@@ -292,6 +298,7 @@ impl Triangle {
 }
 
 #[derive(Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 struct Noise {
   div: DividerCounter,
   len: LengthCounter,
@@ -345,6 +352,7 @@ impl Noise {
 }
 
 #[derive(Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Dmc {
   div: DividerCounter,
   irq_enabled: bool,
@@ -426,6 +434,7 @@ impl Dmc {
 
 #[repr(u8)]
 #[derive(Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 enum FrameMode {
   #[default] Step4, Step5
 }
@@ -448,6 +457,7 @@ impl AudioBuf {
 }
 
 #[derive(Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ApuRP2A {
   p0: Pulse,
   p1: Pulse,
@@ -461,6 +471,7 @@ pub struct ApuRP2A {
   frame_write_delay: u8,
 
   prev_sample: f64,
+  #[cfg_attr(feature = "serde", serde(skip))]
   pub blip: AudioBuf,
   pub cycles: usize,
 }

@@ -5,6 +5,7 @@ edition = "2024"
 
 [features]
 static = ["sdl2/bundled", "sdl2/use-pkgconfig", "sdl2/static-link"]
+serde = []
 
 [profile.release-opt]
 inherits = "release"
@@ -16,10 +17,10 @@ panic = "abort"
 
 [dependencies]
 bitfields = "1.0.0"
-bitflags = "2.9.1"
+bitflags = { version = "2.9.1", features = ["serde"] }
 sdl2 = "0.38.0"
 # used for parsing games db
-bitcode = "0.6.6"
+bitcode = { version = "0.6.6", features = ["serde"] }
 # used for decompressing games db
 flate2 = "1.1.2"
 # sha1_smol = "1.0.1"
@@ -28,9 +29,13 @@ crc32fast = "1.5.0"
 # used for random ram at init
 getrandom = "0.3.3"
 # used for rom loading
+serde = { version = "1.0.219", features = ["derive"] }
 zip = "6.0.0"
 rfd = "0.15.4"
 eframe = "0.32.3"
+typetag = "0.2.21"
+serde-big-array = "0.5.1"
+pot = "3.0.1"
 
 [dev-dependencies]
 bincode = { version = "2.0.1", features = ["serde"] }
@@ -39,5 +44,4 @@ ciborium = "0.2.2"
 flate2 = "1.1.2"
 pretty_assertions = "1.4.1"
 rmp-serde = "1.3.0"
-serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.142"

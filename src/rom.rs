@@ -8,12 +8,14 @@ pub struct Cart {
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum HeaderFormat {
-  #[default] Headerless, INes, Nes2_0
+  #[default] Headerless, INes, Nes2_0, FDS
 }
 
 // https://www.nesdev.org/wiki/INES
 #[derive(Default, Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CartHeader {
   pub format: HeaderFormat,
   pub mapper: u16,
@@ -51,7 +53,7 @@ impl CartHeader {
 
   pub fn len(&self) -> usize {
     match self.format {
-      HeaderFormat::Headerless => 0,
+      HeaderFormat::Headerless | HeaderFormat::FDS => 0,
       HeaderFormat::INes | HeaderFormat::Nes2_0 => 
         if self.has_trainer { Self::INES_HEADER_SIZE + Self::TRAINER_SIZE } else { Self::INES_HEADER_SIZE },
     }
