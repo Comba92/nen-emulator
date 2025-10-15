@@ -1,4 +1,4 @@
-use nes_emulator::{cpu::Status, emu::Emu};
+use nes_emulator::{cpu::Status, emu::{self, Emu}};
 
 #[derive(Debug, Default, PartialEq, Eq)]
 struct LogLine {
@@ -54,7 +54,7 @@ use pretty_assertions::assert_eq;
 
 #[test]
 fn nestest_no_graphics() {
-  let mut emu = Emu::load_rom_from_bytes(include_bytes!("../roms/nestest.nes")).unwrap();
+  let mut emu = Emu::load_rom_from_bytes(include_bytes!("../roms/nestest.nes"), None).unwrap();
   emu.cpu.pc = 0xc000;
   emu.cpu.cycles =  7;
   emu.ppu.dots  = 21;

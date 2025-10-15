@@ -207,6 +207,7 @@ impl Cart {
   }
 }
 
+#[derive(Default)]
 pub struct Disk {
   pub sides_bytes: Vec<Vec<u8>>,
   pub sides_data: Vec<SideData>,

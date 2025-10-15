@@ -36,12 +36,13 @@ mod utils {
 use serde_big_array::BigArray;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-struct Palette(#[cfg_attr(feature = "serde", serde(with = "BigArray"))] pub [(u8, u8, u8); 64]);
-impl Default for Palette {
+#[derive(Clone)]
+pub struct NesPalette(#[cfg_attr(feature = "serde", serde(with = "BigArray"))] pub [(u8, u8, u8); 64]);
+impl Default for NesPalette {
   fn default() -> Self { Self([(0, 0, 0); 64]) }
 }
 
-impl Palette {
+impl NesPalette {
   pub fn from_pal_file(bytes: &[u8]) -> Option<Self> {
     let colors = bytes
       .chunks(3)
@@ -114,7 +115,7 @@ mod dma {
 
 impl Emu {
   pub fn load_palette(&mut self, bytes: &[u8]) {
-    if let Some(pal) = Palette::from_pal_file(bytes) {
+    if let Some(pal) = NesPalette::from_pal_file(bytes) {
       self.palette = pal;
     } else {
       eprintln!("not a valid palette file");

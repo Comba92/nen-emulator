@@ -1,4 +1,4 @@
-use crate::{emu::{Emu, Mirroring}, mapper::{self, BoxedMapper, Mapper}, rom::{self, Cart, CartHeader, Disk}};
+use crate::{emu::{self, Emu, Mirroring}, mapper::{self, BoxedMapper, Mapper}, rom::{self, Cart, CartHeader, Disk}};
 
 pub trait BankCfg {}
 
@@ -293,20 +293,17 @@ impl Bus {
     }
   }
 
-  pub fn with_disk(disk: Disk) -> (Self, BoxedMapper) {
+  pub fn with_disk(disk: Disk, bios: &[u8]) -> (Self, BoxedMapper) {
     let mut header = CartHeader::default();
     header.format = rom::HeaderFormat::FDS;
     header.mapper = 20;
 
+    let prg = bios.to_vec();
     let mut banks = BanksHandler::default();
 
     // keep like this so we can just use the standard prg handler
     banks.prg = Banking::new(0xe000, 8 * 1024, 8 * 1024, 1);
-    
-    // TODO: bios dynamic loading
-    let prg = include_bytes!("../utils/disksys.rom").to_vec();
     banks.wram = Banking::new(0x6000, 32 * 1024, 32 * 1024, 1);
-
     banks.chr = Banking::new(0x0000, 8 * 1024, 8 * 1024, 1);
     banks.vram = Banking::new(0x2000, 2 * 1024, 4 * 1024, 4);
     banks.vram.mirror(&Mirroring::Horizontal);
@@ -368,6 +365,7 @@ impl Bus {
     };
 
     let mut fds = mapper::fds::FDS::new(&mut mem);
+    fds.disk_inserted = disk.sides_bytes.len() > 0;
     fds.disks = disk.sides_bytes;
 
     (mem, fds as BoxedMapper)

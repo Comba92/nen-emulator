@@ -7,8 +7,8 @@ use crate::{bus::{Bus, IrqFlags}, emu::Mirroring, mapper::Mapper, utils::{byte_s
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FDS {
   pub disks: Vec<Vec<u8>>,
+  pub disk_inserted: bool,
   disk_select: usize,
-  disk_inserted: bool,
   head: usize,
   spin_delay: usize,
   eject_delay: usize,

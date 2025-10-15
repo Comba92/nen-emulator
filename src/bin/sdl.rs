@@ -1,4 +1,4 @@
-use std::{fs, io::{BufReader, BufWriter, Read, Seek, Write}, path};
+use std::{fs, io::{BufReader, BufWriter, Read, Write}, path};
 
 use nes_emulator::{emu::Emu, joypad::Button};
 use sdl2::{event::{Event, WindowEvent}, keyboard::Keycode, pixels::PixelFormatEnum};
@@ -46,7 +46,9 @@ fn main() {
     //     .unwrap();
     // debug_tex.set_scale_mode(sdl2::render::ScaleMode::Nearest);
 
-    let mut emu = Emu::load_rom_from_bytes(include_bytes!("../../roms/super mario.nes")).unwrap();
+    let bios = include_bytes!("../../utils/disksys.rom");
+    let rom = include_bytes!("../../roms/super mario.nes");
+    let mut emu = Emu::load_rom_from_bytes(rom, Some(bios)).unwrap();
     let mut rom_filename = "../roms/super mario.nes".to_string();
 
     let mut frame_rate = (1.0 / emu.frame_rate() * 1000.0).round() as u64;
@@ -73,7 +75,7 @@ fn main() {
                         continue;
                     }
                     
-                    let new_emu = Emu::load_rom_from_file(&filename);
+                    let new_emu = Emu::load_rom_from_file(&filename, Some(bios));
                     match new_emu {
                         Ok(res) => {
                             // save current game battery

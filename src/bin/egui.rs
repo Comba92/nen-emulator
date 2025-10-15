@@ -1,7 +1,7 @@
-use std::{collections::VecDeque, path::{Path, PathBuf}};
+use std::{collections::VecDeque, fs, path::{Path, PathBuf}, time::{Duration, Instant}};
 
 use eframe::egui;
-use nes_emulator::{emu, joypad};
+use nes_emulator::{emu::{self, Emu}, joypad, NesPalette};
 
 const TEX_OPTS: egui::TextureOptions = egui::TextureOptions {
   magnification: egui::TextureFilter::Nearest,
@@ -11,6 +11,7 @@ const TEX_OPTS: egui::TextureOptions = egui::TextureOptions {
 };
 
 const APP_NAME: &'static str = "NenEmu";
+type GenericError = Box<dyn std::error::Error>;
 
 fn main() {
   let opts = eframe::NativeOptions {
@@ -30,6 +31,29 @@ fn main() {
   Box::new(
     |c| Ok(AppCtx::new(c))
   )).unwrap();
+}
+
+fn file_dialog(prompt: &str, requires: &str, extensions: &[&str]) -> Option<PathBuf> {
+  rfd::FileDialog::new()
+    .set_can_create_directories(true)
+    .set_title(prompt)
+    .add_filter(requires, extensions)
+    .pick_file()
+}
+
+fn buffered_read<P: AsRef<Path>>(path: P) -> Result<Vec<u8>, GenericError> {
+  use std::io::Read;
+
+  let mut bytes = Vec::new();
+  let file = std::fs::File::open(path)?;
+  let mut reader = std::io::BufReader::new(file);
+  reader.read_to_end(&mut bytes)?;
+  Ok(bytes)
+}
+
+fn ring_push_front<T>(queue: &mut VecDeque<T>, val: T, limit: usize) {
+  queue.push_front(val);
+  queue.truncate(limit);
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -101,11 +125,10 @@ impl SdlCtx {
 #[derive(Default)]
 struct AppWndCtx {
   keybinds_open: bool,
-  keybinds_should_update: bool,
   rom_info_open: bool,
   about_open: bool,
   settings_open: bool,
-  settings_should_update: bool,
+  message_open: Option<(bool, std::time::Instant, GenericError)>,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -121,7 +144,8 @@ struct AppCfg {
   bios_path: Option<PathBuf>,
 
   windows: AppWndCtx,
-  recents: VecDeque<PathBuf>,
+  recent_roms: VecDeque<PathBuf>,
+  palettes: VecDeque<NesPalette>,
   keymaps: KeyMap,
 }
 impl AppCfg {
@@ -141,7 +165,7 @@ struct AppCtx {
   framebuf: egui::ColorImage,
   tex: egui::TextureHandle,
 
-  debug: String,
+  bios: Option<Vec<u8>>,
   cfg: AppCfg,
   sdl: SdlCtx,
 }
@@ -161,6 +185,10 @@ impl AppCtx {
     #[cfg(not(feature = "serde"))]
     let cfg = AppCfg::new();
 
+    let bios = if let Some(path) = &cfg.bios_path  {
+      buffered_read(path).ok()
+    } else { None };
+
     Box::new(Self {
       emu: None,
       dt: 0.0,
@@ -168,14 +196,24 @@ impl AppCtx {
       framebuf: img,
       tex,
 
-      debug: String::new(),
+      bios,
       cfg,
       sdl,
     })
   }
 
+  fn show_message(&mut self, e: GenericError) {
+    self.cfg.windows.message_open = Some((true, Instant::now(), e));
+  }
+
   fn load_rom<P: AsRef<Path>>(&mut self, path: P) {
-    let res = emu::Emu::load_rom_from_file(&path);
+    let bios = if let Some(bytes) = &self.bios {
+      Some(bytes.as_slice())
+    } else {
+      None
+    };
+
+    let res = emu::Emu::load_rom_from_file(&path, bios);
     match res {
       Ok(mut new_emu) => {
         self.sdl.audiodev.clear();
@@ -194,23 +232,43 @@ impl AppCtx {
         };
 
         new_emu.settings = self.cfg.settings.clone();
+        if let Some(pal) = self.cfg.palettes.front() {
+          new_emu.palette = pal.clone();
+        }
         self.emu = Some((new_emu, new_state));
-        
-        self.cfg.recents.push_front(path.as_ref().to_path_buf());
-        self.cfg.recents.truncate(12);
+        ring_push_front(&mut self.cfg.recent_roms, path.as_ref().to_path_buf(), 12);
       }
       Err(e) => {
-        // todo: show some kind of error
+        self.show_message(e);
       }
     }
   }
 
+  fn load_palette<P: AsRef<Path>>(&mut self, path: P) {
+    _ = buffered_read(path)
+    .map(|bytes| {
+      NesPalette::from_pal_file(&bytes)
+      .ok_or("not a valid NES palette file")
+      .map(|pal| ring_push_front(&mut self.cfg.palettes, pal, 20))
+      .map(|_| self.show_message("palette loaded".into()))
+    })
+    .map_err(|e| self.show_message(e));
+
+    if let Some((emu, _)) = &mut self.emu {
+      if let Some(pal) = self.cfg.palettes.front() {
+        emu.palette = pal.clone();
+      }
+    }
+  }
+
+  #[cfg(feature = "serde")]
   fn get_states_dir(&self) -> PathBuf {
     let mut dir = eframe::storage_dir(APP_NAME).unwrap();
     dir.push("states");
     dir
   }
 
+  #[cfg(feature = "serde")]
   fn get_rom_states_dir(&self) -> PathBuf {
     let mut dir = self.get_states_dir();
     let current_rom = self.cfg.recents.front().unwrap();
@@ -219,26 +277,32 @@ impl AppCtx {
   }
 
   #[cfg(feature = "serde")]
-  fn save_state(&self, name: &str) -> Result<(), Box<dyn std::error::Error>> {
+  fn save_state(&self, name: &str) {
     let mut dir = self.get_states_dir();
     
     let current_rom = self.cfg.recents.front().unwrap();
     dir.push(current_rom.file_stem().unwrap());
 
-    std::fs::create_dir_all(&dir)?;
+    fs::create_dir_all(&dir);
 
     dir.push(name);
     dir.set_extension("state");
-    self.get_emu().savestate(dir)
+    match self.get_emu().savestate(dir) {
+      Err(e) => self.show_error(e),
+      _ => {}
+    }
   }
 
   #[cfg(feature = "serde")]
-  fn load_state(&mut self, name: &str) -> Result<(), Box<dyn std::error::Error>> {
+  fn load_state(&mut self, name: &str) {
     let mut dir = self.get_rom_states_dir();
 
     dir.push(name);
     dir.set_extension("state");
-    self.get_emu_mut().loadstate(dir)
+    match self.get_emu_mut().loadstate(dir) {
+      Err(e) => self.show_error(e),
+      _ => {}
+    }
   }
 
   fn get_emu(&self) -> &emu::Emu {
@@ -259,56 +323,40 @@ impl eframe::App for AppCtx {
   fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
     let running = self.emu.is_some();
 
-    let top_panel = egui::TopBottomPanel::top("top").show_separator_line(true)
+    egui::TopBottomPanel::top("top").show_separator_line(true)
     .show(ctx, |ui| {
       egui::MenuBar::new()
       .ui(ui, |content| {
         content.horizontal_wrapped(|ui| {
           ui.menu_button("💾 File", |ui| {
             if ui.button("📂 Open...").clicked() {
-              let file = rfd::FileDialog::new()
-              .set_can_create_directories(true)
-              .set_title("Select game ROM")
-              .add_filter("NES ROM", &["nes", "fds", "zip"])
-              .pick_file();
-
-              if let Some(path) = file {
-                self.load_rom(path);
-              } else {
-                // TODO: show some kind of error
-              }
+              file_dialog("Select game ROM", "NES ROM", &["nes", "fds", "zip", "rar"])
+              .map(|path| self.load_rom(path));
             }
 
             ui.menu_button("Recent ROMs", |ui| {
-              if self.cfg.recents.is_empty() {
+              if self.cfg.recent_roms.is_empty() {
                 ui.label("No recent ROMs");
                 return;
               }
 
-              let mut clicked = None;
-              for (i, entry) in self.cfg.recents.iter().enumerate() {
+              for (i, entry) in self.cfg.recent_roms.iter().enumerate() {
                 if ui.button(entry.to_str().unwrap_or_default()).clicked() {
-                  clicked = Some(i);
+                  let to_load = self.cfg.recent_roms.remove(i).unwrap();
+                  self.load_rom(to_load);
                   break;
                 }
-              }
-
-              if let Some(to_load_idx) = clicked {
-                let to_load = self.cfg.recents.remove(to_load_idx).unwrap();
-                self.load_rom(to_load);
               }
             });
 
             #[cfg(feature = "serde")]
             ui.add_enabled_ui(running, |ui| ui.menu_button("Savestates", |ui| {
               if ui.button("Quicksave").clicked() {
-                let res = self.save_state("quick");
-                // TODO: show error
+                self.save_state("quick");
               }
 
               if ui.button("Quickload").clicked() {
-                let res = self.load_state("quick");
-                // TODO: show error
+                self.load_state("quick");
               }
 
               ui.separator();
@@ -321,8 +369,8 @@ impl eframe::App for AppCtx {
                 ui.separator();
                 for i in 1..9 {
                   if ui.button(format!("Slot {i}")).clicked() {
-                    let res = self.save_state(&i.to_string());
-                    // TODO: show error
+                    self.save_state(&i.to_string());
+
                   }
                 }
               });
@@ -335,8 +383,7 @@ impl eframe::App for AppCtx {
                 ui.separator();
                 for i in 1..9 {
                   if ui.button(format!("Slot {i}")).clicked() {
-                    let res = self.load_state(&i.to_string());
-                    // TODO: show error
+                    self.load_state(&i.to_string());
                   }
                 }
               });
@@ -350,13 +397,13 @@ impl eframe::App for AppCtx {
 
               if ui.button("🗑 Clear game states").clicked() {
                 // TODO: show modal
-                let res = std::fs::remove_dir_all(self.get_rom_states_dir());
+                let res = fs::remove_dir_all(self.get_rom_states_dir());
               }
 
               if ui.button("☠ Clear all states").clicked() {
                 // TODO: show modal
                 let dir = self.get_states_dir();
-                let res = std::fs::remove_dir_all(dir);
+                let res = fs::remove_dir_all(dir);
               }
             }));
 
@@ -464,7 +511,7 @@ impl eframe::App for AppCtx {
               self.cfg.windows.settings_open = true;
             }
 
-            if ui.button("🖌 Theme").clicked() {
+            if ui.button("🎨 Theme").clicked() {
               // TODO: theming
             }
           });
@@ -473,6 +520,17 @@ impl eframe::App for AppCtx {
 
             if ui.add_enabled(running, rom_info).clicked() {
               self.cfg.windows.rom_info_open = true;
+            }
+            if ui.button("Run FDS BIOS").clicked() {
+              if let Some(bios) = &self.bios {
+                let emu = emu::Emu::load_bios_only(Some(bios.as_slice()));
+                match emu {
+                  Ok(emu) => self.emu = Some((emu, EmuState::Running)),
+                  Err(e) => self.show_message(e),
+                }
+              } else {
+                self.show_message("no BIOS ROM provided".into());
+              }
             }
           });
           ui.menu_button("❔ Help", |ui| {
@@ -501,19 +559,30 @@ impl eframe::App for AppCtx {
     //   let new_size = [256.0 * factor, top_height + 240.0 * factor];
     //   ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(new_size.into()));
     // }
-
-    // TODO: palettes
-    // TODO: all other settings
+    
+    // TODO: palette viewer
     egui::Window::new("🔧 Settings")
     .collapsible(true)
     .resizable([true, true])
     .open(&mut self.cfg.windows.settings_open)
     .show(ctx, |ui| {
-      if ui.text_edit_singleline(&mut "Load FDS BIOS file...").clicked() {
-        // TODO
+      ui.label("NOTE: all settings will be applied to the running game only when this window is closed.").highlight();
+      ui.label("");
+
+      if ui.button("Load FDS BIOS file...").clicked() {
+        file_dialog("Select FDS BIOS file", "FDS BIOS", &["rom"])
+        .map(|path| self.cfg.bios_path = Some(path));
+
+        self.bios = if let Some(path) = &self.cfg.bios_path  {
+          buffered_read(path).ok()
+        } else { None };
+      }
+      if let Some(path) = &self.cfg.bios_path {
+        ui.label(format!("BIOS selected at: {:?}", path));
       }
 
-      if ui.button("Load palette file...").clicked() {
+      if ui.button("🎨 Load palette file...").clicked() {
+        let path = file_dialog("Select a NES palette file", "NES PAL file", &["pal"]);
         // TODO
       }
 
@@ -536,18 +605,14 @@ impl eframe::App for AppCtx {
       ui.collapsing("🔊 Audio", |ui| {
         // TODO
       });
-
-      self.cfg.windows.settings_should_update = true;
-    });
-
-    if !self.cfg.windows.settings_open && self.cfg.windows.settings_should_update {
-      self.cfg.windows.settings_should_update = false;
-
+    })
+    .or_else(|| {
       if let Some((emu, _)) = &mut self.emu {
         self.cfg.settings.volume = emu.settings.volume;
         emu.settings = self.cfg.settings.clone();
       }
-    }
+      None
+    });
 
     egui::Window::new("🎮 Keybindings")
     .collapsible(true)
@@ -579,13 +644,10 @@ impl eframe::App for AppCtx {
       });
 
       ui.set_clip_rect(ui.min_rect());
-      self.cfg.windows.keybinds_should_update = true;
-    });
-
-    if !self.cfg.windows.keybinds_open && self.cfg.windows.keybinds_should_update {
-      self.cfg.windows.keybinds_should_update = false;
+    }).or_else(|| {
       self.cfg.keymaps.rebind_key = None;
-    }
+      None
+    });
 
     egui::Window::new("💾 ROM information")
     .collapsible(true)
@@ -640,12 +702,32 @@ impl eframe::App for AppCtx {
       ui.set_clip_rect(ui.min_rect());
     }));
 
+    if let Some((open, appeared, msg)) = &mut self.cfg.windows.message_open {
+      let res = egui::Window::new("Message")
+      .anchor(egui::Align2::RIGHT_BOTTOM, [-10.0, -10.0])
+      .title_bar(false)
+      .collapsible(false)
+      .auto_sized()
+      .fade_in(true)
+      .fade_out(true)
+      .open(open)
+      .show(ctx, |ui| {
+        ui.heading(msg.to_string());
+      });
+
+      const MSG_DELAY: Duration = Duration::from_secs(4);
+      if appeared.elapsed() > MSG_DELAY  {
+        *open = false;
+      }
+
+      if let None = res {
+        self.cfg.windows.message_open = None;
+      }
+    }
 
     egui::CentralPanel::default()
     // .frame(egui::Frame::default().outer_margin(0).fill(egui::Color32::WHITE))
     .show(ctx, |ui| {
-      ui.label(&self.debug);
-
       ui.vertical_centered(|ui| {
         let img = egui::Image::new(&self.tex)
         .maintain_aspect_ratio(self.cfg.keep_aspect_ratio)
@@ -663,8 +745,9 @@ impl eframe::App for AppCtx {
       // check for dropped files
       let files = &i.raw.dropped_files;
       if let Some(Some(path)) = files.first().map(|f| &f.path) {
-        if path.ends_with(".pal") {
-          // TODO: handle palette loading
+        let pal_ext = std::ffi::OsStr::new("pal");
+        if path.extension() == Some(pal_ext) {
+          self.load_palette(path);
         } else {
           self.load_rom(path);
         }

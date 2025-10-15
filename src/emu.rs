@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::{apu::ApuRP2A, bus::Bus, cpu::{self, Cpu6502}, joypad::Joypad, mapper::{self, BoxedMapper, Mapper}, ppu::Ppu2C02, rom::{Cart, CartHeader, Disk}, Palette};
+use crate::{apu::ApuRP2A, bus::Bus, cpu::{self, Cpu6502}, joypad::Joypad, mapper::{self, BoxedMapper, Mapper}, ppu::Ppu2C02, rom::{Cart, CartHeader, Disk}, NesPalette};
 
 #[derive(Default, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -19,8 +19,6 @@ pub struct Settings {
   pub disable_noise: bool,
   pub disable_dmc: bool,
   pub disable_ext_audio: bool,
-
-  pub bios: Option<Vec<u8>>,
 }
 impl Settings {
   pub fn new() -> Self {
@@ -49,7 +47,7 @@ pub struct Emu {
   audiobuf: Vec<i16>,
   audio_read: bool,
 
-  pub(crate) palette: Palette,
+  pub palette: NesPalette,
   pub settings: Settings,
 }
 
@@ -70,7 +68,7 @@ pub enum Region {
   #[default] NTSC, PAL
 }
 
-type LoadError = Box<dyn std::error::Error>;
+pub(crate) type LoadError = Box<dyn std::error::Error>;
 
 pub enum Game {
   Cart(Cart),
@@ -95,9 +93,7 @@ impl Emu {
   pub const NTSC_FRAME_RATE: f32 = 60.0988;
   pub const PAL_FRAME_RATE:  f32 = 50.0070;
 
-  pub fn load_rom_from_bytes(rom: &[u8]) -> Result<Self, LoadError> {
-    let game = Game::from(rom)?;
-
+  fn new(game: Game, bios: Option<&[u8]>) -> Result<Self, LoadError> {
     let (mem, mapper) = match game {
       Game::Cart(cart) => {
         let mut mem = Bus::with_cart(cart);
@@ -105,11 +101,12 @@ impl Emu {
         (mem, mapper)
       }
       Game::Disk(disk) => {
-        Bus::with_disk(disk)
+        let bios = bios.ok_or("no BIOS ROM provided")?;
+        Bus::with_disk(disk, bios)
       },
     };
     
-    let palette = Palette::from_pal_file(include_bytes!("../utils/2C02G_wiki.pal")).unwrap();
+    let palette = NesPalette::from_pal_file(include_bytes!("../utils/2C02G_wiki.pal")).unwrap();
     
     let mut emu = Self {
       cpu: Cpu6502::new(),
@@ -125,11 +122,22 @@ impl Emu {
       palette,
       
       frame_ready: false,
-      settings: Settings::new()
+      settings: Settings::new(),
     };
 
     emu.cpu.pc = emu.cpu_read16(cpu::RST_VECTOR);
     Ok(emu)
+  }
+
+  pub fn load_rom_from_bytes(rom: &[u8], bios: Option<&[u8]>) -> Result<Self, LoadError> {
+    let game = Game::from(rom)?;
+    Self::new(game, bios)
+  }
+
+  pub fn load_bios_only(bios: Option<&[u8]>) -> Result<Self, LoadError> {
+    let empty_disk = Disk::default();
+    let game = Game::Disk(empty_disk);
+    Self::new(game, bios)
   }
 
   pub const fn clock_rate(&self) -> usize {
@@ -179,6 +187,7 @@ impl Emu {
     if !self.audio_read { self.apu.blip.0.clear(); }
     self.audio_read = false;
 
+    // TODO: should return a result, if cpu jams return error
     let cycles = self.cpu.cycles;
     while !self.frame_ready {
       self.cpu_step();
@@ -224,7 +233,7 @@ impl Emu {
     if !self.mem.header.has_battery {
       return Err("game has no battery".into())
     } else if bytes.len() != self.mem.wram.len() {
-      return Err("invalid save ram dump provided, size doesn't match".into())
+      return Err("invalid save ram dump provided, size don't match".into())
     } else {
       self.mem.wram.copy_from_slice(bytes);
       Ok(())
@@ -292,16 +301,15 @@ impl Emu {
     &self.audiobuf[..read]
   }
 
-
-  pub fn load_rom_from_file<P: AsRef<Path>>(path: P) -> Result<Self, LoadError> {
+  pub fn load_rom_from_file<P: AsRef<Path>>(rom_path: P, bios: Option<&[u8]>) -> Result<Self, LoadError> {
     use std::io::{Read, Seek};
 
     let mut bytes = Vec::new();
-    let file = std::fs::File::open(path)?;
+    let file = std::fs::File::open(rom_path)?;
     let mut reader = std::io::BufReader::new(file);
     reader.read_to_end(&mut bytes)?;
 
-    let res = Emu::load_rom_from_bytes(&bytes);
+    let res = Emu::load_rom_from_bytes(&bytes, bios);
     match res {
       Ok(_) => res,
       Err(_) => {
@@ -312,7 +320,7 @@ impl Emu {
           // it is a zip file
           let mut zip = archive.by_index(0)?;
           zip.read_to_end(&mut bytes)?;
-          Emu::load_rom_from_bytes(&bytes)
+          Emu::load_rom_from_bytes(&bytes, bios)
         } else {
           // not a zip file either
           res
