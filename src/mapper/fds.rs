@@ -601,6 +601,8 @@ impl Mapper for FDS {
   }
 
   fn special_input(&mut self) {
+    if self.disks.is_empty() { return; }
+
     self.disk_select = (self.disk_select + 1) % self.disks.len();
     // the old disk is ejected. set a delay before inserting the new one
     self.disk_inserted = false;

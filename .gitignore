@@ -4,5 +4,6 @@
 *.nes
 *.fds
 *.zip
+*.srm
 *.sram
 *.rom

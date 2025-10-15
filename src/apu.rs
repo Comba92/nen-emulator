@@ -728,10 +728,18 @@ impl Emu {
     // let tnd_sum = (3 * apu.tri.sample() + 2 * apu.noise.sample() + apu.dmc.sample()) as usize;
     // let tnd = ApuRP2A::TND_TABLE[tnd_sum];
 
-    let pulse = 95.88 / ((8128.0 / (apu.p0.output + apu.p1.output) as f64) + 100.0);
-    let tnd_sum = (apu.tri.output as f64 / 8227.0) + (apu.noise.output as f64 / 12241.0) + (apu.dmc.output as f64 / 22638.0);
+    let settings = &self.settings;
+
+    let p0 = apu.p0.output * (!settings.disable_pulse0 as u8);
+    let p1 = apu.p1.output * (!settings.disable_pulse1 as u8);
+    let tri = apu.tri.output * (!settings.disable_triangle as u8);
+    let noise = apu.noise.output * (!settings.disable_noise as u8);
+    let dmc = apu.dmc.output * (!settings.disable_dmc as u8);
+
+    let pulse = 95.88 / ((8128.0 / (p0 + p1) as f64) + 100.0);
+    let tnd_sum = (tri as f64 / 8227.0) + (noise as f64 / 12241.0) + (dmc as f64 / 22638.0);
     let tnd = 159.79 / ((1.0 / tnd_sum) + 100.0);
-    let ext = self.mapper.sample();
+    let ext = self.mapper.sample() * (!settings.disable_ext_audio as u8 as f64);
     
     let sample = (pulse + tnd + ext) * (self.settings.volume * 1000.0);
     let delta = sample - apu.prev_sample;

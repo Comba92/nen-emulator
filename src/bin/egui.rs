@@ -1,7 +1,7 @@
-use std::{collections::VecDeque, fs, path::{Path, PathBuf}, time::{Duration, Instant}};
+use std::{collections::VecDeque, path::{Path, PathBuf}, time::{Duration, Instant}};
 
 use eframe::egui;
-use nes_emulator::{emu::{self, Emu}, joypad, NesPalette};
+use nes_emulator::{emu, joypad, rom, NesPalette};
 
 const TEX_OPTS: egui::TextureOptions = egui::TextureOptions {
   magnification: egui::TextureFilter::Nearest,
@@ -51,7 +51,12 @@ fn buffered_read<P: AsRef<Path>>(path: P) -> Result<Vec<u8>, GenericError> {
   Ok(bytes)
 }
 
-fn ring_push_front<T>(queue: &mut VecDeque<T>, val: T, limit: usize) {
+fn ring_push_front<T: PartialEq>(queue: &mut VecDeque<T>, val: T, limit: usize) {
+  // remove duplicate
+  if let Some(idx) = queue.iter().position(|x| *x == val) {
+    queue.remove(idx);
+  }
+
   queue.push_front(val);
   queue.truncate(limit);
 }
@@ -124,10 +129,13 @@ impl SdlCtx {
 #[cfg_attr(feature = "serde", serde(default))]
 #[derive(Default)]
 struct AppWndCtx {
+  should_close: bool,
   keybinds_open: bool,
   rom_info_open: bool,
   about_open: bool,
   settings_open: bool,
+  exit_modal_open: bool,
+  #[cfg_attr(feature = "serde", serde(skip))]
   message_open: Option<(bool, std::time::Instant, GenericError)>,
 }
 
@@ -141,8 +149,11 @@ struct AppCfg {
 
   settings: emu::Settings,
   battery_saving: bool,
+  #[cfg(feature = "serde")]
+  restore_session: bool,
   bios_path: Option<PathBuf>,
 
+  #[cfg_attr(feature = "serde", serde(skip))]
   windows: AppWndCtx,
   recent_roms: VecDeque<PathBuf>,
   palettes: VecDeque<NesPalette>,
@@ -152,6 +163,7 @@ impl AppCfg {
   pub fn new() -> Self {
     Self {
       keep_aspect_ratio: true,
+      battery_saving: true,
       settings: emu::Settings::new(),
       ..Default::default()
     }
@@ -159,13 +171,18 @@ impl AppCfg {
 }
 
 struct AppCtx {
-  emu: Option<(emu::Emu, EmuState)>,
+  emu: emu::Emu,
+  state: EmuState,
   dt: f32,
   fps: f32,
   framebuf: egui::ColorImage,
   tex: egui::TextureHandle,
 
+  current_rom_path: Option<PathBuf>,
+
   bios: Option<Vec<u8>>,
+  bios_running: bool,
+
   cfg: AppCfg,
   sdl: SdlCtx,
 }
@@ -189,14 +206,21 @@ impl AppCtx {
       buffered_read(path).ok()
     } else { None };
 
+    let mut emu = emu::Emu::empty();
+    emu.settings = cfg.settings.clone();
+
     Box::new(Self {
-      emu: None,
+      emu,  
+      state: EmuState::Off,
       dt: 0.0,
       fps: 0.0,
       framebuf: img,
       tex,
 
+      current_rom_path: None,
       bios,
+      bios_running: true,
+
       cfg,
       sdl,
     })
@@ -206,41 +230,71 @@ impl AppCtx {
     self.cfg.windows.message_open = Some((true, Instant::now(), e));
   }
 
-  fn load_rom<P: AsRef<Path>>(&mut self, path: P) {
+  fn load_rom<P: AsRef<Path>>(&mut self, rom_path: P) {
     let bios = if let Some(bytes) = &self.bios {
       Some(bytes.as_slice())
     } else {
       None
     };
 
-    let res = emu::Emu::load_rom_from_file(&path, bios);
+    let res = emu::Emu::load_rom_from_file(&rom_path, bios);
     match res {
       Ok(mut new_emu) => {
         self.sdl.audiodev.clear();
         self.fps = 1.0 / new_emu.frame_rate();
-        
-        let new_state = if let Some((_, old_state)) = &mut self.emu {
-          match old_state {
-            EmuState::Off | EmuState::Stopped | EmuState::Running => EmuState::Running,
-            EmuState::Paused => {
-              self.sdl.audiodev.pause();
-              EmuState::Paused
-            }
+
+        self.close_rom_and_save();
+
+        if self.cfg.battery_saving {
+          if let Err(e) = new_emu.load_battery_from_file(&rom_path) {
+            self.show_message(e);
           }
-        } else {
-          EmuState::Running
-        };
+        }
 
         new_emu.settings = self.cfg.settings.clone();
         if let Some(pal) = self.cfg.palettes.front() {
           new_emu.palette = pal.clone();
         }
-        self.emu = Some((new_emu, new_state));
-        ring_push_front(&mut self.cfg.recent_roms, path.as_ref().to_path_buf(), 12);
+
+        self.emu = new_emu;
+        let pathbuf = rom_path.as_ref().to_path_buf();
+        self.current_rom_path = Some(pathbuf.clone());
+        ring_push_front(&mut self.cfg.recent_roms, pathbuf, 12);
+
+        #[cfg(feature = "serde")]
+        if self.cfg.restore_session {
+          self.load_state("last");
+        }
+
+        self.bios_running = false;
+        self.state = match self.state {
+          EmuState::Off | EmuState::Stopped | EmuState::Running => EmuState::Running,
+          EmuState::Paused => {
+            self.sdl.audiodev.pause();
+            EmuState::Paused
+          }
+        };
       }
       Err(e) => {
         self.show_message(e);
       }
+    }
+  }
+
+  fn close_rom_and_save(&mut self) {
+    if self.state == EmuState::Off || self.bios_running { return; }
+
+    if self.cfg.battery_saving {
+      if let Some(path) = &self.current_rom_path {
+        if let Err(e) = self.emu.save_battery_to_file(path) {
+          self.show_message(e.into());
+        }
+      }
+    }
+
+    #[cfg(feature = "serde")]
+    if self.cfg.restore_session {
+      self.save_state("last");
     }
   }
 
@@ -254,10 +308,9 @@ impl AppCtx {
     })
     .map_err(|e| self.show_message(e));
 
-    if let Some((emu, _)) = &mut self.emu {
-      if let Some(pal) = self.cfg.palettes.front() {
-        emu.palette = pal.clone();
-      }
+
+    if let Some(pal) = self.cfg.palettes.front() {
+      self.emu.palette = pal.clone();
     }
   }
 
@@ -271,24 +324,24 @@ impl AppCtx {
   #[cfg(feature = "serde")]
   fn get_rom_states_dir(&self) -> PathBuf {
     let mut dir = self.get_states_dir();
-    let current_rom = self.cfg.recents.front().unwrap();
+    let current_rom = self.current_rom_path.as_ref().unwrap();
     dir.push(current_rom.file_stem().unwrap());
     dir
   }
 
   #[cfg(feature = "serde")]
-  fn save_state(&self, name: &str) {
+  fn save_state(&mut self, name: &str) {
     let mut dir = self.get_states_dir();
     
-    let current_rom = self.cfg.recents.front().unwrap();
+    let current_rom = self.current_rom_path.as_ref().unwrap();
     dir.push(current_rom.file_stem().unwrap());
 
-    fs::create_dir_all(&dir);
+    _ = std::fs::create_dir_all(&dir);
 
     dir.push(name);
     dir.set_extension("state");
-    match self.get_emu().savestate(dir) {
-      Err(e) => self.show_error(e),
+    match self.emu.savestate(dir) {
+      Err(e) => self.show_message(e),
       _ => {}
     }
   }
@@ -299,18 +352,7 @@ impl AppCtx {
 
     dir.push(name);
     dir.set_extension("state");
-    match self.get_emu_mut().loadstate(dir) {
-      Err(e) => self.show_error(e),
-      _ => {}
-    }
-  }
-
-  fn get_emu(&self) -> &emu::Emu {
-    &self.emu.as_ref().unwrap().0
-  }
-
-  fn get_emu_mut(&mut self) -> &mut emu::Emu {
-    &mut self.emu.as_mut().unwrap().0
+    _ = self.emu.loadstate(dir);
   }
 }
 
@@ -321,7 +363,7 @@ impl eframe::App for AppCtx {
   }
 
   fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-    let running = self.emu.is_some();
+    let running = self.state != EmuState::Off;
 
     egui::TopBottomPanel::top("top").show_separator_line(true)
     .show(ctx, |ui| {
@@ -347,10 +389,14 @@ impl eframe::App for AppCtx {
                   break;
                 }
               }
+
+              if ui.button("Clear").clicked() {
+                self.cfg.recent_roms.clear();
+              }
             });
 
             #[cfg(feature = "serde")]
-            ui.add_enabled_ui(running, |ui| ui.menu_button("Savestates", |ui| {
+            ui.add_enabled_ui(running && !self.bios_running, |ui| ui.menu_button("Savestates", |ui| {
               if ui.button("Quicksave").clicked() {
                 self.save_state("quick");
               }
@@ -397,103 +443,122 @@ impl eframe::App for AppCtx {
 
               if ui.button("🗑 Clear game states").clicked() {
                 // TODO: show modal
-                let res = fs::remove_dir_all(self.get_rom_states_dir());
+                _ = std::fs::remove_dir_all(self.get_rom_states_dir());
               }
 
               if ui.button("☠ Clear all states").clicked() {
                 // TODO: show modal
                 let dir = self.get_states_dir();
-                let res = fs::remove_dir_all(dir);
+                _ = std::fs::remove_dir_all(dir);
               }
             }));
 
-            if ui.button("❌ Quit").clicked() {
-              // TODO: quit
+            if ui.button("📷 Screenshot").clicked() {
+              // TODO
+            }
+
+            if ui.button("❌ Close").clicked() {
+              self.cfg.windows.exit_modal_open = true;
             }
           });
           
           ui.menu_button("🕹 Emulation", |ui| {
             // TODO: ugly...
-            if let Some((emu, state)) = &mut self.emu {
-              match state {
-                EmuState::Running => {
-                  let pause =  ui.button("⏸ Pause");
-                  ui.separator();
-                  let reset = ui.button("🔄 Reset");
-                  let stop = ui.button("⏹ Stop");
-  
-                  if pause.clicked() {
-                    *state = EmuState::Paused;
-                    self.sdl.audiodev.pause();
-                  } else if reset.clicked() {
-                    emu.emu_reset();
-                    *state = EmuState::Running;
-                    self.sdl.audiodev.clear();
-                    self.sdl.audiodev.resume();
-                  } else if stop.clicked() {
-                    *state = EmuState::Stopped;
-                    self.sdl.audiodev.clear();
-                    self.sdl.audiodev.pause();
-                  } else {
-                    *state = EmuState::Running;
-                  }
+            match self.state {
+              EmuState::Running => {
+                let pause =  ui.button("⏸ Pause");
+                ui.separator();
+                let reset = ui.button("🔄 Reset");
+                let stop = ui.button("⏹ Stop");
+
+                if pause.clicked() {
+                  self.state = EmuState::Paused;
+                  self.sdl.audiodev.pause();
+                } else if reset.clicked() {
+                  self.emu.emu_reset();
+                  self.state = EmuState::Running;
+                  self.sdl.audiodev.clear();
+                  self.sdl.audiodev.resume();
+                } else if stop.clicked() {
+                  self.state = EmuState::Stopped;
+                  self.sdl.audiodev.clear();
+                  self.sdl.audiodev.pause();
+                } else {
+                  self.state = EmuState::Running;
                 }
-                EmuState::Paused => {
-                  let run =  ui.button("▶ Run");
-                  ui.separator();
-                  let reset = ui.button("🔄 Reset");
-                  let stop = ui.button("⏹ Stop");
-  
-                  if run.clicked() {
-                    *state = EmuState::Running;
-                    self.sdl.audiodev.resume();
-                  } else if reset.clicked() {
-                    emu.emu_reset();
-                    *state = EmuState::Running;
-                    self.sdl.audiodev.clear();
-                    self.sdl.audiodev.resume();
-                  } else if stop.clicked() {
-                    *state = EmuState::Stopped;
-                    self.sdl.audiodev.clear();
-                    self.sdl.audiodev.pause();
-                  } else {
-                    *state = EmuState::Paused;
-                  }
-                },
-                EmuState::Stopped => {   
-                  let run =  ui.button("▶ Run");
-                  let reset = ui.button("🔄 Reset");
-                  ui.separator();
-                  ui.add_enabled(false, egui::Button::new("⏹ Stop"));
-  
-                  if run.clicked() {
-                    emu.emu_reset();
-                    *state = EmuState::Running;
-                    self.sdl.audiodev.resume();
-                  } else if reset.clicked() {
-                    emu.emu_reset();
-                    *state = EmuState::Running;
-                    self.sdl.audiodev.clear();
-                    self.sdl.audiodev.resume();
-                  } else {
-                    *state = EmuState::Stopped;
-                  }
-                }
-                EmuState::Off => unreachable!()
               }
-            } else {
-              ui.add_enabled(false, egui::Button::new("▶ Run"));
+              EmuState::Paused => {
+                let run =  ui.button("▶ Run");
+                ui.separator();
+                let reset = ui.button("🔄 Reset");
+                let stop = ui.button("⏹ Stop");
+
+                if run.clicked() {
+                  self.state = EmuState::Running;
+                  self.sdl.audiodev.resume();
+                } else if reset.clicked() {
+                  self.emu.emu_reset();
+                  self.state = EmuState::Running;
+                  self.sdl.audiodev.clear();
+                  self.sdl.audiodev.resume();
+                } else if stop.clicked() {
+                  self.state = EmuState::Stopped;
+                  self.sdl.audiodev.clear();
+                  self.sdl.audiodev.pause();
+                } else {
+                  self.state = EmuState::Paused;
+                }
+              },
+              EmuState::Stopped => {   
+                let run =  ui.button("▶ Run");
+                let reset = ui.button("🔄 Reset");
+                ui.separator();
+                ui.add_enabled(false, egui::Button::new("⏹ Stop"));
+
+                if run.clicked() {
+                  self.emu.emu_reset();
+                  self.state = EmuState::Running;
+                  self.sdl.audiodev.resume();
+                } else if reset.clicked() {
+                  self.emu.emu_reset();
+                  self.state = EmuState::Running;
+                  self.sdl.audiodev.clear();
+                  self.sdl.audiodev.resume();
+                } else {
+                  self.state = EmuState::Stopped;
+                }
+              }
+              EmuState::Off => {
+                ui.add_enabled(false, egui::Button::new("▶ Run"));
+                ui.separator();
+                ui.add_enabled(false, egui::Button::new("🔄 Reset"));
+                ui.add_enabled(false, egui::Button::new("⏹ Stop"));
+              }
+            }
+              
+            let header = self.emu.header();
+            if header.format == rom::HeaderFormat::FDS {
               ui.separator();
-              ui.add_enabled(false, egui::Button::new("🔄 Reset"));
-              ui.add_enabled(false, egui::Button::new("⏹ Stop"));
+              if ui.button("💿 Insert next FDS disk/side").clicked() {
+                self.emu.mapper.special_input();
+              }
             }
           });
+
           ui.menu_button("⚙ Settings", |ui| {
+            if ui.button("🔧 Emulator").clicked() {
+              self.cfg.windows.settings_open = true;
+            }
+            
+            if ui.button("🎮 Keybinds").clicked() {
+              self.cfg.windows.keybinds_open = true;
+            }
+
             ui.checkbox(&mut self.cfg.keep_aspect_ratio, "📺 Keep Aspect Ratio");
             if ui.checkbox(&mut self.cfg.fullscreen, "🖥 Fullscreen").clicked() {
               ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(self.cfg.fullscreen));
             }
-            ui.checkbox(&mut self.cfg.hide_cursor, "🖱 Hide Cursor");
+            ui.checkbox(&mut self.cfg.hide_cursor, "🖱 Hide Cursor when playing");
 
             // ui.menu_button("🖥 Video Size", |ui| {
             //   for i in 1..6 {
@@ -503,17 +568,7 @@ impl eframe::App for AppCtx {
             //   }
             // });
 
-            if ui.button("🎮 Keybinds").clicked() {
-              self.cfg.windows.keybinds_open = true;
-            }
-
-            if ui.button("🔧 Emulation").clicked() {
-              self.cfg.windows.settings_open = true;
-            }
-
-            if ui.button("🎨 Theme").clicked() {
-              // TODO: theming
-            }
+            ui.menu_button("🎨 Theme", |ui| egui::widgets::global_theme_preference_buttons(ui));
           });
           ui.menu_button("🐞 Debug", |ui| {
             let rom_info = egui::Button::new("💾 ROM information");
@@ -521,11 +576,19 @@ impl eframe::App for AppCtx {
             if ui.add_enabled(running, rom_info).clicked() {
               self.cfg.windows.rom_info_open = true;
             }
-            if ui.button("Run FDS BIOS").clicked() {
+            if ui.button("👢 Run FDS BIOS").clicked() {
+              if self.bios.is_some() {
+                self.close_rom_and_save();
+              }
+
               if let Some(bios) = &self.bios {
                 let emu = emu::Emu::load_bios_only(Some(bios.as_slice()));
                 match emu {
-                  Ok(emu) => self.emu = Some((emu, EmuState::Running)),
+                  Ok(emu) => {
+                    self.state = EmuState::Running;
+                    self.emu = emu;
+                    self.bios_running = true;
+                  }
                   Err(e) => self.show_message(e),
                 }
               } else {
@@ -537,18 +600,18 @@ impl eframe::App for AppCtx {
             if ui.button("ℹ About").clicked() {
               self.cfg.windows.about_open = true;
             }
-            ui.hyperlink("🛠 Report bugs or issues");
+            ui.hyperlink("🛠 Report bugs, issues or features");
           });
 
-          if let Some((emu, _)) = &mut self.emu {
+          if running {
             let style = ui.style_mut();
             style.spacing.slider_width  *= 0.7;
             
             ui.separator();
-            let volume_slider = egui::Slider::new(&mut emu.settings.volume, 0.0..=100.0);
+            let volume_slider = egui::Slider::new(&mut self.emu.settings.volume, 0.0..=100.0);
             ui.label("🔊 Vol");
             ui.add(volume_slider);
-          }
+          }          
         });
       });
     });
@@ -559,60 +622,87 @@ impl eframe::App for AppCtx {
     //   let new_size = [256.0 * factor, top_height + 240.0 * factor];
     //   ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(new_size.into()));
     // }
+
+    let mut should_update_palette = None;
     
-    // TODO: palette viewer
     egui::Window::new("🔧 Settings")
     .collapsible(true)
     .resizable([true, true])
     .open(&mut self.cfg.windows.settings_open)
     .show(ctx, |ui| {
-      ui.label("NOTE: all settings will be applied to the running game only when this window is closed.").highlight();
-      ui.label("");
-
-      if ui.button("Load FDS BIOS file...").clicked() {
-        file_dialog("Select FDS BIOS file", "FDS BIOS", &["rom"])
-        .map(|path| self.cfg.bios_path = Some(path));
-
-        self.bios = if let Some(path) = &self.cfg.bios_path  {
-          buffered_read(path).ok()
-        } else { None };
-      }
-      if let Some(path) = &self.cfg.bios_path {
-        ui.label(format!("BIOS selected at: {:?}", path));
-      }
+      let settings = if running {
+        &mut self.emu.settings
+      } else {
+        &mut self.cfg.settings
+      };
 
       if ui.button("🎨 Load palette file...").clicked() {
-        let path = file_dialog("Select a NES palette file", "NES PAL file", &["pal"]);
-        // TODO
+        should_update_palette = file_dialog("Select a NES palette file", "NES PAL file", &["pal"]);
       }
 
       ui.collapsing(" Misc", |ui| {
         ui.checkbox(&mut self.cfg.battery_saving, "Enable battery saving")
         .on_hover_text("This will dump work RAM in the same directory as the ROM's.");
-        // TODO
+
+        #[cfg(feature = "serde")]
+        ui.checkbox(&mut self.cfg.restore_session, "Automatically restore last session when a game is reopened later");
       
-        ui.checkbox(&mut self.cfg.settings.random_ram, "Randomize RAM at startup")
+        ui.checkbox(&mut settings.random_ram, "Randomize RAM at startup")
         .on_hover_text("Some games (such as Final Fantasy) use the random state of RAM at boot to seed their rngs");
-        // TODO
       });
 
       ui.collapsing("📺 Video", |ui| {
-        ui.checkbox(&mut self.cfg.settings.no_sprite_limit, "Show more than 8 sprites per scaline");
-        ui.checkbox(&mut self.cfg.settings.disable_background, "Disable background tiles");
-        ui.checkbox(&mut self.cfg.settings.disable_sprites, "Disable sprite tiles");
-        ui.checkbox(&mut self.cfg.settings.pal_borders, "Show side PAL black borders");
+        ui.checkbox(&mut settings.no_sprite_limit, "Show more than 8 sprites per scaline")
+        .on_hover_text("Reduces flickering, but may show glitches in some games");
+        ui.checkbox(&mut settings.disable_background, "Disable background tiles");
+        ui.checkbox(&mut settings.disable_sprites, "Disable sprite tiles");
+        ui.checkbox(&mut settings.pal_borders, "Show side PAL black borders");
       });
       ui.collapsing("🔊 Audio", |ui| {
-        // TODO
+        ui.label("Audio sample rate:");
+        ui.indent("Sample rates", |ui| {
+          ui.radio_value(&mut settings.audio_sample_rate, 32000, "32000hz");
+          ui.radio_value(&mut settings.audio_sample_rate, 44100, "44100hz");
+          ui.radio_value(&mut settings.audio_sample_rate, 48000, "48000hz");
+          ui.radio_value(&mut settings.audio_sample_rate, 96000, "96000hz");
+        });
+
+        ui.checkbox(&mut settings.disable_pulse0, "Disable pulse 0 channel");
+        ui.checkbox(&mut settings.disable_pulse1, "Disable pulse 1 channel");
+        ui.checkbox(&mut settings.disable_triangle, "Disable triangle channel");
+        ui.checkbox(&mut settings.disable_noise, "Disable noise channel");
+        ui.checkbox(&mut settings.disable_dmc, "Disable dmc channel");
+        ui.checkbox(&mut settings.disable_ext_audio, "Disable external sound chip");
       });
+      ui.collapsing("💿 Famicon Disk System (FDS)", |ui| {
+        let bios_btn_text = if let Some(path) = &self.cfg.bios_path {
+          format!("👢 BIOS selected at: {:?}, click to change...", path)
+        } else {
+          "👢 Load FDS BIOS file...".to_string()
+        };
+
+        if ui.button(bios_btn_text).clicked() {
+          file_dialog("Select FDS BIOS file", "FDS BIOS", &["rom"])
+          .map(|path| self.cfg.bios_path = Some(path));
+          self.bios = if let Some(path) = &self.cfg.bios_path  {
+            buffered_read(path).ok()
+          } else { None };
+        }
+
+        // TODO: disk handling
+      })
     })
     .or_else(|| {
-      if let Some((emu, _)) = &mut self.emu {
-        self.cfg.settings.volume = emu.settings.volume;
-        emu.settings = self.cfg.settings.clone();
+      if running {
+        self.cfg.settings = self.emu.settings.clone();
       }
+
       None
     });
+    
+    if let Some(path) = should_update_palette {
+      self.load_palette(path);
+    }
 
     egui::Window::new("🎮 Keybindings")
     .collapsible(true)
@@ -653,10 +743,12 @@ impl eframe::App for AppCtx {
     .collapsible(true)
     .open(&mut self.cfg.windows.rom_info_open)
     .show(ctx, |ui| {
-      let emu = &self.emu.as_ref().unwrap().0;
-      let header = emu.header();
+      let header = self.emu.header();
 
       ui.columns_const::<2, _>(|ui| {
+        ui[0].label("Game Title");
+        ui[1].label(&header.title);
+
         ui[0].label("Header kind");
         ui[1].label(format!("{:?}", header.format));
 
@@ -669,21 +761,18 @@ impl eframe::App for AppCtx {
         ui[0].label("Region");
         ui[1].label(format!("{:?}", header.region));
 
-        ui[0].label("Battery");
-        ui[1].label(header.has_battery.to_string());
-        ui[0].label("Trainer");
-        ui[1].label(header.has_trainer.to_string());
-        ui[0].label("CHR RAM");
-        ui[1].label(header.has_chr_ram.to_string());
-
         ui[0].label("PRG size");
         ui[1].label(format!("{} KB", header.prg_size / 1024));
+        ui[0].label("WRAM size");
+        ui[1].label(format!("{} KB", header.wram_size / 1024));
 
         ui[0].label("CHR size");
         ui[1].label(format!("{} KB", header.chr_size / 1024));
+        ui[0].label("CHR RAM");
+        ui[1].label(header.has_chr_ram.to_string());
 
-        ui[0].label("WRAM size");
-        ui[1].label(format!("{} KB", header.wram_size / 1024));
+        ui[0].label("Battery");
+        ui[1].label(header.has_battery.to_string());
       });
 
       ui.set_clip_rect(ui.min_rect());
@@ -704,7 +793,7 @@ impl eframe::App for AppCtx {
 
     if let Some((open, appeared, msg)) = &mut self.cfg.windows.message_open {
       let res = egui::Window::new("Message")
-      .anchor(egui::Align2::RIGHT_BOTTOM, [-10.0, -10.0])
+      // .anchor(egui::Align2::RIGHT_BOTTOM, [-10.0, -10.0])
       .title_bar(false)
       .collapsible(false)
       .auto_sized()
@@ -723,6 +812,27 @@ impl eframe::App for AppCtx {
       if let None = res {
         self.cfg.windows.message_open = None;
       }
+    }
+
+    if self.cfg.windows.exit_modal_open {
+      egui::Modal::new(egui::Id::new("❌ Close"))
+      .show(ctx, |ui| {
+        ui.heading("❌ Closing emulator..");
+        ui.label("Are you sure??");
+
+        ui.horizontal(|ui| {
+          if ui.button("Yes").clicked() {
+            self.close_rom_and_save();
+
+            self.cfg.windows.should_close = true;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+          }
+          if ui.button("No").clicked() {
+            self.cfg.windows.should_close = false;
+            self.cfg.windows.exit_modal_open = false;
+          }
+        });
+      });
     }
 
     egui::CentralPanel::default()
@@ -770,35 +880,32 @@ impl eframe::App for AppCtx {
         }
       }
       
-
-      if let Some((emu, state)) = &mut self.emu {
-        if *state != EmuState::Running { return false; }
-
+      if running {
         // run one emulation frame
         self.dt += i.stable_dt;
         if self.dt > self.fps {
           self.dt -= self.fps;
 
           if should_handle_input {
-            emu.joypad.buttons = joypad::Button::empty();
+            self.emu.joypad.buttons = joypad::Button::empty();
             for key_pressed in &i.keys_down {
               if let Some((_, emu_key)) = self.cfg.keymaps.keys.iter().find(|x| x.0 == *key_pressed) {
-                emu.set_button(*emu_key, true);
+                self.emu.set_button(*emu_key, true);
               }
             }
           }
 
-          emu.step_until_vblank();
+          self.emu.step_until_vblank();
           let audiodev = &mut self.sdl.audiodev;
-          audiodev.queue_audio(emu.get_audio()).unwrap();
+          audiodev.queue_audio(self.emu.get_audio()).unwrap();
 
           while audiodev.size()/2 < audiodev.spec().samples as u32 {
             // run for another frame
-            emu.step_until_vblank();
-            audiodev.queue_audio(emu.get_audio()).unwrap();
+            self.emu.step_until_vblank();
+            audiodev.queue_audio(self.emu.get_audio()).unwrap();
           }
 
-          emu.get_video_rgba(self.framebuf.as_raw_mut());
+          self.emu.get_video_rgba(self.framebuf.as_raw_mut());
 
           // sadly we have to clone the framebuf
           self.tex.set(self.framebuf.clone(), TEX_OPTS);
@@ -810,5 +917,12 @@ impl eframe::App for AppCtx {
     });
 
     if has_run_one_frame { ctx.request_repaint(); }
+
+    if ctx.input(|i| i.viewport().close_requested()) {
+      if !self.cfg.windows.should_close {
+        ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+        self.cfg.windows.exit_modal_open = true;
+      }
+    }
   }
 }

@@ -2,7 +2,7 @@ use crate::{emu::{Mirroring, Region}, games_db::GAMES_DB};
 
 #[derive(Default)]
 pub struct Cart {
-  pub header: CartHeader,
+  pub header: RomData,
   pub prg: Vec<u8>,
   pub chr: Vec<u8>,
 }
@@ -16,7 +16,8 @@ pub enum HeaderFormat {
 // https://www.nesdev.org/wiki/INES
 #[derive(Default, Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct CartHeader {
+pub struct RomData {
+  pub title: String,
   pub format: HeaderFormat,
   pub mapper: u16,
   pub submapper: u8,
@@ -36,7 +37,7 @@ pub struct CartHeader {
   pub has_trainer: bool,
 }
 
-impl CartHeader {
+impl RomData {
   const INES_MAGIC: &[u8] = &[0x4e, 0x45, 0x53, 0x1a];
   const INES_HEADER_SIZE: usize = 16;
   const UNIF_MAGIC: &[u8] = &[0x55, 0x4e, 0x49, 0x46];
@@ -64,27 +65,19 @@ impl CartHeader {
 
     match header {
       Ok(mut header) => {
-        // TODO: remove DEBUG
-        if let Some(entry) = GAMES_DB.query(&bytes[header.len()..]) {
-          println!("==[GAME LOADED]==\n{:?}", entry);
-        }
-
-        // we only trust Nes2.0 format
-        if header.format != HeaderFormat::Nes2_0 {
-          let entry = GAMES_DB.query(&bytes[header.len()..]);
-          if let Some(entry) = entry {
+        let entry = GAMES_DB.query(&bytes[header.len()..]);
+        if let Some(entry) = entry {
+          // we do not trust INes
+          if header.format == HeaderFormat::INes {
             header = entry.into();
             header.format = HeaderFormat::INes;
           }
+          header.title = entry.title.clone();
         }
+
         Ok(header)
       }
       Err(e) => {
-        // TODO: remove DEBUG
-        if let Some(entry) = GAMES_DB.query(bytes) {
-          println!("==[GAME LOADED]==\n{:?}", entry);
-        }
-
         GAMES_DB.query(bytes)
           .ok_or(e)
           .map(|x| x.into())
@@ -101,7 +94,7 @@ impl CartHeader {
       return Err("not a valid iNES/NES2.0 ROM")
     }
 
-    let mut header = CartHeader::default();
+    let mut header = RomData::default();
     header.format = HeaderFormat::INes;
     
     header.prg_size = bytes[4] as usize * 16 * 1024;
@@ -185,7 +178,7 @@ impl CartHeader {
 
 impl Cart {
   pub fn from(bytes: &[u8]) -> Result<Self, &'static str> {
-    let header = CartHeader::from(bytes)?;
+    let header = RomData::from(bytes)?;
 
     // only iNes supported
     let rom_start = header.len();
@@ -196,9 +189,6 @@ impl Cart {
       let chr_start = rom_start+header.prg_size;
       bytes[chr_start..chr_start+header.chr_size].to_vec()
     };
-
-    // DEBUG
-    println!("==[CART READY]==\n{:?}", header);
 
     Ok(Self {
       header,
@@ -372,7 +362,6 @@ impl Disk {
       sides_data.push(side_data);
     }
 
-    println!("==[DISK READY]==\n{:?}", sides_data);
     Ok(Self { sides_bytes, sides_data })
   }
 }

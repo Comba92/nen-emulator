@@ -83,7 +83,7 @@ pub fn new(mem: &mut Bus) -> Result<BoxedMapper, String> {
 // https://www.nesdev.org/wiki/NROM
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-struct NROM;
+pub(crate) struct NROM;
 
 #[cfg_attr(feature = "serde", typetag::serde)]
 impl Mapper for NROM {

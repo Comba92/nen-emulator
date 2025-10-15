@@ -1,4 +1,4 @@
-use crate::{emu::{self, Emu, Mirroring}, mapper::{self, BoxedMapper, Mapper}, rom::{self, Cart, CartHeader, Disk}};
+use crate::{emu::{Emu, Mirroring}, mapper::{self, BoxedMapper, Mapper}, rom::{self, Cart, RomData, Disk}};
 
 pub trait BankCfg {}
 
@@ -95,25 +95,25 @@ impl<T: BankCfg + std::fmt::Debug> Banking<T> {
 }
 
 impl Banking<PrgBank> {
-  pub fn new_prg(header: &CartHeader, pages_count: u16) -> Self {
+  pub fn new_prg(header: &RomData, pages_count: u16) -> Self {
     Self::new(0x8000, header.prg_size, 32 * 1024, pages_count)
   }
 }
 
 impl Banking<ChrBank> {
-  pub fn new_chr(header: &CartHeader, pages_count: u16) -> Self {
+  pub fn new_chr(header: &RomData, pages_count: u16) -> Self {
     Self::new(0, header.chr_size, 8 * 1024, pages_count)
   }
 }
 
 impl Banking<WramBank> {
-  pub fn new_wram(header: &CartHeader, pages_count: u16) -> Self {
+  pub fn new_wram(header: &RomData, pages_count: u16) -> Self {
     Self::new(0x6000, header.wram_size, 8 * 1024, pages_count)
   }
 }
 
 impl Banking<VramBank> {
-  pub fn new_vram(header: &CartHeader) -> Self {
+  pub fn new_vram(header: &RomData) -> Self {
     let mut res = Self::new(0x2000, 2 * 1024, 4 * 1024, 4);
     res.mirror(&header.mirroring);
     res
@@ -155,7 +155,7 @@ pub struct BanksHandler {
   pub vram: Banking<VramBank>,
 }
 impl BanksHandler {
-  pub fn new(header: &CartHeader) -> Self {
+  pub fn new(header: &RomData) -> Self {
     Self {
       prg: Banking::new_prg(header, 2),
       chr: Banking::new_chr(header, 1),
@@ -185,7 +185,7 @@ pub enum CpuHandler {
 #[derive(Clone, Copy, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum PpuHandler {
-  ChrRom, ChrRam, Vram, Palette, ChrMMC5, VramMMC5
+  ChrRom, ChrRam, Vram, Palette, OpenBus, ChrMMC5, VramMMC5
 }
 
 #[cfg(feature = "serde")]
@@ -220,11 +220,41 @@ pub struct Bus {
   pub nmi: bool,
   pub irq: IrqFlags,
 
-  pub header: CartHeader,
+  pub header: RomData,
   pub banks: BanksHandler,
+}
+impl Default for Bus {
+  fn default() -> Self {
+    Self {
+      ram: [0; 2 * 1024],
+      prg: Vec::new(),
+      chr: Vec::new(),
+      vram: Vec::new(),
+      wram: Vec::new(),
+
+      cpu_handlers_8kb: std::array::from_fn(|_| CpuHandler::OpenBus),
+      ppu_handlers_1kb: std::array::from_fn(|_| PpuHandler::OpenBus),
+      
+      cpu_addr_bus: 0,
+      cpu_data_bus: 0,
+      ppu_addr_bus: 0,
+      ppu_data_bus: 0,
+
+      ppu_cycle: 0,
+      ppu_scanline: 0,
+      ppu_frame: 0,
+
+      nmi: false,
+      irq: IrqFlags::empty(),
+
+      header: RomData::default(),
+      banks: BanksHandler::default(),
+    }
+  }
 }
 
 impl Bus {
+
   pub fn with_cart(cart: Cart) -> Self {
     let banks = BanksHandler::new(&cart.header);
 
@@ -294,7 +324,7 @@ impl Bus {
   }
 
   pub fn with_disk(disk: Disk, bios: &[u8]) -> (Self, BoxedMapper) {
-    let mut header = CartHeader::default();
+    let mut header = RomData::default();
     header.format = rom::HeaderFormat::FDS;
     header.mapper = 20;
 
@@ -515,6 +545,7 @@ impl Emu {
           mem.ppu_addr_bus as u8
         }
       }
+      PpuHandler::OpenBus => mem.ppu_addr_bus as u8,
 
       PpuHandler::ChrMMC5 => mem.chr[mem.banks.chr.translate(addr)],
       PpuHandler::VramMMC5 => mem.vram[mem.banks.vram.translate(addr)],
@@ -547,6 +578,7 @@ impl Emu {
           self.mem.vram[self.mem.banks.vram.translate(addr & 0x2fff)]
         }
       }
+      PpuHandler::OpenBus => mem.ppu_addr_bus as u8,
       
       PpuHandler::ChrMMC5 | PpuHandler::VramMMC5 => self.mapper.ppu_special_read(mem, addr),
     };
@@ -564,7 +596,7 @@ impl Emu {
     let handler = (addr >> 10) % 16;
 
     match mem.ppu_handlers_1kb[handler as usize] {
-      PpuHandler::ChrRom | PpuHandler::ChrMMC5 => {}
+      PpuHandler::ChrRom | PpuHandler::ChrMMC5 | PpuHandler::OpenBus => {}
       PpuHandler::ChrRam => mem.chr[mem.banks.chr.translate(addr)] = val,
       PpuHandler::Vram | PpuHandler::VramMMC5 => mem.vram[mem.banks.vram.translate(addr & 0x2fff)] = val,
       PpuHandler::Palette => {

@@ -36,14 +36,19 @@ mod utils {
 use serde_big_array::BigArray;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct NesPalette(#[cfg_attr(feature = "serde", serde(with = "BigArray"))] pub [(u8, u8, u8); 64]);
 impl Default for NesPalette {
   fn default() -> Self { Self([(0, 0, 0); 64]) }
 }
 
 impl NesPalette {
+  pub const MAX_SIZE: usize = 1536;
+
+  // https://www.nesdev.org/wiki/.pal
   pub fn from_pal_file(bytes: &[u8]) -> Option<Self> {
+    if bytes.len() > Self::MAX_SIZE { return None } 
+
     let colors = bytes
       .chunks(3)
       // we take only the first palette set of 64 colors, more might be in a .pal file

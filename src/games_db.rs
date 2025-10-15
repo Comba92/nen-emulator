@@ -1,5 +1,5 @@
 use std::{collections::HashMap, io::Read, sync::LazyLock};
-use crate::{rom::{ CartHeader, HeaderFormat}, emu::{Mirroring, Region}};
+use crate::{rom::{ RomData, HeaderFormat}, emu::{Mirroring, Region}};
 
 #[derive(Debug, Default, bitcode::Encode, bitcode::Decode)]
 pub struct GameData {
@@ -33,7 +33,7 @@ pub struct GameData {
   pub console: u8,
   pub expansions: u8,
 }
-impl From<&GameData> for CartHeader {
+impl From<&GameData> for RomData {
   fn from(value: &GameData) -> Self {
     let chr_size = if value.chr_size > 0 {
       value.chr_size
@@ -46,6 +46,7 @@ impl From<&GameData> for CartHeader {
     let wram_size = value.prgram_size + value.prgnvram_size;
 
     Self {
+      title: value.title.clone(),
       prg_size: value.prg_size,
       chr_size,
       wram_size,
@@ -102,7 +103,7 @@ impl GamesDB {
     let index  = self.rom_map.get(&rom_hash)
     .or_else(move || {
       // rom hash not found, try parsing the header and hash prg
-      let header = CartHeader::parse(rom);
+      let header = RomData::parse(rom);
       let prg_size = header.map_or(None, |x| Some(x.prg_size));
 
       match prg_size {
@@ -218,5 +219,10 @@ fn count_mmc5_ram() {
     .filter(|x| x.mapper == 5 && x.chrram_size > 0)
     .collect::<Vec<_>>();
   println!("{count:#?}");
+}
+
+#[test]
+fn bios_crc32() {
+  println!("{}", crc32fast::hash(include_bytes!("../utils/disksys.rom")))
 }
 }

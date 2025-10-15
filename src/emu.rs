@@ -1,16 +1,22 @@
 use std::path::{Path, PathBuf};
 
-use crate::{apu::ApuRP2A, bus::Bus, cpu::{self, Cpu6502}, joypad::Joypad, mapper::{self, BoxedMapper, Mapper}, ppu::Ppu2C02, rom::{Cart, CartHeader, Disk}, NesPalette};
+use crate::{apu::ApuRP2A, bus::Bus, cpu::{self, Cpu6502}, joypad::Joypad, mapper::{self, BoxedMapper, Mapper}, ppu::Ppu2C02, rom::{Cart, RomData, Disk}, NesPalette};
 
 #[derive(Default, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Settings {
+  // TODO: not implemented
   pub random_ram: bool,
   pub no_sprite_limit: bool,
+
+  // TODO: not implemented
   pub disable_background: bool,
+  // TODO: not implemented
   pub disable_sprites: bool,
+  // TODO: not implemented
   pub pal_borders: bool,
 
+  // TODO: not implemented
   pub audio_sample_rate: usize,
   pub volume: f64,
   pub disable_pulse0: bool,
@@ -24,6 +30,7 @@ impl Settings {
   pub fn new() -> Self {
     Self {
       no_sprite_limit: true,
+      audio_sample_rate: 48000,
       volume: 20.0,
       ..Default::default()
     }
@@ -76,7 +83,7 @@ pub enum Game {
 }
 impl Game {
   pub fn from(bytes: &[u8]) -> Result<Self, LoadError> {
-    if CartHeader::is_valid_ines(bytes) {
+    if RomData::is_valid_ines(bytes) {
       Ok(Game::Cart(Cart::from(bytes)?))
     } else if Disk::is_valid_fds(bytes) {
       Ok(Game::Disk(Disk::from(bytes)?))
@@ -92,6 +99,26 @@ impl Emu {
   pub const PAL_CLOCK_RATE:  usize = 1662607;
   pub const NTSC_FRAME_RATE: f32 = 60.0988;
   pub const PAL_FRAME_RATE:  f32 = 50.0070;
+  pub const BIOS_CRC32: u32 = 1583381967;
+
+  pub fn empty() -> Self {
+    Self {
+      cpu: Cpu6502::new(),
+      ppu: Ppu2C02::new(&Default::default()),
+      apu: ApuRP2A::new(&Default::default()),
+      joypad: Joypad::default(),
+      mem: Bus::default(),
+      mapper: Box::new(mapper::NROM),
+
+      videobuf: vec![],
+      audiobuf: vec![],
+      audio_read: false,
+      palette: NesPalette::default(),
+      
+      frame_ready: false,
+      settings: Settings::default(),
+    }
+  }
 
   fn new(game: Game, bios: Option<&[u8]>) -> Result<Self, LoadError> {
     let (mem, mapper) = match game {
@@ -102,6 +129,7 @@ impl Emu {
       }
       Game::Disk(disk) => {
         let bios = bios.ok_or("no BIOS ROM provided")?;
+        if crc32fast::hash(bios) != Self::BIOS_CRC32 { return Err("not a valid BIOS rom".into()); }
         Bus::with_disk(disk, bios)
       },
     };
@@ -158,7 +186,7 @@ impl Emu {
     &self.mem.header.region
   }
 
-  pub const fn header(&self) -> &CartHeader {
+  pub const fn header(&self) -> &RomData {
     &self.mem.header
   }
 
@@ -230,8 +258,8 @@ impl Emu {
   }
 
   pub fn load_battery(&mut self, bytes: &[u8]) -> Result<(), LoadError> {
-    if !self.mem.header.has_battery {
-      return Err("game has no battery".into())
+    if !self.header().has_battery {
+      return Ok(())
     } else if bytes.len() != self.mem.wram.len() {
       return Err("invalid save ram dump provided, size don't match".into())
     } else {
@@ -334,7 +362,7 @@ impl Emu {
 
     if let Some(sram) = self.save_battery() {
       let mut save_path = PathBuf::from(path.as_ref());
-      save_path.set_extension("sram");
+      save_path.set_extension("srm");
 
       let file = std::fs::File::create(&save_path)?;
       let mut writer = std::io::BufWriter::new(file);
@@ -346,10 +374,11 @@ impl Emu {
   }
 
   pub fn load_battery_from_file<P: AsRef<Path>>(&mut self, path: P) -> Result<(), LoadError> {
+    if !self.header().has_battery { return Ok(()) }
     use std::io::Read;
     
     let mut load_path = PathBuf::from(path.as_ref());
-    load_path.set_extension("sram");
+    load_path.set_extension("srm");
     if let Ok(file) = std::fs::File::open(&load_path) {
       let mut buf = Vec::new();
       let mut reader = std::io::BufReader::new(file);
@@ -371,17 +400,13 @@ impl Emu {
   pub fn loadstate<P: AsRef<Path>>(&mut self, path: P) -> Result<(), LoadError> {
     let file = std::fs::File::open(path)?;
     let reader = std::io::BufReader::new(file);
-    let res: Result<Emu, _> = pot::from_reader(reader);
+    let mut new_emu: Emu = pot::from_reader(reader)?;
 
-    match res {
-      Ok(mut new_emu) => {
-        std::mem::swap(&mut self.audiobuf, &mut new_emu.audiobuf);
-        std::mem::swap(&mut self.videobuf, &mut new_emu.videobuf);
-        std::mem::swap(&mut self.apu.blip, &mut new_emu.apu.blip);
-        *self = new_emu;
-        Ok(())
-      }
-      Err(e) => Err(e.into())
-    }
+    std::mem::swap(&mut self.audiobuf, &mut new_emu.audiobuf);
+    std::mem::swap(&mut self.videobuf, &mut new_emu.videobuf);
+    std::mem::swap(&mut self.apu.blip, &mut new_emu.apu.blip);
+    *self = new_emu;
+
+    Ok(())
   }
 }
