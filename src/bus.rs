@@ -196,6 +196,7 @@ use serde_big_array::BigArray;
 pub struct Bus {
   #[cfg_attr(feature = "serde", serde(with = "BigArray"))]
   ram: [u8; 2 * 1024],
+  #[cfg_attr(feature = "serde", serde(skip))]
   pub prg: Vec<u8>,
   pub wram: Vec<u8>,
   pub chr: Vec<u8>,

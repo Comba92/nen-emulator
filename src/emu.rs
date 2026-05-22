@@ -145,7 +145,7 @@ impl Emu {
       mapper,
 
       videobuf: vec![0; 256 * 240],
-      audiobuf: vec![0; 2 * 1024],
+      audiobuf: vec![0; 4 * 1024],
       audio_read: false,
       palette,
       
@@ -402,6 +402,7 @@ impl Emu {
     let reader = std::io::BufReader::new(file);
     let mut new_emu: Emu = pot::from_reader(reader)?;
 
+    std::mem::swap(&mut self.mem.prg, &mut new_emu.mem.prg);
     std::mem::swap(&mut self.audiobuf, &mut new_emu.audiobuf);
     std::mem::swap(&mut self.videobuf, &mut new_emu.videobuf);
     std::mem::swap(&mut self.apu.blip, &mut new_emu.apu.blip);

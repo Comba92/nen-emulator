@@ -1,7 +1,18 @@
-use std::{fs, io::{BufReader, BufWriter, Read, Write}, path};
+use std::{fs, io::{BufReader, BufWriter, Read, Write}, path, sync::mpsc::{self, Receiver}};
 
 use nes_emulator::{emu::Emu, joypad::Button};
-use sdl2::{event::{Event, WindowEvent}, keyboard::Keycode, pixels::PixelFormatEnum};
+use sdl2::{audio::AudioCallback, event::{Event, WindowEvent}, keyboard::Keycode, pixels::PixelFormatEnum};
+
+struct AudioHandler(Receiver<i16>);
+impl AudioCallback for AudioHandler {
+    type Channel = i16;
+
+    fn callback(&mut self, buf: &mut [Self::Channel]) {
+        for sample in buf {
+            *sample = self.0.recv().unwrap();
+        }
+    }
+}
 
 fn main() {
     let sdl = sdl2::init().unwrap();
@@ -11,11 +22,17 @@ fn main() {
     let audiospec = sdl2::audio::AudioSpecDesired {
         channels: Some(1),
         freq: Some(48000),
-        samples: None,
+        samples: Some(1024),
     };
+
+    let (send, recv) = mpsc::channel();
+
     let audiodev = audio.open_queue::<i16, _>(None, &audiospec).unwrap();
+    let audiocb = audio.open_playback(None, &audiospec, |_| AudioHandler(recv)).unwrap();
+    
+    // audiocb.resume();
     audiodev.resume();
-    println!("{:?}", audiodev.spec());
+    // println!("{:?}", audiodev.spec());
 
     let mut events = sdl.event_pump().unwrap();
     let timer = sdl.timer().unwrap();
@@ -91,6 +108,7 @@ fn main() {
 
                             rom_filename = filename;
                             emu = res;
+                            println!("{:?}", emu.header());
 
                             // load current game battery if any
                             let mut load_path = path::PathBuf::from(&rom_filename);
@@ -157,6 +175,11 @@ fn main() {
         }
 
         emu.step_until_vblank();
+
+        // for sample in emu.get_audio() {
+        //     send.send(*sample).unwrap()
+        // }
+
         audiodev.queue_audio(emu.get_audio()).unwrap();
 
         while audiodev.size()/2 < audiodev.spec().samples as u32 {
