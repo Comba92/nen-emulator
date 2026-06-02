@@ -1,3 +1,5 @@
+use std::{array, mem};
+
 use crate::{
     dma::Dma,
     emu::{Emu, Region},
@@ -44,7 +46,7 @@ pub struct CtrlStrut {
     pub spr_pttrntbl_addr: u16,
     pub bg_pttrntbl_addr: u16,
     pub spr_size: u16,
-    pub vblank_nmi_enabled: bool,
+    pub nmi_enabled: bool,
 }
 impl Default for CtrlStrut {
     fn default() -> Self {
@@ -53,7 +55,7 @@ impl Default for CtrlStrut {
             spr_pttrntbl_addr: 0,
             bg_pttrntbl_addr: 0,
             spr_size: 8,
-            vblank_nmi_enabled: false,
+            nmi_enabled: false,
         }
     }
 }
@@ -79,7 +81,7 @@ struct LoopyReg {
 
 #[derive(Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-struct FetcherData {
+struct Fetcher {
     nametbl: u8,
     pttrn_addr: u16,
     attribute: u8,
@@ -89,7 +91,7 @@ struct FetcherData {
 
 #[derive(Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-struct ShifterData {
+struct Shifter {
     shift_ptrn_lo: u16,
     shift_ptrn_hi: u16,
     // we simulate the 1bit latch by always pushing 8 bytes (thus having a 16bit shifter)
@@ -97,34 +99,36 @@ struct ShifterData {
     shift_attr_hi: u16,
 }
 
-#[derive(Default, Debug, Clone)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 struct Sprite {
     y: u8,
-    tile_id: u8,
+    tile: u8,
     attr: u8,
     x: u8,
-    pttrn_lo: u8,
-    pttrn_hi: u8,
 }
-impl Sprite {
-    pub fn new(index: u8, visible: bool, bytes: &[u8]) -> Self {
+impl Default for Sprite {
+    fn default() -> Self {
         Self {
-            y: bytes[0],
-            tile_id: bytes[1],
-            // bits 2-4 of attribute are empty, we can use them to store spr0hit and visibility
-            attr: (bytes[2] & !0x1c) | (((index == 0) as u8) << 2) | ((visible as u8) << 3),
-            x: bytes[3],
-            pttrn_hi: 0,
-            pttrn_lo: 0,
+            y: 0xff,
+            tile: 0xff,
+            attr: 0xff,
+            x: 0xff,
         }
     }
+}
+impl Sprite {
+    pub fn new(bytes: &[u8], idx: usize) -> Self {
+        let mut attr = bytes[2];
+        // little trick: we store if its sprite 0 in attribute unused bits
+        attr = (attr & !0x04) | (((idx == 0) as u8) << 2);
 
-    pub fn empty() -> Self {
         Self {
-            tile_id: 0xff,
-            attr: 0x20,
-            ..Default::default()
+            y: bytes[0],
+            tile: bytes[1],
+            // bits 2-4 of attribute are empty, we can use them to store spr0hit and visibility
+            attr,
+            x: bytes[3],
         }
     }
 
@@ -132,13 +136,10 @@ impl Sprite {
         self.attr & 0b11
     }
     // we stored spr0 in unused bits of attribute to save memory
-    pub fn spr0(&self) -> bool {
+    pub fn is_spr0(&self) -> bool {
         self.attr & 0x4 != 0
     }
-    // we stored visible in unused bits of attribute to save memory
-    pub fn visible(&self) -> bool {
-        self.attr & 0x8 != 0
-    }
+
     // 0: in front of background; 1: behind background
     pub fn priority(&self) -> bool {
         self.attr & 0x20 == 0
@@ -228,15 +229,21 @@ pub struct Ppu2C02 {
     x: u8,
     w: bool,
 
-    open_bus: u8,
     oam_addr: u8,
     ppu_data: u8,
+    open_bus: u8,
+
+    fetcher: Fetcher,
+    shifter: Shifter,
 
     pub oam: Oam,
-    oam_tmp: Vec<Sprite>,
+    oam_tmp: [Sprite; 8],
     oam_tmp_count: u8,
+    spr_extra: Vec<Sprite>,
+
     #[cfg_attr(feature = "serde", serde(skip))]
     spr_scanline: SprScanline,
+
     pub dma: Dma,
 
     pub palettes: [u8; 32],
@@ -244,15 +251,12 @@ pub struct Ppu2C02 {
     pub dot: i16,
     pub line: i16,
     prerender_line: i16,
-    pub pixel: usize,
+    pub pixel_idx: usize,
 
     // https://www.nesdev.org/wiki/PPU_frame_timing
     odd_frame: bool,
     vblank_suppress: bool,
     nmi_suppress: bool,
-
-    fetcher: FetcherData,
-    shifter: ShifterData,
 }
 
 impl Ppu2C02 {
@@ -267,7 +271,7 @@ impl Ppu2C02 {
         Self {
             line: 0,
             prerender_line: scanlines_count,
-            oam_tmp: vec![Sprite::empty(); 8],
+            oam_tmp: array::from_fn(|_| Sprite::default()),
             ..Default::default()
         }
     }
@@ -367,7 +371,7 @@ impl Ppu2C02 {
 
         if self.ctrl.spr_size == 8 {
             // 8x8 sprites
-            self.ctrl.spr_pttrntbl_addr | ((sprite.tile_id as u16) << 4) | fine_y & 0x7
+            self.ctrl.spr_pttrntbl_addr | ((sprite.tile as u16) << 4) | fine_y & 0x7
         } else {
             // 8x16 sprites
             let mut bottom_tile = dist >= 8;
@@ -377,8 +381,8 @@ impl Ppu2C02 {
             }
 
             // For 8x16 sprites (bit 5 of PPUCTRL set), the PPU ignores the pattern table selection and selects a pattern table from bit 0 of this number.
-            (sprite.tile_id as u16 & 1) << 12
-                | (((sprite.tile_id & !1) as u16 | bottom_tile as u16) << 4)
+            (sprite.tile as u16 & 1) << 12
+                | (((sprite.tile & !1) as u16 | bottom_tile as u16) << 4)
                 | fine_y & 0x7
         }
     }
@@ -488,18 +492,51 @@ impl Ppu2C02 {
         // }
     }
 
+    fn spr_push(&mut self, sprite: Sprite, mut pttrn_lo: u8, mut pttrn_hi: u8) {
+        if sprite.flip_hori() {
+            pttrn_lo = pttrn_lo.reverse_bits();
+            pttrn_hi = pttrn_hi.reverse_bits();
+        }
+
+        let mx = 8.min(255 - sprite.x);
+        for x in 0..mx {
+            // we skip this because the pixel pushed earlier has priority
+            if self.spr_scanline.0[(sprite.x + x) as usize].pixel() > 0 {
+                continue;
+            }
+
+            let mask = 0x80 >> x;
+            let pixel_lo = (pttrn_lo & mask) > 0;
+            let pixel_hi = (pttrn_hi & mask) > 0;
+            let pixel = ((pixel_hi as u8) << 1) | (pixel_lo as u8);
+            // pixel is transparent and shouldnt be drawn
+            // if pixel == 0 {
+            //     continue;
+            // }
+
+            let sprite_entry = SprScanlineDataBuilder::new()
+                .with_pixel(pixel)
+                .with_palette(sprite.palette())
+                .with_priority(sprite.priority())
+                .with_spr0(sprite.is_spr0());
+
+            self.spr_scanline.0[(sprite.x + x) as usize] = sprite_entry.build();
+        }
+    }
+
     pub fn reset(&mut self) {
         *self = Ppu2C02 {
-            line: -1,
+            line: self.prerender_line,
             prerender_line: self.prerender_line,
             v: self.v,
-            oam_tmp: vec![Sprite::empty(); 8],
+            oam_tmp: array::from_fn(|_| Sprite::default()),
             ..Default::default()
         }
     }
 }
 
 impl Emu {
+    // TODO: this should be method of ppu not of emu
     fn increase_vram_addr(&mut self) {
         let ppu = &mut self.ppu;
         // if !ppu.is_rendering() {
@@ -581,7 +618,7 @@ impl Emu {
         match addr {
             // Ctrl
             0x2000 => {
-                let old_nmi_enabled = ppu.ctrl.vblank_nmi_enabled;
+                let old_nmi_enabled = ppu.ctrl.nmi_enabled;
                 let new_nmi_enabled = val & 0x80 != 0;
 
                 if !old_nmi_enabled && new_nmi_enabled && ppu.stat.contains(Status::Vblank) {
@@ -595,7 +632,7 @@ impl Emu {
                         self.mem.nmi
                     };
                 }
-                ppu.ctrl.vblank_nmi_enabled = new_nmi_enabled;
+                ppu.ctrl.nmi_enabled = new_nmi_enabled;
 
                 ppu.t.set_nametbl_x(val & 1);
                 ppu.t.set_nametbl_y((val >> 1) & 1);
@@ -719,64 +756,66 @@ impl Emu {
         }
     }
 
-    #[deprecated]
-    fn spr_fetch_step(&mut self) {
-        let ppu = &mut self.ppu;
+    // #[deprecated]
+    // fn spr_fetch_step(&mut self) {
+    //     let ppu = &mut self.ppu;
 
-        // these are still aligned by 8
-        match (ppu.dot - 1) % 8 {
-            0 => {
-                // unused nt fetch
-                self.ppu_dispatch_read(self.ppu.nametbl_addr());
-            }
-            2 => {
-                // ignored nt fetch
-                self.ppu_dispatch_read(self.ppu.nametbl_addr());
-            }
-            4 => {
-                let spr_id = (ppu.dot - 257) / 8;
-                let sprite = &ppu.oam_tmp[spr_id as usize];
+    //     // these are still aligned by 8
+    //     match (ppu.dot - 1) % 8 {
+    //         0 => {
+    //             // unused nt fetch
+    //             self.ppu_dispatch_read(self.ppu.nametbl_addr());
+    //         }
+    //         2 => {
+    //             // ignored nt fetch
+    //             self.ppu_dispatch_read(self.ppu.nametbl_addr());
+    //         }
+    //         4 => {
+    //             let spr_id = (ppu.dot - 257) / 8;
+    //             let sprite = &ppu.oam_tmp[spr_id as usize];
 
-                let pttrn_addr = ppu.spr_pttrn_addr(sprite);
-                ppu.fetcher.pttrn_addr = pttrn_addr;
-                let flip_hori = sprite.flip_hori();
-                let visible = sprite.visible();
+    //             let pttrn_addr = ppu.spr_pttrn_addr(sprite);
+    //             ppu.fetcher.pttrn_addr = pttrn_addr;
+    //             let flip_hori = sprite.flip_hori();
+    //             let visible = sprite.visible();
 
-                let mut pttrn = self.ppu_dispatch_read(pttrn_addr);
-                if flip_hori {
-                    pttrn = pttrn.reverse_bits();
-                }
+    //             let mut pttrn = self.ppu_dispatch_read(pttrn_addr);
+    //             if flip_hori {
+    //                 pttrn = pttrn.reverse_bits();
+    //             }
 
-                if !visible {
-                    return;
-                }
-                self.ppu.oam_tmp[spr_id as usize].pttrn_lo = pttrn;
-            }
-            6 => {
-                let spr_id = (ppu.dot - 257) / 8;
-                let sprite = &ppu.oam_tmp[spr_id as usize];
+    //             if !visible {
+    //                 return;
+    //             }
+    //             self.ppu.oam_tmp[spr_id as usize].pttrn_lo = pttrn;
+    //         }
+    //         6 => {
+    //             let spr_id = (ppu.dot - 257) / 8;
+    //             let sprite = &ppu.oam_tmp[spr_id as usize];
 
-                let pttrn_addr = ppu.fetcher.pttrn_addr;
-                let flip_hori = sprite.flip_hori();
-                let visible = sprite.visible();
+    //             let pttrn_addr = ppu.fetcher.pttrn_addr;
+    //             let flip_hori = sprite.flip_hori();
+    //             let visible = sprite.visible();
 
-                let mut pttrn = self.ppu_dispatch_read(pttrn_addr + 8);
-                if flip_hori {
-                    pttrn = pttrn.reverse_bits();
-                }
+    //             let mut pttrn = self.ppu_dispatch_read(pttrn_addr + 8);
+    //             if flip_hori {
+    //                 pttrn = pttrn.reverse_bits();
+    //             }
 
-                if !visible {
-                    return;
-                }
-                self.ppu.oam_tmp[spr_id as usize].pttrn_hi = pttrn;
-            }
-            _ => {}
-        }
-    }
+    //             if !visible {
+    //                 return;
+    //             }
+    //             self.ppu.oam_tmp[spr_id as usize].pttrn_hi = pttrn;
+    //         }
+    //         _ => {}
+    //     }
+    // }
 
+    // TODO: this should be method of ppu not of emu
     fn spr_evaluation(&mut self) {
         let ppu = &mut self.ppu;
-        ppu.oam_tmp.clear();
+        ppu.oam_tmp_count = 0;
+        ppu.oam_tmp.fill(Sprite::default());
 
         for (i, y) in ppu.oam.0.iter().copied().enumerate().step_by(4) {
             // Sprite data is delayed by one scanline; you must subtract 1 from the sprite's Y coordinate
@@ -785,85 +824,95 @@ impl Emu {
             // we are rendering the NEXT scanline, so we don't want to subtract 1 from y
             let dist = ppu.line - y as i16;
             if 0 <= dist && dist < ppu.ctrl.spr_size as i16 {
-                let sprite = Sprite::new(i as u8, ppu.oam_tmp.len() <= 8, &ppu.oam.0[i..i + 4]);
-                ppu.oam_tmp.push(sprite);
+                let sprite = Sprite::new(&ppu.oam.0[i..i + 4], i);
+
+                if ppu.oam_tmp_count < 8 {
+                    ppu.oam_tmp[ppu.oam_tmp_count as usize] = sprite;
+                } else {
+                    ppu.spr_extra.push(sprite);
+                }
+
+                ppu.oam_tmp_count += 1;
             }
         }
 
-        ppu.stat.set(Status::SprOvfl, ppu.oam_tmp.len() > 8);
-        ppu.oam_tmp_count = ppu.oam_tmp.len().min(8) as u8;
+        ppu.stat.set(Status::SprOvfl, ppu.oam_tmp_count > 8);
 
         // we always make secondary oam have 8 sprites, so sprite fetching works
-        if ppu.oam_tmp.len() < 8 {
-            ppu.oam_tmp.resize_with(8, || Sprite::empty());
-        }
+        // if ppu.oam_tmp_count < 8 {
+        //     ppu.oam_tmp[ppu.oam_tmp_count as usize..].fill(Sprite::default());
+        // }
     }
 
+    // #[deprecated]
     // pre-computes a scanline of sprite data for later, so that we don't need any check when mixing with background
-    fn spr_compute_next_scanline(&mut self) {
-        self.ppu.spr_scanline.0.fill(0.into());
+    // fn spr_compute_next_scanline(&mut self) {
+    //     self.ppu.spr_scanline.0.fill(0.into());
 
-        // fetch sprites over sprite limit
-        if self.settings.no_sprite_limit {
-            self.ppu.oam_tmp_count = self.ppu.oam_tmp.len() as u8;
+    //     // fetch sprites over sprite limit
+    //     if self.settings.no_sprite_limit {
+    //         self.ppu.oam_tmp_count = self.ppu.oam_tmp.len() as u8;
 
-            for i in 8..self.ppu.oam_tmp.len() {
-                let sprite = &self.ppu.oam_tmp[i as usize];
+    //         for i in 8..self.ppu.oam_tmp.len() {
+    //             let sprite = &self.ppu.oam_tmp[i as usize];
 
-                let pttrn_addr = self.ppu.spr_pttrn_addr(sprite);
-                let flip_hori = sprite.flip_hori();
+    //             let pttrn_addr = self.ppu.spr_pttrn_addr(sprite);
+    //             let flip_hori = sprite.flip_hori();
 
-                let mut pttrn_lo = self.ppu_debug_read(pttrn_addr);
-                let mut pttrn_hi = self.ppu_debug_read(pttrn_addr + 8);
+    //             let mut pttrn_lo = self.ppu_debug_read(pttrn_addr);
+    //             let mut pttrn_hi = self.ppu_debug_read(pttrn_addr + 8);
 
-                if flip_hori {
-                    pttrn_lo = pttrn_lo.reverse_bits();
-                    pttrn_hi = pttrn_hi.reverse_bits();
-                }
+    //             if flip_hori {
+    //                 pttrn_lo = pttrn_lo.reverse_bits();
+    //                 pttrn_hi = pttrn_hi.reverse_bits();
+    //             }
 
-                let sprite = &mut self.ppu.oam_tmp[i as usize];
-                sprite.pttrn_lo = pttrn_lo;
-                sprite.pttrn_hi = pttrn_hi;
-            }
-        }
+    //             let sprite = &mut self.ppu.oam_tmp[i as usize];
+    //             sprite.pttrn_lo = pttrn_lo;
+    //             sprite.pttrn_hi = pttrn_hi;
+    //         }
+    //     }
 
-        let ppu = &mut self.ppu;
-        for sprite in ppu.oam_tmp.iter().take(ppu.oam_tmp_count as usize) {
-            for col in 0..8 {
-                // X-scroll values of $F9-FF results in parts of the sprite to be past the right edge of the screen, thus invisible. It is not possible to have a sprite partially visible on the left edge.
-                let x = sprite.x.saturating_add(col) as usize;
-                let scanline_pixel = &ppu.spr_scanline.0[x];
+    //     let ppu = &mut self.ppu;
+    //     for sprite in ppu.oam_tmp.iter().take(ppu.oam_tmp_count as usize) {
+    //         for col in 0..8 {
+    //             // X-scroll values of $F9-FF results in parts of the sprite to be past the right edge of the screen, thus invisible. It is not possible to have a sprite partially visible on the left edge.
+    //             let x = sprite.x.saturating_add(col) as usize;
+    //             let scanline_pixel = &ppu.spr_scanline.0[x];
 
-                if scanline_pixel.pixel() == 0 {
-                    let mask = 0x80 >> col;
-                    let curr_pixel_lo = sprite.pttrn_lo & mask > 0;
-                    let curr_pixel_hi = sprite.pttrn_hi & mask > 0;
-                    let curr_pixel = ((curr_pixel_hi as u8) << 1) | curr_pixel_lo as u8;
+    //             if scanline_pixel.pixel() == 0 {
+    //                 let mask = 0x80 >> col;
+    //                 let curr_pixel_lo = sprite.pttrn_lo & mask > 0;
+    //                 let curr_pixel_hi = sprite.pttrn_hi & mask > 0;
+    //                 let curr_pixel = ((curr_pixel_hi as u8) << 1) | curr_pixel_lo as u8;
 
-                    // pixel is transparent, draw curr pixel
-                    let new_pixel = SprScanlineDataBuilder::new()
-                        .with_pixel(curr_pixel)
-                        .with_palette(sprite.palette())
-                        .with_priority(sprite.priority())
-                        .with_spr0(sprite.spr0())
-                        .build();
+    //                 // pixel is transparent, draw curr pixel
+    //                 let new_pixel = SprScanlineDataBuilder::new()
+    //                     .with_pixel(curr_pixel)
+    //                     .with_palette(sprite.palette())
+    //                     .with_priority(sprite.priority())
+    //                     .with_spr0(sprite.spr0())
+    //                     .build();
 
-                    ppu.spr_scanline.0[x] = new_pixel;
-                }
-            }
-        }
-    }
+    //                 ppu.spr_scanline.0[x] = new_pixel;
+    //             }
+    //         }
+    //     }
+    // }
 
+    // TODO: this should be method of ppu not of emu
     fn bg_color_from_palette(&mut self, palette: u8, pixel: u8) -> u8 {
         let addr = (palette << 2) | pixel;
         self.ppu.palettes_read(0x3f00 | addr as u16)
     }
 
+    // TODO: this should be method of ppu not of emu
     fn spr_color_from_palette(&mut self, palette: u8, pixel: u8) -> u8 {
         let addr = (palette << 2) | pixel;
         self.ppu.palettes_read(0x3f10 | addr as u16)
     }
 
+    // TODO: this should be method of ppu not of emu
     fn render_pixel(&mut self) {
         let ppu = &mut self.ppu;
         let pixel_x = ppu.dot as usize - 1;
@@ -901,8 +950,8 @@ impl Emu {
         };
 
         // TODO: color emphasis
-        self.videobuf[self.ppu.pixel] = color_id;
-        self.ppu.pixel += 1;
+        self.videobuf[self.ppu.pixel_idx] = color_id;
+        self.ppu.pixel_idx += 1;
     }
 
     // https://forums.nesdev.org/viewtopic.php?t=8066
@@ -926,7 +975,7 @@ impl Emu {
             241 => {
                 if self.ppu.dot == 0 {
                     self.ppu.stat.set(Status::Vblank, !self.ppu.vblank_suppress);
-                    self.mem.nmi = self.ppu.ctrl.vblank_nmi_enabled && !self.ppu.nmi_suppress;
+                    self.mem.nmi = self.ppu.ctrl.nmi_enabled && !self.ppu.nmi_suppress;
 
                     self.frame_ready = true;
                     self.mem.ppu_frame += 1;
@@ -945,7 +994,7 @@ impl Emu {
             if ppu.line >= ppu.prerender_line {
                 ppu.line = -1;
 
-                ppu.pixel = 0;
+                ppu.pixel_idx = 0;
                 ppu.odd_frame = !ppu.odd_frame;
                 ppu.vblank_suppress = false;
                 ppu.nmi_suppress = false;
@@ -966,8 +1015,8 @@ impl Emu {
 
         if !ppu.rendering_enabled() {
             if matches!(ppu.dot, 1..=256) {
-                self.videobuf[self.ppu.pixel] = self.bg_color_from_palette(0, 0);
-                self.ppu.pixel += 1;
+                self.videobuf[self.ppu.pixel_idx] = self.bg_color_from_palette(0, 0);
+                self.ppu.pixel_idx += 1;
             }
             return;
         }
@@ -986,14 +1035,14 @@ impl Emu {
             }
             257 => {
                 self.ppu.restore_scroll_x();
-                self.spr_fetch_step();
+                // self.spr_fetch_step();
             }
-            257..=320 => self.spr_fetch_step(),
+            // 257..=320 => self.spr_fetch_step(),
             321..=336 => self.bg_fetch_step(),
             337 | 339 => {
                 self.ppu_dispatch_read(self.ppu.nametbl_addr());
             }
-            340 => self.spr_compute_next_scanline(),
+            // 340 => self.spr_compute_next_scanline(),
             _ => {}
         }
     }
@@ -1022,12 +1071,12 @@ impl Emu {
             }
             257 => {
                 self.ppu.restore_scroll_x();
-                self.spr_fetch_step();
+                // self.spr_fetch_step();
             }
-            257..=279 | 305..=320 => self.spr_fetch_step(),
+            // 257..=279 | 305..=320 => self.spr_fetch_step(),
             280..=304 => {
                 self.ppu.restore_scroll_y();
-                self.spr_fetch_step();
+                // self.spr_fetch_step();
             }
             337 => {
                 self.ppu_dispatch_read(self.ppu.nametbl_addr());
@@ -1058,7 +1107,7 @@ impl Emu {
 
                 if ppu.line == 241 && ppu.dot == 0 {
                     ppu.stat.set(Status::Vblank, !ppu.vblank_suppress);
-                    self.mem.nmi = ppu.ctrl.vblank_nmi_enabled && !ppu.nmi_suppress;
+                    self.mem.nmi = ppu.ctrl.nmi_enabled && !ppu.nmi_suppress;
                     self.frame_ready = true;
                 }
 
@@ -1082,7 +1131,7 @@ impl Emu {
                     ppu.stat.clear();
                 } else if ppu.line == 241 && ppu.dot == 0 {
                     ppu.stat.set(Status::Vblank, !ppu.vblank_suppress);
-                    self.mem.nmi = ppu.ctrl.vblank_nmi_enabled && !ppu.nmi_suppress;
+                    self.mem.nmi = ppu.ctrl.nmi_enabled && !ppu.nmi_suppress;
                     self.frame_ready = true;
                 }
 
@@ -1094,7 +1143,7 @@ impl Emu {
                         ppu.line = 0;
                         ppu.nmi_suppress = false;
                         ppu.vblank_suppress = false;
-                        ppu.pixel = 0;
+                        ppu.pixel_idx = 0;
                         ppu.odd_frame = !ppu.odd_frame;
                     }
                 }
@@ -1148,46 +1197,28 @@ impl Emu {
             RenderCmd::OamClear => {}
             RenderCmd::SpriteEval => self.spr_evaluation(),
             RenderCmd::SprLoFetch => {
-                let ppu = &mut self.ppu;
                 let spr_id = (dot - 257) / 8;
-                let sprite = &ppu.oam_tmp[spr_id as usize];
-
-                let pttrn_addr = ppu.spr_pttrn_addr(sprite);
-                ppu.fetcher.pttrn_addr = pttrn_addr;
-                let flip_hori = sprite.flip_hori();
-                let visible = sprite.visible();
-
-                let mut pttrn = self.ppu_dispatch_read(pttrn_addr);
-                if flip_hori {
-                    pttrn = pttrn.reverse_bits();
-                }
-
-                if !visible {
-                    return;
-                }
-                self.ppu.oam_tmp[spr_id as usize].pttrn_lo = pttrn;
+                let sprite = &self.ppu.oam_tmp[spr_id as usize];
+                self.ppu.fetcher.pttrn_lo = self.ppu_dispatch_read(self.ppu.spr_pttrn_addr(sprite));
             }
             RenderCmd::SprHiFetch => {
-                let ppu = &mut self.ppu;
                 let spr_id = (dot - 257) / 8;
-                let sprite = &ppu.oam_tmp[spr_id as usize];
+                let sprite = &self.ppu.oam_tmp[spr_id as usize];
 
-                let pttrn_addr = ppu.fetcher.pttrn_addr;
-                let flip_hori = sprite.flip_hori();
-                let visible = sprite.visible();
+                self.ppu.fetcher.pttrn_hi =
+                    self.ppu_dispatch_read(8 + self.ppu.spr_pttrn_addr(sprite));
 
-                let mut pttrn = self.ppu_dispatch_read(pttrn_addr + 8);
-                if flip_hori {
-                    pttrn = pttrn.reverse_bits();
+                if spr_id < self.ppu.oam_tmp_count as i16 {
+                    self.ppu.spr_push(
+                        self.ppu.oam_tmp[spr_id as usize].clone(),
+                        self.ppu.fetcher.pttrn_lo,
+                        self.ppu.fetcher.pttrn_hi,
+                    );
                 }
-
-                if !visible {
-                    return;
-                }
-                self.ppu.oam_tmp[spr_id as usize].pttrn_hi = pttrn;
             }
             RenderCmd::LastDotInLine => {
-                self.spr_compute_next_scanline();
+                // push extra sprites here
+                self.spr_push_extra();
 
                 self.ppu.dot = 0;
                 self.ppu.line += 1;
@@ -1206,7 +1237,7 @@ impl Emu {
 
                 self.ppu.render_state = RenderState::Rendering;
                 self.ppu.line = 0;
-                self.ppu.pixel = 0;
+                self.ppu.pixel_idx = 0;
                 self.ppu.odd_frame = !self.ppu.odd_frame;
                 self.ppu.nmi_suppress = false;
                 self.ppu.vblank_suppress = false;
@@ -1214,6 +1245,17 @@ impl Emu {
                 // no sprites should be visible on the first scanline
                 self.ppu.spr_scanline.0.fill(0.into());
             }
+        }
+    }
+
+    fn spr_push_extra(&mut self) {
+        for sprite in mem::take(&mut self.ppu.spr_extra) {
+            let pttrn_addr = self.ppu.spr_pttrn_addr(&sprite);
+
+            let pttrn_lo = self.ppu_debug_read(pttrn_addr);
+            let pttrn_hi = self.ppu_debug_read(pttrn_addr + 8);
+
+            self.ppu.spr_push(sprite, pttrn_lo, pttrn_hi);
         }
     }
 }
