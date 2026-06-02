@@ -771,7 +771,6 @@ impl Emu {
         let lstrip_spr_mask = ((spr_visible as u8) << 1) | spr_visible as u8;
 
         // On every dot in these background fetch regions, a 4-bit pixel is selected by the fine x register from the low 8 bits of the pattern and attributes shift registers, which are then shifted.
-
         let shift_mask = 0x8000 >> ppu.x;
 
         let pixel_lo = ppu.shifter.shift_ptrn_lo & shift_mask > 0;
@@ -781,14 +780,6 @@ impl Emu {
 
         let spr_data = ppu.spr_scanline.0[pixel_x];
         let spr_pixel = spr_data.pixel() & lstrip_spr_mask;
-
-        ppu.shifter_update(1);
-        if !ppu.stat.contains(Status::Spr0Hit) {
-            // https://www.nesdev.org/wiki/PPU_OAM#Sprite_0_hits
-            // https://www.nesdev.org/wiki/PPU_registers#Sprite_0_hit_flag
-            let spr0_hit = spr_data.spr0() && spr_pixel > 0 && bg_pixel > 0 && pixel_x != 255;
-            ppu.stat.set(Status::Spr0Hit, spr0_hit);
-        }
 
         // TODO: can do this without ifs?
         let color_id = if spr_pixel > 0 && (spr_data.priority() || bg_pixel == 0) {
@@ -802,6 +793,14 @@ impl Emu {
         } else {
             ppu.bg_color_from_palette(0, 0)
         };
+
+        ppu.shifter_update(1);
+        if !ppu.stat.contains(Status::Spr0Hit) {
+            // https://www.nesdev.org/wiki/PPU_OAM#Sprite_0_hits
+            // https://www.nesdev.org/wiki/PPU_registers#Sprite_0_hit_flag
+            let spr0_hit = spr_data.spr0() && spr_pixel > 0 && bg_pixel > 0 && pixel_x != 255;
+            ppu.stat.set(Status::Spr0Hit, spr0_hit);
+        }
 
         // TODO: color emphasis
         self.videobuf[self.ppu.pixel_idx] = color_id;
