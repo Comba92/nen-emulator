@@ -771,7 +771,6 @@ impl Emu {
         let lstrip_spr_mask = ((spr_visible as u8) << 1) | spr_visible as u8;
 
         // On every dot in these background fetch regions, a 4-bit pixel is selected by the fine x register from the low 8 bits of the pattern and attributes shift registers, which are then shifted.
-
         let shift_mask = 0x8000 >> ppu.x;
 
         let pixel_lo = ppu.shifter.shift_ptrn_lo & shift_mask > 0;
