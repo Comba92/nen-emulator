@@ -782,14 +782,6 @@ impl Emu {
         let spr_data = ppu.spr_scanline.0[pixel_x];
         let spr_pixel = spr_data.pixel() & lstrip_spr_mask;
 
-        ppu.shifter_update(1);
-        if !ppu.stat.contains(Status::Spr0Hit) {
-            // https://www.nesdev.org/wiki/PPU_OAM#Sprite_0_hits
-            // https://www.nesdev.org/wiki/PPU_registers#Sprite_0_hit_flag
-            let spr0_hit = spr_data.spr0() && spr_pixel > 0 && bg_pixel > 0 && pixel_x != 255;
-            ppu.stat.set(Status::Spr0Hit, spr0_hit);
-        }
-
         // TODO: can do this without ifs?
         let color_id = if spr_pixel > 0 && (spr_data.priority() || bg_pixel == 0) {
             ppu.spr_color_from_palette(spr_data.palette(), spr_pixel)
@@ -802,6 +794,14 @@ impl Emu {
         } else {
             ppu.bg_color_from_palette(0, 0)
         };
+
+        ppu.shifter_update(1);
+        if !ppu.stat.contains(Status::Spr0Hit) {
+            // https://www.nesdev.org/wiki/PPU_OAM#Sprite_0_hits
+            // https://www.nesdev.org/wiki/PPU_registers#Sprite_0_hit_flag
+            let spr0_hit = spr_data.spr0() && spr_pixel > 0 && bg_pixel > 0 && pixel_x != 255;
+            ppu.stat.set(Status::Spr0Hit, spr0_hit);
+        }
 
         // TODO: color emphasis
         self.videobuf[self.ppu.pixel_idx] = color_id;
