@@ -538,8 +538,7 @@ impl Emu {
                 if matches!(addr, 0x4000..=0x4013 | 0x4015 | 0x4017) {
                     self.apu_reg_write(addr, val)
                 } else if addr == 0x4014 {
-                    self.ppu.dma.load((val as u16) << 8, 256);
-                    self.cpu_tick();
+                    self.ppu.dma = Some((val as u16) << 8);
                 } else if addr == 0x4016 {
                     self.joypad.write(val)
                 } else {

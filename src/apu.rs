@@ -2,7 +2,6 @@ use crate::blip::BlipBuf;
 
 use crate::{
     bus::{self, IrqFlags},
-    dma::Dma,
     emu::{Emu, Region},
     utils::{byte_set_hi, byte_set_lo},
 };
@@ -361,19 +360,22 @@ impl Noise {
 #[derive(Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Dmc {
-    div: DividerCounter,
     irq_enabled: bool,
     looping: bool,
-    pub output: u8,
+    silence: bool,
+    shift: u8,
+
+    pub buffer: Option<u8>,
+    bits_remaining: u8,
+
     sample_addr: u16,
     sample_len: u16,
 
-    pub dma: Dma,
-    pub buffer: Option<u8>,
+    pub dma_addr: u16,
+    pub dma_remaining: u16,
 
-    shift: u8,
-    bits_remaining: u8,
-    silence: bool,
+    pub output: u8,
+    div: DividerCounter,
 }
 
 impl Dmc {
@@ -423,18 +425,20 @@ impl Dmc {
 
     fn restart_sample(&mut self) {
         // When a sample is (re)started, the current address is set to the sample address, and bytes remaining is set to the sample length.
-        self.dma.load(self.sample_addr, self.sample_len);
+        // self.dma.load(self.sample_addr, self.sample_len);
+        self.dma_addr = self.sample_addr;
+        self.dma_remaining = self.sample_len;
     }
 
     fn enable(&mut self, cond: bool) {
         if cond {
             // If the DMC bit is set, the DMC sample will be restarted only if its bytes remaining is 0. If there are bits remaining in the 1-byte sample buffer, these will finish playing before the next sample is fetched.
-            if self.dma.remaining == 0 {
+            if self.dma_remaining == 0 {
                 self.restart_sample();
             }
         } else {
             // If the DMC bit is clear, the DMC bytes remaining will be set to 0 and the DMC will silence when it empties.
-            self.dma.remaining = 0;
+            self.dma_remaining = 0;
         }
     }
 }
@@ -570,7 +574,7 @@ impl Emu {
                 res |= ((apu.p1.len.count > 0) as u8) << 1;
                 res |= ((apu.tri.len.count > 0) as u8) << 2;
                 res |= ((apu.noise.len.count > 0) as u8) << 3;
-                res |= ((apu.dmc.dma.remaining > 0) as u8) << 4;
+                res |= ((apu.dmc.dma_remaining > 0) as u8) << 4;
                 res |= self.mem.cpu_data_bus & 0x20;
                 res |= (self.mem.irq.contains(IrqFlags::FRAME) as u8) << 6;
                 res |= (self.mem.irq.contains(IrqFlags::DMC) as u8) << 7;
@@ -697,14 +701,14 @@ impl Emu {
         dmc.buffer = Some(sample);
         dmc.bits_remaining = 8;
 
-        dmc.dma.addr = dmc.dma.addr.wrapping_add(1);
-        if dmc.dma.addr == 0 {
-            dmc.dma.addr = 0x8000;
+        dmc.dma_addr = dmc.dma_addr.wrapping_add(1);
+        if dmc.dma_addr == 0 {
+            dmc.dma_addr = 0x8000;
         }
 
         // EXTREMELY IMPORTANT to subtract this BEFORE, or else last byte won't be handled next tick
-        dmc.dma.remaining = dmc.dma.remaining.saturating_sub(1);
-        if dmc.dma.remaining == 0 {
+        dmc.dma_remaining = dmc.dma_remaining.saturating_sub(1);
+        if dmc.dma_remaining == 0 {
             if dmc.looping {
                 dmc.restart_sample();
             } else if dmc.irq_enabled {

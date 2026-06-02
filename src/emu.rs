@@ -208,20 +208,16 @@ impl Emu {
         self.apu_step();
         self.mapper.step(&mut self.mem, self.cpu.cycles);
 
-        // self.ppu_step();
-        // self.ppu_step();
-        // self.ppu_step();
-        self.ppu_tick();
-        self.ppu_tick();
-        self.ppu_tick();
+        self.ppu_step();
+        self.ppu_step();
+        self.ppu_step();
 
         // PAL systems additionally run 3.2 PPU cycles per CPU cycle
         // meaning, every 5 CPU cycles there is an additional PPU cycle
         match self.mem.header.region {
             Region::PAL => {
                 if self.cpu.cycles % 5 == 0 {
-                    // self.ppu_step()
-                    self.ppu_tick();
+                    self.ppu_step();
                 }
             }
             _ => {}

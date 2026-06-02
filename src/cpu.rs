@@ -122,6 +122,7 @@ impl Emu {
         if self.handle_dma() {
             return;
         }
+
         self.poll_interrupts();
         let opcode = self.pc_fetch8();
 
@@ -130,38 +131,42 @@ impl Emu {
     }
 
     fn handle_dma(&mut self) -> bool {
-        if self.apu.dmc.buffer.is_none() && self.apu.dmc.dma.remaining > 0 {
-            // // halting cycle
-            self.cpu_tick();
+        // https://www.nesdev.org/wiki/DMA
+        if self.apu.dmc.buffer.is_none() && self.apu.dmc.dma_remaining > 0 {
+            self.cpu_tick(); // halting cycle
+            self.cpu_tick(); // dummy cycle
 
-            // dummy cycle
-            self.cpu_tick();
-            // TODO: +1 cycle on odd cpu cyles
+            if self.cpu.cycles % 2 == 1 {
+                self.cpu_tick(); // +1 cycle on odd cpu cyles
+            }
 
-            self.cpu_tick();
-            let byte = self.cpu_dispatch_read(self.apu.dmc.dma.addr);
+            let byte = self.cpu_dispatch_read(self.apu.dmc.dma_addr);
             self.dmc_sample_read(byte);
-        }
 
-        if self.ppu.dma.remaining > 0 {
+            return true;
+        } else if let Some(addr) = self.ppu.dma {
             // https://www.nesdev.org/wiki/PPU_registers#OAMDMA_-_Sprite_DMA_($4014_write)
 
-            // TODO: do not do halting cycles here
-            // // halting cycle
-            // self.cpu_tick();
-            // TODO: +1 cycle on odd cpu cyles
+            if (addr & 0xff) == 0 {
+                self.cpu_tick(); // halting cycle
+                if self.cpu.cycles % 2 == 1 {
+                    self.cpu_tick(); // +1 cycle on odd cpu cyles
+                }
+            }
 
-            self.cpu_tick();
-            let byte = self.cpu_dispatch_read(self.ppu.dma.addr);
-            self.ppu.dma.addr += 1;
-            self.ppu.dma.remaining -= 1;
-
-            self.cpu_tick();
+            let byte = self.cpu_dispatch_read(addr);
             self.ppu.oam_write(byte);
+
+            self.ppu.dma = if ((addr + 1) & 0xff) == 0xff {
+                None
+            } else {
+                Some(addr + 1)
+            };
+
+            return true;
         }
 
-        self.ppu.dma.remaining > 0
-            || (self.apu.dmc.buffer.is_none() && self.apu.dmc.dma.remaining > 0)
+        return false;
     }
 
     fn poll_interrupts(&mut self) {

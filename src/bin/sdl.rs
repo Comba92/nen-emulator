@@ -1,7 +1,17 @@
-use std::{fs, io::{BufReader, BufWriter, Read, Write}, path, sync::mpsc::{self, Receiver}};
+use std::{
+    fs,
+    io::{BufReader, BufWriter, Read, Write},
+    path,
+    sync::mpsc::{self, Receiver},
+};
 
-use nes_emulator::{emu::Emu, joypad::Button};
-use sdl2::{audio::AudioCallback, event::{Event, WindowEvent}, keyboard::Keycode, pixels::PixelFormatEnum};
+use nes_emulator::{emu::Emu, joypad::JoypadBtn};
+use sdl2::{
+    audio::AudioCallback,
+    event::{Event, WindowEvent},
+    keyboard::Keycode,
+    pixels::PixelFormatEnum,
+};
 
 struct AudioHandler(Receiver<i16>);
 impl AudioCallback for AudioHandler {
@@ -28,29 +38,31 @@ fn main() {
     let (send, recv) = mpsc::channel();
 
     let audiodev = audio.open_queue::<i16, _>(None, &audiospec).unwrap();
-    let audiocb = audio.open_playback(None, &audiospec, |_| AudioHandler(recv)).unwrap();
-    
+    let audiocb = audio
+        .open_playback(None, &audiospec, |_| AudioHandler(recv))
+        .unwrap();
+
     // audiocb.resume();
     audiodev.resume();
     // println!("{:?}", audiodev.spec());
 
     let mut events = sdl.event_pump().unwrap();
     let timer = sdl.timer().unwrap();
-    
-    let window = video.window("NesEmu", 256 * 3, 240 * 3)
+
+    let window = video
+        .window("NesEmu", 256 * 3, 240 * 3)
         .position_centered()
         .resizable()
-        .build().unwrap();
+        .build()
+        .unwrap();
 
-    let mut canvas = window.into_canvas()
-        .build().unwrap();
+    let mut canvas = window.into_canvas().build().unwrap();
     canvas.set_logical_size(256, 240).unwrap();
-    let texture_creator  = canvas.texture_creator();
+    let texture_creator = canvas.texture_creator();
     let mut tex = texture_creator
         .create_texture_streaming(PixelFormatEnum::RGBA32, 256, 240)
         .unwrap();
     tex.set_scale_mode(sdl2::render::ScaleMode::Nearest);
-
 
     // let debug_window = video.window("Debug", 256 * 2 * 2, 240 * 2 * 2)
     // .resizable()
@@ -79,19 +91,17 @@ fn main() {
         for event in events.poll_iter() {
             match event {
                 Event::Quit { .. } => break 'running,
-                Event::Window { win_event, .. } => {
-                    match win_event {
-                        WindowEvent::Close => break 'running,
-                        _ => {}
-                    }
-                }
+                Event::Window { win_event, .. } => match win_event {
+                    WindowEvent::Close => break 'running,
+                    _ => {}
+                },
                 Event::DropFile { filename, .. } => {
                     if filename.ends_with(".pal") {
                         let buf = fs::read(filename).unwrap();
                         emu.load_palette(&buf);
                         continue;
                     }
-                    
+
                     let new_emu = Emu::load_rom_from_file(&filename, Some(bios));
                     match new_emu {
                         Ok(res) => {
@@ -126,21 +136,21 @@ fn main() {
 
                             frame_rate = (1.0 / emu.frame_rate() * 1000.0).round() as u64;
                             audiodev.clear();
-                        },
-                        Err (e) => eprintln!("{e}"),
+                        }
+                        Err(e) => eprintln!("{e}"),
                     }
                 }
                 Event::KeyDown { keycode, .. } => {
                     if let Some(keycode) = keycode {
                         match keycode {
-                            Keycode::W => emu.set_button(Button::Up, true),
-                            Keycode::A => emu.set_button(Button::Left, true),
-                            Keycode::S => emu.set_button(Button::Down, true),
-                            Keycode::D => emu.set_button(Button::Right, true),
-                            Keycode::K => emu.set_button(Button::A, true),
-                            Keycode::J => emu.set_button(Button::B, true),
-                            Keycode::M => emu.set_button(Button::Start, true),
-                            Keycode::N => emu.set_button(Button::Select, true),
+                            Keycode::W => emu.set_button(JoypadBtn::Up, true),
+                            Keycode::A => emu.set_button(JoypadBtn::Left, true),
+                            Keycode::S => emu.set_button(JoypadBtn::Down, true),
+                            Keycode::D => emu.set_button(JoypadBtn::Right, true),
+                            Keycode::K => emu.set_button(JoypadBtn::A, true),
+                            Keycode::J => emu.set_button(JoypadBtn::B, true),
+                            Keycode::M => emu.set_button(JoypadBtn::Start, true),
+                            Keycode::N => emu.set_button(JoypadBtn::Select, true),
                             Keycode::NUM_0 => emu.mapper.special_input(),
                             #[cfg(feature = "serde")]
                             Keycode::NUM_9 => emu.savestate("./save.tmp").unwrap(),
@@ -158,14 +168,14 @@ fn main() {
                 Event::KeyUp { keycode, .. } => {
                     if let Some(keycode) = keycode {
                         match keycode {
-                            Keycode::W => emu.set_button(Button::Up, false),
-                            Keycode::A => emu.set_button(Button::Left, false),
-                            Keycode::S => emu.set_button(Button::Down, false),
-                            Keycode::D => emu.set_button(Button::Right, false),
-                            Keycode::K => emu.set_button(Button::A, false),
-                            Keycode::J => emu.set_button(Button::B, false),
-                            Keycode::M => emu.set_button(Button::Start, false),
-                            Keycode::N => emu.set_button(Button::Select, false),
+                            Keycode::W => emu.set_button(JoypadBtn::Up, false),
+                            Keycode::A => emu.set_button(JoypadBtn::Left, false),
+                            Keycode::S => emu.set_button(JoypadBtn::Down, false),
+                            Keycode::D => emu.set_button(JoypadBtn::Right, false),
+                            Keycode::K => emu.set_button(JoypadBtn::A, false),
+                            Keycode::J => emu.set_button(JoypadBtn::B, false),
+                            Keycode::M => emu.set_button(JoypadBtn::Start, false),
+                            Keycode::N => emu.set_button(JoypadBtn::Select, false),
                             _ => {}
                         }
                     }
@@ -182,7 +192,7 @@ fn main() {
 
         audiodev.queue_audio(emu.get_audio()).unwrap();
 
-        while audiodev.size()/2 < audiodev.spec().samples as u32 {
+        while audiodev.size() / 2 < audiodev.spec().samples as u32 {
             // run for another frame
 
             emu.step_until_vblank();
@@ -203,13 +213,14 @@ fn main() {
 
         tex.with_lock(None, |pixels, _| {
             emu.get_video_rgba(pixels);
-        }).unwrap();
+        })
+        .unwrap();
 
         canvas.copy(&tex, None, None).unwrap();
         canvas.present();
 
         // debug_canvas.set_draw_color(sdl2::pixels::Color::GREY);
-        // debug_canvas.clear();    
+        // debug_canvas.clear();
 
         // debug_tex.with_lock(None, |pixels, _| {
         //     emu.get_nametables_rgba(pixels);

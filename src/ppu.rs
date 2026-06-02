@@ -1,7 +1,6 @@
 use std::{array, mem};
 
 use crate::{
-    dma::Dma,
     emu::{Emu, Region},
     utils::{byte_set_hi, byte_set_lo},
 };
@@ -243,7 +242,7 @@ pub struct Ppu2C02 {
     #[cfg_attr(feature = "serde", serde(skip))]
     spr_scanline: SprScanline,
 
-    pub dma: Dma,
+    pub dma: Option<u16>,
 
     pub palettes: [u8; 32],
 
@@ -813,15 +812,15 @@ impl Emu {
 
     // https://www.nesdev.org/wiki/PPU_rendering
 
-    pub fn ppu_tick(&mut self) {
+    pub fn ppu_step(&mut self) {
         match self.ppu.render_state {
-            RenderState::PreRender => self.ppu_render_tick(&PRERENDER_LUT),
+            RenderState::PreRender => self.ppu_render_step(&PRERENDER_LUT),
 
             RenderState::Rendering => {
                 if 1 <= self.ppu.dot && self.ppu.dot <= 256 {
                     self.render_pixel();
                 }
-                self.ppu_render_tick(&RENDER_LUT);
+                self.ppu_render_step(&RENDER_LUT);
             }
 
             RenderState::Vblank => {
@@ -873,7 +872,7 @@ impl Emu {
         }
     }
 
-    fn ppu_render_tick(&mut self, lut: &[RenderCmd]) {
+    fn ppu_render_step(&mut self, lut: &[RenderCmd]) {
         let cmd = &lut[self.ppu.dot as usize];
         let dot = self.ppu.dot;
         self.ppu.dot += 1;
