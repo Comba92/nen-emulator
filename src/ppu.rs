@@ -187,7 +187,8 @@ enum RenderState {
     PreRender,
     Rendering,
     #[default]
-    PostRender,
+    Vblank,
+    Disabled,
 }
 
 #[derive(Debug)]
@@ -240,9 +241,9 @@ pub struct Ppu2C02 {
 
     pub palettes: [u8; 32],
 
-    pub dots: i16,
-    pub scanline: i16,
-    scanline_last: i16,
+    pub dot: i16,
+    pub line: i16,
+    prerender_line: i16,
     pub pixel: usize,
 
     // https://www.nesdev.org/wiki/PPU_frame_timing
@@ -264,8 +265,8 @@ impl Ppu2C02 {
         };
 
         Self {
-            scanline: 0,
-            scanline_last: scanlines_count,
+            line: 0,
+            prerender_line: scanlines_count,
             oam_tmp: vec![Sprite::empty(); 8],
             ..Default::default()
         }
@@ -360,7 +361,7 @@ impl Ppu2C02 {
 
     fn spr_pttrn_addr(&self, sprite: &Sprite) -> u16 {
         // after evaluation, we are 100% sure scanline is always bigger than y
-        let dist = self.scanline - sprite.y as i16;
+        let dist = self.line - sprite.y as i16;
 
         let fine_y = if sprite.flip_vert() { 7 - dist } else { dist } as u16;
 
@@ -489,8 +490,8 @@ impl Ppu2C02 {
 
     pub fn reset(&mut self) {
         *self = Ppu2C02 {
-            scanline: -1,
-            scanline_last: self.scanline_last,
+            line: -1,
+            prerender_line: self.prerender_line,
             v: self.v,
             oam_tmp: vec![Sprite::empty(); 8],
             ..Default::default()
@@ -526,11 +527,11 @@ impl Emu {
                 // Reading on the same PPU clock or one later reads it as set, clears it, and suppresses the NMI for that frame.
                 // Reading two or more PPU clocks before/after it's set behaves normally (reads flag's value, clears it, and doesn't affect NMI operation).
 
-                if ppu.scanline == 241 && ppu.dots <= 2 {
-                    if ppu.dots == 0 {
+                if ppu.line == 241 && ppu.dot <= 2 {
+                    if ppu.dot == 0 {
                         ppu.stat.remove(Status::Vblank);
                         ppu.vblank_suppress = true;
-                    } else if ppu.dots <= 2 {
+                    } else if ppu.dot <= 2 {
                         ppu.stat.insert(Status::Vblank);
                     }
 
@@ -588,7 +589,7 @@ impl Emu {
                     self.mem.nmi = true;
                 } else if !new_nmi_enabled {
                     // NMI shouldn't occur when disabled 0-1-2 PPU clock after VBL
-                    self.mem.nmi = if ppu.scanline == 241 && ppu.dots <= 2 {
+                    self.mem.nmi = if ppu.line == 241 && ppu.dot <= 2 {
                         false
                     } else {
                         self.mem.nmi
@@ -607,6 +608,27 @@ impl Emu {
             // Mask
             0x2001 => {
                 ppu.mask = Mask::from_bits_retain(val);
+
+                match ppu.render_state {
+                    RenderState::Disabled => {
+                        if ppu.rendering_enabled() {
+                            ppu.render_state = if ppu.line < 240 {
+                                RenderState::Rendering
+                            } else if ppu.line == ppu.prerender_line {
+                                RenderState::PreRender
+                            } else {
+                                RenderState::Vblank
+                            }
+                        }
+                    }
+
+                    _ => {
+                        if !ppu.rendering_enabled() {
+                            ppu.render_state = RenderState::Disabled
+                        }
+                    }
+                }
+
                 if !ppu.rendering_enabled() {
                     // During VBlank and when rendering is disabled, the value on the PPU address bus is the current value of the v register.
                     self.update_ppu_bus(self.ppu.v.0);
@@ -661,6 +683,7 @@ impl Emu {
         self.ppu.open_bus = val;
     }
 
+    #[deprecated]
     fn bg_fetch_step(&mut self) {
         self.ppu.shifter_update(1);
 
@@ -668,7 +691,7 @@ impl Emu {
         // we dont care, and do evrything on the first dot
 
         // we do cycle - 1 as we skip the idle cycle to be aligned to 8
-        match (self.ppu.dots - 1) % 8 {
+        match (self.ppu.dot - 1) % 8 {
             // https://www.nesdev.org/wiki/PPU_scrolling#Tile_and_attribute_fetching
             0 => {
                 self.ppu.shifter_load_from_fetcher();
@@ -696,11 +719,12 @@ impl Emu {
         }
     }
 
+    #[deprecated]
     fn spr_fetch_step(&mut self) {
         let ppu = &mut self.ppu;
 
         // these are still aligned by 8
-        match (ppu.dots - 1) % 8 {
+        match (ppu.dot - 1) % 8 {
             0 => {
                 // unused nt fetch
                 self.ppu_dispatch_read(self.ppu.nametbl_addr());
@@ -710,7 +734,7 @@ impl Emu {
                 self.ppu_dispatch_read(self.ppu.nametbl_addr());
             }
             4 => {
-                let spr_id = (ppu.dots - 257) / 8;
+                let spr_id = (ppu.dot - 257) / 8;
                 let sprite = &ppu.oam_tmp[spr_id as usize];
 
                 let pttrn_addr = ppu.spr_pttrn_addr(sprite);
@@ -729,7 +753,7 @@ impl Emu {
                 self.ppu.oam_tmp[spr_id as usize].pttrn_lo = pttrn;
             }
             6 => {
-                let spr_id = (ppu.dots - 257) / 8;
+                let spr_id = (ppu.dot - 257) / 8;
                 let sprite = &ppu.oam_tmp[spr_id as usize];
 
                 let pttrn_addr = ppu.fetcher.pttrn_addr;
@@ -759,7 +783,7 @@ impl Emu {
             // let y = y.wrapping_sub(1) as i16;
 
             // we are rendering the NEXT scanline, so we don't want to subtract 1 from y
-            let dist = ppu.scanline - y as i16;
+            let dist = ppu.line - y as i16;
             if 0 <= dist && dist < ppu.ctrl.spr_size as i16 {
                 let sprite = Sprite::new(i as u8, ppu.oam_tmp.len() <= 8, &ppu.oam.0[i..i + 4]);
                 ppu.oam_tmp.push(sprite);
@@ -842,13 +866,7 @@ impl Emu {
 
     fn render_pixel(&mut self) {
         let ppu = &mut self.ppu;
-        let pixel_x = ppu.dots as usize - 1;
-
-        if !ppu.rendering_enabled() {
-            self.videobuf[self.ppu.pixel] = ppu.palettes_read(0);
-            self.ppu.pixel += 1;
-            return;
-        }
+        let pixel_x = ppu.dot as usize - 1;
 
         // TODO: should be moved to different function for first 8 pixels?
         let in_lstrip = pixel_x < 8;
@@ -893,19 +911,20 @@ impl Emu {
 
     // https://www.nesdev.org/wiki/PPU_rendering
 
+    #[deprecated]
     pub fn ppu_step(&mut self) {
-        match self.ppu.scanline {
+        match self.ppu.line {
             -1 => self.prerender_step(),
             0..=239 => self.render_step(),
 
             // During VBlank and when rendering is disabled, the value on the PPU address bus is the current value of the v register.
             240 => {
-                if self.ppu.dots == 0 && !self.ppu.rendering_enabled() {
+                if self.ppu.dot == 0 && !self.ppu.rendering_enabled() {
                     self.update_ppu_bus(self.ppu.v.0);
                 }
             }
             241 => {
-                if self.ppu.dots == 0 {
+                if self.ppu.dot == 0 {
                     self.ppu.stat.set(Status::Vblank, !self.ppu.vblank_suppress);
                     self.mem.nmi = self.ppu.ctrl.vblank_nmi_enabled && !self.ppu.nmi_suppress;
 
@@ -918,13 +937,13 @@ impl Emu {
 
         let ppu = &mut self.ppu;
         // TODO: clean this shit up
-        ppu.dots += 1;
-        if ppu.dots >= 341 {
-            ppu.dots = 0;
-            ppu.scanline += 1;
+        ppu.dot += 1;
+        if ppu.dot >= 341 {
+            ppu.dot = 0;
+            ppu.line += 1;
 
-            if ppu.scanline >= ppu.scanline_last {
-                ppu.scanline = -1;
+            if ppu.line >= ppu.prerender_line {
+                ppu.line = -1;
 
                 ppu.pixel = 0;
                 ppu.odd_frame = !ppu.odd_frame;
@@ -937,22 +956,23 @@ impl Emu {
         }
 
         // TODO: for debug
-        self.mem.ppu_cycle = self.ppu.dots;
-        self.mem.ppu_scanline = self.ppu.scanline;
+        self.mem.ppu_cycle = self.ppu.dot;
+        self.mem.ppu_scanline = self.ppu.line;
     }
 
+    #[deprecated]
     fn render_step(&mut self) {
         let ppu = &mut self.ppu;
 
         if !ppu.rendering_enabled() {
-            if matches!(ppu.dots, 1..=256) {
+            if matches!(ppu.dot, 1..=256) {
                 self.videobuf[self.ppu.pixel] = self.bg_color_from_palette(0, 0);
                 self.ppu.pixel += 1;
             }
             return;
         }
 
-        match ppu.dots {
+        match ppu.dot {
             1..=255 => {
                 // render pixel goes after the fetch, because at this time, the new tile hasnt been loaded into the shifters yet
                 self.bg_fetch_step();
@@ -978,18 +998,19 @@ impl Emu {
         }
     }
 
+    #[deprecated]
     fn prerender_step(&mut self) {
         let ppu = &mut self.ppu;
 
         if !ppu.rendering_enabled() {
-            if ppu.dots == 0 {
+            if ppu.dot == 0 {
                 ppu.stat.clear();
             }
 
             return;
         }
 
-        match ppu.dots {
+        match ppu.dot {
             0 => {
                 ppu.stat.clear();
                 self.bg_fetch_step();
@@ -1013,7 +1034,7 @@ impl Emu {
             }
             339 => {
                 if ppu.odd_frame && ppu.mask.contains(Mask::BgEnable) {
-                    ppu.dots += 1;
+                    ppu.dot += 1;
                 }
                 self.ppu_dispatch_read(self.ppu.nametbl_addr());
             }
@@ -1026,27 +1047,55 @@ impl Emu {
             RenderState::PreRender => self.ppu_render_tick(&PRERENDER_LUT),
 
             RenderState::Rendering => {
-                if 1 <= self.ppu.dots && self.ppu.dots <= 256 {
+                if 1 <= self.ppu.dot && self.ppu.dot <= 256 {
                     self.render_pixel();
                 }
                 self.ppu_render_tick(&RENDER_LUT);
             }
 
-            RenderState::PostRender => {
+            RenderState::Vblank => {
                 let ppu = &mut self.ppu;
 
-                if ppu.scanline == 241 && ppu.dots == 0 {
+                if ppu.line == 241 && ppu.dot == 0 {
                     ppu.stat.set(Status::Vblank, !ppu.vblank_suppress);
                     self.mem.nmi = ppu.ctrl.vblank_nmi_enabled && !ppu.nmi_suppress;
                     self.frame_ready = true;
                 }
 
-                ppu.dots += 1;
-                if ppu.dots >= 341 {
-                    ppu.dots = 0;
-                    ppu.scanline += 1;
-                    if ppu.scanline == ppu.scanline_last {
+                ppu.dot += 1;
+                if ppu.dot >= 341 {
+                    ppu.dot = 0;
+                    ppu.line += 1;
+                    if ppu.line == ppu.prerender_line {
                         ppu.render_state = RenderState::PreRender;
+                    }
+                }
+            }
+
+            RenderState::Disabled => {
+                let ppu = &mut self.ppu;
+
+                if ppu.line < 240 && 1 <= ppu.dot && ppu.dot <= 256 {
+                    // self.videobuf[ppu.pixel] = ppu.palettes_read(0);
+                    // ppu.pixel += 1;
+                } else if ppu.line == ppu.prerender_line && ppu.dot == 0 {
+                    ppu.stat.clear();
+                } else if ppu.line == 241 && ppu.dot == 0 {
+                    ppu.stat.set(Status::Vblank, !ppu.vblank_suppress);
+                    self.mem.nmi = ppu.ctrl.vblank_nmi_enabled && !ppu.nmi_suppress;
+                    self.frame_ready = true;
+                }
+
+                ppu.dot += 1;
+                if ppu.dot >= 341 {
+                    ppu.dot = 0;
+                    ppu.line += 1;
+                    if ppu.line >= ppu.prerender_line + 1 {
+                        ppu.line = 0;
+                        ppu.nmi_suppress = false;
+                        ppu.vblank_suppress = false;
+                        ppu.pixel = 0;
+                        ppu.odd_frame = !ppu.odd_frame;
                     }
                 }
             }
@@ -1054,34 +1103,9 @@ impl Emu {
     }
 
     fn ppu_render_tick(&mut self, lut: &[RenderCmd]) {
-        let cmd = &lut[self.ppu.dots as usize];
-        let dot = self.ppu.dots;
-        self.ppu.dots += 1;
-
-        if !self.ppu.rendering_enabled() {
-            let ppu = &mut self.ppu;
-
-            if ppu.scanline == ppu.scanline_last && dot == 0 {
-                ppu.stat.clear();
-            }
-
-            if ppu.dots >= 341 {
-                ppu.dots = 0;
-                ppu.scanline += 1;
-                if ppu.scanline == 240 {
-                    ppu.render_state = RenderState::PostRender;
-                } else if ppu.scanline >= ppu.scanline_last + 1 {
-                    ppu.scanline = 0;
-                    ppu.nmi_suppress = false;
-                    ppu.vblank_suppress = false;
-                    self.ppu.pixel = 0;
-                    self.ppu.odd_frame = !self.ppu.odd_frame;
-                    self.ppu.render_state = RenderState::Rendering;
-                }
-            }
-
-            return;
-        }
+        let cmd = &lut[self.ppu.dot as usize];
+        let dot = self.ppu.dot;
+        self.ppu.dot += 1;
 
         match cmd {
             RenderCmd::Idle => {}
@@ -1165,23 +1189,23 @@ impl Emu {
             RenderCmd::LastDotInLine => {
                 self.spr_compute_next_scanline();
 
-                self.ppu.dots = 0;
-                self.ppu.scanline += 1;
-                if self.ppu.scanline == 240 {
-                    self.ppu.render_state = RenderState::PostRender;
+                self.ppu.dot = 0;
+                self.ppu.line += 1;
+                if self.ppu.line == 240 {
+                    self.ppu.render_state = RenderState::Vblank;
                 }
             }
 
             RenderCmd::StatClear => self.ppu.stat.clear(),
             RenderCmd::ResetVert => self.ppu.restore_scroll_y(),
             RenderCmd::LastDotInFrame => {
-                self.ppu.dots = 0;
+                self.ppu.dot = 0;
                 if self.ppu.odd_frame && self.ppu.rendering_enabled() {
-                    self.ppu.dots = 1;
+                    self.ppu.dot = 1;
                 }
 
                 self.ppu.render_state = RenderState::Rendering;
-                self.ppu.scanline = 0;
+                self.ppu.line = 0;
                 self.ppu.pixel = 0;
                 self.ppu.odd_frame = !self.ppu.odd_frame;
                 self.ppu.nmi_suppress = false;
