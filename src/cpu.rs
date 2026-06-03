@@ -162,7 +162,7 @@ impl Emu {
             let byte = self.cpu_dispatch_read(addr);
             self.ppu.oam_write(byte);
 
-            self.ppu.dma = if ((addr + 1) & 0xff) == 0xff {
+            self.ppu.dma = if (addr & 0xff) == 0xff {
                 None
             } else {
                 Some(addr + 1)
