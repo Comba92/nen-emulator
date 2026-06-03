@@ -1,9 +1,9 @@
-use crate::blip::BlipBuf;
+use std::ops;
 
 use crate::{
     bus::{self, IrqFlags},
-    emu::{self, Emu, Region},
-    utils::{byte_set_hi, byte_set_lo},
+    emu::{self, Emu, NTSC_CLOCK_RATE, Region},
+    utils::{RingBuffer, byte_set_hi, byte_set_lo},
 };
 
 #[derive(Default)]
@@ -451,22 +451,63 @@ enum FrameMode {
     Step5,
 }
 
-pub struct AudioBuf(pub BlipBuf);
-// TODO: make sample rate configurable
-impl Default for AudioBuf {
+// pub struct AudioBuf(pub BlipBuf);
+// // TODO: make sample rate configurable
+// impl Default for AudioBuf {
+//     fn default() -> Self {
+//         Self::new(&Region::default())
+//     }
+// }
+// impl AudioBuf {
+//     pub fn new(region: &Region) -> Self {
+//         let mut blip = BlipBuf::new(48000);
+//         let clock_rate = match region {
+//             Region::NTSC => emu::NTSC_CLOCK_RATE,
+//             Region::PAL => emu::PAL_CLOCK_RATE,
+//         };
+//         blip.set_rates(clock_rate as f64, 48000.0).unwrap();
+//         Self(blip)
+//     }
+// }
+
+pub struct AvgResampler {
+    sample_avg: f32,
+    sample_count: usize,
+    sample_timer: f32,
+    cycles_per_sample: f32,
+}
+impl Default for AvgResampler {
     fn default() -> Self {
-        Self::new(&Region::default())
+        Self::new(NTSC_CLOCK_RATE, Self::DEFAULT_RESAMPLE_FREQ)
     }
 }
-impl AudioBuf {
-    pub fn new(region: &Region) -> Self {
-        let mut blip = BlipBuf::new(48000);
-        let clock_rate = match region {
-            Region::NTSC => emu::NTSC_CLOCK_RATE,
-            Region::PAL => emu::PAL_CLOCK_RATE,
-        };
-        blip.set_rates(clock_rate as f64, 48000.0).unwrap();
-        Self(blip)
+impl AvgResampler {
+    pub const DEFAULT_RESAMPLE_FREQ: usize = 44100;
+
+    pub fn new(clock_rate: usize, frequency: usize) -> Self {
+        Self {
+            sample_avg: 0.0,
+            sample_count: 0,
+            sample_timer: 0.0,
+            cycles_per_sample: clock_rate as f32 / frequency as f32,
+        }
+    }
+    pub fn add_sample(&mut self, sample: f32) -> Option<f32> {
+        self.sample_avg += sample;
+        self.sample_count += 1;
+        self.sample_timer += 1.0;
+
+        if self.sample_timer >= self.cycles_per_sample {
+            self.sample_timer -= self.cycles_per_sample;
+            let res = self.sample_avg / self.sample_count as f32;
+
+            self.sample_avg = 0.0;
+            self.sample_count = 0;
+
+            Some(res)
+        } else {
+            None
+        }
     }
 }
 
@@ -484,10 +525,7 @@ pub struct ApuRP2A {
     frame_mode: FrameMode,
     frame_write_delay: u8,
 
-    prev_sample: f64,
-    #[cfg_attr(feature = "serde", serde(skip))]
-    pub blip: AudioBuf,
-    pub cycles: usize,
+    resampler: AvgResampler,
 }
 
 impl ApuRP2A {
@@ -521,7 +559,7 @@ impl ApuRP2A {
             p1: Pulse::new(false),
             noise: Noise::new(),
             dmc: Dmc::new(),
-            blip: AudioBuf::new(region),
+            resampler: AvgResampler::new(region.clock_rate(), 44100),
             ..Default::default()
         }
     }
@@ -548,20 +586,17 @@ impl ApuRP2A {
 
     pub fn reset(&mut self) {
         *self = Self {
-            blip: std::mem::take(&mut self.blip),
             noise: Noise::new(),
             dmc: Dmc::new(),
             ..Default::default()
         };
-
-        self.blip.0.clear();
     }
 }
 
 // https://forums.nesdev.org/viewtopic.php?t=12449
-const PULSE_MAX: f64 = 15.0;
-const PULSE_STRENGTH: f64 = 95.88 / ((8128.0 / PULSE_MAX) + 100.0);
-pub const EXT_MIX: f64 = PULSE_STRENGTH / PULSE_MAX;
+const PULSE_MAX: f32 = 15.0;
+const PULSE_STRENGTH: f32 = 95.88 / ((8128.0 / PULSE_MAX) + 100.0);
+pub const EXT_MIX: f32 = PULSE_STRENGTH / PULSE_MAX;
 
 impl Emu {
     pub fn apu_reg_read(&mut self, addr: u16) -> u8 {
@@ -761,19 +796,23 @@ impl Emu {
         let tri = apu.tri.output * (!settings.disable_triangle as u8);
         let noise = apu.noise.output * (!settings.disable_noise as u8);
         let dmc = apu.dmc.output * (!settings.disable_dmc as u8);
+        let ext = self.mapper.sample() * (!settings.disable_ext_audio as u8 as f32);
 
-        let pulse = 95.88 / ((8128.0 / (p0 + p1) as f64) + 100.0);
-        let tnd_sum = (tri as f64 / 8227.0) + (noise as f64 / 12241.0) + (dmc as f64 / 22638.0);
+        let pulse = 95.88 / ((8128.0 / (p0 + p1) as f32) + 100.0);
+        let tnd_sum = (tri as f32 / 8227.0) + (noise as f32 / 12241.0) + (dmc as f32 / 22638.0);
         let tnd = 159.79 / ((1.0 / tnd_sum) + 100.0);
-        let ext = self.mapper.sample() * (!settings.disable_ext_audio as u8 as f64);
 
-        let sample = (pulse + tnd + ext) * (self.settings.volume * 1000.0);
-        let delta = sample - apu.prev_sample;
+        // let sample = (pulse + tnd + ext) * (self.settings.volume * 1000.0);
+        let sample = pulse + tnd + ext;
 
-        apu.blip.0.add_delta(apu.cycles, delta);
-        apu.prev_sample = sample;
+        if let Some(resample) = self.apu.resampler.add_sample(sample) {
+            self.audiobuf.push(resample);
+        }
 
-        apu.cycles += 1;
+        // let delta = sample - apu.prev_sample;
+        // apu.blip.0.add_delta(apu.cycles, delta);
+        // apu.prev_sample = sample;
+        // apu.cycles += 1;
     }
 
     fn frame_count_step(&mut self) {
@@ -790,7 +829,7 @@ impl Emu {
         let apu = &mut self.apu;
 
         // The sequencer is clocked on every other CPU cycle, so 2 CPU cycles = 1 APU cycle.
-        // Every value is multiplied by two respect to the wiki
+        // Every value is multiplied by two in respect to the wiki
         // https://www.nesdev.org/wiki/APU_Frame_Counter
         match (apu.frame_count, &apu.frame_mode) {
             (7456 | 22370, _) => apu.frame_quarter_step(),

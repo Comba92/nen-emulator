@@ -1,7 +1,6 @@
 use crate::{emu::Emu, joypad::JoypadBtn};
 
 mod apu;
-mod blip;
 mod bus;
 pub mod cpu;
 pub mod emu;
@@ -10,7 +9,7 @@ mod mapper;
 mod ppu;
 pub mod rom;
 
-mod utils {
+pub mod utils {
     // pub fn bit_get(x: u8, bit: u8) -> bool { (x >> bit) & 1 == 1 }
     // pub fn bit_set(x: u8, flags: u8) -> u8 { x | flags }
     // pub fn bit_change(x: u8, flags: u8, cond: bool) -> u8 {
@@ -29,33 +28,78 @@ mod utils {
         (x & 0x00ff) | (hi as u16).shl(8)
     }
 
-    struct RingBuffer<T> {
-        data: Box<[T]>,
+    #[derive(Default, Debug)]
+    pub struct RingBuffer<T> {
+        pub data: Box<[T]>,
         head: usize,
         tail: usize,
-        queued: usize,
     }
-    impl<T: Default + Copy> RingBuffer<T> {
-        pub fn new(&mut self, size: usize) -> Self {
+    impl<T: Default + Clone> RingBuffer<T> {
+        pub fn new(size: usize) -> Self {
             Self {
                 data: vec![T::default(); size].into_boxed_slice(),
                 head: 0,
                 tail: 0,
-                queued: 0,
             }
         }
     }
 
     impl<T> RingBuffer<T> {
         pub fn push(&mut self, val: T) {
-            self.data[self.head] = val;
+            self.data[self.tail] = val;
             self.tail = (self.tail + 1) % self.data.len();
-            self.queued += 1;
+            // self.queued += 1;
         }
 
-        pub fn take(&mut self, amount: usize) {
+        pub fn is_queued_all_contiguos(&self) -> bool {
+            // tail is right of head, consecutive data
+            self.tail >= self.head
+        }
+
+        pub fn queued(&self) -> usize {
+            if self.is_queued_all_contiguos() {
+                // tail is right of head, consecutive
+                self.tail - self.head
+            } else {
+                // tail is left of head, not consecutive
+                self.tail + self.queued_contiguos()
+            }
+        }
+
+        pub fn queued_contiguos(&self) -> usize {
+            self.data.len() - self.head
+        }
+
+        pub fn available_contiguos(&self) -> usize {
+            self.data.len() - self.tail
+        }
+
+        pub fn available(&self) -> usize {
+            if self.is_queued_all_contiguos() {
+                // tail is right of head, consecutive
+                self.available_contiguos() + self.head
+            } else {
+                // tail is left of head, not consecutive
+                self.head - self.tail
+            }
+        }
+
+        pub fn take_available_contiguos(&mut self, amount: usize) -> (&[T], Option<&[T]>) {
+            let amount = amount.min(self.data.len());
+
+            let right_amount = amount.min(self.queued_contiguos());
+            let right = &self.data[self.head..self.head + right_amount];
+
+            let left = if right_amount < amount {
+                let left_amount = amount - right_amount;
+                Some(&self.data[..left_amount])
+            } else {
+                None
+            };
+
             self.head = (self.head + amount) % self.data.len();
-            self.queued = self.queued.saturating_sub(amount);
+            // self.queued = self.queued.saturating_sub(amount);
+            (right, left)
         }
     }
 }
