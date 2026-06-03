@@ -16,7 +16,7 @@ use fds::*;
 
 // https://www.nesdev.org/wiki/Mapper
 #[cfg_attr(feature = "serde", typetag::serde)]
-pub trait Mapper {
+pub trait Mapper: Send {
     fn new(mem: &mut Bus) -> Box<Self>
     where
         Self: Sized;
@@ -39,7 +39,7 @@ pub trait Mapper {
     }
     fn special_input(&mut self) {}
 
-    fn sample(&self) -> f64 {
+    fn sample(&self) -> f32 {
         0.0
     }
 }
@@ -1408,8 +1408,8 @@ impl Mapper for Namco129_163 {
         }
     }
 
-    fn sample(&self) -> f64 {
-        self.audio.output as f64 * (apu::EXT_MIX * 0.5)
+    fn sample(&self) -> f32 {
+        self.audio.output as f32 * (apu::EXT_MIX * 0.5)
     }
 }
 
@@ -1911,16 +1911,16 @@ mod sunsoft_fme7 {
         pub div: apu::DividerCounter,
         pub volume: u8,
         step: u16,
-        pub output: f64,
+        pub output: f32,
     }
 
     impl Tone {
         // https://github.com/SourMesen/Mesen2/blob/fabc9a62174f8734a113df6d244f5539ef6b8fcf/Core/NES/Mappers/Audio/Sunsoft5bAudio.h#L99
-        pub const TABLE: [f64; 16] = {
+        pub const TABLE: [f32; 16] = {
             let mut lut = [0.0; 0x10];
 
             let mut i = 1;
-            let mut out: f64 = 1.0;
+            let mut out: f32 = 1.0;
             while i < 16 {
                 out *= 1.1885022274370184377301224648922;
                 out *= 1.1885022274370184377301224648922;
@@ -2085,7 +2085,7 @@ impl Mapper for SunsoftFME7 {
         }
     }
 
-    fn sample(&self) -> f64 {
+    fn sample(&self) -> f32 {
         // It is very loud compared to other audio expansion carts.
         (apu::EXT_MIX * 0.3) * (self.ta.output + self.tb.output + self.tc.output)
     }

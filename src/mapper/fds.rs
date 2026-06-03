@@ -635,7 +635,7 @@ impl Mapper for FDS {
         println!("Current disk selected: {:?}", self.disk_select);
     }
 
-    fn sample(&self) -> f64 {
+    fn sample(&self) -> f32 {
         // self.audio.sample()
         0.0
     }

@@ -1,17 +1,15 @@
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 use crate::{
     NesPalette,
-    apu::ApuRP2A,
+    apu::{self, ApuRP2A},
     bus::Bus,
     cpu::{self, Cpu6502},
     joypad::Joypad,
     mapper::{self, BoxedMapper, Mapper},
     ppu::Ppu2C02,
-    rom::{Cart, Disk, RomData},
+    rom::{self, Cart, Disk, RomData},
+    utils::RingBuffer,
 };
 
 #[derive(Default, Clone)]
@@ -30,7 +28,7 @@ pub struct Settings {
 
     // TODO: not implemented
     pub audio_sample_rate: usize,
-    pub volume: f64,
+    pub volume: f32,
     pub disable_pulse0: bool,
     pub disable_pulse1: bool,
     pub disable_triangle: bool,
@@ -50,10 +48,6 @@ impl Settings {
     }
 }
 
-pub const NTSC_CLOCK_RATE: usize = 1789773;
-pub const PAL_CLOCK_RATE: usize = 1662607;
-pub const NTSC_FRAME_RATE: f32 = 60.0988;
-pub const PAL_FRAME_RATE: f32 = 50.0070;
 pub const BIOS_CRC32: u32 = 1583381967;
 pub const BATTERY_SAVE_EXTENSION: &str = "srm";
 
@@ -66,12 +60,11 @@ pub struct Emu {
     pub mem: Bus,
     pub mapper: Box<dyn Mapper>,
 
-    pub(crate) frame_ready: bool,
+    pub frame_ready: bool,
     #[cfg_attr(feature = "serde", serde(skip))]
-    pub(crate) videobuf: Vec<u8>,
+    pub(crate) videobuf: Box<[u8]>,
     #[cfg_attr(feature = "serde", serde(skip))]
-    audiobuf: Vec<i16>,
-    audio_read: bool,
+    pub(crate) audiobuf: RingBuffer<f32>,
 
     pub palette: NesPalette,
     pub settings: Settings,
@@ -88,12 +81,33 @@ pub enum Mirroring {
     FourScreens,
 }
 
+pub const NTSC_CLOCK_RATE: usize = 1789773;
+pub const PAL_CLOCK_RATE: usize = 1662607;
+
+pub const NTSC_FRAME_RATE: f32 = 60.0988;
+pub const PAL_FRAME_RATE: f32 = 50.0070;
+
 #[derive(Debug, Default, Clone, bitcode::Encode, bitcode::Decode)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Region {
     #[default]
     NTSC,
     PAL,
+}
+impl Region {
+    pub fn clock_rate(&self) -> usize {
+        match self {
+            Self::NTSC => NTSC_CLOCK_RATE,
+            Self::PAL => PAL_CLOCK_RATE,
+        }
+    }
+
+    pub fn frame_rate(&self) -> f32 {
+        match self {
+            Self::NTSC => NTSC_FRAME_RATE,
+            Self::PAL => PAL_FRAME_RATE,
+        }
+    }
 }
 
 pub(crate) type LoadError = Box<dyn std::error::Error>;
@@ -120,15 +134,14 @@ impl Emu {
     pub fn empty() -> Self {
         Self {
             cpu: Cpu6502::new(),
-            ppu: Ppu2C02::new(&Default::default()),
-            apu: ApuRP2A::new(&Default::default()),
+            ppu: Ppu2C02::default(),
+            apu: ApuRP2A::default(),
             joypad: Joypad::default(),
             mem: Bus::default(),
             mapper: Box::new(mapper::NROM),
 
-            videobuf: vec![],
-            audiobuf: vec![],
-            audio_read: false,
+            videobuf: Default::default(),
+            audiobuf: RingBuffer::new(0),
             palette: NesPalette::default(),
 
             frame_ready: false,
@@ -163,9 +176,11 @@ impl Emu {
             mem,
             mapper,
 
-            videobuf: vec![0; 256 * 240],
-            audiobuf: vec![0; 4 * 1024],
-            audio_read: false,
+            videobuf: vec![0; 256 * 240].into_boxed_slice(),
+            audiobuf: RingBuffer::new(
+                (16.0 * (apu::AvgResampler::DEFAULT_RESAMPLE_FREQ as f32 / NTSC_FRAME_RATE))
+                    as usize,
+            ),
             palette,
 
             frame_ready: false,
@@ -185,20 +200,6 @@ impl Emu {
         let empty_disk = Disk::default();
         let game = Game::Disk(empty_disk);
         Self::new(game, bios)
-    }
-
-    pub const fn clock_rate(&self) -> usize {
-        match self.region() {
-            Region::NTSC => NTSC_CLOCK_RATE,
-            Region::PAL => PAL_CLOCK_RATE,
-        }
-    }
-
-    pub const fn frame_rate(&self) -> f32 {
-        match self.region() {
-            Region::NTSC => NTSC_FRAME_RATE,
-            Region::PAL => PAL_FRAME_RATE,
-        }
     }
 
     pub const fn region(&self) -> &Region {
@@ -232,12 +233,6 @@ impl Emu {
     }
 
     pub fn step_until_vblank(&mut self) {
-        // TODO: temporary solution
-        if !self.audio_read {
-            self.apu.blip.0.clear();
-        }
-        self.audio_read = false;
-
         // TODO: should return a result, if cpu jams return error
         let cycles = self.cpu.cycles;
         while !self.frame_ready {
@@ -246,9 +241,6 @@ impl Emu {
         let cycles_run: usize = self.cpu.cycles - cycles;
 
         self.frame_ready = false;
-
-        self.apu.blip.0.end_frame(self.apu.cycles).unwrap();
-        self.apu.cycles -= cycles_run;
     }
 
     pub fn emu_reset(&mut self) {
@@ -353,15 +345,18 @@ impl Emu {
         }
     }
 
-    pub fn get_audio(&mut self) -> &[i16] {
-        let read = self
-            .apu
-            .blip
-            .0
-            .read_samples(&mut self.audiobuf[..self.apu.blip.0.avail as usize], false);
-        self.audio_read = true;
+    pub fn audiobuf(&self) -> &RingBuffer<f32> {
+        &self.audiobuf
+    }
 
-        &self.audiobuf[..read]
+    pub fn get_audio_amount_f32(&mut self, amount: usize) -> (&[f32], Option<&[f32]>) {
+        // println!(
+        //     "{} {} {}",
+        //     self.audiobuf.available_contiguos(),
+        //     self.audiobuf.available(),
+        //     self.audiobuf.queued()
+        // );
+        self.audiobuf.take_available_contiguos(amount)
     }
 
     pub fn load_rom_from_file<P: AsRef<Path>>(

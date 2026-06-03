@@ -660,8 +660,8 @@ impl Mapper for VRC6 {
         }
     }
 
-    fn sample(&self) -> f64 {
-        let res = (self.p0.output as f64 + self.p1.output as f64 + self.saw.output as f64).neg();
+    fn sample(&self) -> f32 {
+        let res = (self.p0.output as f32 + self.p1.output as f32 + self.saw.output as f32).neg();
         // https://forums.nesdev.org/viewtopic.php?t=12449
         res * apu::EXT_MIX
     }
