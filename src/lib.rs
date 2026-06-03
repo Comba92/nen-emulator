@@ -5,11 +5,10 @@ mod blip;
 mod bus;
 pub mod cpu;
 pub mod emu;
+pub mod games_db;
 mod mapper;
 mod ppu;
 pub mod rom;
-
-pub mod games_db;
 
 mod utils {
     // pub fn bit_get(x: u8, bit: u8) -> bool { (x >> bit) & 1 == 1 }
@@ -28,6 +27,36 @@ mod utils {
     pub fn byte_set_hi(x: u16, hi: u8) -> u16 {
         use std::ops::Shl;
         (x & 0x00ff) | (hi as u16).shl(8)
+    }
+
+    struct RingBuffer<T> {
+        data: Box<[T]>,
+        head: usize,
+        tail: usize,
+        queued: usize,
+    }
+    impl<T: Default + Copy> RingBuffer<T> {
+        pub fn new(&mut self, size: usize) -> Self {
+            Self {
+                data: vec![T::default(); size].into_boxed_slice(),
+                head: 0,
+                tail: 0,
+                queued: 0,
+            }
+        }
+    }
+
+    impl<T> RingBuffer<T> {
+        pub fn push(&mut self, val: T) {
+            self.data[self.head] = val;
+            self.tail = (self.tail + 1) % self.data.len();
+            self.queued += 1;
+        }
+
+        pub fn take(&mut self, amount: usize) {
+            self.head = (self.head + amount) % self.data.len();
+            self.queued = self.queued.saturating_sub(amount);
+        }
     }
 }
 

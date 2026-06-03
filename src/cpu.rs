@@ -12,11 +12,14 @@ enum AddressingMode {
     Absolute,
     AbsoluteX,
     AbsoluteY,
+    #[allow(non_camel_case_types)]
     AbsoluteX_RMW,
+    #[allow(non_camel_case_types)]
     AbsoluteY_RMW,
     Indirect,
     IndirectX,
     IndirectY,
+    #[allow(non_camel_case_types)]
     IndirectY_RMW,
 }
 
@@ -36,9 +39,12 @@ bitflags::bitflags! {
 }
 
 const STACK_START: u16 = 0x0100;
-pub const NMI_VECTOR: u16 = 0xfffa;
-pub const RST_VECTOR: u16 = 0xfffc;
-pub const IRQ_VECTOR: u16 = 0xfffe;
+
+pub enum InterruptVector {
+    Nmi = 0xfffa,
+    Rst = 0xfffc,
+    Irq = 0xfffe,
+}
 
 #[derive(Default, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -72,7 +78,7 @@ impl Cpu6502 {
 
 impl Emu {
     pub fn cpu_reset(&mut self) {
-        self.cpu.pc = self.cpu_read16(RST_VECTOR);
+        self.cpu.pc = self.cpu_read16(InterruptVector::Rst as u16);
         self.cpu.p |= Status::IrqDisable;
         self.cpu.sp = self.cpu.sp.wrapping_sub(3);
     }
@@ -146,7 +152,6 @@ impl Emu {
             return true;
         } else if let Some(addr) = self.ppu.dma {
             // https://www.nesdev.org/wiki/PPU_registers#OAMDMA_-_Sprite_DMA_($4014_write)
-
             if (addr & 0xff) == 0 {
                 self.cpu_tick(); // halting cycle
                 if self.cpu.cycles % 2 == 1 {
@@ -177,9 +182,9 @@ impl Emu {
             self.cpu.nmi_to_handle = true;
         } else if self.cpu.nmi_to_handle {
             self.cpu.nmi_to_handle = false;
-            self.handle_interrupt(NMI_VECTOR);
+            self.handle_interrupt(InterruptVector::Nmi as u16);
         } else if !self.mem.irq.is_empty() && !self.cpu.p.contains(Status::IrqDisable) {
-            self.handle_interrupt(IRQ_VECTOR);
+            self.handle_interrupt(InterruptVector::Irq as u16);
         }
     }
 
@@ -204,7 +209,7 @@ impl Emu {
         self.cpu_read8(older & 0xff00 | newer & 0xff);
     }
 
-    fn fetch_absolute_op(&mut self, offset: u8, opcode: u8) {
+    fn fetch_absolute_op(&mut self, offset: u8) {
         let base_addr = self.pc_fetch16();
         self.cpu.op_addr = base_addr.wrapping_add(offset as u16);
 
@@ -214,7 +219,7 @@ impl Emu {
         }
     }
 
-    fn fetch_absolute_rmw_op(&mut self, offset: u8, opcode: u8) {
+    fn fetch_absolute_rmw_op(&mut self, offset: u8) {
         let base_addr = self.pc_fetch16();
         self.cpu.op_addr = base_addr.wrapping_add(offset as u16);
         self.cpu_pagecross_read(base_addr, self.cpu.op_addr);
@@ -236,10 +241,10 @@ impl Emu {
             ZeroPageX => self.fetch_zeropage_op(self.cpu.x),
             ZeroPageY => self.fetch_zeropage_op(self.cpu.y),
             Absolute => self.cpu.op_addr = self.pc_fetch16(),
-            AbsoluteX => self.fetch_absolute_op(self.cpu.x, opcode),
-            AbsoluteY => self.fetch_absolute_op(self.cpu.y, opcode),
-            AbsoluteX_RMW => self.fetch_absolute_rmw_op(self.cpu.x, opcode),
-            AbsoluteY_RMW => self.fetch_absolute_rmw_op(self.cpu.y, opcode),
+            AbsoluteX => self.fetch_absolute_op(self.cpu.x),
+            AbsoluteY => self.fetch_absolute_op(self.cpu.y),
+            AbsoluteX_RMW => self.fetch_absolute_rmw_op(self.cpu.x),
+            AbsoluteY_RMW => self.fetch_absolute_rmw_op(self.cpu.y),
             Indirect => {
                 let addr = self.pc_fetch16();
                 self.cpu.op_addr = self.cpu_wrapping_read16(addr);
@@ -628,7 +633,7 @@ impl Emu {
         self.stack_push16(self.cpu.pc.wrapping_add(1));
         self.php();
         self.cpu.p.insert(Status::IrqDisable);
-        self.cpu.pc = self.cpu_read16(IRQ_VECTOR);
+        self.cpu.pc = self.cpu_read16(InterruptVector::Irq as u16);
     }
     fn rti(&mut self) {
         // extra pull cycle is done in plp

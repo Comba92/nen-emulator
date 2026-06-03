@@ -550,7 +550,7 @@ impl eframe::App for AppCtx {
                             }
 
                             let header = self.emu.header();
-                            if header.format == rom::HeaderFormat::FDS {
+                            if header.format == rom::HeaderFormat::Fds {
                                 ui.separator();
                                 if ui.button("💿 Insert next FDS disk/side").clicked() {
                                     self.emu.mapper.special_input();

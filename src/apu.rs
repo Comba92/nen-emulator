@@ -2,7 +2,7 @@ use crate::blip::BlipBuf;
 
 use crate::{
     bus::{self, IrqFlags},
-    emu::{Emu, Region},
+    emu::{self, Emu, Region},
     utils::{byte_set_hi, byte_set_lo},
 };
 
@@ -443,7 +443,6 @@ impl Dmc {
     }
 }
 
-#[repr(u8)]
 #[derive(Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 enum FrameMode {
@@ -463,8 +462,8 @@ impl AudioBuf {
     pub fn new(region: &Region) -> Self {
         let mut blip = BlipBuf::new(48000);
         let clock_rate = match region {
-            Region::NTSC => Emu::NTSC_CLOCK_RATE,
-            Region::PAL => Emu::PAL_CLOCK_RATE,
+            Region::NTSC => emu::NTSC_CLOCK_RATE,
+            Region::PAL => emu::PAL_CLOCK_RATE,
         };
         blip.set_rates(clock_rate as f64, 48000.0).unwrap();
         Self(blip)

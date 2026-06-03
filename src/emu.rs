@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use crate::{
     NesPalette,
@@ -35,6 +38,7 @@ pub struct Settings {
     pub disable_dmc: bool,
     pub disable_ext_audio: bool,
 }
+
 impl Settings {
     pub fn new() -> Self {
         Self {
@@ -45,6 +49,13 @@ impl Settings {
         }
     }
 }
+
+pub const NTSC_CLOCK_RATE: usize = 1789773;
+pub const PAL_CLOCK_RATE: usize = 1662607;
+pub const NTSC_FRAME_RATE: f32 = 60.0988;
+pub const PAL_FRAME_RATE: f32 = 50.0070;
+pub const BIOS_CRC32: u32 = 1583381967;
+pub const BATTERY_SAVE_EXTENSION: &str = "srm";
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Emu {
@@ -87,10 +98,11 @@ pub enum Region {
 
 pub(crate) type LoadError = Box<dyn std::error::Error>;
 
-pub enum Game {
+enum Game {
     Cart(Cart),
     Disk(Disk),
 }
+
 impl Game {
     pub fn from(bytes: &[u8]) -> Result<Self, LoadError> {
         if RomData::is_valid_ines(bytes) {
@@ -105,12 +117,6 @@ impl Game {
 }
 
 impl Emu {
-    pub const NTSC_CLOCK_RATE: usize = 1789773;
-    pub const PAL_CLOCK_RATE: usize = 1662607;
-    pub const NTSC_FRAME_RATE: f32 = 60.0988;
-    pub const PAL_FRAME_RATE: f32 = 50.0070;
-    pub const BIOS_CRC32: u32 = 1583381967;
-
     pub fn empty() -> Self {
         Self {
             cpu: Cpu6502::new(),
@@ -139,7 +145,8 @@ impl Emu {
             }
             Game::Disk(disk) => {
                 let bios = bios.ok_or("no BIOS ROM provided")?;
-                if crc32fast::hash(bios) != Self::BIOS_CRC32 {
+
+                if crc32fast::hash(bios) != BIOS_CRC32 {
                     return Err("not a valid BIOS rom".into());
                 }
                 Bus::with_disk(disk, bios)
@@ -165,7 +172,7 @@ impl Emu {
             settings: Settings::new(),
         };
 
-        emu.cpu.pc = emu.cpu_read16(cpu::RST_VECTOR);
+        emu.cpu.pc = emu.cpu_read16(cpu::InterruptVector::Rst as u16);
         Ok(emu)
     }
 
@@ -182,15 +189,15 @@ impl Emu {
 
     pub const fn clock_rate(&self) -> usize {
         match self.region() {
-            Region::NTSC => Self::NTSC_CLOCK_RATE,
-            Region::PAL => Self::PAL_CLOCK_RATE,
+            Region::NTSC => NTSC_CLOCK_RATE,
+            Region::PAL => PAL_CLOCK_RATE,
         }
     }
 
     pub const fn frame_rate(&self) -> f32 {
         match self.region() {
-            Region::NTSC => Self::NTSC_FRAME_RATE,
-            Region::PAL => Self::PAL_FRAME_RATE,
+            Region::NTSC => NTSC_FRAME_RATE,
+            Region::PAL => PAL_FRAME_RATE,
         }
     }
 
@@ -203,7 +210,7 @@ impl Emu {
     }
 
     pub fn cpu_tick(&mut self) {
-        self.cpu.cycles += 1;
+        self.cpu.cycles = self.cpu.cycles.wrapping_add(1);
 
         self.apu_step();
         self.mapper.step(&mut self.mem, self.cpu.cycles);
@@ -214,7 +221,7 @@ impl Emu {
 
         // PAL systems additionally run 3.2 PPU cycles per CPU cycle
         // meaning, every 5 CPU cycles there is an additional PPU cycle
-        match self.mem.header.region {
+        match self.region() {
             Region::PAL => {
                 if self.cpu.cycles % 5 == 0 {
                     self.ppu_step();
@@ -274,6 +281,8 @@ impl Emu {
     }
 
     pub fn load_battery(&mut self, bytes: &[u8]) -> Result<(), LoadError> {
+        // TODO: handle MMC1 and MMC5 weird cases
+
         if !self.header().has_battery {
             return Ok(());
         } else if bytes.len() != self.mem.wram.len() {
@@ -359,21 +368,28 @@ impl Emu {
         rom_path: P,
         bios: Option<&[u8]>,
     ) -> Result<Self, LoadError> {
-        use std::io::{Read, Seek};
+        use std::{
+            fs,
+            io::{Read, Seek},
+        };
 
+        // let mut bytes = Vec::new();
+        // let file = fs::File::open(rom_path)?;
+        // let mut reader = io::BufReader::new(file);
+        // reader.read_to_end(&mut bytes)?;
+
+        let mut file = fs::File::open(rom_path)?;
         let mut bytes = Vec::new();
-        let file = std::fs::File::open(rom_path)?;
-        let mut reader = std::io::BufReader::new(file);
-        reader.read_to_end(&mut bytes)?;
+        file.read_to_end(&mut bytes)?;
 
         let res = Emu::load_rom_from_bytes(&bytes, bios);
         match res {
             Ok(_) => res,
             Err(_) => {
-                reader.rewind()?;
+                file.rewind()?;
                 bytes.clear();
 
-                if let Ok(mut archive) = zip::read::ZipArchive::new(&mut reader) {
+                if let Ok(mut archive) = zip::read::ZipArchive::new(&mut file) {
                     // it is a zip file
                     let mut zip = archive.by_index(0)?;
                     zip.read_to_end(&mut bytes)?;
@@ -387,15 +403,16 @@ impl Emu {
     }
 
     pub fn save_battery_to_file<P: AsRef<Path>>(&self, path: P) -> std::io::Result<bool> {
-        use std::io::Write;
+        use std::{fs, io::Write};
 
         if let Some(sram) = self.save_battery() {
             let mut save_path = PathBuf::from(path.as_ref());
-            save_path.set_extension("srm");
+            save_path.set_extension(BATTERY_SAVE_EXTENSION);
 
-            let file = std::fs::File::create(&save_path)?;
-            let mut writer = std::io::BufWriter::new(file);
-            writer.write_all(sram)?;
+            let mut file = fs::File::create(&save_path)?;
+            // let mut reader = std::io::BufWriter::new(file);
+            // reader.write_all(sram)?;
+            file.write_all(sram)?;
             Ok(true)
         } else {
             Ok(false)
@@ -406,14 +423,16 @@ impl Emu {
         if !self.header().has_battery {
             return Ok(());
         }
-        use std::io::Read;
+        use std::{fs, io::Read};
 
         let mut load_path = PathBuf::from(path.as_ref());
-        load_path.set_extension("srm");
-        if let Ok(file) = std::fs::File::open(&load_path) {
+        load_path.set_extension(BATTERY_SAVE_EXTENSION);
+
+        if let Ok(mut file) = fs::File::open(&load_path) {
             let mut buf = Vec::new();
-            let mut reader = std::io::BufReader::new(file);
-            reader.read_to_end(&mut buf)?;
+            // let mut reader = io::BufReader::new(file);
+            // reader.read_to_end(&mut buf)?;
+            file.read_to_end(&mut buf)?;
             self.load_battery(&buf)
         } else {
             Err("no sram dump file found".into())
@@ -422,16 +441,18 @@ impl Emu {
 
     #[cfg(feature = "serde")]
     pub fn savestate<P: AsRef<Path>>(&self, path: P) -> Result<(), LoadError> {
-        let file = std::fs::File::create(path)?;
-        let writer = std::io::BufWriter::new(file);
-        pot::to_writer(self, writer).map_err(|e| e.into())
+        let mut file = std::fs::File::create(path)?;
+        pot::to_writer(self, file).map_err(|e| e.into())
+        // let writer = std::io::BufWriter::new(file);
+        // pot::to_writer(self, writer).map_err(|e| e.into())
     }
 
     #[cfg(feature = "serde")]
     pub fn loadstate<P: AsRef<Path>>(&mut self, path: P) -> Result<(), LoadError> {
         let file = std::fs::File::open(path)?;
-        let reader = std::io::BufReader::new(file);
-        let mut new_emu: Emu = pot::from_reader(reader)?;
+        // let reader = std::io::BufReader::new(file);
+        // let mut new_emu: Emu = pot::from_reader(reader)?;
+        let mut new_emu: Emu = pot::from_reader(file)?;
 
         std::mem::swap(&mut self.mem.prg, &mut new_emu.mem.prg);
         std::mem::swap(&mut self.audiobuf, &mut new_emu.audiobuf);

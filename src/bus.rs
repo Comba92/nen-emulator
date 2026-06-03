@@ -29,7 +29,6 @@ pub struct Banking<T: BankCfg> {
     pub banks_count: u16,
     banks_count_mask: u16,
 
-    bank_size: u16,
     bank_size_mask: u16,
     bank_size_shift: u8,
 
@@ -58,7 +57,6 @@ impl<T: BankCfg + std::fmt::Debug> Banking<T> {
         let banks_count_mask = banks_count - 1;
 
         Self {
-            bank_size,
             bank_size_shift,
             bank_size_mask,
             banks_count,
@@ -389,7 +387,7 @@ impl Bus {
 
     pub fn with_disk(disk: Disk, bios: &[u8]) -> (Self, BoxedMapper) {
         let mut header = RomData::default();
-        header.format = rom::HeaderFormat::FDS;
+        header.format = rom::HeaderFormat::Fds;
         header.mapper = 20;
 
         let prg = bios.to_vec().into_boxed_slice();
