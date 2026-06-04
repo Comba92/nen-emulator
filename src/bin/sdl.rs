@@ -1,30 +1,31 @@
 use std::{
     fs,
-    io::{BufReader, BufWriter, Read, Write},
+    io::{Read, Write},
     path,
-    sync::{Arc, Mutex, mpsc},
+    sync::{Arc, Mutex},
     thread, time,
 };
 
-use nes_emulator::{emu::Emu, joypad::JoypadBtn, utils::RingBuffer};
+use nes_emulator::{emu::NesEmulator, joypad::JoypadBtn, utils::RingBuffer};
 use sdl2::{
-    audio::AudioCallback,
+    audio::{AudioCallback, AudioSpecDesired},
     event::{Event, WindowEvent},
     keyboard::Keycode,
+    pixels::Color,
     pixels::PixelFormatEnum,
+    render::ScaleMode,
 };
 
 struct AudioHandler {
-    emu: Arc<Mutex<Emu>>,
+    emu: Arc<Mutex<NesEmulator>>,
 }
 impl AudioCallback for AudioHandler {
     type Channel = f32;
 
     fn callback(&mut self, audio_out: &mut [Self::Channel]) {
         let mut emu_lock = self.emu.lock().unwrap();
-        let audio_needed = audio_out.len();
 
-        let (right, left) = emu_lock.get_audio_amount_f32(audio_needed);
+        let (right, left) = emu_lock.get_audio_f32(audio_out.len());
         let right_amt = right.len();
         audio_out[..right_amt].copy_from_slice(right);
 
@@ -34,32 +35,37 @@ impl AudioCallback for AudioHandler {
     }
 }
 
-fn emu_thread_proc(emu: Arc<Mutex<Emu>>, video_chain: Arc<Mutex<RingBuffer<Framebuf>>>) {
-    let mut buf = [0; 256 * 240 * 4];
-
-    let frame_rate = time::Duration::from_secs_f32(1.0 / 576.0);
+fn emulation_thread_proc(
+    emu: Arc<Mutex<NesEmulator>>,
+    video_chain: Arc<Mutex<RingBuffer<Framebuf>>>,
+    samples_needed: usize,
+) {
+    let frame_rate = time::Duration::from_secs_f32(1.0 / 288.0);
     loop {
-        let start = time::Instant::now();
+        let frame_start = time::Instant::now();
 
         {
             let mut emu_lock = emu.lock().unwrap();
-            while emu_lock.audiobuf().queued() < 1024 * 8 {
-                while emu_lock.audiobuf().queued() < 1024 * 8 && !emu_lock.frame_ready {
+            while emu_lock.audio_queued() < samples_needed * 2 {
+                while emu_lock.audio_queued() < samples_needed * 2 && !emu_lock.is_frame_ready() {
                     emu_lock.cpu_step();
                 }
                 // println!("[EMU THREAD]: enough audio ready");
 
-                if emu_lock.frame_ready {
-                    // println!("[EMU THREAD]: push video to presentation thread");
+                if emu_lock.is_frame_ready() {
+                    // println!(
+                    //     "[EMU THREAD]: push video to presentation thread: {}",
+                    //     video_chain.lock().unwrap().queued()
+                    // );
 
-                    emu_lock.get_video_rgba(&mut buf);
-                    video_chain.lock().unwrap().push(Framebuf(buf.clone()));
                     emu_lock.frame_ready = false;
+                    let buf = emu_lock.get_video_rgba();
+                    video_chain.lock().unwrap().push(Framebuf(buf.clone()));
                 }
             }
         }
 
-        let frame_duration = time::Instant::now() - start;
+        let frame_duration = time::Instant::now() - frame_start;
         if frame_duration < frame_rate {
             thread::sleep(frame_rate - frame_duration);
         }
@@ -72,6 +78,10 @@ impl Default for Framebuf {
     fn default() -> Self {
         Self([0; _])
     }
+}
+
+fn arc_mutex<T>(inner: T) -> Arc<Mutex<T>> {
+    Arc::new(Mutex::new(inner))
 }
 
 fn main() {
@@ -94,14 +104,15 @@ fn main() {
     let mut tex = texture_creator
         .create_texture_streaming(PixelFormatEnum::RGBA32, 256, 240)
         .unwrap();
-    tex.set_scale_mode(sdl2::render::ScaleMode::Nearest);
+    tex.set_scale_mode(ScaleMode::Nearest);
 
-    // let debug_window = video.window("Debug", 256 * 2 * 2, 240 * 2 * 2)
-    // .resizable()
-    // .build().unwrap();
-    // let mut debug_canvas = debug_window.into_canvas()
-    //     .build().unwrap();
-    // let debug_texture_creator  = debug_canvas.texture_creator();
+    // let debug_window = video
+    //     .window("Debug", 256 * 2 * 2, 240 * 2 * 2)
+    //     .resizable()
+    //     .build()
+    //     .unwrap();
+    // let mut debug_canvas = debug_window.into_canvas().build().unwrap();
+    // let debug_texture_creator = debug_canvas.texture_creator();
     // let mut debug_tex = debug_texture_creator
     //     .create_texture_streaming(PixelFormatEnum::RGBA32, 256 * 2, 240 * 2)
     //     .unwrap();
@@ -109,38 +120,46 @@ fn main() {
 
     let bios = include_bytes!("../../utils/disksys.rom");
     let rom = include_bytes!("../../roms/donkey kong.nes");
-    let emu = Emu::load_rom_from_bytes(rom, Some(bios)).unwrap();
+    let mut rom_path = path::PathBuf::from("../../roms/donkey kong.nes");
 
-    let mut rom_filename = "../roms/super mario.nes".to_string();
+    let emu = NesEmulator::load_rom_from_bytes(rom, Some(bios)).unwrap();
+    // let mut frame_rate = (1.0 / emu.region().frame_rate() * 1000.0).round() as u64;
+    let mut frame_rate = time::Duration::from_secs_f32(1.0 / 144.0);
 
-    let mut frame_rate = (1.0 / emu.region().frame_rate() * 1000.0).round() as u64;
+    let video_chain = arc_mutex(nes_emulator::utils::RingBuffer::new(8));
 
-    let video_chain = Arc::new(Mutex::new(nes_emulator::utils::RingBuffer::new(4)));
+    let emu = arc_mutex(emu);
+    let emu_shared_clone1 = Arc::clone(&emu);
+    let emu_shared_clone2 = Arc::clone(&emu);
+    let video_chain_shared_clone = Arc::clone(&video_chain);
 
-    let mut emu_arc = Arc::new(Mutex::new(emu));
-    let emu_arc1 = emu_arc.clone();
-    let emu_arc2 = emu_arc.clone();
-    let video_arc = video_chain.clone();
-    let emu_thread = thread::spawn(move || emu_thread_proc(emu_arc1, video_arc));
-
-    let audiospec = sdl2::audio::AudioSpecDesired {
+    let audiospec = AudioSpecDesired {
         channels: Some(1),
         freq: Some(44100),
         samples: Some(1024),
     };
 
-    // let audiodev = audio.open_queue::<f32, _>(None, &audiospec).unwrap();
     let audiocb = audio
-        .open_playback(None, &audiospec, move |_| AudioHandler { emu: emu_arc2 })
+        .open_playback(None, &audiospec, move |_| AudioHandler {
+            emu: emu_shared_clone2,
+        })
         .unwrap();
 
-    audiocb.resume();
+    let samples_needed = audiocb.spec().samples;
+    let _ = thread::spawn(move || {
+        emulation_thread_proc(
+            emu_shared_clone1,
+            video_chain_shared_clone,
+            samples_needed as usize,
+        )
+    });
 
-    // audiodev.resume();
+    audiocb.resume();
     println!("{:?}", audiocb.spec());
 
     'running: loop {
-        let frame_start = timer.ticks64();
+        // let frame_start = timer.ticks64();
+        let frame_start = time::Instant::now();
 
         for event in events.poll_iter() {
             match event {
@@ -150,63 +169,70 @@ fn main() {
                     _ => {}
                 },
                 Event::DropFile { filename, .. } => {
-                    // if filename.ends_with(".pal") {
-                    //     let buf = fs::read(filename).unwrap();
-                    //     emu.load_palette(&buf);
-                    //     continue;
-                    // }
+                    if filename.ends_with(".pal") {
+                        let buf = fs::read(filename).unwrap();
+                        emu.lock().unwrap().load_palette(&buf);
+                        continue;
+                    }
 
-                    let new_emu = Emu::load_rom_from_file(&filename, Some(bios));
+                    let new_emu = NesEmulator::load_rom_from_file(&filename, Some(bios));
                     match new_emu {
                         Ok(res) => {
-                            // // save current game battery
-                            // if let Some(sram) = emu.save_battery() {
-                            //     let mut save_path = path::PathBuf::from(&rom_filename);
-                            //     save_path.set_extension("sram");
+                            let mut emu_lock = emu.lock().unwrap();
 
-                            //     let file = fs::File::create(&save_path).unwrap();
-                            //     let mut writer = BufWriter::new(file);
-                            //     writer.write_all(sram).unwrap();
-                            //     println!("Battery saved to {save_path:?}");
-                            // }
+                            // save current game battery
+                            if let Some(sram) = emu_lock.save_battery() {
+                                let mut save_path = rom_path.clone();
+                                save_path.set_extension("sram");
 
-                            rom_filename = filename;
-                            let mut emu_lock = emu_arc.lock().unwrap();
+                                let mut file = fs::File::create(&save_path).unwrap();
+                                // let mut writer = BufWriter::new(file);
+                                // writer.write_all(sram).unwrap();
+                                file.write_all(sram).unwrap();
+                                println!("Battery saved to {save_path:?}");
+                            }
+
                             *emu_lock = res;
+                            rom_path = path::PathBuf::from(filename);
                             println!("{:?}", emu_lock.header());
 
                             // load current game battery if any
-                            // let mut load_path = path::PathBuf::from(&rom_filename);
-                            // load_path.set_extension("sram");
-                            // if let Ok(file) = fs::File::open(&load_path) {
-                            //     let mut buf = Vec::new();
-                            //     let mut reader = BufReader::new(file);
-                            //     reader.read_to_end(&mut buf).unwrap();
-                            //     let res = emu.load_battery(&buf);
-                            //     match res {
-                            //         Err(e) => eprintln!("{e}"),
-                            //         _ => println!("Battery loaded from {load_path:?}"),
-                            //     }
-                            // }
+                            let mut load_path = rom_path.clone();
+                            load_path.set_extension("sram");
 
-                            frame_rate =
-                                (1.0 / emu_lock.region().frame_rate() * 1000.0).round() as u64;
+                            if let Ok(mut file) = fs::File::open(&load_path) {
+                                let mut buf = Vec::new();
+                                // let mut reader = BufReader::new(file);
+                                // reader.read_to_end(&mut buf).unwrap();
+                                file.read_to_end(&mut buf).unwrap();
+                                let res = emu_lock.load_battery(&buf);
+                                match res {
+                                    Err(e) => eprintln!("{e}"),
+                                    _ => println!("Battery loaded from {load_path:?}"),
+                                }
+                            }
+
+                            // frame_rate =
+                            //     (1.0 / emu_lock.region().frame_rate() * 1000.0).round() as u64;
+                            // frame_rate = time::Duration::from_secs_f32(
+                            //     1.0 / (emu_lock.region().frame_rate() + 1.0),
+                            // );
                         }
                         Err(e) => eprintln!("{e}"),
                     }
                 }
                 Event::KeyDown { keycode, .. } => {
                     if let Some(keycode) = keycode {
-                        let mut emu_lock = emu_arc.lock().unwrap();
+                        let mut emu_lock = emu.lock().unwrap();
                         match keycode {
-                            Keycode::W => emu_lock.set_button(JoypadBtn::Up, true),
-                            Keycode::A => emu_lock.set_button(JoypadBtn::Left, true),
-                            Keycode::S => emu_lock.set_button(JoypadBtn::Down, true),
-                            Keycode::D => emu_lock.set_button(JoypadBtn::Right, true),
-                            Keycode::K => emu_lock.set_button(JoypadBtn::A, true),
-                            Keycode::J => emu_lock.set_button(JoypadBtn::B, true),
-                            Keycode::M => emu_lock.set_button(JoypadBtn::Start, true),
-                            Keycode::N => emu_lock.set_button(JoypadBtn::Select, true),
+                            Keycode::Up => emu_lock.set_button(JoypadBtn::Up, true),
+                            Keycode::Left => emu_lock.set_button(JoypadBtn::Left, true),
+                            Keycode::Down => emu_lock.set_button(JoypadBtn::Down, true),
+                            Keycode::Right => emu_lock.set_button(JoypadBtn::Right, true),
+                            Keycode::S => emu_lock.set_button(JoypadBtn::A, true),
+                            Keycode::A => emu_lock.set_button(JoypadBtn::B, true),
+                            Keycode::W => emu_lock.set_button(JoypadBtn::Start, true),
+                            Keycode::E => emu_lock.set_button(JoypadBtn::Select, true),
                             Keycode::NUM_0 => emu_lock.mapper.special_input(),
                             #[cfg(feature = "serde")]
                             Keycode::NUM_9 => emu_lock.savestate("./save.tmp").unwrap(),
@@ -223,16 +249,16 @@ fn main() {
 
                 Event::KeyUp { keycode, .. } => {
                     if let Some(keycode) = keycode {
-                        let mut emu_lock = emu_arc.lock().unwrap();
+                        let mut emu_lock = emu.lock().unwrap();
                         match keycode {
-                            Keycode::W => emu_lock.set_button(JoypadBtn::Up, false),
-                            Keycode::A => emu_lock.set_button(JoypadBtn::Left, false),
-                            Keycode::S => emu_lock.set_button(JoypadBtn::Down, false),
-                            Keycode::D => emu_lock.set_button(JoypadBtn::Right, false),
-                            Keycode::K => emu_lock.set_button(JoypadBtn::A, false),
-                            Keycode::J => emu_lock.set_button(JoypadBtn::B, false),
-                            Keycode::M => emu_lock.set_button(JoypadBtn::Start, false),
-                            Keycode::N => emu_lock.set_button(JoypadBtn::Select, false),
+                            Keycode::Up => emu_lock.set_button(JoypadBtn::Up, false),
+                            Keycode::Left => emu_lock.set_button(JoypadBtn::Left, false),
+                            Keycode::Down => emu_lock.set_button(JoypadBtn::Down, false),
+                            Keycode::Right => emu_lock.set_button(JoypadBtn::Right, false),
+                            Keycode::S => emu_lock.set_button(JoypadBtn::A, false),
+                            Keycode::A => emu_lock.set_button(JoypadBtn::B, false),
+                            Keycode::W => emu_lock.set_button(JoypadBtn::Start, false),
+                            Keycode::E => emu_lock.set_button(JoypadBtn::Select, false),
                             _ => {}
                         }
                     }
@@ -241,17 +267,20 @@ fn main() {
             }
         }
 
-        canvas.set_draw_color(sdl2::pixels::Color::GREY);
+        canvas.set_draw_color(Color::GREY);
         canvas.clear();
 
         {
             let mut video_lock = video_chain.lock().unwrap();
             if video_lock.queued() > 0 {
-                // println!("[PRESENT THREAD]: rendering video to texture");
+                // println!(
+                //     "[PRESENT THREAD]: rendering video to texture: {}",
+                //     video_lock.queued()
+                // );
 
-                let (framebuf, _) = video_lock.take_available_contiguos(1);
+                let framebuf = video_lock.pop();
                 tex.with_lock(None, |pixels, _| {
-                    pixels.copy_from_slice(&framebuf[0].0);
+                    pixels.copy_from_slice(&framebuf.0);
                 })
                 .unwrap();
             }
@@ -260,19 +289,23 @@ fn main() {
         canvas.copy(&tex, None, None).unwrap();
         canvas.present();
 
-        // debug_canvas.set_draw_color(sdl2::pixels::Color::GREY);
+        // debug_canvas.set_draw_color(Color::GREY);
         // debug_canvas.clear();
-
-        // debug_tex.with_lock(None, |pixels, _| {
-        //     emu.get_nametables_rgba(pixels);
-        // }).unwrap();
-
+        // debug_tex
+        //     .with_lock(None, |pixels, _| {
+        //         emu_arc.lock().unwrap().get_nametables_rgba(pixels);
+        //     })
+        //     .unwrap();
         // debug_canvas.copy(&debug_tex, None, None).unwrap();
         // debug_canvas.present();
 
-        let frame_duration = timer.ticks64() - frame_start;
+        // let frame_duration = timer.ticks64() - frame_start;
+        // if frame_duration < frame_rate {
+        //     timer.delay((frame_rate - frame_duration) as u32);
+        // }
+        let frame_duration = time::Instant::now() - frame_start;
         if frame_duration < frame_rate {
-            timer.delay((frame_rate - frame_duration) as u32);
+            thread::sleep(frame_rate - frame_duration);
         }
     }
 }

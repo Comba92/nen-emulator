@@ -8,7 +8,7 @@ use crate::{
     joypad::Joypad,
     mapper::{self, BoxedMapper, Mapper},
     ppu::Ppu2C02,
-    rom::{self, Cart, Disk, RomData},
+    rom::{Cart, Disk, RomData},
     utils::RingBuffer,
 };
 
@@ -41,8 +41,8 @@ impl Settings {
     pub fn new() -> Self {
         Self {
             no_sprite_limit: true,
-            audio_sample_rate: 48000,
-            volume: 20.0,
+            audio_sample_rate: 44100,
+            volume: 0.5,
             ..Default::default()
         }
     }
@@ -52,7 +52,7 @@ pub const BIOS_CRC32: u32 = 1583381967;
 pub const BATTERY_SAVE_EXTENSION: &str = "srm";
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct Emu {
+pub struct NesEmulator {
     pub cpu: Cpu6502,
     pub ppu: Ppu2C02,
     pub apu: ApuRP2A,
@@ -62,7 +62,7 @@ pub struct Emu {
 
     pub frame_ready: bool,
     #[cfg_attr(feature = "serde", serde(skip))]
-    pub(crate) videobuf: Box<[u8]>,
+    pub(crate) videobuf: [u8; 256 * 240 * 4],
     #[cfg_attr(feature = "serde", serde(skip))]
     pub(crate) audiobuf: RingBuffer<f32>,
 
@@ -130,7 +130,7 @@ impl Game {
     }
 }
 
-impl Emu {
+impl NesEmulator {
     pub fn empty() -> Self {
         Self {
             cpu: Cpu6502::new(),
@@ -140,7 +140,7 @@ impl Emu {
             mem: Bus::default(),
             mapper: Box::new(mapper::NROM),
 
-            videobuf: Default::default(),
+            videobuf: [0; _],
             audiobuf: RingBuffer::new(0),
             palette: NesPalette::default(),
 
@@ -176,7 +176,7 @@ impl Emu {
             mem,
             mapper,
 
-            videobuf: vec![0; 256 * 240].into_boxed_slice(),
+            videobuf: [255; _],
             audiobuf: RingBuffer::new(
                 (16.0 * (apu::AvgResampler::DEFAULT_RESAMPLE_FREQ as f32 / NTSC_FRAME_RATE))
                     as usize,
@@ -232,15 +232,22 @@ impl Emu {
         }
     }
 
-    pub fn step_until_vblank(&mut self) {
-        // TODO: should return a result, if cpu jams return error
-        let cycles = self.cpu.cycles;
-        while !self.frame_ready {
+    pub fn step_until_frame_ready(&mut self) {
+        while self.mem.nmi {
             self.cpu_step();
         }
-        let cycles_run: usize = self.cpu.cycles - cycles;
 
+        while !self.mem.nmi {
+            self.cpu_step();
+        }
+    }
+
+    pub fn step_until_samples_or_frame_ready(&mut self, samples_amt: usize) {
         self.frame_ready = false;
+
+        while self.audio_queued() < samples_amt && !self.frame_ready {
+            self.cpu_step();
+        }
     }
 
     pub fn emu_reset(&mut self) {
@@ -285,18 +292,24 @@ impl Emu {
         }
     }
 
-    pub fn get_video_rgba(&self, buf: &mut [u8]) {
-        for (i, color) in self
-            .videobuf
-            .iter()
-            .map(|byte| self.palette.0[*byte as usize])
-            .enumerate()
-        {
-            buf[i * 4 + 0] = color.0;
-            buf[i * 4 + 1] = color.1;
-            buf[i * 4 + 2] = color.2;
-            buf[i * 4 + 3] = 255;
-        }
+    pub fn is_frame_ready(&self) -> bool {
+        self.frame_ready
+    }
+
+    pub fn get_video_rgba(&self) -> &[u8; 256 * 240 * 4] {
+        // for (i, color) in self
+        //     .videobuf
+        //     .iter()
+        //     .map(|byte| self.palette.0[*byte as usize])
+        //     .enumerate()
+        // {
+        //     buf[i * 4 + 0] = color.0;
+        //     buf[i * 4 + 1] = color.1;
+        //     buf[i * 4 + 2] = color.2;
+        //     buf[i * 4 + 3] = 255;
+        // }
+
+        &self.videobuf
     }
 
     pub fn get_nametables_rgba(&mut self, buf: &mut [u8]) {
@@ -345,17 +358,11 @@ impl Emu {
         }
     }
 
-    pub fn audiobuf(&self) -> &RingBuffer<f32> {
-        &self.audiobuf
+    pub fn audio_queued(&self) -> usize {
+        self.audiobuf.queued()
     }
 
-    pub fn get_audio_amount_f32(&mut self, amount: usize) -> (&[f32], Option<&[f32]>) {
-        // println!(
-        //     "{} {} {}",
-        //     self.audiobuf.available_contiguos(),
-        //     self.audiobuf.available(),
-        //     self.audiobuf.queued()
-        // );
+    pub fn get_audio_f32(&mut self, amount: usize) -> (&[f32], Option<&[f32]>) {
         self.audiobuf.take_available_contiguos(amount)
     }
 
@@ -377,7 +384,7 @@ impl Emu {
         let mut bytes = Vec::new();
         file.read_to_end(&mut bytes)?;
 
-        let res = Emu::load_rom_from_bytes(&bytes, bios);
+        let res = NesEmulator::load_rom_from_bytes(&bytes, bios);
         match res {
             Ok(_) => res,
             Err(_) => {
@@ -388,7 +395,7 @@ impl Emu {
                     // it is a zip file
                     let mut zip = archive.by_index(0)?;
                     zip.read_to_end(&mut bytes)?;
-                    Emu::load_rom_from_bytes(&bytes, bios)
+                    NesEmulator::load_rom_from_bytes(&bytes, bios)
                 } else {
                     // not a zip file either
                     res
@@ -447,7 +454,7 @@ impl Emu {
         let file = std::fs::File::open(path)?;
         // let reader = std::io::BufReader::new(file);
         // let mut new_emu: Emu = pot::from_reader(reader)?;
-        let mut new_emu: Emu = pot::from_reader(file)?;
+        let mut new_emu: NesEmulator = pot::from_reader(file)?;
 
         std::mem::swap(&mut self.mem.prg, &mut new_emu.mem.prg);
         std::mem::swap(&mut self.audiobuf, &mut new_emu.audiobuf);

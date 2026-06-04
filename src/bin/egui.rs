@@ -175,7 +175,7 @@ impl AppCfg {
 }
 
 struct AppCtx {
-    emu: emu::Emu,
+    emu: emu::NesEmulator,
     state: EmuState,
     dt: f32,
     fps: f32,
@@ -212,7 +212,7 @@ impl AppCtx {
             None
         };
 
-        let mut emu = emu::Emu::empty();
+        let mut emu = emu::NesEmulator::empty();
         emu.settings = cfg.settings.clone();
 
         Box::new(Self {
@@ -243,7 +243,7 @@ impl AppCtx {
             None
         };
 
-        let res = emu::Emu::load_rom_from_file(&rom_path, bios);
+        let res = emu::NesEmulator::load_rom_from_file(&rom_path, bios);
         match res {
             Ok(mut new_emu) => {
                 self.sdl.audiodev.clear();
@@ -602,7 +602,8 @@ impl eframe::App for AppCtx {
                                 }
 
                                 if let Some(bios) = &self.bios {
-                                    let emu = emu::Emu::load_bios_only(Some(bios.as_slice()));
+                                    let emu =
+                                        emu::NesEmulator::load_bios_only(Some(bios.as_slice()));
                                     match emu {
                                         Ok(emu) => {
                                             self.state = EmuState::Running;

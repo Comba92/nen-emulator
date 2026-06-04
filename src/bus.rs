@@ -1,5 +1,5 @@
 use crate::{
-    emu::{Emu, Mirroring},
+    emu::{Mirroring, NesEmulator},
     mapper::{self, BoxedMapper, Mapper},
     rom::{self, Cart, Disk, RomData},
 };
@@ -47,14 +47,14 @@ impl<T: BankCfg + std::fmt::Debug> Banking<T> {
         // https://stackoverflow.com/questions/25787613/division-and-multiplication-by-power-of-2
         let bank_size_shift = bank_size.ilog2() as u8;
         // TODO: this doesn't work if bankSize is odd!
-        let bank_size_mask = bank_size - 1;
+        let bank_size_mask = bank_size.saturating_sub(1);
 
         // TODO: if realSize < virtSize and there banks arent big enough, this becomes 0!!
         // TODO: handle unconvetional realSizes (less tha 8KiB)
         let banks_count = (real_size / bank_size as usize) as u16;
         // TODO: this doesn't work if banksCount is odd! (shouldnt happen as it
         // depends on realSize, and it should always be power of two)
-        let banks_count_mask = banks_count - 1;
+        let banks_count_mask = banks_count.saturating_sub(1);
 
         Self {
             bank_size_shift,
@@ -492,7 +492,7 @@ impl Bus {
     }
 }
 
-impl Emu {
+impl NesEmulator {
     pub fn cpu_dispatch_read(&mut self, addr: u16) -> u8 {
         let mem = &mut self.mem;
 

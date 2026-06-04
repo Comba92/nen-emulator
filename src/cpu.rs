@@ -1,4 +1,4 @@
-use crate::emu::Emu;
+use crate::emu::NesEmulator;
 use std::ops::{Shl, Shr};
 
 enum AddressingMode {
@@ -64,6 +64,7 @@ pub struct Cpu6502 {
     // TODO: the effect of toggling this flag is delayed 1 instruction when caused by SEI, CLI, or PLP.
     irq_to_set: Option<bool>,
     pub cycles: usize,
+    pub jammed: bool,
 }
 
 impl Cpu6502 {
@@ -76,7 +77,7 @@ impl Cpu6502 {
     }
 }
 
-impl Emu {
+impl NesEmulator {
     pub fn cpu_reset(&mut self) {
         self.cpu.pc = self.cpu_read16(InterruptVector::Rst as u16);
         self.cpu.p |= Status::IrqDisable;
@@ -795,6 +796,7 @@ impl Emu {
     }
 
     fn jam(&mut self) {
+        self.cpu.jammed = true;
         panic!("===[SYSTEM JAMMED]===\n{:?}", self.cpu);
     }
 }
@@ -1059,7 +1061,7 @@ const MODES_TABLE: [AddressingMode; 256] = [
     AbsoluteX,
 ];
 
-impl Emu {
+impl NesEmulator {
     fn decode_n_exec(&mut self, opcode: u8) {
         match opcode {
             0x00 => self.brk(),
@@ -1319,10 +1321,13 @@ impl Emu {
             0xfb => self.isb(),
             0xfc => self.nop(),
             0xff => self.isb(),
-            _ => eprintln!(
-                "illegal opcode 0x{opcode:02X} at address 0x{:04X} reached",
-                self.cpu.pc
-            ),
+            _ => {
+                eprintln!(
+                    "illegal opcode 0x{opcode:02X} at address 0x{:04X} reached",
+                    self.cpu.pc
+                );
+                self.cpu.jammed = true;
+            }
         }
     }
 }

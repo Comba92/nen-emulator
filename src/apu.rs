@@ -2,8 +2,8 @@ use std::ops;
 
 use crate::{
     bus::{self, IrqFlags},
-    emu::{self, Emu, NTSC_CLOCK_RATE, Region},
-    utils::{RingBuffer, byte_set_hi, byte_set_lo},
+    emu::{NTSC_CLOCK_RATE, NesEmulator, Region},
+    utils::{byte_set_hi, byte_set_lo},
 };
 
 #[derive(Default)]
@@ -530,27 +530,27 @@ pub struct ApuRP2A {
 
 impl ApuRP2A {
     // https://www.nesdev.org/wiki/APU_Mixer#Lookup_Table
-    // const PULSE_TABLE: [f64; 31] = {
-    //   let mut lut = [0.0; 31];
-    //   let mut i = 0;
-    //   while i < lut.len() {
-    //     lut[i] = 95.52 / (8128.0 / i as f64 + 100.0);
-    //     i += 1;
-    //   }
+    const PULSE_TABLE: [f32; 31] = {
+        let mut lut = [0.0; 31];
+        let mut i = 0;
+        while i < lut.len() {
+            lut[i] = 95.52 / (8128.0 / i as f32 + 100.0);
+            i += 1;
+        }
 
-    //   lut
-    // };
+        lut
+    };
 
-    // const TND_TABLE: [f64; 203] = {
-    //   let mut lut = [0.0; 203];
-    //   let mut i = 0;
-    //   while i < lut.len() {
-    //     lut[i] = 163.67 / (24329.0 / i as f64 + 100.0);
-    //     i += 1;
-    //   }
+    const TND_TABLE: [f32; 203] = {
+        let mut lut = [0.0; 203];
+        let mut i = 0;
+        while i < lut.len() {
+            lut[i] = 163.67 / (24329.0 / i as f32 + 100.0);
+            i += 1;
+        }
 
-    //   lut
-    // };
+        lut
+    };
 
     pub fn new(region: &Region) -> Self {
         Self {
@@ -598,7 +598,7 @@ const PULSE_MAX: f32 = 15.0;
 const PULSE_STRENGTH: f32 = 95.88 / ((8128.0 / PULSE_MAX) + 100.0);
 pub const EXT_MIX: f32 = PULSE_STRENGTH / PULSE_MAX;
 
-impl Emu {
+impl NesEmulator {
     pub fn apu_reg_read(&mut self, addr: u16) -> u8 {
         let apu = &mut self.apu;
         match addr {
@@ -777,30 +777,31 @@ impl Emu {
         }
 
         /* Linear Approximation */
-        // let pulse = 0.00752 * (apu.p0.sample() as f32 + apu.p1.sample() as f32);
+        // let pulse = 0.00752 * (apu.p0.output as f32 + apu.p1.output as f32);
         // let tnd =
-        //   0.00851 * apu.tri.sample() as f32
-        //   + 0.00494 * apu.noise.sample() as f32
-        //   + 0.00335 * apu.dmc.sample() as f32;
+        //   0.00851 * apu.tri.output as f32
+        //   + 0.00494 * apu.noise.output as f32
+        //   + 0.00335 * apu.dmc.output as f32;
 
         /* Lookup table */
-        // let pulse_sum = (apu.p0.sample() + apu.p1.sample()) as usize;
-        // let pulse = ApuRP2A::PULSE_TABLE[pulse_sum];
-        // let tnd_sum = (3 * apu.tri.sample() + 2 * apu.noise.sample() + apu.dmc.sample()) as usize;
-        // let tnd = ApuRP2A::TND_TABLE[tnd_sum];
+        let pulse_sum = (apu.p0.output + apu.p1.output) as usize;
+        let pulse = ApuRP2A::PULSE_TABLE[pulse_sum];
+        let tnd_sum = (3 * apu.tri.output + 2 * apu.noise.output + apu.dmc.output) as usize;
+        let tnd = ApuRP2A::TND_TABLE[tnd_sum];
+        let ext = self.mapper.sample();
 
-        let settings = &self.settings;
+        // let settings = &self.settings;
 
-        let p0 = apu.p0.output * (!settings.disable_pulse0 as u8);
-        let p1 = apu.p1.output * (!settings.disable_pulse1 as u8);
-        let tri = apu.tri.output * (!settings.disable_triangle as u8);
-        let noise = apu.noise.output * (!settings.disable_noise as u8);
-        let dmc = apu.dmc.output * (!settings.disable_dmc as u8);
-        let ext = self.mapper.sample() * (!settings.disable_ext_audio as u8 as f32);
+        // let p0 = apu.p0.output * (!settings.disable_pulse0 as u8);
+        // let p1 = apu.p1.output * (!settings.disable_pulse1 as u8);
+        // let tri = apu.tri.output * (!settings.disable_triangle as u8);
+        // let noise = apu.noise.output * (!settings.disable_noise as u8);
+        // let dmc = apu.dmc.output * (!settings.disable_dmc as u8);
+        // let ext = self.mapper.sample() * (!settings.disable_ext_audio as u8 as f32);
 
-        let pulse = 95.88 / ((8128.0 / (p0 + p1) as f32) + 100.0);
-        let tnd_sum = (tri as f32 / 8227.0) + (noise as f32 / 12241.0) + (dmc as f32 / 22638.0);
-        let tnd = 159.79 / ((1.0 / tnd_sum) + 100.0);
+        // let pulse = 95.88 / ((8128.0 / (p0 + p1) as f32) + 100.0);
+        // let tnd_sum = (tri as f32 / 8227.0) + (noise as f32 / 12241.0) + (dmc as f32 / 22638.0);
+        // let tnd = 159.79 / ((1.0 / tnd_sum) + 100.0);
 
         // let sample = (pulse + tnd + ext) * (self.settings.volume * 1000.0);
         let sample = pulse + tnd + ext;
@@ -863,42 +864,6 @@ impl Emu {
         self.apu.frame_count += 1;
     }
 
-    // fn frame_count_step_ntsc(&mut self) {
-    //   let apu = &mut self.apu;
-
-    //   // The sequencer is clocked on every other CPU cycle, so 2 CPU cycles = 1 APU cycle.
-    //   // Every value is multiplied by two respect to the wiki
-    //   // https://www.nesdev.org/wiki/APU_Frame_Counter
-    //   match (apu.frame_count, &apu.frame_mode) {
-    //     (32728 | 11185, _) => apu.frame_quarter_step(),
-    //     (7456, _) => apu.frame_half_step(),
-    //     (14914, FrameMode::Step4) => {
-    //       if !apu.frame_irq_disable {
-    //         self.mem.irq.insert(IrqFlags::FRAME);
-    //       }
-    //     }
-    //     (14915, FrameMode::Step4) => {
-    //       if !apu.frame_irq_disable {
-    //         self.mem.irq.insert(IrqFlags::FRAME);
-    //       }
-    //       apu.frame_half_step();
-    //     }
-    //     (14916, FrameMode::Step4) => {
-    //       if !apu.frame_irq_disable {
-    //         self.mem.irq.insert(IrqFlags::FRAME);
-    //       }
-    //       apu.frame_count = 0;
-    //     }
-    //     (18640, FrameMode::Step5) => {
-    //       apu.frame_count = 0;
-    //       apu.frame_half_step();
-    //     }
-    //     _ => {}
-    //   }
-
-    //   self.apu.frame_count += 1;
-    // }
-
     fn frame_count_step_pal(&mut self) {
         let apu = &mut self.apu;
         match (apu.frame_count, &apu.frame_mode) {
@@ -932,36 +897,4 @@ impl Emu {
 
         self.apu.frame_count += 1;
     }
-
-    // fn frame_count_step_pal(&mut self) {
-    //   let apu = &mut self.apu;
-    //   match (apu.frame_count, &apu.frame_mode) {
-    //     (4156 | 12469, _) => apu.frame_quarter_step(),
-    //     (8313, _) => apu.frame_half_step(),
-    //     (16626, FrameMode::Step4) => {
-    //       if !apu.frame_irq_disable {
-    //         self.mem.irq.insert(IrqFlags::FRAME);
-    //       }
-    //     }
-    //     (16627, FrameMode::Step4) => {
-    //       if !apu.frame_irq_disable {
-    //         self.mem.irq.insert(IrqFlags::FRAME);
-    //       }
-    //       apu.frame_half_step();
-    //     }
-    //     (16628, FrameMode::Step4) => {
-    //       if !apu.frame_irq_disable {
-    //         self.mem.irq.insert(IrqFlags::FRAME);
-    //       }
-    //       apu.frame_count = 0;
-    //     }
-    //     (20782, FrameMode::Step5) => {
-    //       apu.frame_count = 0;
-    //       apu.frame_half_step();
-    //     }
-    //     _ => {}
-    //   }
-
-    //   self.apu.frame_count += 1;
-    // }
 }

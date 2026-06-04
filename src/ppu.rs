@@ -1,7 +1,7 @@
 use std::{array, mem};
 
 use crate::{
-    emu::{Emu, Region},
+    emu::{NesEmulator, Region},
     utils::{byte_set_hi, byte_set_lo},
 };
 use bitflags::Flags;
@@ -583,7 +583,7 @@ impl Ppu2C02 {
     }
 }
 
-impl Emu {
+impl NesEmulator {
     // https://www.nesdev.org/wiki/PPU_registers
     pub fn ppu_reg_read(&mut self, addr: u16) -> u8 {
         let ppu = &mut self.ppu;
@@ -755,6 +755,14 @@ impl Emu {
         self.ppu.open_bus = val;
     }
 
+    fn videobuf_push(&mut self, color_id: u8) {
+        let color = self.palette.0[color_id as usize];
+        self.videobuf[self.ppu.pixel_idx + 0] = color.0;
+        self.videobuf[self.ppu.pixel_idx + 1] = color.1;
+        self.videobuf[self.ppu.pixel_idx + 2] = color.2;
+        self.ppu.pixel_idx += 4;
+    }
+
     fn render_pixel(&mut self) {
         let ppu = &mut self.ppu;
         let pixel_x = ppu.dot as usize - 1;
@@ -802,8 +810,7 @@ impl Emu {
         }
 
         // TODO: color emphasis
-        self.videobuf[self.ppu.pixel_idx] = color_id;
-        self.ppu.pixel_idx += 1;
+        self.videobuf_push(color_id);
     }
 
     // https://forums.nesdev.org/viewtopic.php?t=8066
@@ -811,7 +818,6 @@ impl Emu {
     // https://forums.nesdev.org/viewtopic.php?t=25833
 
     // https://www.nesdev.org/wiki/PPU_rendering
-
     pub fn ppu_step(&mut self) {
         match self.ppu.render_state {
             RenderState::PreRender => self.ppu_render_step(&PRERENDER_LUT),
@@ -846,8 +852,8 @@ impl Emu {
                 let ppu = &mut self.ppu;
 
                 if ppu.line < 240 && 1 <= ppu.dot && ppu.dot <= 256 {
-                    self.videobuf[ppu.pixel_idx] = ppu.bg_color_from_palette(0, 0);
-                    ppu.pixel_idx += 1;
+                    let color_id = ppu.bg_color_from_palette(0, 0);
+                    self.videobuf_push(color_id);
                 } else if ppu.line == ppu.prerender_line && ppu.dot == 0 {
                     ppu.stat.clear();
                 } else if ppu.line == 241 && ppu.dot == 0 {
@@ -856,6 +862,7 @@ impl Emu {
                     self.frame_ready = true;
                 }
 
+                let ppu = &mut self.ppu;
                 ppu.dot += 1;
                 if ppu.dot >= 341 {
                     ppu.dot = 0;
@@ -866,6 +873,8 @@ impl Emu {
                         ppu.vblank_suppress = false;
                         ppu.pixel_idx = 0;
                         ppu.odd_frame = !ppu.odd_frame;
+
+                        // self.frame_ready = false;
                     }
                 }
             }
@@ -967,6 +976,8 @@ impl Emu {
 
                 // no sprites should be visible on the first scanline
                 self.ppu.spr_scanline.0.fill(0.into());
+
+                // self.frame_ready = false;
             }
         }
     }

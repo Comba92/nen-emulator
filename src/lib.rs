@@ -1,4 +1,4 @@
-use crate::{emu::Emu, joypad::JoypadBtn};
+use crate::{emu::NesEmulator, joypad::JoypadBtn};
 
 mod apu;
 mod bus;
@@ -48,7 +48,16 @@ pub mod utils {
         pub fn push(&mut self, val: T) {
             self.data[self.tail] = val;
             self.tail = (self.tail + 1) % self.data.len();
-            // self.queued += 1;
+        }
+
+        pub fn pop(&mut self) -> &T {
+            let res = &self.data[self.head];
+            self.head = (self.head + 1) % self.data.len();
+            res
+        }
+
+        pub fn capacity(&self) -> usize {
+            self.data.len()
         }
 
         pub fn is_queued_all_contiguos(&self) -> bool {
@@ -98,7 +107,6 @@ pub mod utils {
             };
 
             self.head = (self.head + amount) % self.data.len();
-            // self.queued = self.queued.saturating_sub(amount);
             (right, left)
         }
     }
@@ -180,7 +188,7 @@ pub mod joypad {
     }
 }
 
-impl Emu {
+impl NesEmulator {
     pub fn load_palette(&mut self, bytes: &[u8]) {
         if let Some(pal) = NesPalette::from_pal_file(bytes) {
             self.palette = pal;

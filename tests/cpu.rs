@@ -26,7 +26,7 @@ use std::{
 
 use nes_emulator::{cpu::Status, emu};
 
-fn cpu_to_mock(emu: &mut emu::Emu, mock: &CpuTestState) -> CpuTestState {
+fn cpu_to_mock(emu: &mut emu::NesEmulator, mock: &CpuTestState) -> CpuTestState {
     let cpu = &emu.cpu;
 
     let mut test = CpuTestState {
@@ -47,7 +47,7 @@ fn cpu_to_mock(emu: &mut emu::Emu, mock: &CpuTestState) -> CpuTestState {
     test
 }
 
-fn cpu_from_mock(emu: &mut emu::Emu, mock: &CpuTestState) {
+fn cpu_from_mock(emu: &mut emu::NesEmulator, mock: &CpuTestState) {
     let cpu = &mut emu.cpu;
 
     cpu.a = mock.a;
@@ -76,7 +76,7 @@ fn exec_test() {
     let test: Vec<CpuTest> =
         serde_json::from_str(include_str!("./SingleStepTests/a9.json")).unwrap();
 
-    let mut emu = emu::Emu::default();
+    let mut emu = emu::NesEmulator::default();
     println!("{:?}", emu.cpu);
 
     cpu_from_mock(&mut emu, &test[0].start);
@@ -95,10 +95,10 @@ fn exec_test() {
 use pretty_assertions::assert_eq;
 
 fn cpu_test(test: &CpuTest) -> bool {
-    let mut emu = emu::Emu::default();
+    let mut emu = emu::NesEmulator::empty();
     cpu_from_mock(&mut emu, &test.start);
 
-    emu.emu_step();
+    emu.cpu_step();
 
     let res = cpu_to_mock(&mut emu, &test.end);
     assert_eq!(res, test.end, "{}", test.name);
