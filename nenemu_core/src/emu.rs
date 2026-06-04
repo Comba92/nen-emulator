@@ -168,6 +168,7 @@ impl NesEmulator {
 
         let palette = NesPalette::from_pal_file(include_bytes!("../utils/2C02G_wiki.pal")).unwrap();
 
+        let frame_rate = mem.header.region.frame_rate();
         let mut emu = Self {
             cpu: Cpu6502::new(),
             ppu: Ppu2C02::new(&mem.header.region),
@@ -178,8 +179,7 @@ impl NesEmulator {
 
             videobuf: [255; _],
             audiobuf: RingBuffer::new(
-                (16.0 * (apu::AvgResampler::DEFAULT_RESAMPLE_FREQ as f32 / NTSC_FRAME_RATE))
-                    as usize,
+                (4.0 * (apu::AvgResampler::DEFAULT_RESAMPLE_FREQ as f32 / frame_rate)) as usize,
             ),
             palette,
 

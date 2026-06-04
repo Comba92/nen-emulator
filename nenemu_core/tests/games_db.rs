@@ -4,7 +4,7 @@ use std::{
     io::{Read, Write},
 };
 
-use nes_emulator::games_db::GameDbEntry;
+use nenemu_core::games_db::GameDbEntry;
 
 #[derive(serde::Serialize, serde::Deserialize)]
 struct XmlRoot {
@@ -224,7 +224,7 @@ impl From<&str> for Mirroring {
         }
     }
 }
-impl From<Mirroring> for nes_emulator::emu::Mirroring {
+impl From<Mirroring> for nenemu_core::emu::Mirroring {
     fn from(value: Mirroring) -> Self {
         match value {
             Mirroring::FourScreens => Self::FourScreens,
@@ -263,7 +263,7 @@ impl From<usize> for Region {
         }
     }
 }
-impl From<Region> for nes_emulator::emu::Region {
+impl From<Region> for nenemu_core::emu::Region {
     fn from(value: Region) -> Self {
         match value {
             Region::NTSC | Region::Multiple => Self::NTSC,

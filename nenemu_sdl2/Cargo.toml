@@ -1,0 +1,12 @@
+[package]
+name = "nenemu_sdl2"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+serde = ["nenemu_core/serde"]
+static = ["sdl2/bundled", "sdl2/use-pkgconfig", "sdl2/static-link"]
+
+[dependencies]
+sdl2 = "0.38.0"
+nenemu_core = { path = "../nenemu_core" }

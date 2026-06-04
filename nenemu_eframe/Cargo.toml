@@ -1,0 +1,9 @@
+[package]
+name = "nenemu_eframe"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rfd = { version = "0.17.2" }
+eframe = { version = "0.34.3", features = ["persistence"] }
+nenemu_core = { path = "../nenemu_core" }

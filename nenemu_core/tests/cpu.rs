@@ -24,7 +24,7 @@ use std::{
     io::{self, Read},
 };
 
-use nes_emulator::{cpu::Status, emu};
+use nenemu_core::{cpu::Status, emu};
 
 fn cpu_to_mock(emu: &mut emu::NesEmulator, mock: &CpuTestState) -> CpuTestState {
     let cpu = &emu.cpu;
