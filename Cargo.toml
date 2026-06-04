@@ -1,10 +1,7 @@
 [workspace]
 members = ["nenemu_core", "nenemu_sdl2", "nenemu_eframe"]
-default-members = ["nenemu_sdl2"]
+default-members = ["nenemu_core", "nenemu_sdl2"]
 resolver = "3"
-
-# [package]
-# name = "nenemu"
 
 [workspace.package]
 # here keys that the memebrs inherit

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-serde = ["nenemu_core/serde"]
+savestates = ["nenemu_core/savestates"]
 static = ["sdl2/bundled", "sdl2/use-pkgconfig", "sdl2/static-link"]
 
 [dependencies]

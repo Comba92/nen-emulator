@@ -9,12 +9,14 @@ use std::{
 use nenemu_core::{emu::NesEmulator, joypad::JoypadBtn, utils::RingBuffer};
 use sdl2::{
     audio::{AudioCallback, AudioSpecDesired},
+    controller::{Axis, Button},
     event::{Event, WindowEvent},
     keyboard::Keycode,
     pixels::Color,
     pixels::PixelFormatEnum,
     render::ScaleMode,
 };
+const AXIS_DEAD_ZONE: i16 = 10_000;
 
 struct AudioHandler {
     emu: Arc<Mutex<NesEmulator>>,
@@ -89,7 +91,9 @@ fn main() {
     let video = sdl.video().unwrap();
     let audio = sdl.audio().unwrap();
     let mut events = sdl.event_pump().unwrap();
-    let timer = sdl.timer().unwrap();
+    let controller = sdl.game_controller().unwrap();
+    let mut controllers = Vec::new();
+    // let timer = sdl.timer().unwrap();
 
     let window = video
         .window("NesEmu", 256 * 3, 240 * 3)
@@ -124,7 +128,7 @@ fn main() {
 
     let emu = NesEmulator::load_rom_from_bytes(rom, Some(bios)).unwrap();
     // let mut frame_rate = (1.0 / emu.region().frame_rate() * 1000.0).round() as u64;
-    let mut frame_rate = time::Duration::from_secs_f32(1.0 / 144.0);
+    let frame_rate = time::Duration::from_secs_f32(1.0 / 144.0);
 
     let video_chain = arc_mutex(nenemu_core::utils::RingBuffer::new(8));
 
@@ -263,6 +267,79 @@ fn main() {
                         }
                     }
                 }
+
+                Event::ControllerButtonDown { button, .. } => {
+                    let mut emu_lock = emu.lock().unwrap();
+                    match button {
+                        Button::DPadUp => emu_lock.set_button(JoypadBtn::Up, true),
+                        Button::DPadLeft => emu_lock.set_button(JoypadBtn::Left, true),
+                        Button::DPadDown => emu_lock.set_button(JoypadBtn::Down, true),
+                        Button::DPadRight => emu_lock.set_button(JoypadBtn::Right, true),
+                        Button::A => emu_lock.set_button(JoypadBtn::A, true),
+                        Button::X => emu_lock.set_button(JoypadBtn::B, true),
+                        Button::Start => emu_lock.set_button(JoypadBtn::Start, true),
+                        Button::Back => emu_lock.set_button(JoypadBtn::Select, true),
+                        _ => {}
+                    }
+                }
+
+                Event::ControllerButtonUp { button, .. } => {
+                    let mut emu_lock = emu.lock().unwrap();
+                    match button {
+                        Button::DPadUp => emu_lock.set_button(JoypadBtn::Up, false),
+                        Button::DPadLeft => emu_lock.set_button(JoypadBtn::Left, false),
+                        Button::DPadDown => emu_lock.set_button(JoypadBtn::Down, false),
+                        Button::DPadRight => emu_lock.set_button(JoypadBtn::Right, false),
+                        Button::A => emu_lock.set_button(JoypadBtn::A, false),
+                        Button::X => emu_lock.set_button(JoypadBtn::B, false),
+                        Button::Start => emu_lock.set_button(JoypadBtn::Start, false),
+                        Button::Back => emu_lock.set_button(JoypadBtn::Select, false),
+                        _ => {}
+                    }
+                }
+
+                Event::ControllerAxisMotion {
+                    axis: Axis::LeftX,
+                    value,
+                    ..
+                } => {
+                    let mut emu_lock = emu.lock().unwrap();
+
+                    if value > AXIS_DEAD_ZONE {
+                        emu_lock.set_button(JoypadBtn::Right, true);
+                    } else if value < -AXIS_DEAD_ZONE {
+                        emu_lock.set_button(JoypadBtn::Left, true);
+                    } else {
+                        emu_lock.set_button(JoypadBtn::Left, false);
+                        emu_lock.set_button(JoypadBtn::Right, false);
+                    }
+                }
+                Event::ControllerAxisMotion {
+                    axis: Axis::LeftY,
+                    value,
+                    ..
+                } => {
+                    let mut emu_lock = emu.lock().unwrap();
+
+                    if value > AXIS_DEAD_ZONE {
+                        emu_lock.set_button(JoypadBtn::Down, true);
+                    } else if value < -AXIS_DEAD_ZONE {
+                        emu_lock.set_button(JoypadBtn::Up, true);
+                    } else {
+                        emu_lock.set_button(JoypadBtn::Up, false);
+                        emu_lock.set_button(JoypadBtn::Down, false);
+                    }
+                }
+
+                Event::ControllerDeviceAdded { which, .. } => match controller.open(which) {
+                    Ok(controller) => {
+                        println!("Found controller: {}\n", controller.name());
+                        controllers.push(controller);
+                    }
+                    Err(e) => {
+                        eprintln!("A controller was connected, but I couldn't initialize it: {e}\n")
+                    }
+                },
                 _ => {}
             }
         }
