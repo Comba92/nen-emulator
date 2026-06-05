@@ -24,11 +24,11 @@ pub trait Mapper: Send {
     fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u8);
 
     // 0x4020..=0x5fff
-    fn cart_read(&mut self, mem: &mut Bus, _addr: u16) -> u8 {
+    fn io_read(&mut self, mem: &mut Bus, _addr: u16) -> u8 {
         mem.cpu_data_bus
     }
     // TODO: consider getting rid of this and use handlers
-    fn cart_write(&mut self, _mem: &mut Bus, _addr: u16, _val: u8) {}
+    fn io_write(&mut self, _mem: &mut Bus, _addr: u16, _val: u8) {}
     fn step(&mut self, _mem: &mut Bus, _cycles: usize) {}
 
     fn notify_ppu_addr(&mut self, _mem: &mut Bus, _cycles: usize) {}
@@ -784,7 +784,7 @@ impl Mapper for NSF {
     }
 
     fn prg_write(&mut self, _: &mut Bus, _: u16, _: u8) {}
-    fn cart_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
+    fn io_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
         if (addr >> 12) == 0x5 {
             mem.banks.prg.set_page(addr as u8 & 0b111, val as u16);
         }
@@ -947,12 +947,12 @@ impl Mapper for BandaiFCG {
         })
     }
 
-    fn cart_read(&mut self, mem: &mut Bus, _addr: u16) -> u8 {
+    fn io_read(&mut self, mem: &mut Bus, _addr: u16) -> u8 {
         // TODO: eeprom read for 16, 157, 159
         mem.cpu_data_bus
     }
 
-    fn cart_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
+    fn io_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
         if self.submapper == 4 {
             self.write(mem, addr, val);
         }
@@ -1294,7 +1294,7 @@ impl Mapper for Namco129_163 {
         })
     }
 
-    fn cart_read(&mut self, mem: &mut Bus, addr: u16) -> u8 {
+    fn io_read(&mut self, mem: &mut Bus, addr: u16) -> u8 {
         // TODO: use mask
         if self.mapper != 19 {
             return mem.cpu_data_bus;
@@ -1308,7 +1308,7 @@ impl Mapper for Namco129_163 {
         }
     }
 
-    fn cart_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
+    fn io_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
         if self.mapper != 19 {
             return;
         }
@@ -1430,7 +1430,7 @@ impl Mapper for J87 {
         Box::new(Self { shift })
     }
 
-    fn cart_write(&mut self, mem: &mut Bus, _: u16, val: u8) {
+    fn io_write(&mut self, mem: &mut Bus, _: u16, val: u8) {
         let bank = ((val & 0x1) << self.shift) | ((val & 0x2) >> self.shift);
         mem.banks.chr.set_page(0, bank as u16);
     }
@@ -1655,7 +1655,7 @@ impl Mapper for Sunsoft1 {
 
     fn prg_write(&mut self, _: &mut Bus, _: u16, _: u8) {}
 
-    fn cart_write(&mut self, mem: &mut Bus, _: u16, val: u8) {
+    fn io_write(&mut self, mem: &mut Bus, _: u16, val: u8) {
         let val = val as u16;
         mem.banks.chr.set_page(0, val & 0b111);
         mem.banks.chr.set_page(1, (val >> 4) & 0b111);
@@ -1836,7 +1836,7 @@ impl Mapper for Sunsoft4 {
         })
     }
 
-    fn cart_write(&mut self, _mem: &mut Bus, addr: u16, _val: u8) {
+    fn io_write(&mut self, _mem: &mut Bus, addr: u16, _val: u8) {
         // TODO: licensing IC
         match addr >> 12 {
             0x6 | 0x7 => {

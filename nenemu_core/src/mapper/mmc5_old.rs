@@ -65,7 +65,7 @@ impl MMC5 {
             if bank & 0x80 > 0 {
                 // rom
                 prg.set_page(page - 1, bank & 0x7f);
-                mem.cpu_handlers_8kb[3 + page as usize] = CpuHandler::PrgSpecial;
+                mem.cpu_handlers_8kb[3 + page as usize] = CpuHandler::PrgMMC5;
             } else {
                 // ram
 
@@ -226,7 +226,7 @@ impl Mapper for MMC5 {
 
         // wram can be mapped in range 0x6000..=0xdfff (32kb)
         mem.banks.wram = Banking::new(0x6000, mem.header.wram_size, 32 * 1024, 4);
-        mem.set_prg_handlers(CpuHandler::PrgSpecial);
+        mem.set_prg_handlers(CpuHandler::PrgMMC5);
         mem.cpu_handlers_8kb[1] = CpuHandler::PpuMMC5;
 
         // we simulate exram by extending vram to 4 screens
@@ -259,7 +259,7 @@ impl Mapper for MMC5 {
         Box::new(res)
     }
 
-    fn cart_read(&mut self, mem: &mut Bus, addr: u16) -> u8 {
+    fn io_read(&mut self, mem: &mut Bus, addr: u16) -> u8 {
         match addr {
             0x5015 => {
                 let mut res = 0;
@@ -293,7 +293,7 @@ impl Mapper for MMC5 {
         }
     }
 
-    fn cart_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
+    fn io_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
         match addr {
             0x5000 => self.p0.write_ctrl(val),
             0x5002 => self.p0.write_timer_lo(val),

@@ -110,17 +110,17 @@ fn main() {
         .unwrap();
     tex.set_scale_mode(ScaleMode::Nearest);
 
-    // let debug_window = video
-    //     .window("Debug", 256 * 2 * 2, 240 * 2 * 2)
-    //     .resizable()
-    //     .build()
-    //     .unwrap();
-    // let mut debug_canvas = debug_window.into_canvas().build().unwrap();
-    // let debug_texture_creator = debug_canvas.texture_creator();
-    // let mut debug_tex = debug_texture_creator
-    //     .create_texture_streaming(PixelFormatEnum::RGBA32, 256 * 2, 240 * 2)
-    //     .unwrap();
-    // debug_tex.set_scale_mode(sdl2::render::ScaleMode::Nearest);
+    let debug_window = video
+        .window("Debug", 256 * 2 * 2, 240 * 2 * 2)
+        .resizable()
+        .build()
+        .unwrap();
+    let mut debug_canvas = debug_window.into_canvas().build().unwrap();
+    let debug_texture_creator = debug_canvas.texture_creator();
+    let mut debug_tex = debug_texture_creator
+        .create_texture_streaming(PixelFormatEnum::RGBA32, 256 * 2, 240 * 2)
+        .unwrap();
+    debug_tex.set_scale_mode(sdl2::render::ScaleMode::Nearest);
 
     let bios = include_bytes!("../../nenemu_core/utils/disksys.rom");
     let rom = include_bytes!("../../roms/donkey kong.nes");
@@ -366,20 +366,21 @@ fn main() {
         canvas.copy(&tex, None, None).unwrap();
         canvas.present();
 
-        // debug_canvas.set_draw_color(Color::GREY);
-        // debug_canvas.clear();
-        // debug_tex
-        //     .with_lock(None, |pixels, _| {
-        //         emu_arc.lock().unwrap().get_nametables_rgba(pixels);
-        //     })
-        //     .unwrap();
-        // debug_canvas.copy(&debug_tex, None, None).unwrap();
-        // debug_canvas.present();
+        debug_canvas.set_draw_color(Color::GREY);
+        debug_canvas.clear();
+        debug_tex
+            .with_lock(None, |pixels, _| {
+                emu.lock().unwrap().get_nametables_rgba(pixels);
+            })
+            .unwrap();
+        debug_canvas.copy(&debug_tex, None, None).unwrap();
+        debug_canvas.present();
 
         // let frame_duration = timer.ticks64() - frame_start;
         // if frame_duration < frame_rate {
         //     timer.delay((frame_rate - frame_duration) as u32);
         // }
+
         let frame_duration = time::Instant::now() - frame_start;
         if frame_duration < frame_rate {
             thread::sleep(frame_rate - frame_duration);

@@ -26,7 +26,7 @@ pub struct MMC5 {
     chr_mode: u8,
     chr_regs: [u16; 12],
     chr_hi: u8,
-    last_chr_wrote: u16,
+    last_chr_wrote: u8,
 
     wram_kind: WramKind,
     wram_protect: u8,
@@ -34,20 +34,21 @@ pub struct MMC5 {
 
     exram_mode: u8,
     exattr_curr_val: u8,
-    nametbl_fetch_count: usize,
 
     irq_enabled: bool,
     irq_pending: bool,
-    irq_cmp: u16,
-    irq_count: u16,
+    irq_cmp: u8,
+    irq_count: u8,
     ppu_in_frame: bool,
 
     // needed for correct irq
     irq_delay: u8,
 
-    ppu_same_addr_count: usize,
+    nametbl_fetch_count: u8,
+    ppu_same_addr_count: u8,
     ppu_last_addr: Option<u16>,
-    ppu_idle_countdown: usize,
+    ppu_reading: bool,
+    ppu_idle_count: u16,
 
     multiplicand: u8,
     multiplier: u8,
@@ -65,7 +66,7 @@ impl MMC5 {
             if bank & 0x80 > 0 {
                 // rom
                 prg.set_page(page - 1, bank & 0x7f);
-                mem.cpu_handlers_8kb[3 + page as usize] = CpuHandler::PrgSpecial;
+                mem.cpu_handlers_8kb[3 + page as usize] = CpuHandler::PrgMMC5;
             } else {
                 // ram
 
@@ -140,9 +141,9 @@ impl MMC5 {
             self.last_chr_wrote = 0;
         }
 
-        let use_low_regs = !(self.ppu_big_sprites && self.ppu_substituion)
-            || (self.nametbl_fetch_count >= 32 && self.nametbl_fetch_count < 48)
-            || (!self.ppu_in_frame && self.last_chr_wrote <= 0x5127);
+        let use_low_regs = !self.ppu_big_sprites
+            || (32 <= self.nametbl_fetch_count && self.nametbl_fetch_count < 40)
+            || (!self.ppu_in_frame && self.last_chr_wrote <= 0x7);
 
         // In ExAttributes mode, the values of the CHR banking registers $5120-$512B are ignored.
         if use_low_regs {
@@ -214,7 +215,12 @@ impl MMC5 {
         self.ppu_in_frame = false;
         self.ppu_last_addr = None;
         self.irq_count = 0;
+        self.irq_pending = false;
         mem.irq.remove(IrqFlags::MAPPER);
+    }
+
+    fn exram_addr(&self, addr: u16) -> u16 {
+        (2 * 1024) | (addr % 1024)
     }
 }
 
@@ -226,7 +232,7 @@ impl Mapper for MMC5 {
 
         // wram can be mapped in range 0x6000..=0xdfff (32kb)
         mem.banks.wram = Banking::new(0x6000, mem.header.wram_size, 32 * 1024, 4);
-        mem.set_prg_handlers(CpuHandler::PrgSpecial);
+        mem.set_prg_handlers(CpuHandler::PrgMMC5);
         mem.cpu_handlers_8kb[1] = CpuHandler::PpuMMC5;
 
         // we simulate exram by extending vram to 4 screens
@@ -243,6 +249,8 @@ impl Mapper for MMC5 {
         // This tells us that $5117 must have a reliable power-on value of $FF.
         res.prg_regs = [0x80; 5];
         res.prg_regs[4] = 0xff;
+        res.chr_mode = 3;
+        res.exram_mode = 3;
 
         // https://www.nesdev.org/wiki/MMC5#PRG-RAM_configurations
         res.wram_kind = if mem.wram.len() == 16 * 1024 {
@@ -259,7 +267,7 @@ impl Mapper for MMC5 {
         Box::new(res)
     }
 
-    fn cart_read(&mut self, mem: &mut Bus, addr: u16) -> u8 {
+    fn io_read(&mut self, mem: &mut Bus, addr: u16) -> u8 {
         match addr {
             0x5015 => {
                 let mut res = 0;
@@ -282,18 +290,18 @@ impl Mapper for MMC5 {
             0x5206 => (self.product >> 8) as u8,
 
             0x5c00..=0x5fff => {
-                let exram_addr = 0x800 + (addr as usize - 0x5c00);
+                let exram_addr = self.exram_addr(addr);
                 match self.exram_mode {
                     0 | 1 => mem.cpu_data_bus,
                     // we simulate exram by storing it as the third nametable in vram
-                    _ => mem.vram[exram_addr],
+                    _ => mem.vram[exram_addr as usize],
                 }
             }
             _ => mem.cpu_data_bus,
         }
     }
 
-    fn cart_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
+    fn io_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
         match addr {
             0x5000 => self.p0.write_ctrl(val),
             0x5002 => self.p0.write_timer_lo(val),
@@ -355,14 +363,14 @@ impl Mapper for MMC5 {
             0x5120..=0x512b => {
                 let reg = addr as usize - 0x5120;
                 self.chr_regs[reg] = ((self.chr_hi as u16) << 8) | val as u16;
-                self.last_chr_wrote = addr;
+                self.last_chr_wrote = reg as u8;
                 self.update_chr_banks(mem);
             }
 
             // no official game relies on this register, and most don't even initialize it.
             0x5130 => self.chr_hi = val & 0x3,
 
-            0x5203 => self.irq_cmp = val as u16,
+            0x5203 => self.irq_cmp = val,
             0x5204 => {
                 self.irq_enabled = val & 0x80 > 0;
 
@@ -385,7 +393,7 @@ impl Mapper for MMC5 {
             0x5c00..=0x5fff => {
                 // in mode 0 and 1, can only write during rendering
                 // in mode 2, can always write
-                let exram_addr = 0x800 + (addr as usize - 0x5c00);
+                let exram_addr = self.exram_addr(addr) as usize;
                 if matches!((self.exram_mode, self.ppu_in_frame), (0 | 1, true) | (2, _)) {
                     mem.vram[exram_addr] = val;
                 } else {
@@ -398,11 +406,8 @@ impl Mapper for MMC5 {
 
     fn ppu_special_read(&mut self, mem: &mut Bus, addr: u16) -> u8 {
         // extended attributes only work on background tiles
-        if self.exram_mode == 1
-            && self.ppu_in_frame
-            && (self.nametbl_fetch_count < 32 || self.nametbl_fetch_count >= 48)
-        {
-            if addr < 0x2000 {
+        if self.exram_mode == 1 && self.ppu_in_frame {
+            if addr < 0x2000 && (self.nametbl_fetch_count < 32 || self.nametbl_fetch_count >= 40) {
                 // chr fetch
                 // In other words, this works as if the nametable was extended from 8-bit to 14-bit tile offsets,
                 // with the ExRAM holding the upper 6-bits and the 2-bit palette value, while the nametable selected through $5105 contains the lower 8 bits.
@@ -412,13 +417,13 @@ impl Mapper for MMC5 {
                     ((self.chr_hi as usize) << 6) | (self.exattr_curr_val as usize & 0x3f);
                 let chr_addr = (chr_bank << 12) + (addr as usize & 0xfff);
                 return mem.chr[chr_addr];
-            } else if addr & 0x3ff < 0x3c0 {
+            } else if addr >= 0x2000 && addr & 0x3ff < 0x3c0 {
                 // nametabl fetch
                 // The extended attributes are 1-screen mirrored; in other words, they apply the same for all nametables.
                 let exram_offset = addr as usize & 0x3ff;
                 self.exattr_curr_val = mem.vram[0x800 + exram_offset];
                 return mem.vram[mem.banks.vram.translate(addr)];
-            } else {
+            } else if addr >= 0x2000 {
                 // attribute fetch
                 let palette = (self.exattr_curr_val >> 6) as u8;
                 return (palette << 6) | (palette << 4) | (palette << 2) | palette;
@@ -442,39 +447,76 @@ impl Mapper for MMC5 {
 
     // https://www.nesdev.org/wiki/MMC5#Scanline_Detection_and_Scanline_IRQ
     fn notify_ppu_addr(&mut self, mem: &mut Bus, _cycles: usize) {
-        // nametable tile fetches, we also count attribute fetches
-        if !matches!(mem.ppu_addr_bus, 0x2000..0x3000) {
-            self.ppu_last_addr = Some(mem.ppu_addr_bus);
-            self.ppu_idle_countdown = 3;
-            return;
-        }
+        // // nametable tile fetches, we also count attribute fetches
+        // if !matches!(mem.ppu_addr_bus, 0x2000..0x3000) {
+        //     self.ppu_last_addr = Some(mem.ppu_addr_bus);
+        //     self.ppu_idle_count = 3;
+        //     return;
+        // }
 
-        if mem.ppu_addr_bus & 0x3ff < 0x3c0 {
+        // if mem.ppu_addr_bus & 0x3ff < 0x3c0 {
+        //     self.nametbl_fetch_count += 1;
+
+        //     // there are 16 dummy nametables fetches during sprites rendering
+        //     if self.ppu_in_frame {
+        //         self.update_chr_banks(mem);
+        //     }
+        // }
+
+        // // The MMC5 detects scanlines by first looking for three consecutive PPU reads from the same nametable address in the range $2xxx.
+        // // the scanline gets detected when the PPU does the attribute table byte read, which is at PPU cycle 4.
+        // if self.ppu_last_addr.is_some_and(|x| x == mem.ppu_addr_bus) {
+        //     self.ppu_same_addr_count += 1;
+
+        //     if self.ppu_same_addr_count >= 2 {
+        //         // scanline just started
+        //         self.nametbl_fetch_count = 0;
+
+        //         if !self.ppu_in_frame {
+        //             self.ppu_in_frame = true;
+        //             self.irq_count = 0;
+        //         } else {
+        //             // currently, this happens at ppu dot 1 (for some reason)
+        //             // we need the irq to be set at ppu dot 4, we put a little delay here.
+        //             // seems to be working well enough for all games
+        //             self.irq_delay = 4;
+        //         }
+        //     }
+        // } else {
+        //     self.ppu_same_addr_count = 0;
+        // }
+
+        // self.ppu_last_addr = Some(mem.ppu_addr_bus);
+        // self.ppu_idle_count = 3;
+
+        if matches!(mem.ppu_addr_bus, 0x2000..0x3000) && mem.ppu_addr_bus & 0x3ff < 0x3c0 {
             self.nametbl_fetch_count += 1;
-
-            // there are 16 dummy nametables fetches during sprites rendering
             if self.ppu_in_frame {
                 self.update_chr_banks(mem);
             }
         }
 
-        // The MMC5 detects scanlines by first looking for three consecutive PPU reads from the same nametable address in the range $2xxx.
-        // the scanline gets detected when the PPU does the attribute table byte read, which is at PPU cycle 4.
-        if self.ppu_last_addr.is_some_and(|x| x == mem.ppu_addr_bus) {
+        if matches!(mem.ppu_addr_bus, 0x2000..0x3000)
+            && self
+                .ppu_last_addr
+                .filter(|x| *x == mem.ppu_addr_bus)
+                .is_some()
+        {
             self.ppu_same_addr_count += 1;
-
             if self.ppu_same_addr_count >= 2 {
-                // scanline just started
                 self.nametbl_fetch_count = 0;
 
                 if !self.ppu_in_frame {
                     self.ppu_in_frame = true;
                     self.irq_count = 0;
                 } else {
-                    // currently, this happens at ppu dot 1 (for some reason)
-                    // we need the irq to be set at ppu dot 4, we put a little delay here.
-                    // seems to be working well enough for all games
-                    self.irq_delay = 4;
+                    self.irq_count += 1;
+                    if self.irq_count == self.irq_cmp {
+                        self.irq_pending = true;
+                        if self.irq_enabled {
+                            mem.irq.insert(IrqFlags::MAPPER);
+                        }
+                    }
                 }
             }
         } else {
@@ -482,36 +524,49 @@ impl Mapper for MMC5 {
         }
 
         self.ppu_last_addr = Some(mem.ppu_addr_bus);
-        self.ppu_idle_countdown = 3;
+        self.ppu_reading = true;
     }
 
     fn step(&mut self, mem: &mut Bus, cycles: usize) {
-        if self.ppu_idle_countdown > 0 {
-            self.ppu_idle_countdown -= 1;
-            if self.ppu_idle_countdown == 0 {
+        if self.ppu_reading {
+            self.ppu_idle_count = 0;
+        } else {
+            self.ppu_idle_count += 1;
+            if self.ppu_idle_count == 3 {
                 self.ppu_in_frame = false;
                 self.ppu_last_addr = None;
                 self.update_chr_banks(mem);
             }
         }
 
+        self.ppu_reading = false;
+
+        // if self.ppu_idle_count > 0 {
+        //     self.ppu_idle_count -= 1;
+        //     if self.ppu_idle_count == 0 {
+        //         self.ppu_in_frame = false;
+        //         self.ppu_last_addr = None;
+        //         self.update_chr_banks(mem);
+        //     }
+        // }
+
         // delay solution which works perfectly for now
-        if self.irq_delay > 0 {
-            self.irq_delay -= 1;
-            if self.irq_delay == 0 {
-                self.irq_count += 1;
-                // Value $00 is a special case that will not produce IRQ pending conditions
-                if self.irq_count == self.irq_cmp {
-                    self.irq_pending = true;
-                    // The IRQ pending flag is raised when the desired scanline is reached regardless of whether or not the scanline IRQ is enabled, i.e. even after a 0 was written to the scanline IRQ enable flag.
-                    // However, an actual IRQ is only sent to the CPU if both the scanline IRQ enable flag and IRQ pending flag are set.
-                    // A $5203 value of $00 is a special case where the comparison is never true.
-                    if self.irq_enabled {
-                        mem.irq.insert(IrqFlags::MAPPER);
-                    }
-                }
-            }
-        }
+        // if self.irq_delay > 0 {
+        //     self.irq_delay -= 1;
+        //     if self.irq_delay == 0 {
+        //         self.irq_count += 1;
+        //         // Value $00 is a special case that will not produce IRQ pending conditions
+        //         if self.irq_count == self.irq_cmp {
+        //             self.irq_pending = true;
+        //             // The IRQ pending flag is raised when the desired scanline is reached regardless of whether or not the scanline IRQ is enabled, i.e. even after a 0 was written to the scanline IRQ enable flag.
+        //             // However, an actual IRQ is only sent to the CPU if both the scanline IRQ enable flag and IRQ pending flag are set.
+        //             // A $5203 value of $00 is a special case where the comparison is never true.
+        //             if self.irq_enabled {
+        //                 mem.irq.insert(IrqFlags::MAPPER);
+        //             }
+        //         }
+        //     }
+        // }
 
         if cycles % 2 == 1 {
             self.p0.step_divider();
@@ -541,23 +596,29 @@ impl Mapper for MMC5 {
             }
 
             (0x2001, Some(val)) => {
-                let ppu_sub = val & 0x18 > 0;
-                // When the MMC5 sees $00 written to $2001, and then the PPU’s rendering gets enabled via a mirror of $2001, the MMC5 still counts scanlines and can generate scanline interrupts even though it thinks $2001 is still disabled.
-                // The transition from disabled to enabled resets the scanline counter.
-                if !self.ppu_substituion && ppu_sub {
-                    self.reset_irq(mem);
-                } else if !ppu_sub {
+                // let ppu_sub = val & 0x18 > 0;
+                // // When the MMC5 sees $00 written to $2001, and then the PPU’s rendering gets enabled via a mirror of $2001, the MMC5 still counts scanlines and can generate scanline interrupts even though it thinks $2001 is still disabled.
+                // // The transition from disabled to enabled resets the scanline counter.
+                // if !self.ppu_substituion && ppu_sub {
+                //     self.reset_irq(mem);
+                // } else if !ppu_sub {
+                //     self.ppu_in_frame = false;
+                //     self.ppu_last_addr = None;
+                // }
+
+                // self.ppu_substituion = ppu_sub;
+
+                // // When it sees that both E bits are cleared, it disables its ability to make substitutions on the PPU data bus.
+                // if !self.ppu_substituion && self.exram_mode == 1 {
+                //     self.exram_mode = 0;
+                // }
+                // self.update_chr_banks(mem);
+
+                if val & 0x18 == 0 {
                     self.ppu_in_frame = false;
                     self.ppu_last_addr = None;
+                    self.update_chr_banks(mem);
                 }
-
-                self.ppu_substituion = ppu_sub;
-
-                // When it sees that both E bits are cleared, it disables its ability to make substitutions on the PPU data bus.
-                if !self.ppu_substituion && self.exram_mode == 1 {
-                    self.exram_mode = 0;
-                }
-                self.update_chr_banks(mem);
             }
 
             _ => {}

@@ -271,7 +271,7 @@ impl Mapper for VRC2_4 {
         })
     }
 
-    fn cart_read(&mut self, mem: &mut Bus, addr: u16) -> u8 {
+    fn io_read(&mut self, mem: &mut Bus, addr: u16) -> u8 {
         if self.is_vrc2 && matches!(addr, 0x6000..=0x6fff) {
             self.latch
         } else {
@@ -279,7 +279,7 @@ impl Mapper for VRC2_4 {
         }
     }
 
-    fn cart_write(&mut self, _: &mut Bus, addr: u16, val: u8) {
+    fn io_write(&mut self, _: &mut Bus, addr: u16, val: u8) {
         if self.is_vrc2 && matches!(addr, 0x6000..=0x6fff) {
             self.latch = val & 1;
         }

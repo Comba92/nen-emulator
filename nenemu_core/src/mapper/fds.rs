@@ -330,7 +330,7 @@ impl Mapper for FDS {
         })
     }
 
-    fn cart_read(&mut self, mem: &mut Bus, addr: u16) -> u8 {
+    fn io_read(&mut self, mem: &mut Bus, addr: u16) -> u8 {
         match addr {
             0x4030 => {
                 let mut res = 0;
@@ -376,7 +376,7 @@ impl Mapper for FDS {
         }
     }
 
-    fn cart_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
+    fn io_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
         match addr {
             0x4020 => self.timer_reload = byte_set_lo(self.timer_reload, val),
             0x4021 => self.timer_reload = byte_set_hi(self.timer_reload, val),

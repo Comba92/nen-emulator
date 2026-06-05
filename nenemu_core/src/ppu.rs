@@ -945,6 +945,8 @@ impl NesEmulator {
                 }
             }
             RenderCmd::LastDotInLine => {
+                self.ppu_dispatch_read(self.ppu.nametbl_addr());
+
                 // push extra sprites here
                 if false {
                     self.spr_push_extra();
@@ -960,6 +962,8 @@ impl NesEmulator {
             RenderCmd::StatClear => self.ppu.stat.clear(),
             RenderCmd::ResetVert => self.ppu.restore_scroll_y(),
             RenderCmd::LastDotInFrame => {
+                self.ppu_dispatch_read(self.ppu.nametbl_addr());
+
                 self.ppu.dot = 0;
                 if self.ppu.odd_frame && self.ppu.is_rendering_enabled() {
                     self.ppu.dot = 1;

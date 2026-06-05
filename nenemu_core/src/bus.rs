@@ -83,20 +83,20 @@ impl<T: BankCfg + std::fmt::Debug> Banking<T> {
     pub fn set_pages_aligned2(&mut self, page: u8, bank: u16) {
         let bank = bank & !1;
         self.set_page(page, bank);
-        self.set_page(page + 1, bank + 1);
+        self.set_page(page + 1, bank | 1);
     }
 
     pub fn set_pages_aligned4(&mut self, page: u8, bank: u16) {
         let bank = bank & !0x3;
         for i in 0..4 {
-            self.set_page(page + i, bank + i as u16);
+            self.set_page(page + i, bank | i as u16);
         }
     }
 
     pub fn set_pages_aligned8(&mut self, page: u8, bank: u16) {
         let bank = bank & !0x7;
         for i in 0..8 {
-            self.set_page(page + i, bank + i as u16);
+            self.set_page(page + i, bank | i as u16);
         }
     }
 
@@ -112,7 +112,7 @@ impl<T: BankCfg + std::fmt::Debug> Banking<T> {
         // i do not expect to write outside the slots array here either.
         // self.bankings[page] + (addr % self.bank_size)
         // real index + offset
-        self.bankings[page as usize] + (addr & self.bank_size_mask) as usize
+        self.bankings[page as usize] | (addr & self.bank_size_mask) as usize
     }
 }
 
@@ -219,7 +219,7 @@ pub enum CpuHandler {
     Prg,
     OpenBus,
     Mapper,
-    PrgSpecial,
+    PrgMMC5,
     PpuMMC5,
 }
 
@@ -408,7 +408,7 @@ impl Bus {
             CpuHandler::Wram,
             CpuHandler::Wram,
             CpuHandler::Wram,
-            CpuHandler::PrgSpecial,
+            CpuHandler::PrgMMC5,
         ];
 
         let mut ppu_handlers_1kb = DEFAULT_PPU_MAP;
@@ -506,15 +506,15 @@ impl NesEmulator {
                 } else if addr == 0x4016 {
                     self.joypad.read() | (mem.cpu_data_bus & 0xe0)
                 } else {
-                    self.mapper.cart_read(mem, addr)
+                    self.mapper.io_read(mem, addr)
                 }
             }
-            CpuHandler::Mapper => self.mapper.cart_read(mem, addr),
+            CpuHandler::Mapper => self.mapper.io_read(mem, addr),
             CpuHandler::Wram | CpuHandler::WramReadOnly => mem.wram[mem.banks.wram.translate(addr)],
             CpuHandler::Prg => mem.prg[mem.banks.prg.translate(addr)],
             CpuHandler::OpenBus => mem.cpu_data_bus,
 
-            CpuHandler::PrgSpecial => {
+            CpuHandler::PrgMMC5 => {
                 self.mapper.notify_cpu_addr(mem, addr, None);
                 mem.prg[mem.banks.prg.translate(addr)]
             }
@@ -540,7 +540,7 @@ impl NesEmulator {
                 } else if addr == 0x4016 {
                     self.joypad.write(val)
                 } else {
-                    self.mapper.cart_write(mem, addr, val)
+                    self.mapper.io_write(mem, addr, val)
                 }
             }
             // 0x4014 => {
@@ -559,7 +559,7 @@ impl NesEmulator {
             // }
 
             // TODO: this could just be prg_write...
-            CpuHandler::Mapper => self.mapper.cart_write(mem, addr, val),
+            CpuHandler::Mapper => self.mapper.io_write(mem, addr, val),
             CpuHandler::Wram => mem.wram[mem.banks.wram.translate(addr)] = val,
             CpuHandler::Prg => {
                 self.mapper.prg_write(mem, addr, val);
@@ -570,7 +570,7 @@ impl NesEmulator {
                 self.mapper.notify_cpu_addr(mem, addr, Some(val));
                 self.ppu_reg_write(addr & 0x2007, val);
             }
-            CpuHandler::PrgSpecial => {}
+            CpuHandler::PrgMMC5 => {}
         }
 
         self.mem.cpu_addr_bus = addr;
@@ -605,6 +605,7 @@ impl NesEmulator {
         res
     }
 
+    // TODO: eventually get rid of this
     pub fn update_ppu_bus(&mut self, addr: u16) {
         self.mem.ppu_addr_bus = addr;
         self.mapper.notify_ppu_addr(&mut self.mem, self.cpu.cycles);
