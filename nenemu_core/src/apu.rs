@@ -1,5 +1,3 @@
-use std::ops;
-
 use crate::{
     bus::{self, IrqFlags},
     emu::{NTSC_CLOCK_RATE, NesEmulator, Region},

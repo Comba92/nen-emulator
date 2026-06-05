@@ -1,4 +1,5 @@
 use crate::{
+    apu,
     bus::{Bus, IrqFlags},
     emu::Mirroring,
     mapper::Mapper,
@@ -70,20 +71,20 @@ mod fds {
     #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
     pub struct Env {
         enabled: bool,
-        speed: u8,
         direction: bool,
+        speed: u8,
         pub freq: u16,
         pub volume_gain: u8,
         timer: u16,
         pub master_speed: u8,
     }
     impl Env {
-        // 0x4082 / 0x4084
+        // 0x4082 / 0x4086
         pub fn write_freq_lo(&mut self, val: u8) {
             self.freq = byte_set_lo(self.freq, val);
         }
 
-        // 0x4080 // 0x4085
+        // 0x4080 // 0x4084
         pub fn write_ctrl(&mut self, val: u8) {
             self.enabled = val & 0x80 == 0;
             self.direction = val & 0x40 > 0;
@@ -125,11 +126,12 @@ mod fds {
         halted: bool,
         tbl: Table,
         pos: u8,
-        acc: u16,
-        output: i32,
+        overflow_acc: u16,
+        output: u16,
     }
     impl Mod {
-        const TABLE: [i8; 8] = [0, 1, 2, 4, -128, -4, -2, -1];
+        const MODL_RESET: i8 = -1;
+        const TABLE: [i8; 8] = [0, 1, 2, 4, Self::MODL_RESET, -4, -2, -1];
 
         // 0x4085
         pub fn write_count(&mut self, val: u8) {
@@ -148,11 +150,10 @@ mod fds {
         // 0x4087
         pub fn write_ctrl(&mut self, val: u8) {
             self.env.freq = byte_set_hi(self.env.freq, val & 0xf);
-            self.env.reset_timer();
 
             self.halted = val & 0x80 > 0;
             if self.halted {
-                self.acc = 0;
+                self.overflow_acc = 0;
             }
         }
 
@@ -165,17 +166,26 @@ mod fds {
             }
         }
 
+        pub fn is_disabled(&self) -> bool {
+            self.halted || self.env.freq == 0
+        }
+
         fn step(&mut self) {
-            if self.halted {
+            if self.is_disabled() {
                 return;
             }
 
-            self.acc += self.env.freq;
-            if self.acc < self.env.freq {
+            self.overflow_acc += self.env.freq;
+            if self.overflow_acc < self.env.freq {
                 let val = self.tbl.0[self.pos as usize];
                 let adj = Self::TABLE[val as usize];
 
-                let count = if adj == -128 { 0 } else { self.count + adj };
+                let count = if adj == Self::MODL_RESET {
+                    0
+                } else {
+                    self.count + adj
+                };
+
                 self.write_count(count as u8);
                 self.pos = (self.pos + 1) % 64;
             }
@@ -206,7 +216,7 @@ mod fds {
                 temp += 1;
             }
 
-            self.output = temp;
+            self.output = temp as u16;
             // 2. round up to 6 bits only if sign positive (ignoring bit 4)
             // if tmp & 0x0f > 0 && tmp & 0x800 == 0 { tmp += 0x20; }
 
@@ -225,7 +235,7 @@ mod fds {
         ram: Table,
         pub ram_writable: bool,
         pos: u8,
-        acc: i32,
+        overflow_acc: u16,
         halted: bool,
     }
 
@@ -249,6 +259,7 @@ mod fds {
         pub env: Env,
         pub modl: Mod,
         pub wave: Wave,
+        pub output: u8,
     }
     impl Audio {
         const VOLUMES: [u8; 4] = [36, 24, 17, 14];
@@ -256,12 +267,13 @@ mod fds {
         // 0x4040
         pub fn ram_read(&self, addr: u16) -> u8 {
             let pos = if self.wave.ram_writable {
-                (addr as usize - 0x4040) % 64
+                addr as usize % 64
             } else {
+                // When writing is disabled ($4089.7), reading anywhere in 4040-407F returns the value at the current wave position
                 self.wave.pos as usize
             };
 
-            self.wave.ram.0[pos] | 0x40
+            self.wave.ram.0[pos]
         }
 
         // 0x4040
@@ -273,12 +285,8 @@ mod fds {
 
         // 0x4083
         pub fn write_ctrl(&mut self, val: u8) {
-            self.env.freq = byte_set_hi(self.env.freq, val & 0xf);
-            self.modl.update(self.env.freq);
-
-            self.env_halted = val & 0x40 > 0;
-
             // Bit 6 halts just the envelopes without halting the waveform, and also resets both of their timers.
+            self.env_halted = val & 0x40 > 0;
             if self.env_halted {
                 self.env.reset_timer();
                 self.modl.env.reset_timer();
@@ -290,33 +298,53 @@ mod fds {
             if self.wave.halted {
                 self.wave.pos = 0;
             }
+
+            self.env.freq = byte_set_hi(self.env.freq, val & 0xf);
+            self.modl.update(self.env.freq);
         }
 
         pub fn step(&mut self, _cycles: usize) {
             if !self.wave.halted && !self.env_halted {
                 self.env.step();
                 self.modl.env.step();
-                self.modl.update(self.env.freq);
+                if !self.modl.is_disabled() {
+                    self.modl.update(self.env.freq);
+                }
             }
 
             self.modl.step();
-            self.modl.update(self.env.freq);
+            if !self.modl.is_disabled() {
+                self.modl.update(self.env.freq);
+            }
 
-            let sum = self.env.freq as i32 + self.modl.output;
+            self.update_output();
+
+            let sum = self.env.freq + self.modl.output;
             if !self.wave.halted && sum > 0 {
-                self.wave.acc += sum;
-                if self.wave.acc < sum {
+                self.wave.overflow_acc += sum;
+                if self.wave.overflow_acc < sum {
                     self.wave.pos = (self.wave.pos + 1) % 64;
                 }
             }
         }
 
-        pub fn sample(&self) -> f64 {
+        fn update_output(&mut self) {
+            if self.wave.ram_writable {
+                return;
+            }
+
             let level = self.env.volume_gain.min(32) as i32
                 * Self::VOLUMES[self.master_volume as usize] as i32; // max level: 1152
-            let output = (self.wave.ram.0[self.wave.pos as usize] as i32 * level) as f64 / 1152.0;
-            output as f64
+            let output = self.wave.ram.0[self.wave.pos as usize] as i32 * level;
+            self.output = (output / 1152) as u8;
         }
+
+        // pub fn sample(&self) -> f32 {
+        //     let level = self.env.volume_gain.min(32) as i32
+        //         * Self::VOLUMES[self.master_volume as usize] as i32; // max level: 1152
+        //     let output = (self.wave.ram.0[self.wave.pos as usize] as i32 * level) as f32 / 1152.0;
+        //     output as f32
+        // }
     }
 }
 
@@ -331,6 +359,10 @@ impl Mapper for FDS {
     }
 
     fn io_read(&mut self, mem: &mut Bus, addr: u16) -> u8 {
+        if !self.audio_enabled && addr >= 0x4040 {
+            return mem.cpu_open_bus;
+        }
+
         match addr {
             0x4030 => {
                 let mut res = 0;
@@ -362,21 +394,28 @@ impl Mapper for FDS {
                 res | (mem.cpu_open_bus & 0xf8)
             }
 
+            // always return good battery
+            0x4033 => 0xff,
+
             0x4040..=0x407f => self.audio.ram_read(addr),
 
-            0x4090 => self.audio.env.volume_gain & 0x3f | 0x40,
+            0x4090 => self.audio.env.volume_gain & 0x3f,
             // 0x4091 => todo!("wave acc read"),
-            0x4092 => self.audio.modl.env.volume_gain & 0x3f | 0x40,
+            0x4092 => self.audio.modl.env.volume_gain & 0x3f,
             // 0x4093 => todo!("mod table addr acc"),
             // 0x4094 => todo!("mod counter gain res"),
             // 0x4095 => todo!("mod counter incr"),
             // 0x4096 => todo!("wavetable value"),
             // 0x4097 => todo!("mod counter value"),
-            _ => 0xff,
+            _ => mem.cpu_open_bus,
         }
     }
 
     fn io_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
+        if !self.audio_enabled && addr >= 0x4040 {
+            return;
+        }
+
         match addr {
             0x4020 => self.timer_reload = byte_set_lo(self.timer_reload, val),
             0x4021 => self.timer_reload = byte_set_hi(self.timer_reload, val),
@@ -461,8 +500,10 @@ impl Mapper for FDS {
                 self.audio.modl.write_count(val);
                 self.audio.modl.update(self.audio.env.freq);
             }
+
             0x4086 => self.audio.modl.env.write_freq_lo(val),
             0x4087 => self.audio.modl.write_ctrl(val),
+
             0x4088 => self.audio.modl.write_table(val),
 
             0x4089 => {
@@ -636,7 +677,6 @@ impl Mapper for FDS {
     }
 
     fn sample(&self) -> f32 {
-        // self.audio.sample()
-        0.0
+        self.audio.output as f32 * (apu::EXT_MIX / 2.5)
     }
 }

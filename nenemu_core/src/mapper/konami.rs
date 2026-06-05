@@ -342,10 +342,7 @@ impl Mapper for VRC2_4 {
 }
 
 mod vrc6 {
-    use crate::{
-        apu,
-        utils::{byte_set_hi, byte_set_lo},
-    };
+    use crate::utils::{byte_set_hi, byte_set_lo};
 
     #[derive(Default)]
     #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
