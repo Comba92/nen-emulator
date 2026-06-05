@@ -25,13 +25,13 @@ pub trait Mapper: Send {
 
     // 0x4020..=0x5fff
     fn io_read(&mut self, mem: &mut Bus, _addr: u16) -> u8 {
-        mem.cpu_data_bus
+        mem.cpu_open_bus
     }
-    // TODO: consider getting rid of this and use handlers
     fn io_write(&mut self, _mem: &mut Bus, _addr: u16, _val: u8) {}
+
     fn step(&mut self, _mem: &mut Bus, _cycles: usize) {}
 
-    fn notify_ppu_addr(&mut self, _mem: &mut Bus, _cycles: usize) {}
+    fn notify_ppu_addr(&mut self, _mem: &mut Bus, _addr: u16, _cycles: usize) {}
     fn notify_cpu_addr(&mut self, _mem: &mut Bus, _addr: u16, _val: Option<u8>) {}
 
     fn ppu_special_read(&mut self, _mem: &mut Bus, _addr: u16) -> u8 {
@@ -236,6 +236,7 @@ struct MMC1 {
 
     // 512kb of prg
     has_big_prg: bool,
+    first_bank: u16,
     last_bank: u16,
     wram_kind: mmc1::WramKind,
 
@@ -251,9 +252,11 @@ impl MMC1 {
             self.prg_hi_bank = val & 0x10;
 
             if self.prg_hi_bank > 0 {
+                self.first_bank = mem.banks.prg.banks_count / 2;
                 // last bank is the real last
                 self.last_bank = mem.banks.prg.banks_count - 1;
             } else {
+                self.first_bank = 0;
                 // last bank is the mid one
                 self.last_bank = mem.banks.prg.banks_count / 2 - 1;
             }
@@ -276,7 +279,7 @@ impl MMC1 {
         match self.prg_mode {
             2 => {
                 // 2: fix first bank at $8000 and switch 16 KB bank at $C000
-                mem.banks.prg.set_page(0, 0);
+                mem.banks.prg.set_page(0, self.first_bank);
                 mem.banks.prg.set_page(1, bank);
             }
             3 => {
@@ -454,6 +457,7 @@ impl Mapper for MMC2 {
         }
 
         mem.banks.chr = Banking::new_chr(&mem.header, 2);
+        mem.set_chr_handlers(PpuHandler::ChrMMC2);
 
         Box::new(Self {
             bank_fd: Banking::new_chr(&mem.header, 2),
@@ -485,11 +489,11 @@ impl Mapper for MMC2 {
         }
     }
 
-    fn notify_ppu_addr(&mut self, mem: &mut Bus, _: usize) {
+    fn notify_ppu_addr(&mut self, mem: &mut Bus, addr: u16, _: usize) {
         use mmc2::Latch;
         let banks = &mut mem.banks;
 
-        match (mem.ppu_addr_bus, self.mapper) {
+        match (addr, self.mapper) {
             (0x0fd8, 9) | (0xfd8..=0xfdf, 10) => self.latch0 = Latch::FD,
             (0x0fe8, 9) | (0xfe8..=0xfef, 10) => self.latch0 = Latch::FE,
             (0x1fd8..=0x1fdf, _) => self.latch1 = Latch::FD,
@@ -552,6 +556,15 @@ impl Mapper for MMC3 {
         if is_mmc6 {
             mem.banks.wram = Banking::new_wram(&mem.header, 8);
         }
+
+        mem.cpu_handlers_8kb[1] = CpuHandler::PpuMMC3;
+
+        let chr_handler = if mem.header.has_chr_ram {
+            PpuHandler::ChrRamMMC3
+        } else {
+            PpuHandler::ChrRamMMC3
+        };
+        mem.set_chr_handlers(chr_handler);
 
         Box::new(Self {
             is_mmc6,
@@ -659,10 +672,8 @@ impl Mapper for MMC3 {
         }
     }
 
-    fn notify_ppu_addr(&mut self, mem: &mut Bus, cycles: usize) {
-        let a12_low = mem.ppu_addr_bus & 0x1000 == 0;
-
-        let rising_edge = if !a12_low {
+    fn notify_ppu_addr(&mut self, mem: &mut Bus, addr: u16, cycles: usize) {
+        let rising_edge = if addr & 0x1000 > 0 {
             let res = self.a12_low_count > 0 && cycles - self.a12_low_count >= 3;
             self.a12_low_count = 0;
             res
@@ -949,7 +960,7 @@ impl Mapper for BandaiFCG {
 
     fn io_read(&mut self, mem: &mut Bus, _addr: u16) -> u8 {
         // TODO: eeprom read for 16, 157, 159
-        mem.cpu_data_bus
+        mem.cpu_open_bus
     }
 
     fn io_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
@@ -1297,14 +1308,14 @@ impl Mapper for Namco129_163 {
     fn io_read(&mut self, mem: &mut Bus, addr: u16) -> u8 {
         // TODO: use mask
         if self.mapper != 19 {
-            return mem.cpu_data_bus;
+            return mem.cpu_open_bus;
         }
 
         match addr {
             0x4800..=0x4fff => self.audio.read_data(),
             0x5000..=0x57ff => self.irq_count as u8,
             0x5800..=0x5fff => ((self.irq_enabled as u8) << 7) | (self.irq_count >> 8) as u8,
-            _ => mem.cpu_data_bus,
+            _ => mem.cpu_open_bus,
         }
     }
 

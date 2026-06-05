@@ -609,7 +609,7 @@ impl NesEmulator {
                 res |= ((apu.tri.len.count > 0) as u8) << 2;
                 res |= ((apu.noise.len.count > 0) as u8) << 3;
                 res |= ((apu.dmc.dma_remaining > 0) as u8) << 4;
-                res |= self.mem.cpu_data_bus & 0x20;
+                res |= self.mem.cpu_open_bus & 0x20;
                 res |= (self.mem.irq.contains(IrqFlags::FRAME) as u8) << 6;
                 res |= (self.mem.irq.contains(IrqFlags::DMC) as u8) << 7;
 
@@ -617,7 +617,7 @@ impl NesEmulator {
                 self.mem.irq.remove(IrqFlags::FRAME);
                 res
             }
-            _ => self.mem.cpu_data_bus,
+            _ => self.mem.cpu_open_bus,
         }
     }
 

@@ -61,7 +61,7 @@ impl Default for CtrlStrut {
 
 #[bitfields::bitfield(u16)]
 #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
-struct LoopyReg {
+pub struct LoopyReg {
     #[bits(5)]
     coarse_x: u8,
     #[bits(5)]
@@ -220,7 +220,7 @@ pub struct Ppu2C02 {
 
     render_state: RenderState,
 
-    v: LoopyReg,
+    pub v: LoopyReg,
     t: LoopyReg,
     x: u8,
     w: bool,
@@ -586,7 +586,7 @@ impl NesEmulator {
     pub fn ppu_reg_read(&mut self, addr: u16) -> u8 {
         let ppu = &mut self.ppu;
 
-        let res = match addr {
+        let res = match addr & 0x2007 {
             // Status
             0x2002 => {
                 // Reading this register has the side effect of clearing the PPU's internal w register.
@@ -698,11 +698,6 @@ impl NesEmulator {
                         }
                     }
                 }
-
-                if !ppu.is_rendering_enabled() {
-                    // During VBlank and when rendering is disabled, the value on the PPU address bus is the current value of the v register.
-                    self.update_ppu_bus(self.ppu.v.0);
-                }
             }
             // OamAddr
             0x2003 => ppu.oam_addr = val,
@@ -737,7 +732,6 @@ impl NesEmulator {
                     true => {
                         ppu.t.0 = byte_set_lo(ppu.t.0, val);
                         ppu.v.0 = ppu.t.0;
-                        self.update_ppu_bus(self.ppu.v.0);
                     }
                 }
                 self.ppu.w = !self.ppu.w;
@@ -1049,7 +1043,7 @@ const RENDER_LUT: [RenderCmd; 341] = const {
 
 const PRERENDER_LUT: [RenderCmd; 341] = const {
     let mut res = ppu_lut_build();
-    res[1] = RenderCmd::StatClear;
+    res[0] = RenderCmd::StatClear;
 
     let mut i = 280;
     while i < 305 {

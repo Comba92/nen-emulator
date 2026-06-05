@@ -275,7 +275,7 @@ impl Mapper for VRC2_4 {
         if self.is_vrc2 && matches!(addr, 0x6000..=0x6fff) {
             self.latch
         } else {
-            mem.cpu_data_bus
+            mem.cpu_open_bus
         }
     }
 

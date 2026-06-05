@@ -219,8 +219,9 @@ pub enum CpuHandler {
     Prg,
     OpenBus,
     Mapper,
-    PrgMMC5,
+    PpuMMC3,
     PpuMMC5,
+    PrgCustom,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -231,6 +232,9 @@ pub enum PpuHandler {
     Vram,
     Palette,
     OpenBus,
+    ChrMMC2,
+    ChrRomMMC3,
+    ChrRamMMC3,
     ChrMMC5,
     VramMMC5,
 }
@@ -285,15 +289,8 @@ pub struct Bus {
     // 16kb / 1kb = 16
     pub ppu_handlers_1kb: [PpuHandler; 16],
 
-    pub cpu_addr_bus: u16,
-    pub cpu_data_bus: u8,
-    pub ppu_addr_bus: u16,
-    pub ppu_data_bus: u8,
-
-    // TODO: remove these, only used for DEBUG porpuoses
-    pub ppu_cycle: i16,
-    pub ppu_scanline: i16,
-    pub ppu_frame: usize,
+    pub cpu_open_bus: u8,
+    pub ppu_open_bus: u16,
 
     pub nmi: bool,
     pub irq: IrqFlags,
@@ -313,14 +310,8 @@ impl Default for Bus {
             cpu_handlers_8kb: std::array::from_fn(|_| CpuHandler::OpenBus),
             ppu_handlers_1kb: std::array::from_fn(|_| PpuHandler::OpenBus),
 
-            cpu_addr_bus: 0,
-            cpu_data_bus: 0,
-            ppu_addr_bus: 0,
-            ppu_data_bus: 0,
-
-            ppu_cycle: 0,
-            ppu_scanline: 0,
-            ppu_frame: 0,
+            cpu_open_bus: 0,
+            ppu_open_bus: 0,
 
             nmi: false,
             irq: IrqFlags::empty(),
@@ -368,14 +359,8 @@ impl Bus {
             cpu_handlers_8kb,
             ppu_handlers_1kb,
 
-            cpu_addr_bus: 0,
-            cpu_data_bus: 0,
-            ppu_addr_bus: 0,
-            ppu_data_bus: 0,
-
-            ppu_cycle: 0,
-            ppu_scanline: 0,
-            ppu_frame: 0,
+            cpu_open_bus: 0,
+            ppu_open_bus: 0,
 
             nmi: false,
             irq: IrqFlags::empty(),
@@ -408,7 +393,7 @@ impl Bus {
             CpuHandler::Wram,
             CpuHandler::Wram,
             CpuHandler::Wram,
-            CpuHandler::PrgMMC5,
+            CpuHandler::PrgCustom,
         ];
 
         let mut ppu_handlers_1kb = DEFAULT_PPU_MAP;
@@ -424,14 +409,8 @@ impl Bus {
             cpu_handlers_8kb,
             ppu_handlers_1kb,
 
-            cpu_addr_bus: 0,
-            cpu_data_bus: 0,
-            ppu_addr_bus: 0,
-            ppu_data_bus: 0,
-
-            ppu_cycle: 0,
-            ppu_scanline: 0,
-            ppu_frame: 0,
+            cpu_open_bus: 0,
+            ppu_open_bus: 0,
 
             nmi: false,
             irq: IrqFlags::empty(),
@@ -499,12 +478,12 @@ impl NesEmulator {
         let handler = (addr >> 13) % 8;
         let res = match mem.cpu_handlers_8kb[handler as usize] {
             CpuHandler::Ram => mem.ram[addr as usize & 0x07ff],
-            CpuHandler::Ppu | CpuHandler::PpuMMC5 => self.ppu_reg_read(addr & 0x2007),
+            CpuHandler::Ppu | CpuHandler::PpuMMC5 => self.ppu_reg_read(addr),
             CpuHandler::IO => {
                 if matches!(addr, 0x4000..=0x4013 | 0x4015 | 0x4017) {
                     self.apu_reg_read(addr)
                 } else if addr == 0x4016 {
-                    self.joypad.read() | (mem.cpu_data_bus & 0xe0)
+                    self.joypad.read() | (mem.cpu_open_bus & 0xe0)
                 } else {
                     self.mapper.io_read(mem, addr)
                 }
@@ -512,16 +491,24 @@ impl NesEmulator {
             CpuHandler::Mapper => self.mapper.io_read(mem, addr),
             CpuHandler::Wram | CpuHandler::WramReadOnly => mem.wram[mem.banks.wram.translate(addr)],
             CpuHandler::Prg => mem.prg[mem.banks.prg.translate(addr)],
-            CpuHandler::OpenBus => mem.cpu_data_bus,
+            CpuHandler::OpenBus => mem.cpu_open_bus,
 
-            CpuHandler::PrgMMC5 => {
+            CpuHandler::PpuMMC3 => {
+                let res = self.ppu_reg_read(addr);
+                if [0x2006, 0x2007].contains(&(addr & 0x2007)) {
+                    self.mapper
+                        .notify_ppu_addr(&mut self.mem, self.ppu.v.into(), self.cpu.cycles);
+                }
+                res
+            }
+
+            CpuHandler::PrgCustom => {
                 self.mapper.notify_cpu_addr(mem, addr, None);
                 mem.prg[mem.banks.prg.translate(addr)]
             }
         };
 
-        self.mem.cpu_addr_bus = addr;
-        self.mem.cpu_data_bus = res;
+        self.mem.cpu_open_bus = res;
         res
     }
 
@@ -543,20 +530,6 @@ impl NesEmulator {
                     self.mapper.io_write(mem, addr, val)
                 }
             }
-            // 0x4014 => {
-            //   // https://www.nesdev.org/wiki/PPU_registers#OAMDMA_-_Sprite_DMA_($4014_write)
-            //   self.cpu_tick();
-
-            //   let mut addr = (val as u16) << 8;
-
-            //   for _ in 0..256 {
-            //     self.cpu_tick();
-            //     let byte = self.cpu_dispatch_read(addr);
-            //     addr += 1;
-            //     self.cpu_tick();
-            //     self.ppu.oam_write(byte);
-            //   }
-            // }
 
             // TODO: this could just be prg_write...
             CpuHandler::Mapper => self.mapper.io_write(mem, addr, val),
@@ -566,15 +539,21 @@ impl NesEmulator {
             }
             CpuHandler::WramReadOnly | CpuHandler::OpenBus => {}
 
-            CpuHandler::PpuMMC5 => {
-                self.mapper.notify_cpu_addr(mem, addr, Some(val));
-                self.ppu_reg_write(addr & 0x2007, val);
+            CpuHandler::PpuMMC3 => {
+                self.ppu_reg_write(addr, val);
+                if [0x2006, 0x2007].contains(&(addr & 0x2007)) {
+                    self.mapper
+                        .notify_ppu_addr(&mut self.mem, self.ppu.v.into(), self.cpu.cycles);
+                }
             }
-            CpuHandler::PrgMMC5 => {}
+            CpuHandler::PpuMMC5 => {
+                self.ppu_reg_write(addr & 0x2007, val);
+                self.mapper.notify_cpu_addr(&mut self.mem, addr, Some(val));
+            }
+            CpuHandler::PrgCustom => {}
         }
 
-        self.mem.cpu_addr_bus = addr;
-        self.mem.cpu_data_bus = val;
+        self.mem.cpu_open_bus = val;
     }
 
     pub fn ppu_debug_read(&mut self, addr: u16) -> u8 {
@@ -592,27 +571,26 @@ impl NesEmulator {
                     self.ppu.palettes_read(addr)
                 } else {
                     // Video memory's data bus is multiplexed with the low byte of the address bus on pins 31 through 38. Thus a read from an address with no memory connected will usually return the low byte of the address.
-                    mem.ppu_addr_bus as u8
+                    mem.ppu_open_bus as u8
                 }
             }
-            PpuHandler::OpenBus => mem.ppu_addr_bus as u8,
+            PpuHandler::OpenBus => mem.ppu_open_bus as u8,
 
-            PpuHandler::ChrMMC5 => mem.chr[mem.banks.chr.translate(addr)],
+            PpuHandler::ChrMMC2
+            | PpuHandler::ChrRomMMC3
+            | PpuHandler::ChrRamMMC3
+            | PpuHandler::ChrMMC5 => mem.chr[mem.banks.chr.translate(addr)],
+
             PpuHandler::VramMMC5 => mem.vram[mem.banks.vram.translate(addr)],
-            // PpuHandler::ChrMMC5 | PpuHandler::VramMMC5 => self.mapper.ppu_special_read(mem, addr),
+            // PpuHandler::ChrRomMMC5 | PpuHandler::ChrRamMMC5 | PpuHandler::VramMMC5 => self.mapper.ppu_special_read(mem, addr),
         };
 
         res
     }
 
-    // TODO: eventually get rid of this
-    pub fn update_ppu_bus(&mut self, addr: u16) {
-        self.mem.ppu_addr_bus = addr;
-        self.mapper.notify_ppu_addr(&mut self.mem, self.cpu.cycles);
-    }
-
     pub fn ppu_dispatch_read(&mut self, addr: u16) -> u8 {
         let mem = &mut self.mem;
+        mem.ppu_open_bus = addr;
 
         let addr = addr & 0x3fff;
         let handler_id = (addr >> 10) % 16;
@@ -626,22 +604,27 @@ impl NesEmulator {
                     self.ppu.palettes_read(addr)
                 } else {
                     // normal vram mirrors read
-                    self.mem.vram[self.mem.banks.vram.translate(addr & 0x2fff)]
+                    mem.vram[mem.banks.vram.translate(addr & 0x2fff)]
                 }
             }
-            PpuHandler::OpenBus => mem.ppu_addr_bus as u8,
+            PpuHandler::OpenBus => mem.ppu_open_bus as u8,
 
-            PpuHandler::ChrMMC5 | PpuHandler::VramMMC5 => self.mapper.ppu_special_read(mem, addr),
+            PpuHandler::ChrMMC2 | PpuHandler::ChrRomMMC3 | PpuHandler::ChrRamMMC3 => {
+                self.mapper.notify_ppu_addr(mem, addr, self.cpu.cycles);
+                mem.chr[mem.banks.chr.translate(addr)]
+            }
+            PpuHandler::ChrMMC5 | PpuHandler::VramMMC5 => {
+                self.mapper.notify_ppu_addr(mem, addr, self.cpu.cycles);
+                self.mapper.ppu_special_read(mem, addr)
+            }
         };
-
-        self.update_ppu_bus(addr);
-        self.mem.ppu_data_bus = res;
 
         res
     }
 
     pub fn ppu_dispatch_write(&mut self, addr: u16, val: u8) {
         let mem = &mut self.mem;
+        mem.ppu_open_bus = addr;
 
         let addr = addr & 0x3fff;
         let handler = (addr >> 10) % 16;
@@ -649,7 +632,9 @@ impl NesEmulator {
         match mem.ppu_handlers_1kb[handler as usize] {
             PpuHandler::ChrRom | PpuHandler::ChrMMC5 | PpuHandler::OpenBus => {}
             PpuHandler::ChrRam => mem.chr[mem.banks.chr.translate(addr)] = val,
+
             PpuHandler::Vram | PpuHandler::VramMMC5 => {
+                self.mapper.notify_ppu_addr(mem, addr, self.cpu.cycles);
                 mem.vram[mem.banks.vram.translate(addr & 0x2fff)] = val;
             }
             PpuHandler::Palette => {
@@ -660,9 +645,14 @@ impl NesEmulator {
                     mem.vram[mem.banks.vram.translate(addr & 0x2fff)] = val;
                 }
             }
-        }
 
-        self.update_ppu_bus(addr);
-        self.mem.ppu_data_bus = val;
+            PpuHandler::ChrMMC2 | PpuHandler::ChrRomMMC3 => {
+                self.mapper.notify_ppu_addr(mem, addr, self.cpu.cycles)
+            }
+            PpuHandler::ChrRamMMC3 => {
+                mem.chr[mem.banks.chr.translate(addr)] = val;
+                self.mapper.notify_ppu_addr(mem, addr, self.cpu.cycles);
+            }
+        }
     }
 }

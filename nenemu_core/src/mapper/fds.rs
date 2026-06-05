@@ -359,7 +359,7 @@ impl Mapper for FDS {
 
                 mem.irq.remove(IrqFlags::DISK);
 
-                res | (mem.cpu_data_bus & 0xf8)
+                res | (mem.cpu_open_bus & 0xf8)
             }
 
             0x4040..=0x407f => self.audio.ram_read(addr),
