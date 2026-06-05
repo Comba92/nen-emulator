@@ -33,8 +33,7 @@ pub struct Banking<T: BankCfg> {
     bank_size_shift: u8,
 
     start_addr: u16,
-    // TODO: can be a vector of u32
-    pub bankings: Vec<usize>,
+    pub bankings: Vec<u32>,
     kind: std::marker::PhantomData<T>,
 }
 
@@ -77,7 +76,7 @@ impl<T: BankCfg + std::fmt::Debug> Banking<T> {
         // i do not expect to write outside the slots array.
         // we precompute the real index instead of keeping the bank number
         // self.bankings[page] = bank * self.bank_size;
-        self.bankings[page as usize] = (bank as usize) << self.bank_size_shift;
+        self.bankings[page as usize] = (bank as u32) << self.bank_size_shift;
     }
 
     pub fn set_pages_aligned2(&mut self, page: u8, bank: u16) {
@@ -112,13 +111,15 @@ impl<T: BankCfg + std::fmt::Debug> Banking<T> {
         // i do not expect to write outside the slots array here either.
         // self.bankings[page] + (addr % self.bank_size)
         // real index + offset
-        self.bankings[page as usize] | (addr & self.bank_size_mask) as usize
+        self.bankings[page as usize] as usize | (addr & self.bank_size_mask) as usize
     }
 }
 
 impl Banking<PrgBank> {
     pub fn new_prg(header: &RomData, pages_count: u16) -> Self {
-        Self::new(0x8000, header.prg_size, 32 * 1024, pages_count)
+        let mut res = Self::new(0x8000, header.prg_size, 32 * 1024, pages_count);
+        res.fix_last_page();
+        res
     }
 
     pub fn fix_last_page(&mut self) {

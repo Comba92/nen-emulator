@@ -545,21 +545,6 @@ impl Ppu2C02 {
         }
     }
 
-    fn shifter_get_pixel_n_palette(&mut self) -> (u8, u8) {
-        let shifter = &self.shifter;
-        let shift_mask = 0x8000 >> self.x;
-
-        let pixel_lo = shifter.shift_ptrn_lo & shift_mask > 0;
-        let pixel_hi = shifter.shift_ptrn_hi & shift_mask > 0;
-        let bg_pixel = ((pixel_hi as u8) << 1) | (pixel_lo as u8);
-
-        let palette_lo = shifter.shift_attr_lo & shift_mask > 0;
-        let palette_hi = shifter.shift_attr_hi & shift_mask > 0;
-        let palette = ((palette_hi as u8) << 1) | (palette_lo as u8);
-
-        (bg_pixel, palette)
-    }
-
     fn bg_color_from_palette(&mut self, palette: u8, pixel: u8) -> u8 {
         let addr = (palette << 2) | pixel;
         self.palettes_read(0x3f00 | addr as u16)

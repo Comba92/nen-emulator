@@ -20,7 +20,6 @@ pub struct VRC1 {
 impl Mapper for VRC1 {
     fn new(mem: &mut Bus) -> Box<Self> {
         mem.banks.prg = Banking::new_prg(&mem.header, 4);
-        mem.banks.prg.fix_last_page();
         mem.banks.chr = Banking::new_chr(&mem.header, 2);
 
         Box::new(Self::default())
@@ -69,8 +68,7 @@ pub struct VRC3 {
 }
 #[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for VRC3 {
-    fn new(mem: &mut Bus) -> Box<Self> {
-        mem.banks.prg.fix_last_page();
+    fn new(_: &mut Bus) -> Box<Self> {
         Box::new(Self::default())
     }
 
@@ -236,10 +234,10 @@ impl VRC2_4 {
 
         if self.mapper == 22 {
             // On VRC2a (mapper 22), the low bit is ignored (right shift value by 1).
-            mem.banks.chr.set_page(page as u8, *reg >> 1);
-        } else {
-            mem.banks.chr.set_page(page as u8, *reg);
+            *reg >>= 1;
         }
+
+        mem.banks.chr.set_page(page as u8, *reg);
     }
 }
 #[cfg_attr(feature = "savestates", typetag::serde)]
@@ -353,8 +351,9 @@ mod vrc6 {
     #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
     pub struct Pulse {
         enabled: bool,
-        div: apu::DividerCounter,
         period: u16,
+        pub shift: u8,
+        timer: u16,
         volume: u8,
         duty: u8,
         step: u8,
@@ -370,15 +369,12 @@ mod vrc6 {
             self.update_output();
         }
 
-        pub fn write_freq_lo(&mut self, val: u8, shift: u8) {
-            self.period = byte_set_lo(self.div.period, val);
-            self.div.period = self.period >> shift;
+        pub fn write_freq_lo(&mut self, val: u8) {
+            self.period = byte_set_lo(self.period, val);
         }
 
-        pub fn write_freq_hi(&mut self, val: u8, shift: u8) {
-            self.period = byte_set_hi(self.div.period, val & 0xf);
-            self.div.period = self.period >> shift;
-
+        pub fn write_freq_hi(&mut self, val: u8) {
+            self.period = byte_set_hi(self.period, val & 0xf);
             self.enabled = val & 0x80 > 0;
 
             if !self.enabled {
@@ -389,7 +385,14 @@ mod vrc6 {
         }
 
         pub fn step(&mut self) {
-            if self.div.step() {
+            if !self.enabled {
+                return;
+            }
+
+            if self.timer > 0 {
+                self.timer -= 1;
+            } else {
+                self.timer = (self.period >> self.shift) + 1;
                 self.step = (self.step + 1) % 16;
                 self.update_output();
             }
@@ -410,9 +413,10 @@ mod vrc6 {
         enabled: bool,
         rate: u8,
         acc: u8,
-        count: u8,
-        div: apu::DividerCounter,
+        step: u8,
         period: u16,
+        timer: u16,
+        pub shift: u8,
         pub output: u8,
     }
 
@@ -421,31 +425,36 @@ mod vrc6 {
             self.rate = val & 0x3f;
         }
 
-        pub fn write_freq_lo(&mut self, val: u8, shift: u8) {
-            self.period = byte_set_lo(self.div.period, val);
-            self.div.period = self.period >> shift;
+        pub fn write_freq_lo(&mut self, val: u8) {
+            self.period = byte_set_lo(self.period, val);
         }
 
-        pub fn write_freq_hi(&mut self, val: u8, shift: u8) {
-            self.period = byte_set_hi(self.div.period, val & 0xf);
-            self.div.period = self.period >> shift;
+        pub fn write_freq_hi(&mut self, val: u8) {
+            self.period = byte_set_hi(self.period, val & 0xf);
 
             self.enabled = val & 0x80 > 0;
             if !self.enabled {
                 self.acc = 0;
-                self.count = 0;
+                self.step = 0;
             }
 
             self.update_output();
         }
 
         pub fn step(&mut self) {
-            if self.div.step() {
-                self.count = (self.count + 1) % 14;
+            if !self.enabled {
+                return;
+            }
 
-                if self.count == 0 {
+            if self.timer > 0 {
+                self.timer -= 1;
+            } else {
+                self.timer = (self.period >> self.shift) + 1;
+                self.step = (self.step + 1) % 14;
+
+                if self.step == 0 {
                     self.acc = 0;
-                } else if self.count % 2 == 0 {
+                } else if self.step % 2 == 0 {
                     // If A is more than 42 the accumulator will wrap, resulting in distorted sound.
                     self.acc = (self.acc + self.rate) % 42;
                 }
@@ -633,19 +642,23 @@ impl Mapper for VRC6 {
                 } else if audio_16x {
                     self.audio_freq_shift = 4;
                 }
+
+                self.p0.shift = self.audio_freq_shift;
+                self.p1.shift = self.audio_freq_shift;
+                self.saw.shift = self.audio_freq_shift;
             }
 
             0x9000 => self.p0.write_ctrl(val),
-            0x9001 => self.p0.write_freq_lo(val, self.audio_freq_shift),
-            0x9002 => self.p0.write_freq_hi(val, self.audio_freq_shift),
+            0x9001 => self.p0.write_freq_lo(val),
+            0x9002 => self.p0.write_freq_hi(val),
 
             0xa000 => self.p1.write_ctrl(val),
-            0xa001 => self.p1.write_freq_lo(val, self.audio_freq_shift),
-            0xa002 => self.p1.write_freq_hi(val, self.audio_freq_shift),
+            0xa001 => self.p1.write_freq_lo(val),
+            0xa002 => self.p1.write_freq_hi(val),
 
             0xb000 => self.saw.write_ctrl(val),
-            0xb001 => self.saw.write_freq_lo(val, self.audio_freq_shift),
-            0xb002 => self.saw.write_freq_hi(val, self.audio_freq_shift),
+            0xb001 => self.saw.write_freq_lo(val),
+            0xb002 => self.saw.write_freq_hi(val),
             _ => {}
         }
     }

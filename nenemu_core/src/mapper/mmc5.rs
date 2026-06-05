@@ -1,6 +1,7 @@
 use crate::{
     apu,
     bus::{Banking, Bus, CpuHandler, IrqFlags, PpuHandler},
+    emu::NTSC_CLOCK_RATE,
     mapper::Mapper,
 };
 use std::ops::Neg;
@@ -472,7 +473,7 @@ impl Mapper for MMC5 {
 
         // envelope and length counter are fixed to a 240hz update rate.
         // 240hz is aproximately 14914 cpu cycles
-        if cycles % 14914 == 0 {
+        if cycles % (NTSC_CLOCK_RATE / 240) == 0 {
             self.p0.len.step();
             self.p1.len.step();
             self.p0.env.step();

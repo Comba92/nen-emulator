@@ -26,7 +26,7 @@ impl DividerCounter {
     }
 
     pub fn reload(&mut self) {
-        self.count = self.period;
+        self.count = self.period + 1;
     }
 }
 
@@ -792,6 +792,7 @@ impl NesEmulator {
 
         // let settings = &self.settings;
 
+        /* Accurate emulation */
         // let p0 = apu.p0.output * (!settings.disable_pulse0 as u8);
         // let p1 = apu.p1.output * (!settings.disable_pulse1 as u8);
         // let tri = apu.tri.output * (!settings.disable_triangle as u8);
