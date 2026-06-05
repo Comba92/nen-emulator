@@ -17,7 +17,7 @@ bitflags::bitflags! {
   }
 
   #[derive(Default, Debug)]
-  #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+  #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
   struct Status: u8 {
     const SprOvfl = 1 << 5;
     const Spr0Hit = 1 << 6;
@@ -25,7 +25,7 @@ bitflags::bitflags! {
   }
 
   #[derive(Default, Debug)]
-  #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+  #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
   struct Mask: u8 {
     const GreyScale   = 1 << 0;
     const ShowBgLeft  = 1 << 1;
@@ -39,7 +39,7 @@ bitflags::bitflags! {
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub struct CtrlStrut {
     pub vram_addr_inc: u16,
     pub spr_pttrntbl_addr: u16,
@@ -60,7 +60,7 @@ impl Default for CtrlStrut {
 }
 
 #[bitfields::bitfield(u16)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 struct LoopyReg {
     #[bits(5)]
     coarse_x: u8,
@@ -78,7 +78,7 @@ struct LoopyReg {
 }
 
 #[derive(Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 struct Fetcher {
     nametbl: u8,
     attribute: u8,
@@ -87,7 +87,7 @@ struct Fetcher {
 }
 
 #[derive(Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 struct Shifter {
     shift_ptrn_lo: u16,
     shift_ptrn_hi: u16,
@@ -97,7 +97,7 @@ struct Shifter {
 }
 
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 struct Sprite {
     y: u8,
     tile: u8,
@@ -149,10 +149,10 @@ impl Sprite {
     }
 }
 
-#[cfg(feature = "serde")]
+#[cfg(feature = "savestates")]
 use serde_big_array::BigArray;
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct Oam(#[cfg_attr(feature = "serde", serde(with = "BigArray"))] pub [u8; 256]);
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
+pub struct Oam(#[cfg_attr(feature = "savestates", serde(with = "BigArray"))] pub [u8; 256]);
 impl Default for Oam {
     fn default() -> Self {
         Self([0; 256])
@@ -179,7 +179,7 @@ impl Default for SprScanline {
 }
 
 #[derive(Debug, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 enum RenderState {
     PreRender,
     Rendering,
@@ -189,7 +189,7 @@ enum RenderState {
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 enum RenderCmd {
     Idle,
     OamClear,
@@ -212,7 +212,7 @@ enum RenderCmd {
 // Clear explanation of how PPU works in Rust
 // https://docs.rs/nes-ppu/latest/src/nes_ppu
 #[derive(Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub struct Ppu2C02 {
     pub ctrl: CtrlStrut,
     mask: Mask,
@@ -237,7 +237,7 @@ pub struct Ppu2C02 {
     oam_tmp_count: u8,
     spr_extra: Vec<Sprite>,
 
-    #[cfg_attr(feature = "serde", serde(skip))]
+    #[cfg_attr(feature = "savestates", serde(skip))]
     spr_scanline: SprScanline,
 
     pub dma: Option<u16>,

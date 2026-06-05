@@ -7,7 +7,7 @@ use crate::{
 };
 
 #[derive(Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub struct DividerCounter {
     count: u16,
     pub period: u16,
@@ -31,7 +31,7 @@ impl DividerCounter {
 }
 
 #[derive(Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub struct LengthCounter {
     pub count: u8,
     enabled: bool,
@@ -65,7 +65,7 @@ impl LengthCounter {
 }
 
 #[derive(Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub struct Envelope {
     start: bool,
     use_volume: bool,
@@ -114,7 +114,7 @@ impl Envelope {
 }
 
 #[derive(Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 struct Sweep {
     count: u8,
     period: u8,
@@ -128,7 +128,7 @@ struct Sweep {
 
 // https://www.nesdev.org/wiki/APU_Pulse
 #[derive(Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub struct Pulse {
     div: DividerCounter,
     pub len: LengthCounter,
@@ -247,7 +247,7 @@ impl Pulse {
 
 // https://www.nesdev.org/wiki/APU_Triangle
 #[derive(Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 struct Triangle {
     div: DividerCounter,
     len: LengthCounter,
@@ -306,7 +306,7 @@ impl Triangle {
 }
 
 #[derive(Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 struct Noise {
     div: DividerCounter,
     len: LengthCounter,
@@ -358,7 +358,7 @@ impl Noise {
 }
 
 #[derive(Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub struct Dmc {
     irq_enabled: bool,
     looping: bool,
@@ -444,7 +444,7 @@ impl Dmc {
 }
 
 #[derive(Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 enum FrameMode {
     #[default]
     Step4,
@@ -512,7 +512,7 @@ impl AvgResampler {
 }
 
 #[derive(Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub struct ApuRP2A {
     p0: Pulse,
     p1: Pulse,

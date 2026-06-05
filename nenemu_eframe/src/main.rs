@@ -61,7 +61,7 @@ fn ring_push_front<T: PartialEq>(queue: &mut VecDeque<T>, val: T, limit: usize) 
     queue.truncate(limit);
 }
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 struct KeyMap {
     keys: Vec<(egui::Key, joypad::JoypadBtn)>,
     rebind_key: Option<(egui::Key, joypad::JoypadBtn)>,
@@ -129,8 +129,8 @@ impl SdlCtx {
     }
 }
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(default))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", serde(default))]
 #[derive(Default)]
 struct AppWndCtx {
     should_close: bool,
@@ -139,12 +139,12 @@ struct AppWndCtx {
     about_open: bool,
     settings_open: bool,
     exit_modal_open: bool,
-    #[cfg_attr(feature = "serde", serde(skip))]
+    #[cfg_attr(feature = "savestates", serde(skip))]
     message_open: Option<(bool, std::time::Instant, GenericError)>,
 }
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(default))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", serde(default))]
 #[derive(Default)]
 struct AppCfg {
     keep_aspect_ratio: bool,
@@ -153,11 +153,11 @@ struct AppCfg {
 
     settings: emu::Settings,
     battery_saving: bool,
-    #[cfg(feature = "serde")]
+    #[cfg(feature = "savestates")]
     restore_session: bool,
     bios_path: Option<PathBuf>,
 
-    #[cfg_attr(feature = "serde", serde(skip))]
+    #[cfg_attr(feature = "savestates", serde(skip))]
     windows: AppWndCtx,
     recent_roms: VecDeque<PathBuf>,
     palettes: VecDeque<NesPalette>,
@@ -196,14 +196,14 @@ impl AppCtx {
         let tex = c.egui_ctx.load_texture("tex", img.clone(), TEX_OPTS);
         let sdl = SdlCtx::default();
 
-        #[cfg(feature = "serde")]
+        #[cfg(feature = "savestates")]
         let cfg = if let Some(storage) = c.storage {
             eframe::get_value(storage, eframe::APP_KEY).unwrap_or_else(|| AppCfg::new())
         } else {
             AppCfg::new()
         };
 
-        #[cfg(not(feature = "serde"))]
+        #[cfg(not(feature = "savestates"))]
         let cfg = AppCfg::new();
 
         let bios = if let Some(path) = &cfg.bios_path {
@@ -267,7 +267,7 @@ impl AppCtx {
                 self.current_rom_path = Some(pathbuf.clone());
                 ring_push_front(&mut self.cfg.recent_roms, pathbuf, 12);
 
-                #[cfg(feature = "serde")]
+                #[cfg(feature = "savestates")]
                 if self.cfg.restore_session {
                     self.load_state("last");
                 }
@@ -300,7 +300,7 @@ impl AppCtx {
             }
         }
 
-        #[cfg(feature = "serde")]
+        #[cfg(feature = "savestates")]
         if self.cfg.restore_session {
             self.save_state("last");
         }
@@ -321,14 +321,14 @@ impl AppCtx {
         }
     }
 
-    #[cfg(feature = "serde")]
+    #[cfg(feature = "savestates")]
     fn get_states_dir(&self) -> PathBuf {
         let mut dir = eframe::storage_dir(APP_NAME).unwrap();
         dir.push("states");
         dir
     }
 
-    #[cfg(feature = "serde")]
+    #[cfg(feature = "savestates")]
     fn get_rom_states_dir(&self) -> PathBuf {
         let mut dir = self.get_states_dir();
         let current_rom = self.current_rom_path.as_ref().unwrap();
@@ -336,7 +336,7 @@ impl AppCtx {
         dir
     }
 
-    #[cfg(feature = "serde")]
+    #[cfg(feature = "savestates")]
     fn save_state(&mut self, name: &str) {
         let mut dir = self.get_states_dir();
 
@@ -353,7 +353,7 @@ impl AppCtx {
         }
     }
 
-    #[cfg(feature = "serde")]
+    #[cfg(feature = "savestates")]
     fn load_state(&mut self, name: &str) {
         let mut dir = self.get_rom_states_dir();
 
@@ -364,7 +364,7 @@ impl AppCtx {
 }
 
 impl eframe::App for AppCtx {
-    #[cfg(feature = "serde")]
+    #[cfg(feature = "savestates")]
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, eframe::APP_KEY, &self.cfg);
     }
@@ -406,7 +406,7 @@ impl eframe::App for AppCtx {
                                 }
                             });
 
-                            #[cfg(feature = "serde")]
+                            #[cfg(feature = "savestates")]
                             ui.add_enabled_ui(running && !self.bios_running, |ui| {
                                 ui.menu_button("Savestates", |ui| {
                                     if ui.button("Quicksave").clicked() {
@@ -666,7 +666,7 @@ impl eframe::App for AppCtx {
         ui.checkbox(&mut self.cfg.battery_saving, "Enable battery saving")
         .on_hover_text("This will dump work RAM in the same directory as the ROM's.");
 
-        #[cfg(feature = "serde")]
+        #[cfg(feature = "savestates")]
         ui.checkbox(&mut self.cfg.restore_session, "Automatically restore last session when a game is reopened later");
 
         ui.checkbox(&mut settings.random_ram, "Randomize RAM at startup")

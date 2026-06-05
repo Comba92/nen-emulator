@@ -238,9 +238,9 @@ fn main() {
                             Keycode::W => emu_lock.set_button(JoypadBtn::Start, true),
                             Keycode::E => emu_lock.set_button(JoypadBtn::Select, true),
                             Keycode::NUM_0 => emu_lock.mapper.special_input(),
-                            #[cfg(feature = "serde")]
+                            #[cfg(feature = "savestates")]
                             Keycode::NUM_9 => emu_lock.savestate("./save.tmp").unwrap(),
-                            #[cfg(feature = "serde")]
+                            #[cfg(feature = "savestates")]
                             Keycode::NUM_8 => {
                                 emu_lock.loadstate("./save.tmp").unwrap();
                                 audiodev.clear();

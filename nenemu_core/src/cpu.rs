@@ -25,7 +25,7 @@ enum AddressingMode {
 
 bitflags::bitflags! {
   #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-  #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+  #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
   pub struct Status: u8 {
     const Carry = 1 << 0;
     const Zero = 1 << 1;
@@ -47,7 +47,7 @@ pub enum InterruptVector {
 }
 
 #[derive(Default, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub struct Cpu6502 {
     pub a: u8,
     pub x: u8,

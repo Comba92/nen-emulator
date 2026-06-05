@@ -13,7 +13,7 @@ use crate::{
 };
 
 #[derive(Default, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub struct Settings {
     // TODO: not implemented
     pub random_ram: bool,
@@ -51,7 +51,7 @@ impl Settings {
 pub const BIOS_CRC32: u32 = 1583381967;
 pub const BATTERY_SAVE_EXTENSION: &str = "srm";
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub struct NesEmulator {
     pub cpu: Cpu6502,
     pub ppu: Ppu2C02,
@@ -61,9 +61,9 @@ pub struct NesEmulator {
     pub mapper: Box<dyn Mapper>,
 
     pub frame_ready: bool,
-    #[cfg_attr(feature = "serde", serde(skip))]
+    #[cfg_attr(feature = "savestates", serde(skip))]
     pub(crate) videobuf: [u8; 256 * 240 * 4],
-    #[cfg_attr(feature = "serde", serde(skip))]
+    #[cfg_attr(feature = "savestates", serde(skip))]
     pub(crate) audiobuf: RingBuffer<f32>,
 
     pub palette: NesPalette,
@@ -71,7 +71,7 @@ pub struct NesEmulator {
 }
 
 #[derive(Debug, Default, Clone, PartialEq, bitcode::Encode, bitcode::Decode)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub enum Mirroring {
     #[default]
     Horizontal,
@@ -88,7 +88,7 @@ pub const NTSC_FRAME_RATE: f32 = 60.0988;
 pub const PAL_FRAME_RATE: f32 = 50.0070;
 
 #[derive(Debug, Default, Clone, bitcode::Encode, bitcode::Decode)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub enum Region {
     #[default]
     NTSC,
@@ -441,7 +441,7 @@ impl NesEmulator {
         }
     }
 
-    #[cfg(feature = "serde")]
+    #[cfg(feature = "savestates")]
     pub fn savestate<P: AsRef<Path>>(&self, path: P) -> Result<(), LoadError> {
         let mut file = std::fs::File::create(path)?;
         pot::to_writer(self, file).map_err(|e| e.into())
@@ -449,7 +449,7 @@ impl NesEmulator {
         // pot::to_writer(self, writer).map_err(|e| e.into())
     }
 
-    #[cfg(feature = "serde")]
+    #[cfg(feature = "savestates")]
     pub fn loadstate<P: AsRef<Path>>(&mut self, path: P) -> Result<(), LoadError> {
         let file = std::fs::File::open(path)?;
         // let reader = std::io::BufReader::new(file);

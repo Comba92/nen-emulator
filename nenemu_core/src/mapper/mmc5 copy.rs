@@ -6,7 +6,7 @@ use crate::{
 use std::ops::Neg;
 
 #[derive(Default, PartialEq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 enum WramKind {
     #[default]
     SingleChip,
@@ -15,7 +15,7 @@ enum WramKind {
 }
 
 #[derive(Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub struct MMC5 {
     ppu_substituion: bool,
     ppu_big_sprites: bool,
@@ -218,7 +218,7 @@ impl MMC5 {
     }
 }
 
-#[cfg_attr(feature = "serde", typetag::serde)]
+#[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for MMC5 {
     fn new(mem: &mut Bus) -> Box<Self> {
         mem.banks.prg = Banking::new_prg(&mem.header, 4);

@@ -15,7 +15,7 @@ pub mod fds;
 use fds::*;
 
 // https://www.nesdev.org/wiki/Mapper
-#[cfg_attr(feature = "serde", typetag::serde)]
+#[cfg_attr(feature = "savestates", typetag::serde)]
 pub trait Mapper: Send {
     fn new(mem: &mut Bus) -> Box<Self>
     where
@@ -95,10 +95,10 @@ pub fn new(mem: &mut Bus) -> Result<BoxedMapper, String> {
 
 // https://www.nesdev.org/wiki/NROM
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub(crate) struct NROM;
 
-#[cfg_attr(feature = "serde", typetag::serde)]
+#[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for NROM {
     fn new(mem: &mut Bus) -> Box<Self> {
         if mem.header.prg_size > 16 * 1024 {
@@ -113,13 +113,13 @@ impl Mapper for NROM {
 }
 
 // https://www.nesdev.org/wiki/UxROM
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 struct UxROM {
     bank: u8,
     shift: u8,
 }
 
-#[cfg_attr(feature = "serde", typetag::serde)]
+#[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for UxROM {
     fn new(mem: &mut Bus) -> Box<Self> {
         let shift = if mem.header.mapper == 94 { 2 } else { 0 };
@@ -146,9 +146,9 @@ impl Mapper for UxROM {
 // https://www.nesdev.org/wiki/CNROM
 // https://www.nesdev.org/wiki/CNROM#Mapper_185
 // TODO: mapper 185
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 struct CNROM;
-#[cfg_attr(feature = "serde", typetag::serde)]
+#[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for CNROM {
     fn new(mem: &mut Bus) -> Box<Self> {
         if mem.header.prg_size <= 16 * 1024 {
@@ -169,9 +169,9 @@ impl Mapper for CNROM {
 }
 
 // https://www.nesdev.org/wiki/GxROM
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 struct GxROM;
-#[cfg_attr(feature = "serde", typetag::serde)]
+#[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for GxROM {
     fn new(mem: &mut Bus) -> Box<Self> {
         mem.banks.prg = Banking::new_prg(&mem.header, 1);
@@ -187,9 +187,9 @@ impl Mapper for GxROM {
 }
 
 // https://www.nesdev.org/wiki/AxROM
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 struct AxROM;
-#[cfg_attr(feature = "serde", typetag::serde)]
+#[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for AxROM {
     fn new(mem: &mut Bus) -> Box<Self>
     where
@@ -213,7 +213,7 @@ impl Mapper for AxROM {
 
 mod mmc1 {
     #[derive(Default, Debug)]
-    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+    #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
     pub enum WramKind {
         Bank32,
         Bank16,
@@ -225,7 +225,7 @@ mod mmc1 {
 // Needs NES2.0 / db support for WRAM (NEW FINDING: only SOROM games have 2 different kind of RAM))
 
 #[derive(Default, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 struct MMC1 {
     shift_reg: u8,
     shift_count: u8,
@@ -301,7 +301,7 @@ impl MMC1 {
         }
     }
 }
-#[cfg_attr(feature = "serde", typetag::serde)]
+#[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for MMC1 {
     fn new(mem: &mut Bus) -> Box<Self> {
         mem.banks.chr = Banking::new_chr(&mem.header, 2);
@@ -414,7 +414,7 @@ impl Mapper for MMC1 {
 }
 
 mod mmc2 {
-    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+    #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
     pub enum Latch {
         FD,
         FE,
@@ -423,7 +423,7 @@ mod mmc2 {
 
 // https://www.nesdev.org/wiki/MMC2
 // https://www.nesdev.org/wiki/MMC4
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 struct MMC2 {
     // TODO: do we really need a banking object here? probably just four registers
     // we can do that (tested) but we'd like to precompute the set_page() on prg_write
@@ -434,7 +434,7 @@ struct MMC2 {
     mapper: u16,
 }
 
-#[cfg_attr(feature = "serde", typetag::serde)]
+#[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for MMC2 {
     fn new(mem: &mut Bus) -> Box<Self>
     where
@@ -512,7 +512,7 @@ impl Mapper for MMC2 {
 // https://www.nesdev.org/wiki/MMC3
 // https://www.nesdev.org/wiki/MMC6
 #[derive(Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 struct MMC3 {
     bank_select: u8,
     chr_invert: bool,
@@ -530,7 +530,7 @@ struct MMC3 {
     is_mmc6: bool,
 }
 // https://forums.nesdev.org/viewtopic.php?t=14056
-#[cfg_attr(feature = "serde", typetag::serde)]
+#[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for MMC3 {
     fn new(mem: &mut Bus) -> Box<Self> {
         if mem.header.alt_mirroring || mem.header.mirroring == Mirroring::FourScreens {
@@ -689,9 +689,9 @@ impl Mapper for MMC3 {
 }
 
 // https://www.nesdev.org/wiki/Color_Dreams
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 struct ColorDreams;
-#[cfg_attr(feature = "serde", typetag::serde)]
+#[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for ColorDreams {
     fn new(mem: &mut Bus) -> Box<Self> {
         mem.banks.prg = Banking::new_prg(&mem.header, 1);
@@ -708,13 +708,13 @@ impl Mapper for ColorDreams {
 // https://www.nesdev.org/wiki/INES_Mapper_071
 // https://www.nesdev.org/wiki/INES_Mapper_232
 #[derive(Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 struct Codemasters {
     mapper: u16,
     prg_block: u8,
     prg_bank: u8,
 }
-#[cfg_attr(feature = "serde", typetag::serde)]
+#[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for Codemasters {
     fn new(mem: &mut Bus) -> Box<Self> {
         mem.banks.prg = Banking::new_prg(&mem.header, 2);
@@ -757,9 +757,9 @@ impl Mapper for Codemasters {
 }
 
 // https://www.nesdev.org/wiki/CPROM
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 struct CPROM;
-#[cfg_attr(feature = "serde", typetag::serde)]
+#[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for CPROM {
     fn new(mem: &mut Bus) -> Box<Self> {
         mem.banks.prg = Banking::new_prg(&mem.header, 1);
@@ -773,9 +773,9 @@ impl Mapper for CPROM {
 }
 
 // https://www.nesdev.org/wiki/INES_Mapper_031
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 struct NSF;
-#[cfg_attr(feature = "serde", typetag::serde)]
+#[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for NSF {
     fn new(mem: &mut Bus) -> Box<Self> {
         mem.banks.prg = Banking::new_prg(&mem.header, 8);
@@ -792,11 +792,11 @@ impl Mapper for NSF {
 }
 
 // https://www.nesdev.org/wiki/INES_Mapper_078
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 struct Irem74HCx {
     is_holy_diver: bool,
 }
-#[cfg_attr(feature = "serde", typetag::serde)]
+#[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for Irem74HCx {
     fn new(mem: &mut Bus) -> Box<Self> {
         mem.banks.prg.fix_last_page();
@@ -827,7 +827,7 @@ impl Mapper for Irem74HCx {
 // https://www.nesdev.org/wiki/INES_Mapper_159
 // TODO: eeprom
 #[derive(Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 struct BandaiFCG {
     mapper: u16,
     submapper: u8,
@@ -907,7 +907,7 @@ impl BandaiFCG {
         }
     }
 }
-#[cfg_attr(feature = "serde", typetag::serde)]
+#[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for BandaiFCG {
     fn new(mem: &mut Bus) -> Box<Self> {
         mem.banks.chr = Banking::new_chr(&mem.header, 8);
@@ -980,11 +980,11 @@ impl Mapper for BandaiFCG {
 // https://www.nesdev.org/wiki/INES_Mapper_152
 // https://www.nesdev.org/wiki/INES_Mapper_070
 // very similiar to Sunsoft89
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 struct Bandai74 {
     mapper: u16,
 }
-#[cfg_attr(feature = "serde", typetag::serde)]
+#[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for Bandai74 {
     fn new(mem: &mut Bus) -> Box<Self> {
         mem.banks.prg.fix_last_page();
@@ -1012,9 +1012,9 @@ impl Mapper for Bandai74 {
 }
 
 // https://www.nesdev.org/wiki/INES_Mapper_097
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 struct IremTAMS1;
-#[cfg_attr(feature = "serde", typetag::serde)]
+#[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for IremTAMS1 {
     fn new(mem: &mut Bus) -> Box<Self> {
         mem.banks.prg.fix_last_page();
@@ -1034,13 +1034,13 @@ impl Mapper for IremTAMS1 {
 
 // https://www.nesdev.org/wiki/INES_Mapper_040
 #[derive(Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 struct NTDEC2722 {
     irq_enabled: bool,
     irq_count: u16,
     submapper: u8,
 }
-#[cfg_attr(feature = "serde", typetag::serde)]
+#[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for NTDEC2722 {
     fn new(mem: &mut Bus) -> Box<Self> {
         mem.banks.prg = Banking::new(0x6000, mem.header.prg_size, 40 * 1024, 5);
@@ -1089,24 +1089,24 @@ impl Mapper for NTDEC2722 {
 
 // TODO
 // https://www.nesdev.org/wiki/INES_Mapper_032
-// #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+// #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 struct IremG101;
 
 // https://www.nesdev.org/wiki/INES_Mapper_065
-// #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+// #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 struct IremH3001;
 
 // https://www.nesdev.org/wiki/INES_Mapper_019
 // https://www.nesdev.org/wiki/INES_Mapper_210
 
 mod namco {
-    #[cfg(feature = "serde")]
+    #[cfg(feature = "savestates")]
     use serde_big_array::BigArray;
 
-    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+    #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
     pub(super) struct Audio {
         pub enabled: bool,
-        #[cfg_attr(feature = "serde", serde(with = "BigArray"))]
+        #[cfg_attr(feature = "savestates", serde(with = "BigArray"))]
         ram: [u8; 128],
         addr: u8,
         auto_incr: bool,
@@ -1254,7 +1254,7 @@ mod namco {
     }
 }
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 struct Namco129_163 {
     irq_count: u16,
     irq_enabled: bool,
@@ -1268,7 +1268,7 @@ struct Namco129_163 {
     submapper: u8,
 }
 // TODO: games with wram.len == 0 and battery should save the 128 bytes ram in audio struct
-#[cfg_attr(feature = "serde", typetag::serde)]
+#[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for Namco129_163 {
     fn new(mem: &mut Bus) -> Box<Self> {
         mem.banks.prg = Banking::new_prg(&mem.header, 4);
@@ -1415,11 +1415,11 @@ impl Mapper for Namco129_163 {
 
 // https://www.nesdev.org/wiki/INES_Mapper_087
 // https://www.nesdev.org/wiki/INES_Mapper_101
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 struct J87 {
     shift: u8,
 }
-#[cfg_attr(feature = "serde", typetag::serde)]
+#[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for J87 {
     fn new(mem: &mut Bus) -> Box<Self> {
         if mem.header.prg_size > 16 * 1024 {
@@ -1442,12 +1442,12 @@ impl Mapper for J87 {
 // https://www.nesdev.org/wiki/INES_Mapper_177
 // https://www.nesdev.org/wiki/INES_Mapper_241
 #[allow(non_camel_case_types)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 struct NINA00x_BNROM {
     mapper: u16,
     submapper: u8,
 }
-#[cfg_attr(feature = "serde", typetag::serde)]
+#[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for NINA00x_BNROM {
     fn new(mem: &mut Bus) -> Box<Self> {
         // should be considered BNROM when the CHR-ROM size is 0-8 KiB, and NINA-001/NINA-002 when the CHR-ROM size is above 8 KiB.
@@ -1493,9 +1493,9 @@ impl Mapper for NINA00x_BNROM {
 }
 
 // https://www.nesdev.org/wiki/INES_Mapper_034
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 struct NINA003_006;
-#[cfg_attr(feature = "serde", typetag::serde)]
+#[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for NINA003_006 {
     fn new(mem: &mut Bus) -> Box<Self>
     where
@@ -1519,12 +1519,12 @@ impl Mapper for NINA003_006 {
 // https://www.nesdev.org/wiki/INES_Mapper_095
 // https://www.nesdev.org/wiki/INES_Mapper_154
 // https://www.nesdev.org/wiki/INES_Mapper_076
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 struct DxROM {
     select: u8,
     mapper: u16,
 }
-#[cfg_attr(feature = "serde", typetag::serde)]
+#[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for DxROM {
     fn new(mem: &mut Bus) -> Box<Self> {
         if mem.header.alt_mirroring || mem.header.mirroring == Mirroring::FourScreens {
@@ -1609,9 +1609,9 @@ impl Mapper for DxROM {
 }
 
 // https://www.nesdev.org/wiki/INES_Mapper_077
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 struct NapoleonSenki;
-#[cfg_attr(feature = "serde", typetag::serde)]
+#[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for NapoleonSenki {
     fn new(mem: &mut Bus) -> Box<Self> {
         mem.banks.prg = Banking::new_prg(&mem.header, 1);
@@ -1643,9 +1643,9 @@ impl Mapper for NapoleonSenki {
 }
 
 // https://www.nesdev.org/wiki/INES_Mapper_184
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 struct Sunsoft1;
-#[cfg_attr(feature = "serde", typetag::serde)]
+#[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for Sunsoft1 {
     fn new(mem: &mut Bus) -> Box<Self> {
         mem.banks.chr = Banking::new_chr(&mem.header, 2);
@@ -1663,9 +1663,9 @@ impl Mapper for Sunsoft1 {
 }
 
 // https://www.nesdev.org/wiki/INES_Mapper_093
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 struct Sunsoft93;
-#[cfg_attr(feature = "serde", typetag::serde)]
+#[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for Sunsoft93 {
     fn new(mem: &mut Bus) -> Box<Self> {
         mem.banks.prg.fix_last_page();
@@ -1678,9 +1678,9 @@ impl Mapper for Sunsoft93 {
 }
 
 // https://www.nesdev.org/wiki/INES_Mapper_089
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 struct Sunsoft89;
-#[cfg_attr(feature = "serde", typetag::serde)]
+#[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for Sunsoft89 {
     fn new(mem: &mut Bus) -> Box<Self> {
         mem.banks.prg.fix_last_page();
@@ -1705,13 +1705,13 @@ impl Mapper for Sunsoft89 {
 
 // https://www.nesdev.org/wiki/INES_Mapper_067
 #[derive(Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 struct Sunsoft3 {
     irq_write: bool,
     irq_count: u16,
     irq_enabled: bool,
 }
-#[cfg_attr(feature = "serde", typetag::serde)]
+#[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for Sunsoft3 {
     fn new(mem: &mut Bus) -> Box<Self>
     where
@@ -1777,7 +1777,7 @@ impl Mapper for Sunsoft3 {
 
 // https://www.nesdev.org/wiki/INES_Mapper_068
 #[derive(Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 struct Sunsoft4 {
     uses_chr_rom: bool,
     mirroring: Mirroring,
@@ -1820,7 +1820,7 @@ impl Sunsoft4 {
         }
     }
 }
-#[cfg_attr(feature = "serde", typetag::serde)]
+#[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for Sunsoft4 {
     fn new(mem: &mut Bus) -> Box<Self> {
         mem.banks.prg.fix_last_page();
@@ -1905,7 +1905,7 @@ mod sunsoft_fme7 {
 
     // https://www.nesdev.org/wiki/Sunsoft_5B_audio
     #[derive(Default)]
-    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+    #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
     pub(super) struct Tone {
         pub enabled: bool,
         pub div: apu::DividerCounter,
@@ -1955,7 +1955,7 @@ mod sunsoft_fme7 {
 
 // https://www.nesdev.org/wiki/Sunsoft_FME-7
 #[derive(Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 struct SunsoftFME7 {
     cpu_command: u8,
 
@@ -1970,7 +1970,7 @@ struct SunsoftFME7 {
     tb: sunsoft_fme7::Tone,
     tc: sunsoft_fme7::Tone,
 }
-#[cfg_attr(feature = "serde", typetag::serde)]
+#[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for SunsoftFME7 {
     fn new(mem: &mut Bus) -> Box<Self> {
         mem.banks.prg = Banking::new(0x6000, mem.header.prg_size, 40 * 1024, 5);
@@ -2091,9 +2091,9 @@ impl Mapper for SunsoftFME7 {
     }
 }
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 struct Homebrews29;
-#[cfg_attr(feature = "serde", typetag::serde)]
+#[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for Homebrews29 {
     fn new(mem: &mut Bus) -> Box<Self> {
         mem.banks.prg.fix_last_page();

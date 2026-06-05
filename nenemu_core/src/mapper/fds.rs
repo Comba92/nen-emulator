@@ -9,7 +9,7 @@ use crate::{
 // https://www.nesdev.org/wiki/FDS_RAM_adaptor_cable_pinout
 // https://forums.nesdev.org/viewtopic.php?p=91528
 #[derive(Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub struct FDS {
     pub disks: Vec<Box<[u8]>>,
     pub disk_inserted: bool,
@@ -67,7 +67,7 @@ mod fds {
     use crate::utils::{byte_set_hi, byte_set_lo};
 
     #[derive(Default)]
-    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+    #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
     pub struct Env {
         enabled: bool,
         speed: u8,
@@ -118,7 +118,7 @@ mod fds {
     }
 
     #[derive(Default)]
-    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+    #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
     pub struct Mod {
         pub env: Env,
         pub count: i8,
@@ -220,7 +220,7 @@ mod fds {
     }
 
     #[derive(Default)]
-    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+    #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
     pub struct Wave {
         ram: Table,
         pub ram_writable: bool,
@@ -229,11 +229,11 @@ mod fds {
         halted: bool,
     }
 
-    #[cfg(feature = "serde")]
+    #[cfg(feature = "savestates")]
     use serde_big_array::BigArray;
 
-    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-    pub struct Table(#[cfg_attr(feature = "serde", serde(with = "BigArray"))] pub [u8; 64]);
+    #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
+    pub struct Table(#[cfg_attr(feature = "savestates", serde(with = "BigArray"))] pub [u8; 64]);
     impl Default for Table {
         fn default() -> Self {
             Self([0; 64])
@@ -241,7 +241,7 @@ mod fds {
     }
 
     #[derive(Default)]
-    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+    #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
     pub struct Audio {
         env_halted: bool,
         pub master_volume: u8,
@@ -320,7 +320,7 @@ mod fds {
     }
 }
 
-#[cfg_attr(feature = "serde", typetag::serde)]
+#[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for FDS {
     fn new(_: &mut Bus) -> Box<Self> {
         // everything else is initialized in the bus constructor

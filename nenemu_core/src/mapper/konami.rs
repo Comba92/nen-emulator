@@ -10,13 +10,13 @@ use crate::{
 
 // https://www.nesdev.org/wiki/VRC1
 #[derive(Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub struct VRC1 {
     chr_bank0: u16,
     chr_bank1: u16,
 }
 
-#[cfg_attr(feature = "serde", typetag::serde)]
+#[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for VRC1 {
     fn new(mem: &mut Bus) -> Box<Self> {
         mem.banks.prg = Banking::new_prg(&mem.header, 4);
@@ -59,7 +59,7 @@ impl Mapper for VRC1 {
 
 // https://www.nesdev.org/wiki/VRC3
 #[derive(Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub struct VRC3 {
     irq_count: u16,
     irq_latch: u16,
@@ -67,7 +67,7 @@ pub struct VRC3 {
     irq_enable_on_ack: bool,
     irq_8bit_mode: bool,
 }
-#[cfg_attr(feature = "serde", typetag::serde)]
+#[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for VRC3 {
     fn new(mem: &mut Bus) -> Box<Self> {
         mem.banks.prg.fix_last_page();
@@ -126,7 +126,7 @@ mod vrc {
     #[derive(Default)]
     // https://www.nesdev.org/wiki/VRC_IRQ
     // this fag still jitters in some games
-    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+    #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
     pub struct Irq {
         prescaler: i16,
         pub count: u8,
@@ -177,7 +177,7 @@ mod vrc {
 
 // https://www.nesdev.org/wiki/VRC2_and_VRC4
 #[derive(Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub struct VRC2_4 {
     irq: vrc::Irq,
     mapper: u16,
@@ -242,7 +242,7 @@ impl VRC2_4 {
         }
     }
 }
-#[cfg_attr(feature = "serde", typetag::serde)]
+#[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for VRC2_4 {
     fn new(mem: &mut Bus) -> Box<Self> {
         mem.banks.prg = Banking::new_prg(&mem.header, 4);
@@ -350,7 +350,7 @@ mod vrc6 {
     };
 
     #[derive(Default)]
-    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+    #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
     pub struct Pulse {
         enabled: bool,
         div: apu::DividerCounter,
@@ -405,7 +405,7 @@ mod vrc6 {
     }
 
     #[derive(Default)]
-    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+    #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
     pub struct Saw {
         enabled: bool,
         rate: u8,
@@ -462,7 +462,7 @@ mod vrc6 {
 
 // https://www.nesdev.org/wiki/VRC6
 #[derive(Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub struct VRC6 {
     mapper: u16,
     regs: [u16; 8],
@@ -566,7 +566,7 @@ impl VRC6 {
         self.update_vram_banks(mem);
     }
 }
-#[cfg_attr(feature = "serde", typetag::serde)]
+#[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for VRC6 {
     fn new(mem: &mut Bus) -> Box<Self> {
         mem.banks.prg = Banking::new_prg(&mem.header, 4);
@@ -669,11 +669,11 @@ impl Mapper for VRC6 {
 
 // https://www.nesdev.org/wiki/VRC7
 #[derive(Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub struct VRC7 {
     irq: vrc::Irq,
 }
-#[cfg_attr(feature = "serde", typetag::serde)]
+#[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for VRC7 {
     fn new(mem: &mut Bus) -> Box<Self> {
         mem.banks.prg = Banking::new_prg(&mem.header, 4);

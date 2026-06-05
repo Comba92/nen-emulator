@@ -112,13 +112,13 @@ pub mod utils {
     }
 }
 
-#[cfg(feature = "serde")]
+#[cfg(feature = "savestates")]
 use serde_big_array::BigArray;
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, PartialEq)]
 pub struct NesPalette(
-    #[cfg_attr(feature = "serde", serde(with = "BigArray"))] pub [(u8, u8, u8); 64],
+    #[cfg_attr(feature = "savestates", serde(with = "BigArray"))] pub [(u8, u8, u8); 64],
 );
 impl Default for NesPalette {
     fn default() -> Self {
@@ -149,7 +149,7 @@ impl NesPalette {
 pub mod joypad {
     bitflags::bitflags! {
       #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
-      #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+      #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
       pub struct JoypadBtn: u8 {
         const A = 1 << 0;
         const B = 1 << 1;
@@ -163,7 +163,7 @@ pub mod joypad {
     }
 
     #[derive(Default)]
-    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+    #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
     pub struct Joypad {
         polling: bool,
         curr_btn: u8,

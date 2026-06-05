@@ -10,7 +10,7 @@ pub struct Cart {
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub enum HeaderFormat {
     #[default]
     Headerless,
@@ -21,7 +21,7 @@ pub enum HeaderFormat {
 
 // https://www.nesdev.org/wiki/INES
 #[derive(Default, Debug, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub struct RomData {
     pub title: String,
     pub format: HeaderFormat,

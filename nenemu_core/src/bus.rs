@@ -6,25 +6,25 @@ use crate::{
 
 pub trait BankCfg {}
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Default)]
 pub struct PrgBank;
 impl BankCfg for PrgBank {}
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Default)]
 pub struct ChrBank;
 impl BankCfg for ChrBank {}
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Default)]
 pub struct WramBank;
 impl BankCfg for WramBank {}
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Default)]
 pub struct VramBank;
 impl BankCfg for VramBank {}
 
 #[derive(Debug, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub struct Banking<T: BankCfg> {
     pub banks_count: u16,
     banks_count_mask: u16,
@@ -179,7 +179,7 @@ impl Banking<VramBank> {
 }
 
 #[derive(Debug, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub struct BanksHandler {
     pub prg: Banking<PrgBank>,
     pub chr: Banking<ChrBank>,
@@ -199,7 +199,7 @@ impl BanksHandler {
 
 bitflags::bitflags! {
   #[derive(Debug, Default, Clone)]
-  #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+  #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
   pub struct IrqFlags: u8 {
     const FRAME = 1 << 0;
     const DMC = 1 << 2;
@@ -209,7 +209,7 @@ bitflags::bitflags! {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub enum CpuHandler {
     Ram,
     Ppu,
@@ -224,7 +224,7 @@ pub enum CpuHandler {
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub enum PpuHandler {
     ChrRom,
     ChrRam,
@@ -265,15 +265,15 @@ const DEFAULT_PPU_MAP: [PpuHandler; 16] = [
     PpuHandler::Palette,
 ];
 
-#[cfg(feature = "serde")]
+#[cfg(feature = "savestates")]
 use serde_big_array::BigArray;
 
 // TODO: access prg, chr, sram, vram with unsafe uncheked get, as index bounds cannot be optimized
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub struct Bus {
-    #[cfg_attr(feature = "serde", serde(with = "BigArray"))]
+    #[cfg_attr(feature = "savestates", serde(with = "BigArray"))]
     ram: [u8; 2 * 1024],
-    #[cfg_attr(feature = "serde", serde(skip))]
+    #[cfg_attr(feature = "savestates", serde(skip))]
     pub prg: Box<[u8]>,
     pub wram: Box<[u8]>,
     pub chr: Box<[u8]>,
