@@ -2,7 +2,7 @@ use std::{
     fs,
     io::{Read, Write},
     path,
-    sync::{Arc, Mutex},
+    sync::{self, Arc, Mutex},
     thread, time,
 };
 
@@ -39,7 +39,7 @@ impl AudioCallback for AudioHandler {
 
 fn emulation_thread_proc(
     emu: Arc<Mutex<NesEmulator>>,
-    video_chain: Arc<Mutex<RingBuffer<Framebuf>>>,
+    video_chain: Arc<Mutex<RingBuffer<Vec<u8>>>>,
     samples_needed: usize,
 ) {
     let frame_rate = time::Duration::from_secs_f32(1.0 / 288.0);
@@ -52,17 +52,11 @@ fn emulation_thread_proc(
                 while emu_lock.audio_queued() < samples_needed * 2 && !emu_lock.is_frame_ready() {
                     emu_lock.cpu_step();
                 }
-                // println!("[EMU THREAD]: enough audio ready");
 
                 if emu_lock.is_frame_ready() {
-                    // println!(
-                    //     "[EMU THREAD]: push video to presentation thread: {}",
-                    //     video_chain.lock().unwrap().queued()
-                    // );
-
                     emu_lock.frame_ready = false;
                     let buf = emu_lock.get_video_rgba();
-                    video_chain.lock().unwrap().push(Framebuf(buf.clone()));
+                    video_chain.lock().unwrap().push(buf.into());
                 }
             }
         }
@@ -74,16 +68,39 @@ fn emulation_thread_proc(
     }
 }
 
-#[derive(Clone)]
-struct Framebuf([u8; 256 * 240 * 4]);
-impl Default for Framebuf {
-    fn default() -> Self {
-        Self([0; _])
+fn arc_mutex<T>(inner: T) -> Arc<Mutex<T>> {
+    Arc::new(Mutex::new(inner))
+}
+
+fn save_battery(rom_path: &path::PathBuf, emu_lock: &sync::MutexGuard<NesEmulator>) {
+    if let Some(sram) = emu_lock.save_battery() {
+        let mut save_path = rom_path.clone();
+        save_path.set_extension("sram");
+
+        let mut file = fs::File::create(&save_path).unwrap();
+        // let mut writer = BufWriter::new(file);
+        // writer.write_all(sram).unwrap();
+        file.write_all(sram).unwrap();
+        println!("Battery saved to {save_path:?}");
     }
 }
 
-fn arc_mutex<T>(inner: T) -> Arc<Mutex<T>> {
-    Arc::new(Mutex::new(inner))
+fn load_battery(rom_path: &path::PathBuf, emu_lock: &mut sync::MutexGuard<NesEmulator>) {
+    // load current game battery if any
+    let mut load_path = rom_path.clone();
+    load_path.set_extension("sram");
+
+    if let Ok(mut file) = fs::File::open(&load_path) {
+        let mut buf = Vec::new();
+        // let mut reader = BufReader::new(file);
+        // reader.read_to_end(&mut buf).unwrap();
+        file.read_to_end(&mut buf).unwrap();
+        let res = emu_lock.load_battery(&buf);
+        match res {
+            Err(e) => eprintln!("{e}"),
+            _ => println!("Battery loaded from {load_path:?}"),
+        }
+    }
 }
 
 fn main() {
@@ -124,9 +141,9 @@ fn main() {
 
     let bios = include_bytes!("../../nenemu_core/utils/disksys.rom");
     let rom = include_bytes!("../../roms/donkey kong.nes");
-    let mut rom_path = path::PathBuf::from("../../roms/donkey kong.nes");
+    let mut rom_path = path::PathBuf::new();
 
-    let emu = NesEmulator::load_rom_from_bytes(rom, Some(bios)).unwrap();
+    let emu = NesEmulator::load_bios_only(Some(bios)).unwrap();
     // let mut frame_rate = (1.0 / emu.region().frame_rate() * 1000.0).round() as u64;
     let frame_rate = time::Duration::from_secs_f32(1.0 / 144.0);
 
@@ -148,17 +165,19 @@ fn main() {
             emu: emu_shared_clone2,
         })
         .unwrap();
+    audiocb.resume();
 
     let samples_needed = audiocb.spec().samples;
-    let _ = thread::spawn(move || {
-        emulation_thread_proc(
-            emu_shared_clone1,
-            video_chain_shared_clone,
-            samples_needed as usize,
-        )
-    });
+    let _ = thread::Builder::new()
+        .name("emulation".into())
+        .spawn(move || {
+            emulation_thread_proc(
+                emu_shared_clone1,
+                video_chain_shared_clone,
+                samples_needed as usize,
+            )
+        });
 
-    audiocb.resume();
     println!("{:?}", audiocb.spec());
 
     'running: loop {
@@ -185,36 +204,14 @@ fn main() {
                             let mut emu_lock = emu.lock().unwrap();
 
                             // save current game battery
-                            if let Some(sram) = emu_lock.save_battery() {
-                                let mut save_path = rom_path.clone();
-                                save_path.set_extension("sram");
-
-                                let mut file = fs::File::create(&save_path).unwrap();
-                                // let mut writer = BufWriter::new(file);
-                                // writer.write_all(sram).unwrap();
-                                file.write_all(sram).unwrap();
-                                println!("Battery saved to {save_path:?}");
-                            }
+                            save_battery(&rom_path, &emu_lock);
 
                             *emu_lock = res;
                             rom_path = path::PathBuf::from(filename);
                             println!("{:?}", emu_lock.header());
 
-                            // load current game battery if any
-                            let mut load_path = rom_path.clone();
-                            load_path.set_extension("sram");
-
-                            if let Ok(mut file) = fs::File::open(&load_path) {
-                                let mut buf = Vec::new();
-                                // let mut reader = BufReader::new(file);
-                                // reader.read_to_end(&mut buf).unwrap();
-                                file.read_to_end(&mut buf).unwrap();
-                                let res = emu_lock.load_battery(&buf);
-                                match res {
-                                    Err(e) => eprintln!("{e}"),
-                                    _ => println!("Battery loaded from {load_path:?}"),
-                                }
-                            }
+                            load_battery(&rom_path, &mut emu_lock);
+                            audiocb.resume();
 
                             // frame_rate =
                             //     (1.0 / emu_lock.region().frame_rate() * 1000.0).round() as u64;
@@ -243,9 +240,13 @@ fn main() {
                             #[cfg(feature = "savestates")]
                             Keycode::NUM_8 => {
                                 emu_lock.loadstate("./save.tmp").unwrap();
-                                audiodev.clear();
                             }
-                            Keycode::R => emu_lock.emu_reset(),
+                            Keycode::R => {
+                                save_battery(&rom_path, &emu_lock);
+                                emu_lock.emu_reset();
+                                load_battery(&rom_path, &mut emu_lock);
+                            }
+
                             _ => {}
                         }
                     }
@@ -350,14 +351,9 @@ fn main() {
         {
             let mut video_lock = video_chain.lock().unwrap();
             if video_lock.queued() > 0 {
-                // println!(
-                //     "[PRESENT THREAD]: rendering video to texture: {}",
-                //     video_lock.queued()
-                // );
-
                 let framebuf = video_lock.pop();
                 tex.with_lock(None, |pixels, _| {
-                    pixels.copy_from_slice(&framebuf.0);
+                    pixels.copy_from_slice(&framebuf);
                 })
                 .unwrap();
             }

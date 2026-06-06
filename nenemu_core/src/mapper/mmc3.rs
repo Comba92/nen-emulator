@@ -163,7 +163,7 @@ impl Mapper for MMC3 {
         }
     }
 
-    fn notify_ppu_addr(&mut self, mem: &mut Bus, addr: u16, cycles: usize) {
+    fn ppu_bus_callback(&mut self, mem: &mut Bus, addr: u16, cycles: usize) {
         let rising_edge = if addr & 0x1000 > 0 {
             let res = self.a12_low_count > 0 && cycles - self.a12_low_count >= 3;
             self.a12_low_count = 0;

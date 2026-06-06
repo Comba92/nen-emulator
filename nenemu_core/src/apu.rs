@@ -468,6 +468,21 @@ enum FrameMode {
 //     }
 // }
 
+#[derive(Default)]
+pub enum SampleRate {
+    Hz32000 = 32000,
+    #[default]
+    Hz44100 = 44100,
+    Hz48000 = 48000,
+    Hz96000 = 96000,
+}
+impl Into<f32> for SampleRate {
+    fn into(self) -> f32 {
+        self as u32 as f32
+    }
+}
+
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub struct AvgResampler {
     sample_avg: f32,
     sample_count: usize,
@@ -476,18 +491,17 @@ pub struct AvgResampler {
 }
 impl Default for AvgResampler {
     fn default() -> Self {
-        Self::new(NTSC_CLOCK_RATE, Self::DEFAULT_RESAMPLE_FREQ)
+        Self::new(NTSC_CLOCK_RATE, Default::default())
     }
 }
 impl AvgResampler {
-    pub const DEFAULT_RESAMPLE_FREQ: usize = 44100;
-
-    pub fn new(clock_rate: usize, frequency: usize) -> Self {
+    pub fn new(clock_rate: usize, frequency: SampleRate) -> Self {
+        let freq: f32 = frequency.into();
         Self {
             sample_avg: 0.0,
             sample_count: 0,
             sample_timer: 0.0,
-            cycles_per_sample: clock_rate as f32 / frequency as f32,
+            cycles_per_sample: clock_rate as f32 / freq,
         }
     }
     pub fn add_sample(&mut self, sample: f32) -> Option<f32> {
@@ -557,7 +571,7 @@ impl ApuRP2A {
             p1: Pulse::new(false),
             noise: Noise::new(),
             dmc: Dmc::new(),
-            resampler: AvgResampler::new(region.clock_rate(), 44100),
+            resampler: AvgResampler::new(region.clock_rate(), Default::default()),
             ..Default::default()
         }
     }

@@ -626,7 +626,7 @@ impl Mapper for FDS {
         }
     }
 
-    fn notify_cpu_addr(&mut self, _mem: &mut Bus, addr: u16, _val: Option<u8>) {
+    fn cpu_bus_callback(&mut self, _mem: &mut Bus, addr: u16, _val: Option<u8>) {
         // eventual bios hooks here
         match addr {
             0xe1f8 => {

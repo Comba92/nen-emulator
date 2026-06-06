@@ -844,7 +844,7 @@ impl NesEmulator {
                 if ppu.dot >= 341 {
                     ppu.dot = 0;
                     ppu.line += 1;
-                    if ppu.line >= ppu.prerender_line + 1 {
+                    if ppu.line > ppu.prerender_line {
                         ppu.line = 0;
                         ppu.nmi_suppress = false;
                         ppu.vblank_suppress = false;

@@ -79,7 +79,7 @@ impl Mapper for MMC2 {
         }
     }
 
-    fn notify_ppu_addr(&mut self, mem: &mut Bus, addr: u16, _: usize) {
+    fn ppu_bus_callback(&mut self, mem: &mut Bus, addr: u16, _: usize) {
         match (addr, self.is_mmc4) {
             (0x0fd8, false) | (0x0fd8..=0x0fdf, true) => self.latch0 = Latch::FD,
             (0xfe8, false) | (0x0fe8..=0xfef, true) => self.latch0 = Latch::FE,

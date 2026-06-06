@@ -7,8 +7,11 @@ edition = "2024"
 savestates = ["dep:serde", "dep:typetag", "dep:serde-big-array", "dep:pot"]
 
 [dependencies]
-bitfields = "3.0.0"
+# TODO: consider getting rid of those
+bitfields = { version = "3.0.0" }
+# TODO: consider getting rid of those
 bitflags = { version = "2.12.1", features = ["serde"] }
+
 # used for parsing games db
 bitcode = { version = "0.6.9" }
 # used for decompressing games db

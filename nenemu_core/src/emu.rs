@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use crate::{
     NesPalette,
-    apu::{self, ApuRP2A},
+    apu::{ApuRP2A, SampleRate},
     bus::Bus,
     cpu::{self, Cpu6502},
     joypad::Joypad,
@@ -62,7 +62,7 @@ pub struct NesEmulator {
 
     pub frame_ready: bool,
     #[cfg_attr(feature = "savestates", serde(skip))]
-    pub(crate) videobuf: [u8; 256 * 240 * 4],
+    pub(crate) videobuf: Box<[u8]>,
     #[cfg_attr(feature = "savestates", serde(skip))]
     pub(crate) audiobuf: RingBuffer<f32>,
 
@@ -140,7 +140,7 @@ impl NesEmulator {
             mem: Bus::default(),
             mapper: Box::new(mapper::NROM),
 
-            videobuf: [0; _],
+            videobuf: vec![].into_boxed_slice(),
             audiobuf: RingBuffer::new(0),
             palette: NesPalette::default(),
 
@@ -168,6 +168,7 @@ impl NesEmulator {
 
         let palette = NesPalette::from_pal_file(include_bytes!("../utils/2C02G_wiki.pal")).unwrap();
 
+        let sample_rate: f32 = SampleRate::default().into();
         let frame_rate = mem.header.region.frame_rate();
         let mut emu = Self {
             cpu: Cpu6502::new(),
@@ -177,10 +178,8 @@ impl NesEmulator {
             mem,
             mapper,
 
-            videobuf: [255; _],
-            audiobuf: RingBuffer::new(
-                (4.0 * (apu::AvgResampler::DEFAULT_RESAMPLE_FREQ as f32 / frame_rate)) as usize,
-            ),
+            videobuf: vec![255; 256 * 240 * 4].into_boxed_slice(),
+            audiobuf: RingBuffer::new((4.0 * (sample_rate / frame_rate)) as usize),
             palette,
 
             frame_ready: false,
@@ -202,15 +201,15 @@ impl NesEmulator {
         Self::new(game, bios)
     }
 
-    pub const fn region(&self) -> &Region {
+    pub fn region(&self) -> &Region {
         &self.mem.header.region
     }
 
-    pub const fn header(&self) -> &RomData {
+    pub fn header(&self) -> &RomData {
         &self.mem.header
     }
 
-    pub fn cpu_tick(&mut self) {
+    pub(crate) fn step_devices(&mut self) {
         self.cpu.cycles = self.cpu.cycles.wrapping_add(1);
 
         self.apu_step();
@@ -232,7 +231,7 @@ impl NesEmulator {
         }
     }
 
-    pub fn step_until_frame_ready(&mut self) {
+    pub fn step_until_frame_ready(&mut self) -> Result<(), &'static str> {
         while self.mem.nmi {
             self.cpu_step();
         }
@@ -240,14 +239,27 @@ impl NesEmulator {
         while !self.mem.nmi {
             self.cpu_step();
         }
+
+        self.cpu
+            .jammed
+            .then(|| ())
+            .ok_or("cpu panicked (reached a jam instruction or unimplemented illegal")
     }
 
-    pub fn step_until_samples_or_frame_ready(&mut self, samples_amt: usize) {
+    pub fn step_until_samples_or_frame_ready(
+        &mut self,
+        samples_amt: usize,
+    ) -> Result<(), &'static str> {
         self.frame_ready = false;
 
         while self.audio_queued() < samples_amt && !self.frame_ready {
             self.cpu_step();
         }
+
+        self.cpu
+            .jammed
+            .then(|| ())
+            .ok_or("cpu panicked (reached a jam instruction or unimplemented illegal")
     }
 
     pub fn emu_reset(&mut self) {
@@ -255,7 +267,7 @@ impl NesEmulator {
         self.ppu.reset();
         self.apu.reset();
 
-        // TODO: should reload wram!
+        // TODO: should reload wram battery!
         // TODO: some mappers need to be reset too
     }
 
@@ -280,14 +292,23 @@ impl NesEmulator {
     }
 
     pub fn load_battery(&mut self, bytes: &[u8]) -> Result<(), LoadError> {
-        // TODO: handle MMC1 and MMC5 weird cases
-
         if !self.header().has_battery {
             return Ok(());
         } else if bytes.len() != self.mem.wram.len() {
             return Err("invalid save ram dump provided, size don't match".into());
         } else {
-            self.mem.wram.copy_from_slice(bytes);
+            if self.mem.header.mapper == 1 && self.mem.wram.len() == 16 * 1024 {
+                // https://www.nesdev.org/wiki/MMC1#SxROM_board_types
+                // Even if the SOROM and SZROM boards utilizes a battery, it is connected to only one PRG-RAM chip. The first RAM chip will not retain its data, but the second one will.
+                self.mem.wram[8 * 1024..].copy_from_slice(bytes)
+            } else if self.mem.header.mapper == 5 && self.mem.wram.len() == 16 * 1024 {
+                // https://www.nesdev.org/wiki/MMC5#Other_PRG-RAM_notes
+                // Games with 16K PRG-RAM only battery-save the first 8K.
+                self.mem.wram[..8 * 1024].copy_from_slice(bytes)
+            } else {
+                self.mem.wram.copy_from_slice(bytes);
+            }
+
             Ok(())
         }
     }
@@ -296,7 +317,7 @@ impl NesEmulator {
         self.frame_ready
     }
 
-    pub fn get_video_rgba(&self) -> &[u8; 256 * 240 * 4] {
+    pub fn get_video_rgba(&self) -> &[u8] {
         // for (i, color) in self
         //     .videobuf
         //     .iter()
@@ -459,7 +480,6 @@ impl NesEmulator {
         std::mem::swap(&mut self.mem.prg, &mut new_emu.mem.prg);
         std::mem::swap(&mut self.audiobuf, &mut new_emu.audiobuf);
         std::mem::swap(&mut self.videobuf, &mut new_emu.videobuf);
-        std::mem::swap(&mut self.apu.blip, &mut new_emu.apu.blip);
         *self = new_emu;
 
         Ok(())

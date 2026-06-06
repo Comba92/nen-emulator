@@ -1,11 +1,12 @@
 use std::{
     collections::VecDeque,
     path::{Path, PathBuf},
+    sync::{Arc, Mutex, MutexGuard},
     time::{Duration, Instant},
 };
 
 use eframe::egui;
-use nenemu_core::{NesPalette, emu, joypad, rom};
+use nenemu_core::{emu, joypad, rom, NesPalette};
 
 const TEX_OPTS: egui::TextureOptions = egui::TextureOptions {
     magnification: egui::TextureFilter::Nearest,
@@ -41,6 +42,7 @@ fn file_dialog(prompt: &str, requires: &str, extensions: &[&str]) -> Option<Path
         .pick_file()
 }
 
+// TODO: try removing this and seeing if there are performance gains
 fn buffered_read<P: AsRef<Path>>(path: P) -> Result<Vec<u8>, GenericError> {
     use std::io::Read;
 
@@ -98,19 +100,34 @@ enum EmuState {
     Off,
 }
 
-struct SdlCtx {
-    _sdl: sdl2::Sdl,
-    _audio: sdl2::AudioSubsystem,
-    audiodev: sdl2::audio::AudioQueue<i16>,
+struct AudioHandler {
+    emu: Arc<Mutex<emu::NesEmulator>>,
 }
-impl Default for SdlCtx {
-    fn default() -> Self {
-        Self::new(48000)
+impl sdl2::audio::AudioCallback for AudioHandler {
+    type Channel = f32;
+
+    fn callback(&mut self, audio_out: &mut [Self::Channel]) {
+        let mut emu_lock = self.emu.lock().unwrap();
+
+        let (right, left) = emu_lock.get_audio_f32(audio_out.len());
+        let right_amt = right.len();
+        audio_out[..right_amt].copy_from_slice(right);
+
+        if let Some(left) = left {
+            audio_out[right_amt..].copy_from_slice(left);
+        }
     }
 }
 
+struct SdlCtx {
+    _sdl: sdl2::Sdl,
+    _audio: sdl2::AudioSubsystem,
+    // audiodev: sdl2::audio::AudioQueue<i16>,
+    audiodev: sdl2::audio::AudioDevice<AudioHandler>,
+}
+
 impl SdlCtx {
-    pub fn new(sample_rate: usize) -> Self {
+    pub fn new(sample_rate: usize, emu: Arc<Mutex<emu::NesEmulator>>) -> Self {
         let _sdl = sdl2::init().unwrap();
         let _audio = _sdl.audio().unwrap();
         let audiospec = sdl2::audio::AudioSpecDesired {
@@ -118,8 +135,11 @@ impl SdlCtx {
             freq: Some(sample_rate as i32),
             samples: None,
         };
-        let audiodev = _audio.open_queue::<i16, _>(None, &audiospec).unwrap();
-        audiodev.resume();
+        // let audiodev = _audio.open_queue::<i16, _>(None, &audiospec).unwrap();
+        // audiodev.resume();
+        let audiodev = _audio
+            .open_playback(None, &audiospec, |_| AudioHandler { emu })
+            .unwrap();
 
         Self {
             _sdl,
@@ -151,7 +171,7 @@ struct AppCfg {
     fullscreen: bool,
     hide_cursor: bool,
 
-    settings: emu::Settings,
+    emu_settings: emu::Settings,
     battery_saving: bool,
     #[cfg(feature = "savestates")]
     restore_session: bool,
@@ -168,14 +188,14 @@ impl AppCfg {
         Self {
             keep_aspect_ratio: true,
             battery_saving: true,
-            settings: emu::Settings::new(),
+            emu_settings: emu::Settings::new(),
             ..Default::default()
         }
     }
 }
 
 struct AppCtx {
-    emu: emu::NesEmulator,
+    emu: Arc<Mutex<emu::NesEmulator>>,
     state: EmuState,
     dt: f32,
     fps: f32,
@@ -194,7 +214,6 @@ impl AppCtx {
     pub fn new(c: &eframe::CreationContext) -> Box<Self> {
         let img = egui::ColorImage::filled([256, 240], egui::Color32::TRANSPARENT);
         let tex = c.egui_ctx.load_texture("tex", img.clone(), TEX_OPTS);
-        let sdl = SdlCtx::default();
 
         #[cfg(feature = "savestates")]
         let cfg = if let Some(storage) = c.storage {
@@ -213,13 +232,16 @@ impl AppCtx {
         };
 
         let mut emu = emu::NesEmulator::empty();
-        emu.settings = cfg.settings.clone();
+        emu.settings = cfg.emu_settings.clone();
+
+        let emu = Arc::new(Mutex::new(emu));
+        let sdl = SdlCtx::new(44100, Arc::clone(&emu));
 
         Box::new(Self {
             emu,
             state: EmuState::Off,
             dt: 0.0,
-            fps: 0.0,
+            fps: 60.0,
             framebuf: img,
             tex,
 
@@ -230,6 +252,10 @@ impl AppCtx {
             cfg,
             sdl,
         })
+    }
+
+    fn emu_lock(&self) -> MutexGuard<emu::NesEmulator> {
+        self.emu.lock().unwrap()
     }
 
     fn show_message(&mut self, e: GenericError) {
@@ -246,8 +272,8 @@ impl AppCtx {
         let res = emu::NesEmulator::load_rom_from_file(&rom_path, bios);
         match res {
             Ok(mut new_emu) => {
-                self.sdl.audiodev.clear();
-                self.fps = 1.0 / new_emu.frame_rate();
+                // self.sdl.audiodev.clear();
+                // self.fps = 1.0 / new_emu.frame_rate();
 
                 self.close_rom_and_save();
 
@@ -257,12 +283,12 @@ impl AppCtx {
                     }
                 }
 
-                new_emu.settings = self.cfg.settings.clone();
+                new_emu.settings = self.cfg.emu_settings.clone();
                 if let Some(pal) = self.cfg.palettes.front() {
                     new_emu.palette = pal.clone();
                 }
 
-                self.emu = new_emu;
+                *self.emu_lock() = new_emu;
                 let pathbuf = rom_path.as_ref().to_path_buf();
                 self.current_rom_path = Some(pathbuf.clone());
                 ring_push_front(&mut self.cfg.recent_roms, pathbuf, 12);
@@ -294,7 +320,12 @@ impl AppCtx {
 
         if self.cfg.battery_saving {
             if let Some(path) = &self.current_rom_path {
-                if let Err(e) = self.emu.save_battery_to_file(path) {
+                let res = {
+                    let emu = self.emu_lock();
+                    emu.save_battery_to_file(path)
+                };
+
+                if let Err(e) = res {
                     self.show_message(e.into());
                 }
             }
@@ -317,7 +348,7 @@ impl AppCtx {
             .map_err(|e| self.show_message(e));
 
         if let Some(pal) = self.cfg.palettes.front() {
-            self.emu.palette = pal.clone();
+            self.emu_lock().palette = pal.clone();
         }
     }
 
@@ -369,7 +400,7 @@ impl eframe::App for AppCtx {
         eframe::set_value(storage, eframe::APP_KEY, &self.cfg);
     }
 
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ctx: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let running = self.state != EmuState::Off;
 
         egui::TopBottomPanel::top("top")
@@ -488,13 +519,11 @@ impl eframe::App for AppCtx {
                                         self.state = EmuState::Paused;
                                         self.sdl.audiodev.pause();
                                     } else if reset.clicked() {
-                                        self.emu.emu_reset();
+                                        self.emu_lock().emu_reset();
                                         self.state = EmuState::Running;
-                                        self.sdl.audiodev.clear();
                                         self.sdl.audiodev.resume();
                                     } else if stop.clicked() {
                                         self.state = EmuState::Stopped;
-                                        self.sdl.audiodev.clear();
                                         self.sdl.audiodev.pause();
                                     } else {
                                         self.state = EmuState::Running;
@@ -510,13 +539,11 @@ impl eframe::App for AppCtx {
                                         self.state = EmuState::Running;
                                         self.sdl.audiodev.resume();
                                     } else if reset.clicked() {
-                                        self.emu.emu_reset();
+                                        self.emu_lock().emu_reset();
                                         self.state = EmuState::Running;
-                                        self.sdl.audiodev.clear();
                                         self.sdl.audiodev.resume();
                                     } else if stop.clicked() {
                                         self.state = EmuState::Stopped;
-                                        self.sdl.audiodev.clear();
                                         self.sdl.audiodev.pause();
                                     } else {
                                         self.state = EmuState::Paused;
@@ -529,13 +556,12 @@ impl eframe::App for AppCtx {
                                     ui.add_enabled(false, egui::Button::new("⏹ Stop"));
 
                                     if run.clicked() {
-                                        self.emu.emu_reset();
+                                        self.emu_lock().emu_reset();
                                         self.state = EmuState::Running;
                                         self.sdl.audiodev.resume();
                                     } else if reset.clicked() {
-                                        self.emu.emu_reset();
+                                        self.emu_lock().emu_reset();
                                         self.state = EmuState::Running;
-                                        self.sdl.audiodev.clear();
                                         self.sdl.audiodev.resume();
                                     } else {
                                         self.state = EmuState::Stopped;
@@ -549,11 +575,12 @@ impl eframe::App for AppCtx {
                                 }
                             }
 
-                            let header = self.emu.header();
+                            let mut emu = self.emu_lock();
+                            let header = emu.header();
                             if header.format == rom::HeaderFormat::Fds {
                                 ui.separator();
                                 if ui.button("💿 Insert next FDS disk/side").clicked() {
-                                    self.emu.mapper.special_input();
+                                    emu.mapper.special_input();
                                 }
                             }
                         });
@@ -602,12 +629,12 @@ impl eframe::App for AppCtx {
                                 }
 
                                 if let Some(bios) = &self.bios {
-                                    let emu =
+                                    let new_emu =
                                         emu::NesEmulator::load_bios_only(Some(bios.as_slice()));
-                                    match emu {
-                                        Ok(emu) => {
+                                    match new_emu {
+                                        Ok(new_emu) => {
                                             self.state = EmuState::Running;
-                                            self.emu = emu;
+                                            *self.emu_lock() = new_emu;
                                             self.bios_running = true;
                                         }
                                         Err(e) => self.show_message(e),
@@ -629,10 +656,18 @@ impl eframe::App for AppCtx {
                             style.spacing.slider_width *= 0.7;
 
                             ui.separator();
-                            let volume_slider =
-                                egui::Slider::new(&mut self.emu.settings.volume, 0.0..=100.0);
                             ui.label("🔊 Vol");
-                            ui.add(volume_slider);
+
+                            // TODO: THIS CANT BE DONE
+                            // slider value needs to be mutable and updated each tick
+                            // should be stored in a different variable and update emulator volume later
+
+                            // let volume_slider = {
+                            //     let mut emu = self.emu_lock();
+                            //     egui::Slider::new(&mut emu.settings.volume, 0.0..=100.0)
+                            // };
+
+                            // ui.add(volume_slider);
                         }
                     });
                 });
@@ -646,81 +681,77 @@ impl eframe::App for AppCtx {
         // }
 
         let mut should_update_palette = None;
+        let were_settings_open = self.cfg.windows.settings_open;
 
         egui::Window::new("🔧 Settings")
-    .collapsible(true)
-    .resizable([true, true])
-    .open(&mut self.cfg.windows.settings_open)
-    .show(ctx, |ui| {
-      let settings = if running {
-        &mut self.emu.settings
-      } else {
-        &mut self.cfg.settings
-      };
+            .collapsible(true)
+            .resizable([true, true])
+            .open(&mut self.cfg.windows.settings_open)
+            .show(ctx, |ui| {
+                let settings = &mut self.cfg.emu_settings;
 
-      if ui.button("🎨 Load palette file...").clicked() {
-        should_update_palette = file_dialog("Select a NES palette file", "NES PAL file", &["pal"]);
-      }
+                if ui.button("🎨 Load palette file...").clicked() {
+                    should_update_palette = file_dialog("Select a NES palette file", "NES PAL file", &["pal"]);
+                }
 
-      ui.collapsing(" Misc", |ui| {
-        ui.checkbox(&mut self.cfg.battery_saving, "Enable battery saving")
-        .on_hover_text("This will dump work RAM in the same directory as the ROM's.");
+                ui.collapsing(" Misc", |ui| {
+                    ui.checkbox(&mut self.cfg.battery_saving, "Enable battery saving")
+                    .on_hover_text("This will dump work RAM in the same directory as the ROM's.");
 
-        #[cfg(feature = "savestates")]
-        ui.checkbox(&mut self.cfg.restore_session, "Automatically restore last session when a game is reopened later");
+                    #[cfg(feature = "savestates")]
+                    ui.checkbox(&mut self.cfg.restore_session, "Automatically restore last session when a game is reopened later");
 
-        ui.checkbox(&mut settings.random_ram, "Randomize RAM at startup")
-        .on_hover_text("Some games (such as Final Fantasy) use the random state of RAM at boot to seed their rngs");
-      });
+                    ui.checkbox(&mut settings.random_ram, "Randomize RAM at startup")
+                    .on_hover_text("Some games (such as Final Fantasy) use the random state of RAM at boot to seed their rngs");
+                });
 
-      ui.collapsing("📺 Video", |ui| {
-        ui.checkbox(&mut settings.no_sprite_limit, "Show more than 8 sprites per scaline")
-        .on_hover_text("Reduces flickering, but may show glitches in some games");
-        ui.checkbox(&mut settings.disable_background, "Disable background tiles");
-        ui.checkbox(&mut settings.disable_sprites, "Disable sprite tiles");
-        ui.checkbox(&mut settings.pal_borders, "Show side PAL black borders");
-      });
-      ui.collapsing("🔊 Audio", |ui| {
-        ui.label("Audio sample rate:");
-        ui.indent("Sample rates", |ui| {
-          ui.radio_value(&mut settings.audio_sample_rate, 32000, "32000hz");
-          ui.radio_value(&mut settings.audio_sample_rate, 44100, "44100hz");
-          ui.radio_value(&mut settings.audio_sample_rate, 48000, "48000hz");
-          ui.radio_value(&mut settings.audio_sample_rate, 96000, "96000hz");
-        });
+                ui.collapsing("📺 Video", |ui| {
+                    ui.checkbox(&mut settings.no_sprite_limit, "Show more than 8 sprites per scaline")
+                    .on_hover_text("Reduces flickering, but may show glitches in some games");
+                    ui.checkbox(&mut settings.disable_background, "Disable background tiles");
+                    ui.checkbox(&mut settings.disable_sprites, "Disable sprite tiles");
+                    ui.checkbox(&mut settings.pal_borders, "Show side PAL black borders");
+                });
+                ui.collapsing("🔊 Audio", |ui| {
+                    ui.label("Audio sample rate:");
+                    ui.indent("Sample rates", |ui| {
+                    ui.radio_value(&mut settings.audio_sample_rate, 32000, "32000hz");
+                    ui.radio_value(&mut settings.audio_sample_rate, 44100, "44100hz");
+                    ui.radio_value(&mut settings.audio_sample_rate, 48000, "48000hz");
+                    ui.radio_value(&mut settings.audio_sample_rate, 96000, "96000hz");
+                });
 
-        ui.checkbox(&mut settings.disable_pulse0, "Disable pulse 0 channel");
-        ui.checkbox(&mut settings.disable_pulse1, "Disable pulse 1 channel");
-        ui.checkbox(&mut settings.disable_triangle, "Disable triangle channel");
-        ui.checkbox(&mut settings.disable_noise, "Disable noise channel");
-        ui.checkbox(&mut settings.disable_dmc, "Disable dmc channel");
-        ui.checkbox(&mut settings.disable_ext_audio, "Disable external sound chip");
-      });
-      ui.collapsing("💿 Famicon Disk System (FDS)", |ui| {
-        let bios_btn_text = if let Some(path) = &self.cfg.bios_path {
-          format!("👢 BIOS selected at: {:?}, click to change...", path)
-        } else {
-          "👢 Load FDS BIOS file...".to_string()
-        };
+                    ui.checkbox(&mut settings.disable_pulse0, "Disable pulse 0 channel");
+                    ui.checkbox(&mut settings.disable_pulse1, "Disable pulse 1 channel");
+                    ui.checkbox(&mut settings.disable_triangle, "Disable triangle channel");
+                    ui.checkbox(&mut settings.disable_noise, "Disable noise channel");
+                    ui.checkbox(&mut settings.disable_dmc, "Disable dmc channel");
+                    ui.checkbox(&mut settings.disable_ext_audio, "Disable external sound chip");
+                });
 
-        if ui.button(bios_btn_text).clicked() {
-          file_dialog("Select FDS BIOS file", "FDS BIOS", &["rom"])
-          .map(|path| self.cfg.bios_path = Some(path));
-          self.bios = if let Some(path) = &self.cfg.bios_path  {
-            buffered_read(path).ok()
-          } else { None };
+                ui.collapsing("💿 Famicon Disk System (FDS)", |ui| {
+                    let bios_btn_text = if let Some(path) = &self.cfg.bios_path {
+                    format!("👢 BIOS selected at: {:?}, click to change...", path)
+                    } else {
+                        "👢 Load FDS BIOS file...".to_string()
+                    };
+
+                    if ui.button(bios_btn_text).clicked() {
+                        file_dialog("Select FDS BIOS file", "FDS BIOS", &["rom"])
+                            .map(|path| self.cfg.bios_path = Some(path));
+
+                        self.bios = if let Some(path) = &self.cfg.bios_path  {
+                            buffered_read(path).ok()
+                        } else { None };
+                    }
+
+                    // TODO: disk handling
+                })
+            });
+
+        if self.cfg.windows.settings_open != were_settings_open {
+            self.emu_lock().settings = self.cfg.emu_settings.clone();
         }
-
-        // TODO: disk handling
-      })
-    })
-    .or_else(|| {
-      if running {
-        self.cfg.settings = self.emu.settings.clone();
-      }
-
-      None
-    });
 
         if let Some(path) = should_update_palette {
             self.load_palette(path);
@@ -768,44 +799,45 @@ impl eframe::App for AppCtx {
                 None
             });
 
-        egui::Window::new("💾 ROM information")
-            .collapsible(true)
-            .open(&mut self.cfg.windows.rom_info_open)
-            .show(ctx, |ui| {
-                let header = self.emu.header();
+        // TODO: reenable this
+        // egui::Window::new("💾 ROM information")
+        // .collapsible(true)
+        // .open(&mut self.cfg.windows.rom_info_open)
+        // .show(ctx, |ui| {
+        //     let header = self.emu_lock().header().clone();
 
-                ui.columns_const::<2, _>(|ui| {
-                    ui[0].label("Game Title");
-                    ui[1].label(&header.title);
+        //     ui.columns_const::<2, _>(|ui| {
+        //         ui[0].label("Game Title");
+        //         ui[1].label(&header.title);
 
-                    ui[0].label("Header kind");
-                    ui[1].label(format!("{:?}", header.format));
+        //         ui[0].label("Header kind");
+        //         ui[1].label(format!("{:?}", header.format));
 
-                    // TODO: more mapper information
-                    ui[0].label("Mapper ID");
-                    ui[1].label(header.mapper.to_string());
-                    ui[0].label("SubMapper ID");
-                    ui[1].label(header.submapper.to_string());
+        //         // TODO: more mapper information
+        //         ui[0].label("Mapper ID");
+        //         ui[1].label(header.mapper.to_string());
+        //         ui[0].label("SubMapper ID");
+        //         ui[1].label(header.submapper.to_string());
 
-                    ui[0].label("Region");
-                    ui[1].label(format!("{:?}", header.region));
+        //         ui[0].label("Region");
+        //         ui[1].label(format!("{:?}", header.region));
 
-                    ui[0].label("PRG size");
-                    ui[1].label(format!("{} KB", header.prg_size / 1024));
-                    ui[0].label("WRAM size");
-                    ui[1].label(format!("{} KB", header.wram_size / 1024));
+        //         ui[0].label("PRG size");
+        //         ui[1].label(format!("{} KB", header.prg_size / 1024));
+        //         ui[0].label("WRAM size");
+        //         ui[1].label(format!("{} KB", header.wram_size / 1024));
 
-                    ui[0].label("CHR size");
-                    ui[1].label(format!("{} KB", header.chr_size / 1024));
-                    ui[0].label("CHR RAM");
-                    ui[1].label(header.has_chr_ram.to_string());
+        //         ui[0].label("CHR size");
+        //         ui[1].label(format!("{} KB", header.chr_size / 1024));
+        //         ui[0].label("CHR RAM");
+        //         ui[1].label(header.has_chr_ram.to_string());
 
-                    ui[0].label("Battery");
-                    ui[1].label(header.has_battery.to_string());
-                });
+        //         ui[0].label("Battery");
+        //         ui[1].label(header.has_battery.to_string());
+        //     });
 
-                ui.set_clip_rect(ui.min_rect());
-            });
+        //     ui.set_clip_rect(ui.min_rect());
+        // });
 
         egui::Window::new("ℹ About")
             .collapsible(true)
@@ -827,7 +859,7 @@ impl eframe::App for AppCtx {
 
         if let Some((open, appeared, msg)) = &mut self.cfg.windows.message_open {
             let res = egui::Window::new("Message")
-                // .anchor(egui::Align2::RIGHT_BOTTOM, [-10.0, -10.0])
+                .anchor(egui::Align2::LEFT_TOP, [10.0, 30.0])
                 .title_bar(false)
                 .collapsible(false)
                 .auto_sized()
@@ -918,36 +950,54 @@ impl eframe::App for AppCtx {
             }
 
             if running {
-                // run one emulation frame
                 self.dt += i.stable_dt;
                 if self.dt > self.fps {
                     self.dt -= self.fps;
 
+                    let mut emu = self.emu_lock();
                     if should_handle_input {
-                        self.emu.joypad.buttons = joypad::JoypadBtn::empty();
+                        emu.joypad.buttons = joypad::JoypadBtn::empty();
                         for key_pressed in &i.keys_down {
                             if let Some((_, emu_key)) =
                                 self.cfg.keymaps.keys.iter().find(|x| x.0 == *key_pressed)
                             {
-                                self.emu.set_button(*emu_key, true);
+                                emu.set_button(*emu_key, true);
                             }
                         }
                     }
 
-                    self.emu.step_until_vblank();
-                    let audiodev = &mut self.sdl.audiodev;
-                    audiodev.queue_audio(self.emu.get_audio()).unwrap();
+                    let samples_needed = self.sdl.audiodev.spec().samples as usize;
 
-                    while audiodev.size() / 2 < audiodev.spec().samples as u32 {
-                        // run for another frame
-                        self.emu.step_until_vblank();
-                        audiodev.queue_audio(self.emu.get_audio()).unwrap();
+                    let mut framebuf = egui::ColorImage::default();
+                    while emu.audio_queued() < samples_needed * 2 {
+                        while emu.audio_queued() < samples_needed * 2 && !emu.is_frame_ready() {
+                            emu.cpu_step();
+                        }
+
+                        if emu.is_frame_ready() {
+                            emu.frame_ready = false;
+                            let buf = emu.get_video_rgba();
+                            framebuf = egui::ColorImage::from_rgba_unmultiplied([256, 240], buf);
+                        }
                     }
 
-                    self.emu.get_video_rgba(self.framebuf.as_raw_mut());
+                    drop(emu);
+                    self.tex.set(framebuf, TEX_OPTS);
 
-                    // sadly we have to clone the framebuf
-                    self.tex.set(self.framebuf.clone(), TEX_OPTS);
+                    // self.emu.step_until_vblank();
+                    // let audiodev = &mut self.sdl.audiodev;
+                    // audiodev.queue_audio(self.emu.get_audio()).unwrap();
+
+                    // while audiodev.size() / 2 < audiodev.spec().samples as u32 {
+                    //     // run for another frame
+                    //     self.emu.step_until_vblank();
+                    //     audiodev.queue_audio(self.emu.get_audio()).unwrap();
+                    // }
+
+                    // self.emu.get_video_rgba(self.framebuf.as_raw_mut());
+
+                    // // sadly we have to clone the framebuf
+                    // self.tex.set(self.framebuf.clone(), TEX_OPTS);
                 }
                 true
             } else {

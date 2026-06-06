@@ -1,5 +1,4 @@
 use crate::{
-    apu,
     bus::{Banking, Bus, CpuHandler, IrqFlags, PpuHandler},
     emu::Mirroring,
     utils::{byte_set_hi, byte_set_lo},
@@ -33,12 +32,13 @@ pub trait Mapper: Send {
 
     fn step(&mut self, _mem: &mut Bus, _cycles: usize) {}
 
-    fn notify_ppu_addr(&mut self, _mem: &mut Bus, _addr: u16, _cycles: usize) {}
-    fn notify_cpu_addr(&mut self, _mem: &mut Bus, _addr: u16, _val: Option<u8>) {}
+    fn ppu_bus_callback(&mut self, _mem: &mut Bus, _addr: u16, _cycles: usize) {}
+    fn cpu_bus_callback(&mut self, _mem: &mut Bus, _addr: u16, _val: Option<u8>) {}
 
     fn ppu_special_read(&mut self, _mem: &mut Bus, _addr: u16) -> u8 {
         0
     }
+
     fn special_input(&mut self) {}
 
     fn sample(&self) -> f32 {

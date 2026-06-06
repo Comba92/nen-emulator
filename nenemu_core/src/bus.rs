@@ -498,13 +498,13 @@ impl NesEmulator {
                 let res = self.ppu_reg_read(addr);
                 if [0x2006, 0x2007].contains(&(addr & 0x2007)) {
                     self.mapper
-                        .notify_ppu_addr(&mut self.mem, self.ppu.v.into(), self.cpu.cycles);
+                        .ppu_bus_callback(&mut self.mem, self.ppu.v.into(), self.cpu.cycles);
                 }
                 res
             }
 
             CpuHandler::PrgCustom => {
-                self.mapper.notify_cpu_addr(mem, addr, None);
+                self.mapper.cpu_bus_callback(mem, addr, None);
                 mem.prg[mem.banks.prg.translate(addr)]
             }
         };
@@ -544,12 +544,12 @@ impl NesEmulator {
                 self.ppu_reg_write(addr, val);
                 if [0x2006, 0x2007].contains(&(addr & 0x2007)) {
                     self.mapper
-                        .notify_ppu_addr(&mut self.mem, self.ppu.v.into(), self.cpu.cycles);
+                        .ppu_bus_callback(&mut self.mem, self.ppu.v.into(), self.cpu.cycles);
                 }
             }
             CpuHandler::PpuMMC5 => {
                 self.ppu_reg_write(addr & 0x2007, val);
-                self.mapper.notify_cpu_addr(&mut self.mem, addr, Some(val));
+                self.mapper.cpu_bus_callback(&mut self.mem, addr, Some(val));
             }
             CpuHandler::PrgCustom => {}
         }
@@ -611,11 +611,11 @@ impl NesEmulator {
             PpuHandler::OpenBus => mem.ppu_open_bus as u8,
 
             PpuHandler::ChrMMC2 | PpuHandler::ChrRomMMC3 | PpuHandler::ChrRamMMC3 => {
-                self.mapper.notify_ppu_addr(mem, addr, self.cpu.cycles);
+                self.mapper.ppu_bus_callback(mem, addr, self.cpu.cycles);
                 mem.chr[mem.banks.chr.translate(addr)]
             }
             PpuHandler::ChrMMC5 | PpuHandler::VramMMC5 => {
-                self.mapper.notify_ppu_addr(mem, addr, self.cpu.cycles);
+                self.mapper.ppu_bus_callback(mem, addr, self.cpu.cycles);
                 self.mapper.ppu_special_read(mem, addr)
             }
         };
@@ -635,7 +635,7 @@ impl NesEmulator {
             PpuHandler::ChrRam => mem.chr[mem.banks.chr.translate(addr)] = val,
 
             PpuHandler::Vram | PpuHandler::VramMMC5 => {
-                self.mapper.notify_ppu_addr(mem, addr, self.cpu.cycles);
+                self.mapper.ppu_bus_callback(mem, addr, self.cpu.cycles);
                 mem.vram[mem.banks.vram.translate(addr & 0x2fff)] = val;
             }
             PpuHandler::Palette => {
@@ -648,11 +648,11 @@ impl NesEmulator {
             }
 
             PpuHandler::ChrMMC2 | PpuHandler::ChrRomMMC3 => {
-                self.mapper.notify_ppu_addr(mem, addr, self.cpu.cycles)
+                self.mapper.ppu_bus_callback(mem, addr, self.cpu.cycles)
             }
             PpuHandler::ChrRamMMC3 => {
                 mem.chr[mem.banks.chr.translate(addr)] = val;
-                self.mapper.notify_ppu_addr(mem, addr, self.cpu.cycles);
+                self.mapper.ppu_bus_callback(mem, addr, self.cpu.cycles);
             }
         }
     }

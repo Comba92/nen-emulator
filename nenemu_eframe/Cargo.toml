@@ -3,9 +3,11 @@ name = "nenemu_eframe"
 version = "0.1.0"
 edition = "2024"
 
+[features]
 savestates = ["nenemu_core/savestates"]
 
 [dependencies]
 rfd = { version = "0.17.2" }
 eframe = { version = "0.34.3", features = ["persistence"] }
 nenemu_core = { path = "../nenemu_core" }
+sdl2 = "0.38.0"

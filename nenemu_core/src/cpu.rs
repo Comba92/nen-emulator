@@ -86,13 +86,13 @@ impl NesEmulator {
 
     fn cpu_read8(&mut self, addr: u16) -> u8 {
         let res = self.cpu_dispatch_read(addr);
-        self.cpu_tick();
+        self.step_devices();
         res
     }
 
     fn cpu_write8(&mut self, addr: u16, val: u8) {
         self.cpu_dispatch_write(addr, val);
-        self.cpu_tick();
+        self.step_devices();
     }
 
     pub fn cpu_read16(&mut self, addr: u16) -> u16 {
@@ -140,11 +140,11 @@ impl NesEmulator {
     fn handle_dma(&mut self) -> bool {
         // https://www.nesdev.org/wiki/DMA
         if self.apu.dmc.buffer.is_none() && self.apu.dmc.dma_remaining > 0 {
-            self.cpu_tick(); // halting cycle
-            self.cpu_tick(); // dummy cycle
+            self.step_devices(); // halting cycle
+            self.step_devices(); // dummy cycle
 
             if self.cpu.cycles % 2 == 1 {
-                self.cpu_tick(); // +1 cycle on odd cpu cyles
+                self.step_devices(); // +1 cycle on odd cpu cyles
             }
 
             let byte = self.cpu_dispatch_read(self.apu.dmc.dma_addr);
@@ -154,9 +154,9 @@ impl NesEmulator {
         } else if let Some(addr) = self.ppu.dma {
             // https://www.nesdev.org/wiki/PPU_registers#OAMDMA_-_Sprite_DMA_($4014_write)
             if (addr & 0xff) == 0 {
-                self.cpu_tick(); // halting cycle
+                self.step_devices(); // halting cycle
                 if self.cpu.cycles % 2 == 1 {
-                    self.cpu_tick(); // +1 cycle on odd cpu cyles
+                    self.step_devices(); // +1 cycle on odd cpu cyles
                 }
             }
 
@@ -190,8 +190,8 @@ impl NesEmulator {
     }
 
     fn handle_interrupt(&mut self, int_vector: u16) {
-        self.cpu_tick();
-        self.cpu_tick();
+        self.step_devices();
+        self.step_devices();
 
         self.stack_push16(self.cpu.pc);
         self.stack_push8(self.cpu.p.bits());
@@ -234,7 +234,7 @@ impl NesEmulator {
         match mode {
             // 2    PC     R  read next instruction byte (and throw it away)
             Implied | Accumulator => {
-                self.cpu_tick();
+                self.step_devices();
                 self.cpu.op_val = Some(self.cpu.a);
             }
             Immediate | Relative => self.cpu.op_val = Some(self.pc_fetch8()),
@@ -383,7 +383,7 @@ impl NesEmulator {
     }
     fn pla(&mut self) {
         // Instructions that pop data from the stack take 2 extra cycles, since they also need to pre-increment the stack pointer.
-        self.cpu_tick();
+        self.step_devices();
 
         let res = self.stack_pop8();
         self.set_zn(res);
@@ -391,7 +391,7 @@ impl NesEmulator {
     }
     fn plp(&mut self) {
         // Instructions that pop data from the stack take 2 extra cycles, since they also need to pre-increment the stack pointer.
-        self.cpu_tick();
+        self.step_devices();
 
         // https://www.nesdev.org/wiki/Instruction_reference#PLP
         // TODO: The effect of changing IrqDisable flag is delayed 1 instruction.
@@ -549,23 +549,23 @@ impl NesEmulator {
         self.stack_push16(self.cpu.pc.wrapping_sub(1));
         self.jmp();
 
-        self.cpu_tick();
+        self.step_devices();
     }
     fn rts(&mut self) {
         // Instructions that pop data from the stack take 2 extra cycles, since they also need to pre-increment the stack pointer.
-        self.cpu_tick();
+        self.step_devices();
 
         self.cpu.pc = self.stack_pop16().wrapping_add(1);
 
         // https://www.nesdev.org/wiki/Cycle_counting#Instruction_timings
         // plus 1 cycle to post-increment the program counter (to compensate for the off-by-1 address pushed by JSR).
-        self.cpu_tick();
+        self.step_devices();
     }
 
     fn branch(&mut self, cond: bool) {
         if cond {
             // if branch is taken, costs 1 cycle more
-            self.cpu_tick();
+            self.step_devices();
 
             // this is always Some
             let val = self.cpu.op_val.unwrap();
@@ -573,7 +573,7 @@ impl NesEmulator {
 
             // if branch occurs to different page, costs 1 cycle more
             if res & 0xff00 != self.cpu.pc & 0xff00 {
-                self.cpu_tick();
+                self.step_devices();
             }
 
             self.cpu.pc = res;
@@ -797,7 +797,7 @@ impl NesEmulator {
 
     fn jam(&mut self) {
         self.cpu.jammed = true;
-        panic!("===[SYSTEM JAMMED]===\n{:?}", self.cpu);
+        // panic!("===[SYSTEM JAMMED]===\n{:?}", self.cpu);
     }
 }
 

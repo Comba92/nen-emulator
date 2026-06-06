@@ -414,7 +414,7 @@ impl Mapper for MMC5 {
     }
 
     // https://www.nesdev.org/wiki/MMC5#Scanline_Detection_and_Scanline_IRQ
-    fn notify_ppu_addr(&mut self, mem: &mut Bus, addr: u16, _cycles: usize) {
+    fn ppu_bus_callback(&mut self, mem: &mut Bus, addr: u16, _cycles: usize) {
         if matches!(addr, 0x2000..0x3000) && addr & 0x3ff < 0x3c0 {
             self.nametbl_fetch_count += 1;
             if self.ppu_in_frame {
@@ -481,7 +481,7 @@ impl Mapper for MMC5 {
         }
     }
 
-    fn notify_cpu_addr(&mut self, mem: &mut Bus, addr: u16, val: Option<u8>) {
+    fn cpu_bus_callback(&mut self, mem: &mut Bus, addr: u16, val: Option<u8>) {
         match (addr, val) {
             (0xfffa | 0xfffb, None) => {
                 self.reset_irq(mem);
