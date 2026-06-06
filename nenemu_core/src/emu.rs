@@ -396,14 +396,14 @@ impl NesEmulator {
             io::{Read, Seek},
         };
 
-        // let mut bytes = Vec::new();
-        // let file = fs::File::open(rom_path)?;
-        // let mut reader = io::BufReader::new(file);
-        // reader.read_to_end(&mut bytes)?;
-
-        let mut file = fs::File::open(rom_path)?;
         let mut bytes = Vec::new();
-        file.read_to_end(&mut bytes)?;
+        let mut file = fs::File::open(rom_path)?;
+        let mut reader = std::io::BufReader::new(&file);
+        reader.read_to_end(&mut bytes)?;
+
+        // let mut bytes = Vec::new();
+        // let mut file = fs::File::open(rom_path)?;
+        // file.read_to_end(&mut bytes)?;
 
         let res = NesEmulator::load_rom_from_bytes(&bytes, bios);
         match res {
@@ -432,10 +432,10 @@ impl NesEmulator {
             let mut save_path = PathBuf::from(path.as_ref());
             save_path.set_extension(BATTERY_SAVE_EXTENSION);
 
-            let mut file = fs::File::create(&save_path)?;
-            // let mut reader = std::io::BufWriter::new(file);
-            // reader.write_all(sram)?;
-            file.write_all(sram)?;
+            let file = fs::File::create(&save_path)?;
+            let mut reader = std::io::BufWriter::new(file);
+            reader.write_all(sram)?;
+            // file.write_all(sram)?;
             Ok(true)
         } else {
             Ok(false)
@@ -451,11 +451,11 @@ impl NesEmulator {
         let mut load_path = PathBuf::from(path.as_ref());
         load_path.set_extension(BATTERY_SAVE_EXTENSION);
 
-        if let Ok(mut file) = fs::File::open(&load_path) {
+        if let Ok(file) = fs::File::open(&load_path) {
             let mut buf = Vec::new();
-            // let mut reader = io::BufReader::new(file);
-            // reader.read_to_end(&mut buf)?;
-            file.read_to_end(&mut buf)?;
+            let mut reader = std::io::BufReader::new(file);
+            reader.read_to_end(&mut buf)?;
+            // file.read_to_end(&mut buf)?;
             self.load_battery(&buf)
         } else {
             Err("no sram dump file found".into())
@@ -465,17 +465,17 @@ impl NesEmulator {
     #[cfg(feature = "savestates")]
     pub fn savestate<P: AsRef<Path>>(&self, path: P) -> Result<(), LoadError> {
         let mut file = std::fs::File::create(path)?;
-        pot::to_writer(self, file).map_err(|e| e.into())
-        // let writer = std::io::BufWriter::new(file);
-        // pot::to_writer(self, writer).map_err(|e| e.into())
+        // pot::to_writer(self, file).map_err(|e| e.into())
+        let writer = std::io::BufWriter::new(file);
+        pot::to_writer(self, writer).map_err(|e| e.into())
     }
 
     #[cfg(feature = "savestates")]
     pub fn loadstate<P: AsRef<Path>>(&mut self, path: P) -> Result<(), LoadError> {
         let file = std::fs::File::open(path)?;
-        // let reader = std::io::BufReader::new(file);
-        // let mut new_emu: Emu = pot::from_reader(reader)?;
-        let mut new_emu: NesEmulator = pot::from_reader(file)?;
+        let reader = std::io::BufReader::new(file);
+        let mut new_emu: NesEmulator = pot::from_reader(reader)?;
+        // let mut new_emu: NesEmulator = pot::from_reader(file)?;
 
         std::mem::swap(&mut self.mem.prg, &mut new_emu.mem.prg);
         std::mem::swap(&mut self.audiobuf, &mut new_emu.audiobuf);
