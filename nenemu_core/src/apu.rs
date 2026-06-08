@@ -498,6 +498,11 @@ impl Into<f32> for SampleRate {
     }
 }
 
+trait Resampler<T> {
+    fn set_rate(clock: usize, freq: usize);
+    fn add_sample(sample: T) -> Option<T>;
+}
+
 #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub struct AvgResampler {
     sample_avg: f32,
@@ -529,6 +534,10 @@ impl AvgResampler {
             sample_timer: 0.0,
             cycles_per_sample: self.cycles_per_sample,
         }
+    }
+
+    pub fn set_rate(&mut self, clock_rate: usize, frequency: usize) {
+        self.cycles_per_sample = clock_rate as f32 / frequency as f32
     }
 
     pub fn add_sample(&mut self, sample: f32) -> Option<f32> {
@@ -564,7 +573,7 @@ pub struct ApuRP2A {
     frame_mode: FrameMode,
     frame_write_delay: u8,
 
-    resampler: AvgResampler,
+    pub resampler: AvgResampler,
 }
 
 impl ApuRP2A {
@@ -867,6 +876,8 @@ impl NesEmulator {
         }
     }
 
+    // TODO: do this more optimally
+    // simply sum the frame count, and check if it went above the current state machine state
     fn frame_count_step_ntsc(&mut self) {
         let apu = &mut self.apu;
 

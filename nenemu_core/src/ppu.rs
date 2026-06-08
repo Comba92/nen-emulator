@@ -853,7 +853,7 @@ impl NesEmulator {
                         ppu.pixel_idx = 0;
                         ppu.odd_frame = !ppu.odd_frame;
 
-                        // self.frame_ready = false;
+                        self.frame_ready = false;
                     }
                 }
             }
@@ -959,8 +959,7 @@ impl NesEmulator {
 
                 // no sprites should be visible on the first scanline
                 self.ppu.spr_scanline.0.fill(0.into());
-
-                // self.frame_ready = false;
+                self.frame_ready = false;
             }
         }
     }

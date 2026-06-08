@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    ops::Not,
+    path::{Path, PathBuf},
+};
 
 use crate::{
     NesPalette,
@@ -51,6 +54,9 @@ impl Settings {
 pub const BIOS_CRC32: u32 = 1583381967;
 pub const BATTERY_SAVE_EXTENSION: &str = "srm";
 
+#[cfg(feature = "savestates")]
+use serde_big_array::BigArray;
+
 #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub struct NesEmulator {
     pub cpu: Cpu6502,
@@ -61,8 +67,8 @@ pub struct NesEmulator {
     pub mapper: Box<dyn Mapper>,
 
     pub frame_ready: bool,
-    #[cfg_attr(feature = "savestates", serde(skip))]
-    pub(crate) videobuf: Box<[u8]>,
+    #[cfg_attr(feature = "savestates", serde(skip, with = "BigArray"))]
+    pub(crate) videobuf: Box<[u8; FRAMEBUF_SIZE]>,
     #[cfg_attr(feature = "savestates", serde(skip))]
     pub(crate) audiobuf: RingBuffer<f32>,
 
@@ -86,6 +92,9 @@ pub const PAL_CLOCK_RATE: usize = 1662607;
 
 pub const NTSC_FRAME_RATE: f32 = 60.0988;
 pub const PAL_FRAME_RATE: f32 = 50.0070;
+
+pub const FRAMEBUF_SIZE: usize = 256 * 240 * 4;
+pub const AUDIO_FRAMES_BUFFERED: usize = 4;
 
 #[derive(Debug, Default, Clone, bitcode::Encode, bitcode::Decode)]
 #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
@@ -132,21 +141,23 @@ impl Game {
 
 impl NesEmulator {
     pub fn empty() -> Self {
-        Self {
-            cpu: Cpu6502::new(),
-            ppu: Ppu2C02::default(),
-            apu: ApuRP2A::default(),
-            joypad: Joypad::default(),
-            mem: Bus::with_cart(Cart::default()),
-            mapper: Box::new(mapper::NROM),
+        // Self {
+        //     cpu: Cpu6502::new(),
+        //     ppu: Ppu2C02::default(),
+        //     apu: ApuRP2A::default(),
+        //     joypad: Joypad::default(),
+        //     mem: Bus::with_cart(Cart::default()),
+        //     mapper: Box::new(mapper::NROM),
 
-            videobuf: vec![].into_boxed_slice(),
-            audiobuf: RingBuffer::new(0),
-            palette: NesPalette::default(),
+        //     videobuf: Box::new([255; _]),
+        //     audiobuf: RingBuffer::new(0),
+        //     palette: NesPalette::default(),
 
-            frame_ready: false,
-            settings: Settings::default(),
-        }
+        //     // frame_ready: false,
+        //     settings: Settings::default(),
+        // }
+
+        Self::new(Game::Cart(Cart::default()), None).unwrap()
     }
 
     fn new(game: Game, bios: Option<&[u8]>) -> Result<Self, LoadError> {
@@ -178,11 +189,13 @@ impl NesEmulator {
             mem,
             mapper,
 
-            videobuf: vec![255; 256 * 240 * 4].into_boxed_slice(),
-            audiobuf: RingBuffer::new((4.0 * (sample_rate / frame_rate)) as usize),
-            palette,
-
             frame_ready: false,
+            videobuf: Box::new([255; _]),
+            audiobuf: RingBuffer::new(
+                (AUDIO_FRAMES_BUFFERED as f32 * (sample_rate / frame_rate)) as usize,
+            ),
+
+            palette,
             settings: Settings::new(),
         };
 
@@ -232,34 +245,42 @@ impl NesEmulator {
     }
 
     pub fn step_until_frame_ready(&mut self) -> Result<(), &'static str> {
-        while self.mem.nmi {
+        while self.is_frame_ready() {
             self.cpu_step();
         }
 
-        while !self.mem.nmi {
+        while !self.is_frame_ready() {
             self.cpu_step();
         }
 
         self.cpu
             .jammed
+            .not()
             .then(|| ())
-            .ok_or("cpu panicked (reached a jam instruction or unimplemented illegal")
+            .ok_or("cpu panicked (reached a jam instruction or unimplemented illegal)")
+    }
+
+    pub fn is_frame_ready(&self) -> bool {
+        self.frame_ready
     }
 
     pub fn step_until_samples_or_frame_ready(
         &mut self,
         samples_amt: usize,
     ) -> Result<(), &'static str> {
-        self.frame_ready = false;
+        while self.audio_queued() < samples_amt && self.is_frame_ready() {
+            self.cpu_step();
+        }
 
-        while self.audio_queued() < samples_amt && !self.frame_ready {
+        while self.audio_queued() < samples_amt && !self.is_frame_ready() {
             self.cpu_step();
         }
 
         self.cpu
             .jammed
+            .not()
             .then(|| ())
-            .ok_or("cpu panicked (reached a jam instruction or unimplemented illegal")
+            .ok_or("cpu panicked (reached a jam instruction or unimplemented illegal)")
     }
 
     pub fn emu_reset(&mut self) {
@@ -271,53 +292,7 @@ impl NesEmulator {
         // TODO: some mappers need to be reset too
     }
 
-    pub fn save_battery(&self) -> Option<&[u8]> {
-        if self.mem.header.has_battery {
-            if self.mem.header.mapper == 1 && self.mem.wram.len() == 16 * 1024 {
-                // https://www.nesdev.org/wiki/MMC1#SxROM_board_types
-                // Even if the SOROM and SZROM boards utilizes a battery, it is connected to only one PRG-RAM chip. The first RAM chip will not retain its data, but the second one will.
-                return Some(&self.mem.wram[8 * 1024..]);
-            }
-
-            if self.mem.header.mapper == 5 && self.mem.wram.len() == 16 * 1024 {
-                // https://www.nesdev.org/wiki/MMC5#Other_PRG-RAM_notes
-                // Games with 16K PRG-RAM only battery-save the first 8K.
-                return Some(&self.mem.wram[..8 * 1024]);
-            }
-
-            Some(&self.mem.wram)
-        } else {
-            None
-        }
-    }
-
-    pub fn load_battery(&mut self, bytes: &[u8]) -> Result<(), LoadError> {
-        if !self.header().has_battery {
-            return Ok(());
-        } else if bytes.len() != self.mem.wram.len() {
-            return Err("invalid save ram dump provided, size don't match".into());
-        } else {
-            if self.mem.header.mapper == 1 && self.mem.wram.len() == 16 * 1024 {
-                // https://www.nesdev.org/wiki/MMC1#SxROM_board_types
-                // Even if the SOROM and SZROM boards utilizes a battery, it is connected to only one PRG-RAM chip. The first RAM chip will not retain its data, but the second one will.
-                self.mem.wram[8 * 1024..].copy_from_slice(bytes)
-            } else if self.mem.header.mapper == 5 && self.mem.wram.len() == 16 * 1024 {
-                // https://www.nesdev.org/wiki/MMC5#Other_PRG-RAM_notes
-                // Games with 16K PRG-RAM only battery-save the first 8K.
-                self.mem.wram[..8 * 1024].copy_from_slice(bytes)
-            } else {
-                self.mem.wram.copy_from_slice(bytes);
-            }
-
-            Ok(())
-        }
-    }
-
-    pub fn is_frame_ready(&self) -> bool {
-        self.frame_ready
-    }
-
-    pub fn get_video_rgba(&self) -> &[u8] {
+    pub fn get_video_rgba(&mut self) -> &[u8; FRAMEBUF_SIZE] {
         // for (i, color) in self
         //     .videobuf
         //     .iter()
@@ -333,7 +308,7 @@ impl NesEmulator {
         &self.videobuf
     }
 
-    pub fn get_nametables_rgba(&mut self, buf: &mut [u8]) {
+    pub fn get_nametables_rgba(&self, buf: &mut [u8]) {
         let pttrntbl = self.ppu.ctrl.bg_pttrntbl_addr;
 
         for table in 0..4 {
@@ -383,6 +358,12 @@ impl NesEmulator {
         self.audiobuf.queued()
     }
 
+    pub fn set_audio_rate(&mut self, rate: usize) {
+        self.apu
+            .resampler
+            .set_rate(self.region().clock_rate(), rate);
+    }
+
     pub fn get_audio_f32(&mut self, amount: usize) -> (&[f32], Option<&[f32]>) {
         self.audiobuf.take_available_contiguos(amount)
     }
@@ -422,6 +403,48 @@ impl NesEmulator {
                     res
                 }
             }
+        }
+    }
+
+    pub fn save_battery(&self) -> Option<&[u8]> {
+        if self.mem.header.has_battery {
+            if self.mem.header.mapper == 1 && self.mem.wram.len() == 16 * 1024 {
+                // https://www.nesdev.org/wiki/MMC1#SxROM_board_types
+                // Even if the SOROM and SZROM boards utilizes a battery, it is connected to only one PRG-RAM chip. The first RAM chip will not retain its data, but the second one will.
+                return Some(&self.mem.wram[8 * 1024..]);
+            }
+
+            if self.mem.header.mapper == 5 && self.mem.wram.len() == 16 * 1024 {
+                // https://www.nesdev.org/wiki/MMC5#Other_PRG-RAM_notes
+                // Games with 16K PRG-RAM only battery-save the first 8K.
+                return Some(&self.mem.wram[..8 * 1024]);
+            }
+
+            Some(&self.mem.wram)
+        } else {
+            None
+        }
+    }
+
+    pub fn load_battery(&mut self, bytes: &[u8]) -> Result<(), LoadError> {
+        if !self.header().has_battery {
+            return Ok(());
+        } else if bytes.len() != self.mem.wram.len() {
+            return Err("invalid save ram dump provided, size don't match".into());
+        } else {
+            if self.mem.header.mapper == 1 && self.mem.wram.len() == 16 * 1024 {
+                // https://www.nesdev.org/wiki/MMC1#SxROM_board_types
+                // Even if the SOROM and SZROM boards utilizes a battery, it is connected to only one PRG-RAM chip. The first RAM chip will not retain its data, but the second one will.
+                self.mem.wram[8 * 1024..].copy_from_slice(bytes)
+            } else if self.mem.header.mapper == 5 && self.mem.wram.len() == 16 * 1024 {
+                // https://www.nesdev.org/wiki/MMC5#Other_PRG-RAM_notes
+                // Games with 16K PRG-RAM only battery-save the first 8K.
+                self.mem.wram[..8 * 1024].copy_from_slice(bytes)
+            } else {
+                self.mem.wram.copy_from_slice(bytes);
+            }
+
+            Ok(())
         }
     }
 

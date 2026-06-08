@@ -300,29 +300,6 @@ pub struct Bus {
     pub header: RomData,
     pub banks: BanksHandler,
 }
-// impl Default for Bus {
-//     fn default() -> Self {
-//         Self {
-//             ram: [0; 2 * 1024],
-//             prg: vec![].into_boxed_slice(),
-//             chr: vec![].into_boxed_slice(),
-//             vram: vec![],
-//             wram: vec![].into_boxed_slice(),
-
-//             cpu_handlers_8kb: std::array::from_fn(|_| CpuHandler::OpenBus),
-//             ppu_handlers_1kb: std::array::from_fn(|_| PpuHandler::OpenBus),
-
-//             cpu_open_bus: 0,
-//             ppu_open_bus: 0,
-
-//             nmi: false,
-//             irq: IrqFlags::empty(),
-
-//             header: RomData::default(),
-//             banks: BanksHandler::default(),
-//         }
-//     }
-// }
 
 impl Bus {
     pub fn with_cart(cart: Cart) -> Self {
@@ -374,16 +351,19 @@ impl Bus {
 
     pub fn with_disk(disk: Disk, bios: &[u8]) -> (Self, BoxedMapper) {
         let mut header = RomData::default();
+        // only for debug porpuoses
         header.format = rom::HeaderFormat::Fds;
         header.mapper = 20;
         header.has_chr_ram = true;
+        header.prg_size = 8 * 1024;
+        header.wram_size = 32 * 1024;
 
         let mut banks = BanksHandler {
             // keep like this so we can just use the standard prg handler
             prg: Banking::new(0xe000, 8 * 1024, 8 * 1024, 1),
-            wram: Banking::new(0x6000, 32 * 1024, 32 * 1024, 1),
             chr: Banking::new(0x0000, 8 * 1024, 8 * 1024, 1),
             vram: Banking::new(0x2000, 2 * 1024, 4 * 1024, 4),
+            wram: Banking::new(0x6000, 32 * 1024, 32 * 1024, 1),
         };
 
         banks.vram.mirror(&Mirroring::Horizontal);
@@ -559,8 +539,8 @@ impl NesEmulator {
         self.mem.cpu_open_bus = val;
     }
 
-    pub fn ppu_debug_read(&mut self, addr: u16) -> u8 {
-        let mem = &mut self.mem;
+    pub fn ppu_debug_read(&self, addr: u16) -> u8 {
+        let mem = &self.mem;
 
         let addr = addr & 0x3fff;
         let handler_id = (addr >> 10) % 16;

@@ -65,6 +65,7 @@ pub struct Cpu6502 {
     irq_to_set: Option<bool>,
     // TODO: move this out in bus?
     pub cycles: usize,
+    // TODO: add more debugging info at jammed state
     pub jammed: bool,
 }
 

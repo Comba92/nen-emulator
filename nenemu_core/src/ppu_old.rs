@@ -1,6 +1,5 @@
 use crate::{
-    dma::Dma,
-    emu::{Emu, Region},
+    emu::{NesEmulator, Region},
     utils::{byte_set_hi, byte_set_lo},
 };
 use bitflags::Flags;
@@ -59,9 +58,8 @@ impl Default for CtrlStrut {
 }
 
 #[bitfields::bitfield(u16)]
-#[derive(Clone, Copy)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-struct LoopyReg {
+pub struct LoopyReg {
     #[bits(5)]
     coarse_x: u8,
     #[bits(5)]
@@ -162,7 +160,6 @@ impl Default for Oam {
 }
 
 #[bitfields::bitfield(u8)]
-#[derive(Clone, Copy)]
 struct SprScanlineData {
     #[bits(2)]
     pixel: u8,
@@ -190,7 +187,7 @@ pub struct Ppu2C02 {
     mask: Mask,
     stat: Status,
 
-  v: LoopyReg,
+    pub v: LoopyReg,
     t: LoopyReg,
     x: u8,
     w: bool,
@@ -204,7 +201,7 @@ pub struct Ppu2C02 {
     oam_tmp_count: u8,
     #[cfg_attr(feature = "serde", serde(skip))]
     spr_scanline: SprScanline,
-    pub dma: Dma,
+    pub dma: Option<u16>,
 
     // TODO: palettes are weird, accessing them doesnt change ppu addr bus, investigate
     pub palettes: [u8; 32],
@@ -214,7 +211,7 @@ pub struct Ppu2C02 {
     scanline_last: i16,
     pub pixel: usize,
 
-  // https://www.nesdev.org/wiki/PPU_frame_timing
+    // https://www.nesdev.org/wiki/PPU_frame_timing
     odd_frame: bool,
     vblank_suppress: bool,
     nmi_suppress: bool,
@@ -243,7 +240,7 @@ impl Ppu2C02 {
     fn palette_from_attribute(&self, attr: u8) -> u8 {
         let v = self.v.0;
 
-    // if v.coarse_y() & 0x2 != 0 { attr >>= 4; }
+        // if v.coarse_y() & 0x2 != 0 { attr >>= 4; }
         // if v.coarse_x() & 0x2 != 0 { attr >>= 2; }
 
         let shift = ((v & 0x40) >> 4) | (v & 0x02);
@@ -259,6 +256,21 @@ impl Ppu2C02 {
         };
 
         res
+    }
+
+    pub fn palettes_write(&mut self, addr: u16, val: u8) {
+        let pal = addr as usize % 32;
+        let val = val & 0x3f;
+
+        // if we're writing a transparent color
+        if pal % 4 == 0 {
+            // write both backdrop colors
+            self.palettes[pal & 0xf] = val;
+            self.palettes[(pal & 0xf) | 0x10] = val;
+        } else {
+            // write palette color as is
+            self.palettes[pal] = val;
+        }
     }
 
     fn oam_read(&mut self) -> u8 {
@@ -301,7 +313,7 @@ impl Ppu2C02 {
     }
 
     fn bg_pttrn_addr(&self) -> u16 {
-        self.ctrl.bg_pttrntbl_addr| ((self.fetcher.nametbl as u16) << 4) | self.v.fine_y() as u16
+        self.ctrl.bg_pttrntbl_addr | ((self.fetcher.nametbl as u16) << 4) | self.v.fine_y() as u16
 
         // self.ctrl.bg_pttrntbl_addr
         //   + ((self.fetcher.nametbl as u16) * 16)
@@ -312,11 +324,11 @@ impl Ppu2C02 {
         // after evaluation, we are 100% sure scanline is always bigger than y
         let dist = self.scanline - sprite.y as i16;
 
-    let fine_y = if sprite.flip_vert() { 7 - dist } else { dist } as u16;
+        let fine_y = if sprite.flip_vert() { 7 - dist } else { dist } as u16;
 
         if self.ctrl.spr_size == 8 {
             // 8x8 sprites
-            self.ctrl.spr_pttrntbl_addr| ((sprite.tile_id as u16) << 4) | fine_y & 0b111
+            self.ctrl.spr_pttrntbl_addr | ((sprite.tile_id as u16) << 4) | fine_y & 0b111
         } else {
             // 8x16 sprites
             let mut bottom_tile = dist >= 8;
@@ -325,7 +337,7 @@ impl Ppu2C02 {
                 bottom_tile = !bottom_tile;
             }
 
-      // For 8x16 sprites (bit 5 of PPUCTRL set), the PPU ignores the pattern table selection and selects a pattern table from bit 0 of this number.
+            // For 8x16 sprites (bit 5 of PPUCTRL set), the PPU ignores the pattern table selection and selects a pattern table from bit 0 of this number.
             (sprite.tile_id as u16 & 1) << 12
                 | (((sprite.tile_id & !1) as u16 | bottom_tile as u16) << 4)
                 | fine_y & 0b111
@@ -334,7 +346,7 @@ impl Ppu2C02 {
 
     fn rendering_enabled(&self) -> bool {
         self.mask.contains(Mask::BgEnable) || self.mask.contains(Mask::SprEnable)
-  }
+    }
 
     fn is_rendering(&self) -> bool {
         self.rendering_enabled() && self.scanline < 240
@@ -350,7 +362,7 @@ impl Ppu2C02 {
         shifter.shift_ptrn_lo = byte_set_lo(shifter.shift_ptrn_lo, fetcher.pttrn_lo);
         shifter.shift_ptrn_hi = byte_set_lo(shifter.shift_ptrn_hi, fetcher.pttrn_hi);
 
-    // For the attributes data, only 2 bits are transferred and into two 1-bit latches that feed 8-bit shift registers.
+        // For the attributes data, only 2 bits are transferred and into two 1-bit latches that feed 8-bit shift registers.
         // Here for conveniece, we use 16-bit shift registers too.
         let attr_lo = if fetcher.attribute & 0b01 != 0 {
             0xff
@@ -359,7 +371,7 @@ impl Ppu2C02 {
         };
         shifter.shift_attr_lo = byte_set_lo(shifter.shift_attr_lo, attr_lo);
 
-    let attr_hi = if fetcher.attribute & 0b10 != 0 {
+        let attr_hi = if fetcher.attribute & 0b10 != 0 {
             0xff
         } else {
             0
@@ -410,10 +422,10 @@ impl Ppu2C02 {
             // if fine Y < 7
             v.set_fine_y(v.fine_y() + 1); // increment fine Y
         } else {
-        v.set_fine_y(0); // fine Y = 0
+            v.set_fine_y(0); // fine Y = 0
             let mut y = v.coarse_y(); // let y = coarse Y
 
-      if y == 29 {
+            if y == 29 {
                 y = 0; // coarse Y = 0
                 v.set_nametbl_y(!v.nametbl_y()); // switch vertical nametable
             } else if y == 31 {
@@ -452,12 +464,12 @@ impl Ppu2C02 {
     }
 }
 
-impl Emu {
+impl NesEmulator {
     fn increase_vram_addr(&mut self) {
         let ppu = &mut self.ppu;
         // if !ppu.is_rendering() {
         ppu.v.0 = (ppu.v.0 + ppu.ctrl.vram_addr_inc) & 0x3fff;
-        self.update_ppu_bus(self.ppu.v.0);
+        // self.update_ppu_bus(self.ppu.v.0);
         // } else {
         // https://www.nesdev.org/wiki/PPU_scrolling#$2007_(PPUDATA)_reads_and_writes
         //   self.inc_scroll_x();
@@ -469,13 +481,13 @@ impl Emu {
     pub fn ppu_reg_read(&mut self, addr: u16) -> u8 {
         let ppu = &mut self.ppu;
 
-    let res = match addr {
+        let res = match addr {
             // Status
             0x2002 => {
                 // Reading this register has the side effect of clearing the PPU's internal w register.
                 ppu.w = false;
 
-        // Reading $2002 within a few PPU clocks of when VBL is set results in special-case behavior.
+                // Reading $2002 within a few PPU clocks of when VBL is set results in special-case behavior.
                 // Reading one PPU clock before reads it as clear and never sets the flag or generates NMI for that frame.
                 // Reading on the same PPU clock or one later reads it as set, clears it, and suppresses the NMI for that frame.
                 //  Reading two or more PPU clocks before/after it's set behaves normally (reads flag's value, clears it, and doesn't affect NMI operation).
@@ -488,7 +500,7 @@ impl Emu {
                         ppu.stat.insert(Status::Vblank);
                     }
 
-          self.mem.nmi = false;
+                    self.mem.nmi = false;
                     ppu.nmi_suppress = true;
                 }
 
@@ -514,7 +526,7 @@ impl Emu {
     pub fn ppu_reg_write(&mut self, addr: u16, val: u8) {
         let ppu = &mut self.ppu;
 
-    match addr {
+        match addr {
             // Ctrl
             0x2000 => {
                 let old_nmi_enabled = ppu.ctrl.vblank_nmi_enabled;
@@ -544,10 +556,10 @@ impl Emu {
             // Mask
             0x2001 => {
                 ppu.mask = Mask::from_bits_retain(val);
-                if !ppu.rendering_enabled() {
-                    // During VBlank and when rendering is disabled, the value on the PPU address bus is the current value of the v register.
-                    self.update_ppu_bus(self.ppu.v.0);
-                }
+                // if !ppu.rendering_enabled() {
+                //     // During VBlank and when rendering is disabled, the value on the PPU address bus is the current value of the v register.
+                //     self.update_ppu_bus(self.ppu.v.0);
+                // }
             }
             // OamAddr
             0x2003 => ppu.oam_addr = val,
@@ -582,7 +594,7 @@ impl Emu {
                     true => {
                         ppu.t.0 = byte_set_lo(ppu.t.0, val);
                         ppu.v.0 = ppu.t.0;
-                        self.update_ppu_bus(self.ppu.v.0);
+                        // self.update_ppu_bus(self.ppu.v.0);
                     }
                 }
                 self.ppu.w = !self.ppu.w;
@@ -598,18 +610,18 @@ impl Emu {
     fn ppu_read8(&mut self) -> u8 {
         // This read buffer is updated on every PPUDATA read, but only after the previous contents have been returned to the CPU, effectively delaying PPUDATA reads by one.
 
-    let res = if self.ppu.v.0 >= 0x3f00 {
+        let res = if self.ppu.v.0 >= 0x3f00 {
             // https://www.nesdev.org/wiki/PPU_registers#Reading_palette_RAM
             // The value on the nametable at $2700 through $27FF should be put in the buffer when reading from palette RAM at $3F00 through $3FFF.
             self.ppu.ppu_data = self.ppu_dispatch_read(self.ppu.v.0 & 0x27ff);
-        self.ppu.palettes_read(self.ppu.v.0) | self.ppu.open_bus & 0xc0
+            self.ppu.palettes_read(self.ppu.v.0) | self.ppu.open_bus & 0xc0
         } else {
             let val = self.ppu.ppu_data;
             self.ppu.ppu_data = self.ppu_dispatch_read(self.ppu.v.0);
             val
         };
 
-    self.increase_vram_addr();
+        self.increase_vram_addr();
 
         res
     }
@@ -622,7 +634,7 @@ impl Emu {
     fn bg_fetch_step(&mut self) {
         self.ppu.shifter_update();
 
-    // Each memory fetch takes 2 dots: on the 1st, the full address is placed onto the PPU's address bus and the low 8 bits are stored into an external address latch, and on the 2nd, the read is performed.
+        // Each memory fetch takes 2 dots: on the 1st, the full address is placed onto the PPU's address bus and the low 8 bits are stored into an external address latch, and on the 2nd, the read is performed.
         // we dont care, and do evrything on the first dot
 
         // we do cycle - 1 as we skip the idle cycle to be aligned to 8
@@ -657,7 +669,7 @@ impl Emu {
     fn spr_fetch_step(&mut self) {
         let ppu = &mut self.ppu;
 
-    // these are still aligned by 8
+        // these are still aligned by 8
         match (ppu.dots - 1) % 8 {
             0 => {
                 // unused nt fetch
@@ -750,7 +762,7 @@ impl Emu {
                 let mut pttrn_lo = self.ppu_debug_read(pttrn_addr);
                 let mut pttrn_hi = self.ppu_debug_read(pttrn_addr + 8);
 
-        if flip_hori {
+                if flip_hori {
                     pttrn_lo = pttrn_lo.reverse_bits();
                     pttrn_hi = pttrn_hi.reverse_bits();
                 }
@@ -759,7 +771,7 @@ impl Emu {
                 sprite.pttrn_lo = pttrn_lo;
                 sprite.pttrn_hi = pttrn_hi;
             }
-    }
+        }
 
         let ppu = &mut self.ppu;
         for sprite in ppu.oam_tmp.iter().take(ppu.oam_tmp_count as usize) {
@@ -768,7 +780,7 @@ impl Emu {
                 let x = sprite.x.saturating_add(col) as usize;
                 let scanline_pixel = &ppu.spr_scanline.0[x];
 
-        if scanline_pixel.pixel() == 0 {
+                if scanline_pixel.pixel() == 0 {
                     let mask = 0x80 >> col;
                     let curr_pixel_lo = sprite.pttrn_lo & mask > 0;
                     let curr_pixel_hi = sprite.pttrn_hi & mask > 0;
@@ -802,7 +814,7 @@ impl Emu {
         let ppu = &mut self.ppu;
         let pixel_x = ppu.dots as usize - 1;
 
-    // TODO: should be moved to different function for first 8 pixels?
+        // TODO: should be moved to different function for first 8 pixels?
         let in_lstrip = pixel_x < 8;
         let bg_visible = !in_lstrip || ppu.mask.contains(Mask::ShowBgLeft);
         let spr_visible = !in_lstrip || ppu.mask.contains(Mask::ShowSprLeft);
@@ -810,7 +822,7 @@ impl Emu {
         let lstrip_bg_mask = ((bg_visible as u8) << 1) | bg_visible as u8;
         let lstrip_spr_mask = ((spr_visible as u8) << 1) | spr_visible as u8;
 
-    // On every dot in these background fetch regions, a 4-bit pixel is selected by the fine x register from the low 8 bits of the pattern and attributes shift registers, which are then shifted.
+        // On every dot in these background fetch regions, a 4-bit pixel is selected by the fine x register from the low 8 bits of the pattern and attributes shift registers, which are then shifted.
         let (mut bg_pixel, bg_palette) = ppu.shifter_get_pixel_n_palette();
         bg_pixel &= lstrip_bg_mask;
 
@@ -820,7 +832,7 @@ impl Emu {
         if !ppu.stat.contains(Status::Spr0Hit) {
             // https://www.nesdev.org/wiki/PPU_OAM#Sprite_0_hits
             // https://www.nesdev.org/wiki/PPU_registers#Sprite_0_hit_flag
-            let spr0_hit =spr_data.spr0()
+            let spr0_hit = spr_data.spr0()
                 && ppu.mask.contains(Mask::BgEnable)
                 && ppu.mask.contains(Mask::SprEnable)
                 && spr_pixel > 0
@@ -831,7 +843,7 @@ impl Emu {
         }
 
         // TODO: can do this without ifs?
-        let color_id = if ppu.mask.contains(Mask::SprEnable)
+        let mut color_id = if ppu.mask.contains(Mask::SprEnable)
             && spr_pixel > 0
             && (spr_data.priority() || bg_pixel == 0)
         {
@@ -844,11 +856,13 @@ impl Emu {
 
         // TODO: color emphasis
         if self.ppu.mask.contains(Mask::GreyScale) {
-            self.videobuf[self.ppu.pixel] = color_id & 0x30;
-        } else {
-            self.videobuf[self.ppu.pixel] = color_id;
+            color_id = color_id & 0x30;
         }
-        self.ppu.pixel += 1;
+
+        self.videobuf[self.ppu.pixel + 0] = self.palette.0[color_id as usize].0;
+        self.videobuf[self.ppu.pixel + 1] = self.palette.0[color_id as usize].1;
+        self.videobuf[self.ppu.pixel + 2] = self.palette.0[color_id as usize].2;
+        self.ppu.pixel += 4;
     }
 
     // https://forums.nesdev.org/viewtopic.php?t=8066
@@ -862,19 +876,19 @@ impl Emu {
             -1 => self.prerender_step(),
             0..=239 => self.render_step(),
 
-      // During VBlank and when rendering is disabled, the value on the PPU address bus is the current value of the v register.
+            // During VBlank and when rendering is disabled, the value on the PPU address bus is the current value of the v register.
             240 => {
-                if self.ppu.dots == 0 && !self.ppu.rendering_enabled() {
-                    self.update_ppu_bus(self.ppu.v.0);
-                }
+                // if self.ppu.dots == 0 && !self.ppu.rendering_enabled() {
+                //     self.update_ppu_bus(self.ppu.v.0);
+                // }
             }
             241 => {
                 if self.ppu.dots == 0 {
                     self.ppu.stat.set(Status::Vblank, !self.ppu.vblank_suppress);
                     self.mem.nmi = self.ppu.ctrl.vblank_nmi_enabled && !self.ppu.nmi_suppress;
 
-            self.frame_ready = true;
-                    self.mem.ppu_frame += 1;
+                    self.frame_ready = true;
+                    // self.mem.ppu_frame += 1;
                 }
             }
             _ => {}
@@ -890,19 +904,20 @@ impl Emu {
             if ppu.scanline >= ppu.scanline_last {
                 ppu.scanline = -1;
 
-        ppu.pixel = 0;
+                ppu.pixel = 0;
                 ppu.odd_frame = !ppu.odd_frame;
                 ppu.vblank_suppress = false;
                 ppu.nmi_suppress = false;
 
                 // first scanline shouldn't render any sprite
                 ppu.spr_scanline.0.fill(0.into());
+                self.frame_ready = false;
             }
         }
 
         // TODO: for debug
-        self.mem.ppu_cycle = self.ppu.dots;
-        self.mem.ppu_scanline = self.ppu.scanline;
+        // self.mem.ppu_cycle = self.ppu.dots;
+        // self.mem.ppu_scanline = self.ppu.scanline;
     }
 
     fn render_step(&mut self) {
@@ -910,8 +925,10 @@ impl Emu {
 
         if !ppu.rendering_enabled() {
             if matches!(ppu.dots, 1..=256) {
-                self.videobuf[self.ppu.pixel] = self.bg_color_from_palette(0, 0);
-                self.ppu.pixel += 1;
+                self.videobuf[self.ppu.pixel + 0] = self.bg_color_from_palette(0, 0);
+                self.videobuf[self.ppu.pixel + 1] = self.bg_color_from_palette(0, 0);
+                self.videobuf[self.ppu.pixel + 2] = self.bg_color_from_palette(0, 0);
+                self.ppu.pixel += 4;
             }
             return;
         }
@@ -953,7 +970,7 @@ impl Emu {
             return;
         }
 
-    match ppu.dots {
+        match ppu.dots {
             0 => {
                 ppu.stat.clear();
                 self.bg_fetch_step();
@@ -985,4 +1002,3 @@ impl Emu {
         }
     }
 }
-

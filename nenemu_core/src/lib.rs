@@ -30,9 +30,10 @@ pub mod utils {
 
     #[derive(Default, Debug)]
     pub struct RingBuffer<T> {
-        pub data: Box<[T]>,
+        pub(crate) data: Box<[T]>,
         head: usize,
         tail: usize,
+        queued: usize,
     }
     impl<T: Default + Clone> RingBuffer<T> {
         pub fn new(size: usize) -> Self {
@@ -40,6 +41,7 @@ pub mod utils {
                 data: vec![T::default(); size].into_boxed_slice(),
                 head: 0,
                 tail: 0,
+                queued: 0,
             }
         }
     }
@@ -48,11 +50,14 @@ pub mod utils {
         pub fn push(&mut self, val: T) {
             self.data[self.tail] = val;
             self.tail = (self.tail + 1) % self.data.len();
+            self.queued += 1;
         }
 
-        pub fn pop(&mut self) -> &T {
-            let res = &self.data[self.head];
+        pub fn pop(&mut self) -> &mut T {
+            let head = self.head;
             self.head = (self.head + 1) % self.data.len();
+            self.queued = self.queued.saturating_sub(1);
+            let res = &mut self.data[head];
             res
         }
 
@@ -65,6 +70,7 @@ pub mod utils {
             self.tail >= self.head
         }
 
+        // TODO: consider inlining queued field
         pub fn queued(&self) -> usize {
             if self.is_queued_all_contiguos() {
                 // tail is right of head, consecutive
@@ -73,6 +79,7 @@ pub mod utils {
                 // tail is left of head, not consecutive
                 self.tail + self.queued_contiguos()
             }
+            // self.queued
         }
 
         pub fn queued_contiguos(&self) -> usize {
@@ -107,6 +114,8 @@ pub mod utils {
             };
 
             self.head = (self.head + amount) % self.data.len();
+            self.queued = self.queued.saturating_sub(amount);
+
             (right, left)
         }
     }

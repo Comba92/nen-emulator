@@ -43,7 +43,7 @@ fn emulation_thread_proc(
     video_chain: Arc<Mutex<RingBuffer<Vec<u8>>>>,
     samples_needed: usize,
 ) {
-    let frame_rate = time::Duration::from_secs_f32(1.0 / 288.0);
+    let frame_rate = time::Duration::from_secs_f32(1.0 / 60.0);
     loop {
         let frame_start = time::Instant::now();
 
@@ -52,11 +52,11 @@ fn emulation_thread_proc(
             // while emu_lock.audio_queued() < samples_needed * 2 && !emu_lock.is_frame_ready() {
             //     emu_lock.cpu_step();
             // }
-            while emu_lock.audio_queued() < samples_needed * 2 {
-                emu_lock
-                    .step_until_samples_or_frame_ready(samples_needed * 2)
-                    .unwrap();
-                // emu_lock.step_until_frame_ready().unwrap();
+            while emu_lock.audio_queued() < samples_needed {
+                // emu_lock
+                //     .step_until_samples_or_frame_ready(samples_needed)
+                //     .unwrap();
+                emu_lock.step_until_frame_ready().unwrap();
 
                 if emu_lock.is_frame_ready() {
                     let buf = emu_lock.get_video_rgba();
@@ -123,7 +123,11 @@ fn main() {
         .build()
         .unwrap();
 
-    let mut canvas = window.into_canvas().present_vsync().build().unwrap();
+    let mut canvas = window
+        .into_canvas()
+        // .present_vsync()
+        .build()
+        .unwrap();
     canvas.set_logical_size(256, 240).unwrap();
     let texture_creator = canvas.texture_creator();
     let mut tex = texture_creator
@@ -150,40 +154,49 @@ fn main() {
     // let emu = NesEmulator::load_rom_from_file(&rom_path, Some(bios)).unwrap();
     // let mut frame_rate = (1.0 / emu.region().frame_rate() * 1000.0).round() as u64;
     // let frame_rate = time::Duration::from_secs_f32(1.0 / 144.0);
+    let frame_rate = time::Duration::from_secs_f32(1.0 / emu.region().frame_rate());
 
     let video_chain = arc_mutex(nenemu_core::utils::RingBuffer::new(8));
+    // let video_chain = nenemu_core::utils::RingBuffer::new(8);
 
     let emu = arc_mutex(emu);
     let emu_shared_clone1 = Arc::clone(&emu);
     let emu_shared_clone2 = Arc::clone(&emu);
-    let video_chain_shared_clone = Arc::clone(&video_chain);
+    // let video_chain_shared_clone = Arc::clone(&video_chain);
 
     let audiospec = AudioSpecDesired {
         channels: Some(1),
         freq: Some(44100),
-        samples: Some(256),
+        samples: None,
     };
 
-    let audiocb = audio
-        .open_playback(None, &audiospec, move |_| AudioHandler {
-            emu: emu_shared_clone2,
-        })
-        .unwrap();
-    audiocb.resume();
+    // let audiocb = audio
+    //     .open_playback(None, &audiospec, move |_| AudioHandler {
+    //         emu: emu_shared_clone2,
+    //     })
+    //     .unwrap();
+    // audiocb.resume();
 
-    let samples_needed = audiocb.spec().samples;
-    // let samples_needed = 44100 / 60;
-    let _ = thread::Builder::new()
-        .name("emulation".into())
-        .spawn(move || {
-            emulation_thread_proc(
-                emu_shared_clone1,
-                video_chain_shared_clone,
-                samples_needed as usize,
-            )
-        });
+    let audioqueue = audio.open_queue(None, &audiospec).unwrap();
+    audioqueue.resume();
 
-    println!("{:?}", audiocb.spec());
+    // let samples_needed = audiocb.spec().samples;
+    // // let samples_needed = 44100 / 60;
+    // let _ = thread::Builder::new()
+    //     .name("emulation".into())
+    //     .spawn(move || {
+    //         emulation_thread_proc(
+    //             emu_shared_clone1,
+    //             video_chain_shared_clone,
+    //             samples_needed as usize,
+    //         )
+    //     });
+
+    // println!("{:?}", audiocb.spec());
+    println!("{:?}", audioqueue.spec());
+
+    let mut avg_queue = 1.0;
+    let mut current_rate = 44100.0;
 
     'running: loop {
         // let frame_start = timer.ticks64();
@@ -353,11 +366,43 @@ fn main() {
         canvas.clear();
 
         {
+            let mut emu_lock = emu.lock().unwrap();
+
+            let queued = audioqueue.size() as usize / size_of::<f32>();
+            let size = audioqueue.spec().samples as usize;
+
+            const alpha: f32 = 0.01;
+            // avg_queue = size as f32 * alpha + avg_queue * (1.0 - alpha);
+            const target: f32 = (44100.0 / 60.0) * 3.0;
+
+            current_rate = current_rate + 0.005 * (target - queued as f32);
+            println!("{current_rate}");
+
+            emu_lock.set_audio_rate(current_rate as usize);
+
+            emu_lock.step_until_frame_ready().unwrap();
+            video_chain
+                .lock()
+                .unwrap()
+                .push(emu_lock.get_video_rgba().to_vec().into_boxed_slice());
+
+            let available = emu_lock.audio_queued();
+            if available > target as usize {
+                let (right, left) = emu_lock.get_audio_f32(available);
+                audioqueue.queue_audio(right).unwrap();
+
+                if let Some(left) = left {
+                    audioqueue.queue_audio(left).unwrap();
+                }
+            }
+        }
+
+        {
             let mut video_lock = video_chain.lock().unwrap();
             if video_lock.queued() > 0 {
                 let framebuf = video_lock.pop();
                 tex.with_lock(None, |pixels, _| {
-                    pixels.copy_from_slice(&framebuf);
+                    pixels.copy_from_slice(framebuf);
                 })
                 .unwrap();
             }
@@ -385,10 +430,16 @@ fn main() {
         // if frame_duration < frame_rate {
         //     thread::sleep(frame_rate - frame_duration);
         // }
+
         // let frame_rate = Duration::from_secs_f32(1.0 / 60.0);
         // let frame_duration = time::Instant::now() - frame_start;
         // if frame_duration < frame_rate {
         //     thread::sleep(frame_rate - frame_duration);
         // }
+
+        let frame_duration = time::Instant::now() - frame_start;
+        if frame_duration < frame_rate {
+            thread::sleep(frame_rate - frame_duration);
+        }
     }
 }
