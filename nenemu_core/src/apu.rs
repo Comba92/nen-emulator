@@ -487,8 +487,8 @@ enum FrameMode {
 #[derive(Default)]
 pub enum SampleRate {
     Hz32000 = 32000,
-    #[default]
     Hz44100 = 44100,
+    #[default]
     Hz48000 = 48000,
     Hz96000 = 96000,
 }
@@ -512,7 +512,7 @@ pub struct AvgResampler {
 }
 impl Default for AvgResampler {
     fn default() -> Self {
-        Self::new(NTSC_CLOCK_RATE, SampleRate::Hz44100)
+        Self::new(NTSC_CLOCK_RATE, SampleRate::default())
     }
 }
 

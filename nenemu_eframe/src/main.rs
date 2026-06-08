@@ -1,3 +1,4 @@
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use eframe::{App, egui};
 use nenemu_core::{emu::NesEmulator, utils::RingBuffer};
 use std::{
@@ -64,13 +65,13 @@ impl SdlCtx {
         let audiospec = sdl2::audio::AudioSpecDesired {
             channels: Some(1),
             freq: Some(sample_rate as i32),
-            samples: None,
+            samples: Some(256),
         };
 
         let audiodev = audio
             .open_playback(None, &audiospec, |_| AudioHandler { emu })
             .unwrap();
-        audiodev.resume();
+        // audiodev.resume();
 
         let samplebuf_size = audiodev.spec().samples as usize;
         Self {
@@ -93,9 +94,9 @@ fn emulation_thread_proc(
 
         {
             let mut emu_lock = emu.lock().unwrap();
-            while emu_lock.audio_queued() < samples_needed {
+            while emu_lock.audio_queued() < samples_needed * 2 {
                 emu_lock
-                    .step_until_samples_or_frame_ready(samples_needed)
+                    .step_until_samples_or_frame_ready(samples_needed * 2)
                     .unwrap();
 
                 if emu_lock.is_frame_ready() {
@@ -116,11 +117,12 @@ fn emulation_thread_proc(
 }
 
 struct AppCtx {
-    sdl: SdlCtx,
+    // sdl: SdlCtx,
     emu: Arc<Mutex<NesEmulator>>,
     emu_thread: thread::JoinHandle<()>,
     video_chain: Arc<Mutex<RingBuffer<egui::ColorImage>>>,
     tex: Arc<Mutex<egui::TextureHandle>>,
+    audio_stream: cpal::Stream,
     dt: f32,
 }
 impl AppCtx {
@@ -131,22 +133,58 @@ impl AppCtx {
 
         let emu = NesEmulator::empty();
         let emu = Arc::new(Mutex::new(emu));
-        let sdl = SdlCtx::new(44100, Arc::clone(&emu));
+        // let sdl = SdlCtx::new(44100, Arc::clone(&emu));
 
         let video_chain = Arc::new(Mutex::new(RingBuffer::new(8)));
 
+        println!("Supported hosts:\n  {:?}", cpal::ALL_HOSTS);
+        let available_hosts = cpal::available_hosts();
+        println!("Available hosts:\n  {available_hosts:?}");
+
+        let host = cpal::default_host();
+        let device = host.default_output_device().unwrap();
+
+        let config = cpal::StreamConfig {
+            channels: 2,
+            sample_rate: 48000,
+            buffer_size: cpal::BufferSize::Fixed(256),
+        };
+
+        let emu_arc = Arc::clone(&emu);
+        let stream = device.build_output_stream(config, move |audio_out, _| {
+            let mut emu_lock = emu_arc.lock().unwrap();
+
+            let (right, left) = emu_lock.get_audio_f32(audio_out.len() / 2);
+            for i in 0..right.len() {
+                audio_out[2*i] = right[i];
+                audio_out[2*i + 1] = right[i];
+            }
+
+            if let Some(left) = left {
+                let audio_out = &mut audio_out[2*right.len()..];
+                for i in 0..left.len() {
+                    audio_out[2*i] = left[i];
+                    audio_out[2*i + 1] = left[i];
+                }
+            }
+        }, |err| eprintln!("{err}"), None).unwrap();
+
+        stream.play().unwrap();
+
         let emu_arc = Arc::clone(&emu);
         let chain_arc = Arc::clone(&video_chain);
+        let samples_needed = stream.buffer_size().unwrap() as usize;
         let emu_thread = thread::Builder::new()
             .name("emulation".into())
-            .spawn(move || emulation_thread_proc(emu_arc, chain_arc, sdl.samplebuf_size))
+            .spawn(move || emulation_thread_proc(emu_arc, chain_arc, samples_needed))
             .unwrap();
 
         let res = Self {
-            sdl,
+            // sdl,
             emu,
             emu_thread,
             video_chain,
+            audio_stream: stream,
             tex,
             dt: 0.0,
         };

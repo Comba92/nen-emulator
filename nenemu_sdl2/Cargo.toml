@@ -2,10 +2,11 @@
 name = "nenemu_sdl2"
 version = "0.1.0"
 edition = "2024"
+# build = "build.rs"
 
 [features]
 savestates = ["nenemu_core/savestates"]
-static = ["sdl2/bundled", "sdl2/static-link"]
+static = ["sdl2/static-link"]
 
 [dependencies]
 sdl2 = "0.38.0"

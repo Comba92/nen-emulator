@@ -487,7 +487,7 @@ impl NesEmulator {
 
     #[cfg(feature = "savestates")]
     pub fn savestate<P: AsRef<Path>>(&self, path: P) -> Result<(), LoadError> {
-        let mut file = std::fs::File::create(path)?;
+        let file = std::fs::File::create(path)?;
         // pot::to_writer(self, file).map_err(|e| e.into())
         let writer = std::io::BufWriter::new(file);
         pot::to_writer(self, writer).map_err(|e| e.into())

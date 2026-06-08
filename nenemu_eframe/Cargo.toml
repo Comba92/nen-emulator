@@ -10,4 +10,5 @@ savestates = ["nenemu_core/savestates"]
 rfd = { version = "0.17.2" }
 eframe = { version = "0.34.3", features = ["persistence"] }
 nenemu_core = { path = "../nenemu_core" }
-sdl2 = "0.38.0"
+# sdl2 = "0.38.0"
+cpal = "0.18.1"
