@@ -137,7 +137,7 @@ impl NesEmulator {
             ppu: Ppu2C02::default(),
             apu: ApuRP2A::default(),
             joypad: Joypad::default(),
-            mem: Bus::default(),
+            mem: Bus::with_cart(Cart::default()),
             mapper: Box::new(mapper::NROM),
 
             videobuf: vec![].into_boxed_slice(),
@@ -153,7 +153,7 @@ impl NesEmulator {
         let (mem, mapper) = match game {
             Game::Cart(cart) => {
                 let mut mem = Bus::with_cart(cart);
-                let mapper: BoxedMapper = mapper::new(&mut mem)?;
+                let mapper = mapper::new(&mut mem)?;
                 (mem, mapper)
             }
             Game::Disk(disk) => {

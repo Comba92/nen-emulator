@@ -33,14 +33,14 @@ pub struct Banking<T: BankCfg> {
     bank_size_shift: u8,
 
     start_addr: u16,
-    pub bankings: Vec<u32>,
+    pub mappings: Vec<u32>,
     kind: std::marker::PhantomData<T>,
 }
 
 // TODO: this system currently has a problem; the pages_count doesn't take into account the actual size vs addressable size. for example, if 16kb are provided for prg, no mirroring will occur (it has to be set to 2 pages manually)
 impl<T: BankCfg + std::fmt::Debug> Banking<T> {
     pub fn new(start_addr: u16, real_size: usize, virt_size: u16, pages_count: u16) -> Self {
-        let bankings = vec![0; pages_count as usize];
+        let mappings = vec![0; pages_count as usize];
 
         let bank_size = virt_size / pages_count;
         // https://stackoverflow.com/questions/25787613/division-and-multiplication-by-power-of-2
@@ -62,7 +62,7 @@ impl<T: BankCfg + std::fmt::Debug> Banking<T> {
             banks_count_mask,
             start_addr,
 
-            bankings,
+            mappings,
             kind: std::marker::PhantomData::<T>,
         }
     }
@@ -76,7 +76,7 @@ impl<T: BankCfg + std::fmt::Debug> Banking<T> {
         // i do not expect to write outside the slots array.
         // we precompute the real index instead of keeping the bank number
         // self.bankings[page] = bank * self.bank_size;
-        self.bankings[page as usize] = (bank as u32) << self.bank_size_shift;
+        self.mappings[page as usize] = (bank as u32) << self.bank_size_shift;
     }
 
     pub fn set_pages_aligned2(&mut self, page: u8, bank: u16) {
@@ -100,7 +100,7 @@ impl<T: BankCfg + std::fmt::Debug> Banking<T> {
     }
 
     pub fn swap_pages(&mut self, a: u8, b: u8) {
-        self.bankings.swap(a as usize, b as usize);
+        self.mappings.swap(a as usize, b as usize);
     }
 
     pub fn translate(&self, addr: u16) -> usize {
@@ -111,7 +111,7 @@ impl<T: BankCfg + std::fmt::Debug> Banking<T> {
         // i do not expect to write outside the slots array here either.
         // self.bankings[page] + (addr % self.bank_size)
         // real index + offset
-        self.bankings[page as usize] as usize | (addr & self.bank_size_mask) as usize
+        self.mappings[page as usize] as usize | (addr & self.bank_size_mask) as usize
     }
 }
 
@@ -123,7 +123,7 @@ impl Banking<PrgBank> {
     }
 
     pub fn fix_last_page(&mut self) {
-        self.set_page(self.bankings.len() as u8 - 1, self.banks_count - 1);
+        self.set_page(self.mappings.len() as u8 - 1, self.banks_count - 1);
     }
 }
 
@@ -161,17 +161,17 @@ impl Banking<VramBank> {
                 self.set_page(3, 1);
             }
             Mirroring::LowTable => {
-                for i in 0..self.bankings.len() {
+                for i in 0..self.mappings.len() {
                     self.set_page(i as u8, 0);
                 }
             }
             Mirroring::HighTable => {
-                for i in 0..self.bankings.len() {
+                for i in 0..self.mappings.len() {
                     self.set_page(i as u8, 1);
                 }
             }
             Mirroring::FourScreens => {
-                for i in 0..self.bankings.len() {
+                for i in 0..self.mappings.len() {
                     self.set_page(i as u8, i as u16);
                 }
             }
@@ -179,7 +179,7 @@ impl Banking<VramBank> {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub struct BanksHandler {
     pub prg: Banking<PrgBank>,
@@ -187,6 +187,7 @@ pub struct BanksHandler {
     pub wram: Banking<WramBank>,
     pub vram: Banking<VramBank>,
 }
+
 impl BanksHandler {
     pub fn new(header: &RomData) -> Self {
         Self {
@@ -299,29 +300,29 @@ pub struct Bus {
     pub header: RomData,
     pub banks: BanksHandler,
 }
-impl Default for Bus {
-    fn default() -> Self {
-        Self {
-            ram: [0; 2 * 1024],
-            prg: vec![].into_boxed_slice(),
-            chr: vec![].into_boxed_slice(),
-            vram: vec![],
-            wram: vec![].into_boxed_slice(),
+// impl Default for Bus {
+//     fn default() -> Self {
+//         Self {
+//             ram: [0; 2 * 1024],
+//             prg: vec![].into_boxed_slice(),
+//             chr: vec![].into_boxed_slice(),
+//             vram: vec![],
+//             wram: vec![].into_boxed_slice(),
 
-            cpu_handlers_8kb: std::array::from_fn(|_| CpuHandler::OpenBus),
-            ppu_handlers_1kb: std::array::from_fn(|_| PpuHandler::OpenBus),
+//             cpu_handlers_8kb: std::array::from_fn(|_| CpuHandler::OpenBus),
+//             ppu_handlers_1kb: std::array::from_fn(|_| PpuHandler::OpenBus),
 
-            cpu_open_bus: 0,
-            ppu_open_bus: 0,
+//             cpu_open_bus: 0,
+//             ppu_open_bus: 0,
 
-            nmi: false,
-            irq: IrqFlags::empty(),
+//             nmi: false,
+//             irq: IrqFlags::empty(),
 
-            header: RomData::default(),
-            banks: BanksHandler::default(),
-        }
-    }
-}
+//             header: RomData::default(),
+//             banks: BanksHandler::default(),
+//         }
+//     }
+// }
 
 impl Bus {
     pub fn with_cart(cart: Cart) -> Self {
@@ -375,15 +376,16 @@ impl Bus {
         let mut header = RomData::default();
         header.format = rom::HeaderFormat::Fds;
         header.mapper = 20;
+        header.has_chr_ram = true;
 
-        let prg = bios.to_vec().into_boxed_slice();
-        let mut banks = BanksHandler::default();
+        let mut banks = BanksHandler {
+            // keep like this so we can just use the standard prg handler
+            prg: Banking::new(0xe000, 8 * 1024, 8 * 1024, 1),
+            wram: Banking::new(0x6000, 32 * 1024, 32 * 1024, 1),
+            chr: Banking::new(0x0000, 8 * 1024, 8 * 1024, 1),
+            vram: Banking::new(0x2000, 2 * 1024, 4 * 1024, 4),
+        };
 
-        // keep like this so we can just use the standard prg handler
-        banks.prg = Banking::new(0xe000, 8 * 1024, 8 * 1024, 1);
-        banks.wram = Banking::new(0x6000, 32 * 1024, 32 * 1024, 1);
-        banks.chr = Banking::new(0x0000, 8 * 1024, 8 * 1024, 1);
-        banks.vram = Banking::new(0x2000, 2 * 1024, 4 * 1024, 4);
         banks.vram.mirror(&Mirroring::Horizontal);
 
         let cpu_handlers_8kb = [
@@ -402,7 +404,7 @@ impl Bus {
 
         let mut mem = Self {
             ram: [0; 2 * 1024],
-            prg,
+            prg: bios.to_vec().into_boxed_slice(),
             wram: vec![0; 32 * 1024].into_boxed_slice(),
             chr: vec![0; 8 * 1024].into_boxed_slice(),
             vram: vec![0; 2 * 1024],

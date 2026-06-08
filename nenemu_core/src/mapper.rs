@@ -810,7 +810,7 @@ impl Mapper for NapoleonSenki {
         mem.banks.vram = Banking::new(0x800, 10 * 1024, 10 * 1024, 5);
 
         for i in 0..5 {
-            mem.banks.vram.bankings[i] = i as u32 * 2048;
+            mem.banks.vram.mappings[i] = i as u32 * 2048;
             // we have to set these manually because odd numbers of pages breaks everything
         }
 

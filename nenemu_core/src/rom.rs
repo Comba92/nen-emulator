@@ -8,6 +8,16 @@ pub struct Cart {
     pub prg: Vec<u8>,
     pub chr: Vec<u8>,
 }
+impl Default for Cart {
+    // empty cart with zeroed prg and chr
+    fn default() -> Self {
+        Self {
+            header: Default::default(),
+            prg: vec![0; 16 * 1024],
+            chr: vec![0; 8 * 1024],
+        }
+    }
+}
 
 #[derive(Debug, Default, Clone, PartialEq)]
 #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
@@ -20,7 +30,7 @@ pub enum HeaderFormat {
 }
 
 // https://www.nesdev.org/wiki/INES
-#[derive(Default, Debug, Clone)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub struct RomData {
     pub title: String,
@@ -41,6 +51,30 @@ pub struct RomData {
     pub has_battery: bool,
     pub has_chr_ram: bool,
     pub has_trainer: bool,
+}
+
+impl Default for RomData {
+    fn default() -> Self {
+        Self {
+            title: String::new(),
+            format: HeaderFormat::Headerless,
+            mapper: 0,
+            submapper: 0,
+            region: Region::NTSC,
+
+            prg_size: 16 * 1024,
+            chr_size: 8 * 1024,
+            wram_size: 0,
+
+            mirroring: Default::default(),
+            alt_mirroring: false,
+
+            expansions: 0,
+            has_battery: false,
+            has_chr_ram: false,
+            has_trainer: false,
+        }
+    }
 }
 
 impl RomData {
@@ -71,7 +105,7 @@ impl RomData {
         }
     }
 
-    pub fn from(bytes: &[u8]) -> Result<Self, &'static str> {
+    pub fn from_db(bytes: &[u8]) -> Result<Self, &'static str> {
         let header = Self::parse(bytes);
 
         match header {
@@ -202,7 +236,7 @@ impl RomData {
 
 impl Cart {
     pub fn from(bytes: &[u8]) -> Result<Self, &'static str> {
-        let header = RomData::from(bytes)?;
+        let header = RomData::from_db(bytes)?;
 
         // only iNes supported
         let rom_start = header.len();
@@ -386,9 +420,13 @@ impl Disk {
 
                 Self::push_gaps_and_data(&mut side_bytes, &file[0x10..0x10 + file_size + 1]);
 
-                file = &file[0x10 + file_size + 1..];
                 // TODO: handle case when we go over 65500 bytes
                 parsed_bytes += 0x10 + file_size + 1;
+                if parsed_bytes > Self::SIDE_SIZE {
+                    return Err("Side data is bigger than 65500 bytes");
+                }
+
+                file = &file[0x10 + file_size + 1..];
 
                 side_data.files.push(file_data);
             }

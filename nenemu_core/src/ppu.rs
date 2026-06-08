@@ -235,6 +235,8 @@ pub struct Ppu2C02 {
     pub oam: Oam,
     oam_tmp: [Sprite; 8],
     oam_tmp_count: u8,
+
+    #[cfg_attr(feature = "savestates", serde(skip))]
     spr_extra: Vec<Sprite>,
 
     #[cfg_attr(feature = "savestates", serde(skip))]
@@ -559,7 +561,7 @@ impl Ppu2C02 {
         *self = Ppu2C02 {
             line: self.prerender_line,
             prerender_line: self.prerender_line,
-            v: self.v,
+            // v: self.v,
             oam_tmp: array::from_fn(|_| Sprite::default()),
             ..Default::default()
         }

@@ -56,13 +56,14 @@ pub struct Cpu6502 {
     pub sp: u8,
     pub pc: u16,
 
-    // TODO: consider removing this
     op_val: Option<u8>,
     op_addr: u16,
 
+    // TODO: not sure about this
     nmi_to_handle: bool,
     // TODO: the effect of toggling this flag is delayed 1 instruction when caused by SEI, CLI, or PLP.
     irq_to_set: Option<bool>,
+    // TODO: move this out in bus?
     pub cycles: usize,
     pub jammed: bool,
 }

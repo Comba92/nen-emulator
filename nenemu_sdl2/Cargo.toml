@@ -5,7 +5,7 @@ edition = "2024"
 
 [features]
 savestates = ["nenemu_core/savestates"]
-static = ["sdl2/bundled", "sdl2/use-pkgconfig", "sdl2/static-link"]
+static = ["sdl2/bundled", "sdl2/static-link"]
 
 [dependencies]
 sdl2 = "0.38.0"

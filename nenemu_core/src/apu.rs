@@ -147,10 +147,20 @@ impl Pulse {
     ];
 
     pub fn new(complement: bool) -> Self {
-        let mut res = Self::default();
-        res.sweep.complement = complement;
-        res.sweep.negate = true;
-        res
+        let mut sweep = Sweep::default();
+        sweep.complement = complement;
+        sweep.negate = true;
+
+        Self {
+            div: Default::default(),
+            len: Default::default(),
+            env: Default::default(),
+            sweep,
+            duty_seq: 0,
+            duty_cycle: 0,
+            muted: false,
+            output: 0,
+        }
     }
 
     pub fn write_ctrl(&mut self, val: u8) {
@@ -303,7 +313,6 @@ impl Triangle {
     }
 }
 
-#[derive(Default)]
 #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 struct Noise {
     div: DividerCounter,
@@ -314,6 +323,21 @@ struct Noise {
     pub output: u8,
 }
 
+impl Default for Noise {
+    fn default() -> Self {
+        Self {
+            // IMPORTANT: On power-up, the shift register is loaded with the value 1.
+            // the noise wont output anything if it starts at 0
+            shift: 1,
+            div: Default::default(),
+            len: Default::default(),
+            env: Default::default(),
+            looping: false,
+            output: 0,
+        }
+    }
+}
+
 impl Noise {
     const TABLE_NTSC: [u16; 16] = [
         4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068,
@@ -321,14 +345,6 @@ impl Noise {
     const TABLE_PAL: [u16; 16] = [
         4, 8, 14, 30, 60, 88, 118, 148, 188, 236, 354, 472, 708, 944, 1890, 3778,
     ];
-
-    fn new() -> Self {
-        Self {
-            // On power-up, the shift register is loaded with the value 1.
-            shift: 1,
-            ..Default::default()
-        }
-    }
 
     fn step_divider(&mut self) {
         if self.div.step() {
@@ -491,9 +507,10 @@ pub struct AvgResampler {
 }
 impl Default for AvgResampler {
     fn default() -> Self {
-        Self::new(NTSC_CLOCK_RATE, Default::default())
+        Self::new(NTSC_CLOCK_RATE, SampleRate::Hz44100)
     }
 }
+
 impl AvgResampler {
     pub fn new(clock_rate: usize, frequency: SampleRate) -> Self {
         let freq: f32 = frequency.into();
@@ -504,6 +521,16 @@ impl AvgResampler {
             cycles_per_sample: clock_rate as f32 / freq,
         }
     }
+
+    pub fn clear(&self) -> Self {
+        Self {
+            sample_avg: 0.0,
+            sample_count: 0,
+            sample_timer: 0.0,
+            cycles_per_sample: self.cycles_per_sample,
+        }
+    }
+
     pub fn add_sample(&mut self, sample: f32) -> Option<f32> {
         self.sample_avg += sample;
         self.sample_count += 1;
@@ -569,7 +596,6 @@ impl ApuRP2A {
             frame_irq_disable: true,
             p0: Pulse::new(true),
             p1: Pulse::new(false),
-            noise: Noise::new(),
             dmc: Dmc::new(),
             resampler: AvgResampler::new(region.clock_rate(), Default::default()),
             ..Default::default()
@@ -598,8 +624,10 @@ impl ApuRP2A {
 
     pub fn reset(&mut self) {
         *self = Self {
-            noise: Noise::new(),
+            p0: Pulse::new(true),
+            p1: Pulse::new(false),
             dmc: Dmc::new(),
+            resampler: self.resampler.clear(),
             ..Default::default()
         };
     }
