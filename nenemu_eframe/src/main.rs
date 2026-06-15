@@ -16,9 +16,20 @@ const TEX_OPTS: egui::TextureOptions = egui::TextureOptions {
     mipmap_mode: None,
 };
 
-#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "persistence", derive(serde::Serialize, serde::Deserialize))]
+enum EmulatorAction {}
+
+#[cfg_attr(feature = "persistence", derive(serde::Serialize, serde::Deserialize))]
+enum PlayerEvent {
+    Joypad(joypad::JoypadBtn),
+    Action(EmulatorAction),
+}
+
+#[cfg_attr(feature = "persistence", derive(serde::Serialize, serde::Deserialize))]
 struct KeyMap {
     keys: HashMap<egui::Key, joypad::JoypadBtn>,
+    #[cfg(feature = "gamepads")]
+    pads: HashMap<gilrs::Button, joypad::JoypadBtn>,
     rebind_key: Option<(egui::Key, joypad::JoypadBtn)>,
 }
 
@@ -38,10 +49,41 @@ impl Default for KeyMap {
             (Key::E, Btn::Select),
         ]);
 
+        #[cfg(feature = "gamepads")]
+        let pads = {
+            use gilrs::Button;
+            HashMap::from([
+                (Button::DPadUp, Btn::Up),
+                (Button::DPadDown, Btn::Down),
+                (Button::DPadLeft, Btn::Left),
+                (Button::DPadRight, Btn::Right),
+                (Button::West, Btn::B),
+                (Button::South, Btn::A),
+                (Button::Start, Btn::Start),
+                (Button::Select, Btn::Select),
+            ])
+        };
+
         Self {
             keys,
+            #[cfg(feature = "gamepads")]
+            pads,
             rebind_key: None,
         }
+    }
+}
+
+#[cfg(feature = "gamepads")]
+struct GamepadHandler {
+    pub api: gilrs::Gilrs,
+    pub active: Option<gilrs::GamepadId>,
+}
+#[cfg(feature = "gamepads")]
+impl Default for GamepadHandler {
+    fn default() -> Self {
+        let api = gilrs::Gilrs::new().unwrap();
+        let active = api.gamepads().next().map(|x| x.0);
+        Self { api, active }
     }
 }
 
@@ -65,55 +107,131 @@ fn main() {
 }
 
 struct AudioHandler {
-    emu: Arc<Mutex<NesEmulator>>,
+    stream: Option<cpal::Stream>,
 }
-impl sdl2::audio::AudioCallback for AudioHandler {
-    type Channel = f32;
 
-    fn callback(&mut self, audio_out: &mut [Self::Channel]) {
-        let mut emu_lock = self.emu.lock().unwrap();
+impl AudioHandler {
+    pub fn new(sample_rate: u32, buf_size: u32, emu: Arc<Mutex<NesEmulator>>) -> Self {
+        let host = cpal::default_host();
+        match host.default_output_device() {
+            Some(device) => {
+                let config = cpal::StreamConfig {
+                    channels: 2,
+                    sample_rate: sample_rate,
+                    buffer_size: cpal::BufferSize::Fixed(buf_size),
+                };
 
-        let (right, left) = emu_lock.get_audio_f32(audio_out.len());
-        let right_amt = right.len();
-        audio_out[..right_amt].copy_from_slice(right);
+                let stream = device
+                    .build_output_stream(
+                        config,
+                        move |audio_out, _| {
+                            let mut emu_lock = emu.lock().unwrap();
 
-        if let Some(left) = left {
-            audio_out[right_amt..].copy_from_slice(left);
+                            let (right, left) = emu_lock.get_audio_f32(audio_out.len() / 2);
+                            for i in 0..right.len() {
+                                audio_out[2 * i] = right[i];
+                                audio_out[2 * i + 1] = right[i];
+                            }
+
+                            if let Some(left) = left {
+                                let audio_out = &mut audio_out[2 * right.len()..];
+                                for i in 0..left.len() {
+                                    audio_out[2 * i] = left[i];
+                                    audio_out[2 * i + 1] = left[i];
+                                }
+                            }
+                        },
+                        |err| eprintln!("{err}"),
+                        None,
+                    )
+                    .unwrap();
+
+                stream.play().unwrap();
+
+                Self {
+                    stream: Some(stream),
+                }
+            }
+
+            None => Self { stream: None },
+        }
+    }
+
+    pub fn is_supported(&self) -> bool {
+        self.stream.is_some()
+    }
+
+    pub fn buffer_size(&self) -> Option<u32> {
+        self.stream
+            .as_ref()
+            .map(|s| s.buffer_size().unwrap_or_default())
+    }
+
+    pub fn resume(&self) {
+        match &self.stream {
+            Some(stream) => stream.play().unwrap(),
+            _ => {}
+        }
+    }
+
+    pub fn pause(&self) {
+        match &self.stream {
+            Some(stream) => stream.pause().unwrap(),
+            _ => {}
         }
     }
 }
 
-struct SdlCtx {
-    sdl: sdl2::Sdl,
-    audio: sdl2::AudioSubsystem,
-    audiodev: sdl2::audio::AudioDevice<AudioHandler>,
-    samplebuf_size: usize,
-}
+// struct AudioThread {
+//     emu: Arc<Mutex<NesEmulator>>,
+// }
+// impl sdl2::audio::AudioCallback for AudioThread {
+//     type Channel = f32;
 
-impl SdlCtx {
-    pub fn new(sample_rate: usize, emu: Arc<Mutex<NesEmulator>>) -> Self {
-        let sdl = sdl2::init().unwrap();
-        let audio = sdl.audio().unwrap();
-        let audiospec = sdl2::audio::AudioSpecDesired {
-            channels: Some(1),
-            freq: Some(sample_rate as i32),
-            samples: Some(1024),
-        };
+//     fn callback(&mut self, audio_out: &mut [Self::Channel]) {
+//         let mut emu_lock = self.emu.lock().unwrap();
 
-        let audiodev = audio
-            .open_playback(None, &audiospec, |_| AudioHandler { emu })
-            .unwrap();
-        // audiodev.resume();
+//         let (right, left) = emu_lock.get_audio_f32(audio_out.len());
+//         let right_amt = right.len();
+//         audio_out[..right_amt].copy_from_slice(right);
 
-        let samplebuf_size = audiodev.spec().samples as usize;
-        Self {
-            sdl,
-            audio,
-            audiodev,
-            samplebuf_size,
-        }
-    }
-}
+//         if let Some(left) = left {
+//             audio_out[right_amt..].copy_from_slice(left);
+//         }
+//     }
+// }
+
+// struct SdlCtx {
+//     sdl: sdl2::Sdl,
+//     audio: sdl2::AudioSubsystem,
+//     audiodev: sdl2::audio::AudioDevice<AudioThread>,
+//     samplebuf_size: usize,
+// }
+
+// impl SdlCtx {
+//     pub fn new(sample_rate: usize, emu: Arc<Mutex<NesEmulator>>) -> Self {
+//         let sdl = sdl2::init().unwrap();
+//         let audio = sdl.audio().unwrap();
+//         let audiospec = sdl2::audio::AudioSpecDesired {
+//             channels: Some(1),
+//             freq: Some(sample_rate as i32),
+//             samples: Some(1024),
+//         };
+
+//         let audiodev = audio
+//             .open_playback(None, &audiospec, |_| AudioThread { emu })
+//             .unwrap();
+//         // audiodev.resume();
+
+//         let samplebuf_size = audiodev.spec().samples as usize;
+//         Self {
+//             sdl,
+//             audio,
+//             audiodev,
+//             samplebuf_size,
+//         }
+//     }
+// }
 
 fn sleep_until_fps(frame_start: time::Instant, frame_rate: time::Duration) {
     let frame_duration = frame_start.elapsed();
@@ -163,6 +281,28 @@ fn emulation_thread_proc(
     }
 }
 
+fn emulation_thread_no_audio_proc(
+    emu: Arc<Mutex<NesEmulator>>,
+    video_chain: Arc<Mutex<RingBuffer<egui::ColorImage>>>,
+    is_running: Arc<atomic::AtomicBool>,
+) {
+    let frame_rate = time::Duration::from_secs_f32(1.0 / 61.0);
+    loop {
+        let frame_start = time::Instant::now();
+
+        if is_running.load(atomic::Ordering::Relaxed) {
+            let mut emu_lock = emu.lock().unwrap();
+            emu_lock.step_until_frame_ready().unwrap();
+
+            let framebuf =
+                egui::ColorImage::from_rgba_unmultiplied([256, 240], emu_lock.get_video_rgba());
+            video_chain.lock().unwrap().push(framebuf);
+        }
+
+        sleep_until_fps(frame_start, frame_rate);
+    }
+}
+
 #[derive(Default, PartialEq, Clone, Copy)]
 enum EmulationState {
     #[default]
@@ -172,7 +312,7 @@ enum EmulationState {
 }
 
 #[derive(Default)]
-#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "persistence", derive(serde::Serialize, serde::Deserialize))]
 struct AppCfg {
     keymaps: KeyMap,
     recent_roms: VecDeque<PathBuf>,
@@ -183,7 +323,6 @@ struct AppCfg {
     hide_cursor: bool,
     battery_save_enabled: bool,
 
-    #[cfg(feature = "savestates")]
     restore_session: bool,
 
     nes_settings: nenemu_core::emu::Settings,
@@ -234,7 +373,10 @@ struct AppCtx {
 
     video_chain: Arc<Mutex<RingBuffer<egui::ColorImage>>>,
     tex: Arc<Mutex<egui::TextureHandle>>,
-    audio_stream: cpal::Stream,
+
+    audio: AudioHandler,
+    #[cfg(feature = "gamepads")]
+    gamepads: GamepadHandler,
 
     state: AppState,
     cfg: AppCfg,
@@ -242,10 +384,10 @@ struct AppCtx {
 
 impl AppCtx {
     pub fn new(c: &eframe::CreationContext) -> Box<Self> {
-        #[cfg(not(feature = "savestates"))]
+        #[cfg(not(feature = "persistence"))]
         let cfg = AppCfg::default();
 
-        #[cfg(feature = "savestates")]
+        #[cfg(feature = "persistence")]
         let cfg = c
             .storage
             .and_then(|storage| eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default())
@@ -261,48 +403,8 @@ impl AppCtx {
 
         let video_chain = Arc::new(Mutex::new(RingBuffer::new(8)));
 
-        println!("Supported hosts:\n  {:?}", cpal::ALL_HOSTS);
-        let available_hosts = cpal::available_hosts();
-        println!("Available hosts:\n  {available_hosts:?}");
-
-        let host = cpal::default_host();
-        let device = host.default_output_device().unwrap();
-
-        let config = cpal::StreamConfig {
-            channels: 2,
-            sample_rate: 48000,
-            buffer_size: cpal::BufferSize::Fixed(256),
-        };
-
-        let emu_arc = Arc::clone(&emu);
-
-        let stream = device
-            .build_output_stream(
-                config,
-                move |audio_out, _| {
-                    let mut emu_lock = emu_arc.lock().unwrap();
-
-                    let (right, left) = emu_lock.get_audio_f32(audio_out.len() / 2);
-                    for i in 0..right.len() {
-                        audio_out[2 * i] = right[i];
-                        audio_out[2 * i + 1] = right[i];
-                    }
-
-                    if let Some(left) = left {
-                        let audio_out = &mut audio_out[2 * right.len()..];
-                        for i in 0..left.len() {
-                            audio_out[2 * i] = left[i];
-                            audio_out[2 * i + 1] = left[i];
-                        }
-                    }
-                },
-                |err| eprintln!("{err}"),
-                None,
-            )
-            .unwrap();
-
-        stream.play().unwrap();
-        let samples_needed = stream.buffer_size().unwrap() as usize;
+        let audio = AudioHandler::new(48000, 512, Arc::clone(&emu));
+        let samples_needed = audio.buffer_size().unwrap_or(1024);
 
         let emu_arc = Arc::clone(&emu);
         let chain_arc = Arc::clone(&video_chain);
@@ -310,12 +412,24 @@ impl AppCtx {
         let is_running = Arc::new(atomic::AtomicBool::new(false));
         let is_running_arc = Arc::clone(&is_running);
 
-        let emu_thread = thread::Builder::new()
-            .name("emulation".into())
-            .spawn(move || {
-                emulation_thread_proc(emu_arc, chain_arc, samples_needed, is_running_arc)
-            })
-            .unwrap();
+        let emu_thread = if audio.is_supported() {
+            thread::Builder::new()
+                .name("emulation".into())
+                .spawn(move || {
+                    emulation_thread_proc(
+                        emu_arc,
+                        chain_arc,
+                        samples_needed as usize,
+                        is_running_arc,
+                    )
+                })
+                .unwrap()
+        } else {
+            thread::Builder::new()
+                .name("emulation".into())
+                .spawn(move || emulation_thread_no_audio_proc(emu_arc, chain_arc, is_running_arc))
+                .unwrap()
+        };
 
         let res = Self {
             // sdl,
@@ -323,12 +437,15 @@ impl AppCtx {
             emu_thread,
             is_running,
             video_chain,
-            audio_stream: stream,
             tex,
+            audio,
+            #[cfg(feature = "gamepads")]
+            gamepads: GamepadHandler::default(),
 
-            state: Default::default(),
             cfg,
+            state: Default::default(),
         };
+
         Box::new(res)
     }
 
@@ -549,12 +666,12 @@ impl AppCtx {
 
                             if run.clicked() {
                                 self.state.emulation = EmulationState::Running;
-                                self.audio_stream.play().unwrap();
+                                self.audio.resume();
                             } else if reset.clicked() {
                                 eprintln!("reset not implemented");
                             } else if stop.clicked() {
                                 self.state.emulation = EmulationState::Stopped;
-                                self.audio_stream.pause().unwrap();
+                                self.audio.pause();
                             }
                         }
 
@@ -566,12 +683,12 @@ impl AppCtx {
 
                             if pause.clicked() {
                                 self.state.emulation = EmulationState::Paused;
-                                self.audio_stream.pause().unwrap();
+                                self.audio.pause();
                             } else if reset.clicked() {
                                 eprintln!("reset not implemented");
                             } else if stop.clicked() {
                                 self.state.emulation = EmulationState::Stopped;
-                                self.audio_stream.pause().unwrap();
+                                self.audio.pause();
                             }
                         }
                     }
@@ -910,7 +1027,7 @@ impl AppCtx {
 }
 
 impl eframe::App for AppCtx {
-    #[cfg(feature = "savestates")]
+    #[cfg(feature = "persistence")]
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, eframe::APP_KEY, &self.cfg);
     }
@@ -973,7 +1090,7 @@ impl eframe::App for AppCtx {
         self.show_rom_info_window(ui);
         self.show_error_window(ui);
 
-        let new_input = ui.input(|i| {
+        let (keyboard_input, keyboard_pressed) = ui.input(|i| {
             let mut pressed = joypad::JoypadBtn::empty();
 
             if !i.keys_down.is_empty() {
@@ -984,10 +1101,74 @@ impl eframe::App for AppCtx {
                 }
             }
 
-            pressed
+            (pressed, !i.keys_down.is_empty())
         });
 
-        self.emu.lock().unwrap().set_buttons_all(new_input);
+        #[cfg(feature = "gamepads")]
+        let mut gamepad_input = joypad::JoypadBtn::empty();
+
+        #[cfg(feature = "gamepads")]
+        if let Some(active) = self.gamepads.active {
+            while let Some(gilrs::Event { id, event, .. }) = self.gamepads.api.next_event() {
+                if active != id {
+                    continue;
+                }
+
+                println!("{event:?}");
+
+                match event {
+                    gilrs::EventType::ButtonReleased(btn, _) => {
+                        if let Some(emu_btn) = self.cfg.keymaps.pads.get(&btn) {
+                            gamepad_input.remove(*emu_btn);
+                        }
+                    }
+
+                    gilrs::EventType::ButtonPressed(btn, _) => {
+                        if let Some(emu_btn) = self.cfg.keymaps.pads.get(&btn) {
+                            gamepad_input.insert(*emu_btn);
+                        }
+                    }
+
+                    gilrs::EventType::AxisChanged(axis, amt, _) => match axis {
+                        gilrs::Axis::LeftStickX => {
+                            if amt >= 0.1 {
+                                gamepad_input.insert(joypad::JoypadBtn::Right);
+                            } else if amt <= -0.1 {
+                                gamepad_input.insert(joypad::JoypadBtn::Left);
+                            } else {
+                                gamepad_input.remove(joypad::JoypadBtn::Right);
+                                gamepad_input.remove(joypad::JoypadBtn::Left);
+                            }
+                        }
+                        gilrs::Axis::LeftStickY => {
+                            if amt >= 0.1 {
+                                gamepad_input.insert(joypad::JoypadBtn::Up);
+                            } else if amt <= -0.1 {
+                                gamepad_input.insert(joypad::JoypadBtn::Down);
+                            } else {
+                                gamepad_input.remove(joypad::JoypadBtn::Up);
+                                gamepad_input.remove(joypad::JoypadBtn::Down);
+                            }
+                        }
+                        _ => {}
+                    },
+
+                    _ => {}
+                }
+            }
+        }
+
+        {
+            let mut emu = self.emu_lock();
+
+            if keyboard_pressed {
+                emu.set_buttons_all(keyboard_input);
+            }
+
+            #[cfg(feature = "gamepads")]
+            emu.set_buttons_all(gamepad_input);
+        }
+
         if self.state.emulation != current_state {
             self.is_running.store(
                 self.state.emulation == EmulationState::Running,
