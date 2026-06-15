@@ -498,10 +498,10 @@ impl Into<f32> for SampleRate {
     }
 }
 
-trait Resampler<T> {
-    fn set_rate(clock: usize, freq: usize);
-    fn add_sample(sample: T) -> Option<T>;
-}
+// trait Resampler<T> {
+//     fn set_rate(clock: usize, freq: usize);
+//     fn add_sample(sample: T) -> Option<T>;
+// }
 
 #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub struct AvgResampler {

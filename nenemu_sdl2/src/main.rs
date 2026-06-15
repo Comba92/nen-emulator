@@ -3,8 +3,7 @@ use std::{
     io::{Read, Write},
     path,
     sync::{self, Arc, Mutex},
-    thread,
-    time::{self, Duration},
+    thread, time,
 };
 
 use nenemu_core::{emu::NesEmulator, joypad::JoypadBtn, utils::RingBuffer};
@@ -34,40 +33,6 @@ impl AudioCallback for AudioHandler {
 
         if let Some(left) = left {
             audio_out[right_amt..].copy_from_slice(left);
-        }
-    }
-}
-
-fn emulation_thread_proc(
-    emu: Arc<Mutex<NesEmulator>>,
-    video_chain: Arc<Mutex<RingBuffer<Vec<u8>>>>,
-    samples_needed: usize,
-) {
-    let frame_rate = time::Duration::from_secs_f32(1.0 / 288.0);
-    loop {
-        let frame_start = time::Instant::now();
-
-        {
-            let mut emu_lock = emu.lock().unwrap();
-            // while emu_lock.audio_queued() < samples_needed * 2 && !emu_lock.is_frame_ready() {
-            //     emu_lock.cpu_step();
-            // }
-            while emu_lock.audio_queued() < samples_needed * 2 {
-                emu_lock
-                    .step_until_samples_or_frame_ready(samples_needed * 2)
-                    .unwrap();
-                // emu_lock.step_until_frame_ready().unwrap();
-
-                if emu_lock.is_frame_ready() {
-                    let buf = emu_lock.get_video_rgba();
-                    video_chain.lock().unwrap().push(buf.into());
-                }
-            }
-        }
-
-        let frame_duration = time::Instant::now() - frame_start;
-        if frame_duration < frame_rate {
-            thread::sleep(frame_rate - frame_duration);
         }
     }
 }
@@ -148,43 +113,26 @@ fn main() {
 
     let emu = NesEmulator::load_bios_only(Some(bios)).unwrap();
     // let emu = NesEmulator::load_rom_from_file(&rom_path, Some(bios)).unwrap();
-    // let mut frame_rate = (1.0 / emu.region().frame_rate() * 1000.0).round() as u64;
-    // let frame_rate = time::Duration::from_secs_f32(1.0 / 144.0);
-
-    let video_chain = arc_mutex(nenemu_core::utils::RingBuffer::new(8));
 
     let emu = arc_mutex(emu);
-    let emu_shared_clone1 = Arc::clone(&emu);
-    let emu_shared_clone2 = Arc::clone(&emu);
-    let video_chain_shared_clone = Arc::clone(&video_chain);
+    let emu_shared_clone = Arc::clone(&emu);
 
     let audiospec = AudioSpecDesired {
         channels: Some(1),
-        freq: Some(44100),
-        samples: Some(256),
+        freq: Some(48000),
+        samples: Some(800),
     };
 
     let audiocb = audio
         .open_playback(None, &audiospec, move |_| AudioHandler {
-            emu: emu_shared_clone2,
+            emu: emu_shared_clone,
         })
         .unwrap();
     audiocb.resume();
 
-    let samples_needed = audiocb.spec().samples;
-    // let samples_needed = 44100 / 60;
-    let _ = thread::Builder::new()
-        .name("emulation".into())
-        .spawn(move || {
-            emulation_thread_proc(
-                emu_shared_clone1,
-                video_chain_shared_clone,
-                samples_needed as usize,
-            )
-        });
-
     println!("{:?}", audiocb.spec());
 
+    let frame_rate = time::Duration::from_secs_f32(1.0 / 144.0);
     'running: loop {
         // let frame_start = timer.ticks64();
         let frame_start = time::Instant::now();
@@ -216,12 +164,6 @@ fn main() {
                             println!("{:?}", emu_lock.header());
 
                             load_battery(&rom_path, &mut emu_lock);
-
-                            // frame_rate =
-                            //     (1.0 / emu_lock.region().frame_rate() * 1000.0).round() as u64;
-                            // frame_rate = time::Duration::from_secs_f32(
-                            //     1.0 / (emu_lock.region().frame_rate() + 1.0),
-                            // );
                         }
                         Err(e) => eprintln!("{e}"),
                     }
@@ -353,42 +295,32 @@ fn main() {
         canvas.clear();
 
         {
-            let mut video_lock = video_chain.lock().unwrap();
-            if video_lock.queued() > 0 {
-                let framebuf = video_lock.pop();
+            let mut emu_lock = emu.lock().unwrap();
+
+            if emu_lock.audio_queued() < 1024 {
+                emu_lock.step_until_frame_ready().unwrap();
+
                 tex.with_lock(None, |pixels, _| {
-                    pixels.copy_from_slice(&framebuf);
+                    pixels.copy_from_slice(emu_lock.get_video_rgba());
                 })
                 .unwrap();
+
+                // if emu_lock.is_frame_ready() {
+                //     video_chain.push(emu_lock.get_video_rgba().clone());
+                // }
             }
         }
 
         canvas.copy(&tex, None, None).unwrap();
         canvas.present();
 
-        // debug_canvas.set_draw_color(Color::GREY);
-        // debug_canvas.clear();
-        // debug_tex
-        //     .with_lock(None, |pixels, _| {
-        //         emu.lock().unwrap().get_nametables_rgba(pixels);
-        //     })
-        //     .unwrap();
-        // debug_canvas.copy(&debug_tex, None, None).unwrap();
-        // debug_canvas.present();
+        sleep_until_fps(frame_start, frame_rate);
+    }
+}
 
-        // let frame_duration = timer.ticks64() - frame_start;
-        // if frame_duration < frame_rate {
-        //     timer.delay((frame_rate - frame_duration) as u32);
-        // }
-
-        // let frame_duration = time::Instant::now() - frame_start;
-        // if frame_duration < frame_rate {
-        //     thread::sleep(frame_rate - frame_duration);
-        // }
-        // let frame_rate = Duration::from_secs_f32(1.0 / 60.0);
-        // let frame_duration = time::Instant::now() - frame_start;
-        // if frame_duration < frame_rate {
-        //     thread::sleep(frame_rate - frame_duration);
-        // }
+fn sleep_until_fps(frame_start: time::Instant, frame_rate: time::Duration) {
+    let frame_duration = frame_start.elapsed();
+    if frame_duration < frame_rate {
+        thread::sleep(frame_rate - frame_duration);
     }
 }

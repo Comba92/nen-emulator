@@ -71,12 +71,11 @@ fn parse_test() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "ram64kb"), ignore)]
 fn exec_test() {
     let test: Vec<CpuTest> =
         serde_json::from_str(include_str!("./SingleStepTests/a9.json")).unwrap();
 
-    let mut emu = emu::NesEmulator::default();
+    let mut emu = emu::NesEmulator::debug();
     println!("{:?}", emu.cpu);
 
     cpu_from_mock(&mut emu, &test[0].start);
@@ -84,7 +83,7 @@ fn exec_test() {
     println!("{:?}", test[0]);
 
     while emu.cpu.cycles < test[0].cycles.len() {
-        emu.emu_step();
+        emu.cpu_step();
     }
 
     let res = cpu_to_mock(&mut emu, &test[0].end);
@@ -94,13 +93,18 @@ fn exec_test() {
 
 use pretty_assertions::assert_eq;
 
-fn cpu_test(test: &CpuTest) -> bool {
-    let mut emu = emu::NesEmulator::empty();
-    cpu_from_mock(&mut emu, &test.start);
+fn cpu_test(emu: &mut emu::NesEmulator, test: &CpuTest) -> bool {
+    cpu_from_mock(emu, &test.start);
 
     emu.cpu_step();
 
-    let res = cpu_to_mock(&mut emu, &test.end);
+    let res = cpu_to_mock(emu, &test.end);
+
+    // clear written addresses
+    for (addr, _) in &res.ram {
+        emu.cpu_dispatch_write(*addr as u16, 0);
+    }
+
     assert_eq!(res, test.end, "{}", test.name);
     res == test.end
 }
@@ -118,11 +122,12 @@ const LEGALS: &[&str] = &[
     "f1", "f5", "f6", "f8", "f9", "fd", "fe",
 ];
 
-#[cfg_attr(not(feature = "ram64kb"), ignore)]
 #[test]
 fn exec_all_tests() {
     let files = fs::read_dir("./tests/SingleStepTests").expect("tests folder missing");
     let mut file_str = String::new();
+
+    let mut emu = emu::NesEmulator::debug();
 
     for file in files {
         let entry = file.unwrap();
@@ -137,7 +142,7 @@ fn exec_all_tests() {
 
         let tests: Vec<CpuTest> = serde_json::from_str(&file_str).unwrap();
         for test in tests {
-            cpu_test(&test);
+            cpu_test(&mut emu, &test);
         }
 
         file_str.clear();

@@ -12,7 +12,11 @@ impl Default for Cart {
     // empty cart with zeroed prg and chr
     fn default() -> Self {
         Self {
-            header: Default::default(),
+            header: RomData {
+                prg_size: 16 * 1024,
+                chr_size: 8 * 1024,
+                ..Default::default()
+            },
             prg: vec![0; 16 * 1024],
             chr: vec![0; 8 * 1024],
         }
@@ -62,8 +66,8 @@ impl Default for RomData {
             submapper: 0,
             region: Region::NTSC,
 
-            prg_size: 16 * 1024,
-            chr_size: 8 * 1024,
+            prg_size: 0,
+            chr_size: 0,
             wram_size: 0,
 
             mirroring: Default::default(),

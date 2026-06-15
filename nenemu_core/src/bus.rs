@@ -1,3 +1,5 @@
+use std::array;
+
 use crate::{
     emu::{Mirroring, NesEmulator},
     mapper::{self, BoxedMapper, Mapper},
@@ -302,6 +304,36 @@ pub struct Bus {
 }
 
 impl Bus {
+    pub fn with_ram_64kb() -> Self {
+        let header = RomData {
+            wram_size: 64 * 1024,
+            ..Default::default()
+        };
+
+        let cpu_handlers_8kb = array::from_fn(|_| CpuHandler::Wram);
+        let ppu_handlers_1kb = array::from_fn(|_| PpuHandler::OpenBus);
+
+        Self {
+            ram: [0; _],
+            prg: Default::default(),
+            chr: Default::default(),
+            vram: Default::default(),
+            wram: vec![0; 64 * 1024].into_boxed_slice(),
+
+            cpu_handlers_8kb,
+            ppu_handlers_1kb,
+
+            cpu_open_bus: 0,
+            ppu_open_bus: 0,
+
+            nmi: false,
+            irq: IrqFlags::empty(),
+
+            banks: BanksHandler::new(&header),
+            header,
+        }
+    }
+
     pub fn with_cart(cart: Cart) -> Self {
         let banks = BanksHandler::new(&cart.header);
 
@@ -356,6 +388,7 @@ impl Bus {
         header.mapper = 20;
         header.has_chr_ram = true;
         header.prg_size = 8 * 1024;
+        header.chr_size = 8 * 1024;
         header.wram_size = 32 * 1024;
 
         let mut banks = BanksHandler {

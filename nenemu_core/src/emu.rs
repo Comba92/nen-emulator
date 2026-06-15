@@ -9,7 +9,7 @@ use crate::{
     bus::Bus,
     cpu::{self, Cpu6502},
     joypad::Joypad,
-    mapper::{self, BoxedMapper, Mapper},
+    mapper::{self, Mapper},
     ppu::Ppu2C02,
     rom::{Cart, Disk, RomData},
     utils::RingBuffer,
@@ -160,6 +160,24 @@ impl NesEmulator {
         Self::new(Game::Cart(Cart::default()), None).unwrap()
     }
 
+    pub fn debug() -> Self {
+        Self {
+            cpu: Cpu6502::new(),
+            ppu: Ppu2C02::default(),
+            apu: ApuRP2A::default(),
+            joypad: Joypad::default(),
+            mem: Bus::with_ram_64kb(),
+            mapper: Box::new(mapper::NROM),
+
+            frame_ready: false,
+            videobuf: Box::new([255; _]),
+            audiobuf: RingBuffer::new(0),
+            palette: NesPalette::default(),
+
+            settings: Settings::default(),
+        }
+    }
+
     fn new(game: Game, bios: Option<&[u8]>) -> Result<Self, LoadError> {
         let (mem, mapper) = match game {
             Game::Cart(cart) => {
@@ -292,20 +310,12 @@ impl NesEmulator {
         // TODO: some mappers need to be reset too
     }
 
-    pub fn get_video_rgba(&mut self) -> &[u8; FRAMEBUF_SIZE] {
-        // for (i, color) in self
-        //     .videobuf
-        //     .iter()
-        //     .map(|byte| self.palette.0[*byte as usize])
-        //     .enumerate()
-        // {
-        //     buf[i * 4 + 0] = color.0;
-        //     buf[i * 4 + 1] = color.1;
-        //     buf[i * 4 + 2] = color.2;
-        //     buf[i * 4 + 3] = 255;
-        // }
-
+    pub fn get_video_rgba(&self) -> &[u8; FRAMEBUF_SIZE] {
         &self.videobuf
+    }
+
+    pub fn put_video_rgba(&self, buf: &mut [u8]) {
+        buf.copy_from_slice(self.get_video_rgba());
     }
 
     pub fn get_nametables_rgba(&self, buf: &mut [u8]) {
@@ -366,6 +376,19 @@ impl NesEmulator {
 
     pub fn get_audio_f32(&mut self, amount: usize) -> (&[f32], Option<&[f32]>) {
         self.audiobuf.take_available_contiguos(amount)
+    }
+
+    pub fn get_audio_f32_all(&mut self) -> (&[f32], Option<&[f32]>) {
+        self.get_audio_f32(self.audio_queued())
+    }
+
+    pub fn put_audio_f32(&mut self, buf: &mut [f32]) {
+        let (right, left) = self.get_audio_f32(buf.len());
+        buf[..right.len()].copy_from_slice(right);
+
+        if let Some(left) = left {
+            buf[right.len()..].copy_from_slice(left);
+        }
     }
 
     pub fn load_rom_from_file<P: AsRef<Path>>(

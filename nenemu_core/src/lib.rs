@@ -31,31 +31,49 @@ pub mod utils {
     #[derive(Default, Debug)]
     pub struct RingBuffer<T> {
         pub(crate) data: Box<[T]>,
-        head: usize,
-        tail: usize,
+        read_pos: usize,
+        write_pos: usize,
         queued: usize,
     }
     impl<T: Default + Clone> RingBuffer<T> {
         pub fn new(size: usize) -> Self {
+            Self::new_with(size, Default::default())
+        }
+    }
+
+    impl<T: Clone> RingBuffer<T> {
+        pub fn new_with(size: usize, default: T) -> Self {
             Self {
-                data: vec![T::default(); size].into_boxed_slice(),
-                head: 0,
-                tail: 0,
+                data: vec![default; size].into_boxed_slice(),
+                read_pos: 0,
+                write_pos: 0,
                 queued: 0,
             }
         }
     }
 
     impl<T> RingBuffer<T> {
-        pub fn push(&mut self, val: T) {
-            self.data[self.tail] = val;
-            self.tail = (self.tail + 1) % self.data.len();
-            self.queued += 1;
+        pub fn read_pos(&self) -> usize {
+            self.read_pos
         }
 
-        pub fn pop(&mut self) -> &mut T {
-            let head = self.head;
-            self.head = (self.head + 1) % self.data.len();
+        pub fn write_pos(&self) -> usize {
+            self.write_pos
+        }
+
+        pub fn push(&mut self, val: T) {
+            self.data[self.write_pos] = val;
+            self.write_pos = (self.write_pos + 1) % self.data.len();
+            self.queued = (self.queued + 1).min(self.data.len());
+        }
+
+        pub fn pop(&mut self) -> &T {
+            self.pop_mut()
+        }
+
+        pub fn pop_mut(&mut self) -> &mut T {
+            let head = self.read_pos;
+            self.read_pos = (self.read_pos + 1) % self.data.len();
             self.queued = self.queued.saturating_sub(1);
             let res = &mut self.data[head];
             res
@@ -67,36 +85,35 @@ pub mod utils {
 
         pub fn is_queued_all_contiguos(&self) -> bool {
             // tail is right of head, consecutive data
-            self.tail >= self.head
+            self.write_pos >= self.read_pos
         }
 
-        // TODO: consider inlining queued field
         pub fn queued(&self) -> usize {
             if self.is_queued_all_contiguos() {
                 // tail is right of head, consecutive
-                self.tail - self.head
+                self.write_pos - self.read_pos
             } else {
                 // tail is left of head, not consecutive
-                self.tail + self.queued_contiguos()
+                self.write_pos + self.queued_contiguos()
             }
             // self.queued
         }
 
         pub fn queued_contiguos(&self) -> usize {
-            self.data.len() - self.head
+            self.data.len() - self.read_pos
         }
 
         pub fn available_contiguos(&self) -> usize {
-            self.data.len() - self.tail
+            self.data.len() - self.write_pos
         }
 
         pub fn available(&self) -> usize {
             if self.is_queued_all_contiguos() {
                 // tail is right of head, consecutive
-                self.available_contiguos() + self.head
+                self.available_contiguos() + self.read_pos
             } else {
                 // tail is left of head, not consecutive
-                self.head - self.tail
+                self.read_pos - self.write_pos
             }
         }
 
@@ -104,7 +121,7 @@ pub mod utils {
             let amount = amount.min(self.data.len());
 
             let right_amount = amount.min(self.queued_contiguos());
-            let right = &self.data[self.head..self.head + right_amount];
+            let right = &self.data[self.read_pos..self.read_pos + right_amount];
 
             let left = if right_amount < amount {
                 let left_amount = amount - right_amount;
@@ -113,7 +130,7 @@ pub mod utils {
                 None
             };
 
-            self.head = (self.head + amount) % self.data.len();
+            self.read_pos = (self.read_pos + amount) % self.data.len();
             self.queued = self.queued.saturating_sub(amount);
 
             (right, left)

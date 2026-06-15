@@ -21,6 +21,7 @@ pub trait Mapper: Send {
     fn new(mem: &mut Bus) -> Box<Self>
     where
         Self: Sized;
+
     // 0x8000..=0xffff
     fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u8);
 
@@ -46,7 +47,7 @@ pub trait Mapper: Send {
     }
 }
 
-pub type BoxedMapper = Box<dyn Mapper + Send>;
+pub type BoxedMapper = Box<dyn Mapper>;
 
 pub fn new(mem: &mut Bus) -> Result<BoxedMapper, String> {
     let mapper: BoxedMapper = match mem.header.mapper {
