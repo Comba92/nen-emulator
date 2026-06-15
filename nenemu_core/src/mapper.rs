@@ -598,11 +598,11 @@ impl Mapper for NTDEC2722 {
 // TODO
 // https://www.nesdev.org/wiki/INES_Mapper_032
 // #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
-struct IremG101;
+// struct IremG101;
 
 // https://www.nesdev.org/wiki/INES_Mapper_065
 // #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
-struct IremH3001;
+// struct IremH3001;
 
 // https://www.nesdev.org/wiki/INES_Mapper_087
 // https://www.nesdev.org/wiki/INES_Mapper_101

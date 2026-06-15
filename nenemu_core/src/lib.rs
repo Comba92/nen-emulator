@@ -226,4 +226,8 @@ impl NesEmulator {
     pub fn set_button(&mut self, btn: JoypadBtn, state: bool) {
         self.joypad.buttons.set(btn, state);
     }
+
+    pub fn set_buttons_all(&mut self, input: JoypadBtn) {
+        self.joypad.buttons = input;
+    }
 }

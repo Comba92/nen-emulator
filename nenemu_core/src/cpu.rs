@@ -62,8 +62,7 @@ pub struct Cpu6502 {
     // TODO: not sure about this
     nmi_to_handle: bool,
     // TODO: the effect of toggling this flag is delayed 1 instruction when caused by SEI, CLI, or PLP.
-    irq_to_set: Option<bool>,
-    // TODO: move this out in bus?
+    // irq_to_set: Option<bool>,
     pub cycles: usize,
     // TODO: add more debugging info at jammed state
     pub jammed: bool,

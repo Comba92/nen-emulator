@@ -2322,6 +2322,8 @@ dependencies = [
  "eframe",
  "nenemu_core",
  "rfd",
+ "sdl2",
+ "serde",
 ]
 
 [[package]]

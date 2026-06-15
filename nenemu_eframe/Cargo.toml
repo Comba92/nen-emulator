@@ -4,11 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-savestates = ["nenemu_core/savestates"]
+savestates = ["nenemu_core/savestates", "dep:serde", "eframe/persistence"]
 
 [dependencies]
 rfd = { version = "0.17.2" }
-eframe = { version = "0.34.3", features = ["persistence"] }
+eframe = { version = "0.34.3" }
 nenemu_core = { path = "../nenemu_core" }
-# sdl2 = "0.38.0"
+sdl2 = "0.38.0"
 cpal = "0.18.1"
+serde = { version = "1.0.228", optional = true }

@@ -6,7 +6,7 @@ use std::{
 };
 
 use eframe::egui;
-use nenemu_core::{emu, joypad, rom, NesPalette};
+use nenemu_core::{NesPalette, emu, joypad, rom};
 
 const TEX_OPTS: egui::TextureOptions = egui::TextureOptions {
     magnification: egui::TextureFilter::Nearest,

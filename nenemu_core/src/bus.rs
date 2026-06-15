@@ -384,6 +384,7 @@ impl Bus {
     pub fn with_disk(disk: Disk, bios: &[u8]) -> (Self, BoxedMapper) {
         let mut header = RomData::default();
         // only for debug porpuoses
+        header.title = "FDS Disk Game".to_string();
         header.format = rom::HeaderFormat::Fds;
         header.mapper = 20;
         header.has_chr_ram = true;

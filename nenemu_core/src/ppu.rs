@@ -736,9 +736,9 @@ impl NesEmulator {
 
     fn videobuf_push(&mut self, color_id: u8) {
         let color = self.palette.0[color_id as usize];
-        self.videobuf[self.ppu.pixel_idx + 0] = color.0;
-        self.videobuf[self.ppu.pixel_idx + 1] = color.1;
-        self.videobuf[self.ppu.pixel_idx + 2] = color.2;
+        self.videobuf.0[self.ppu.pixel_idx + 0] = color.0;
+        self.videobuf.0[self.ppu.pixel_idx + 1] = color.1;
+        self.videobuf.0[self.ppu.pixel_idx + 2] = color.2;
         self.ppu.pixel_idx += 4;
     }
 
