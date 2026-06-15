@@ -28,7 +28,7 @@ enum PlayerEvent {
 #[cfg_attr(feature = "persistence", derive(serde::Serialize, serde::Deserialize))]
 struct KeyMap {
     keys: HashMap<egui::Key, joypad::JoypadBtn>,
-    #[cfg(feature = "gamepads")]
+
     pads: HashMap<gilrs::Button, joypad::JoypadBtn>,
     rebind_key: Option<(egui::Key, joypad::JoypadBtn)>,
 }
@@ -49,7 +49,6 @@ impl Default for KeyMap {
             (Key::E, Btn::Select),
         ]);
 
-        #[cfg(feature = "gamepads")]
         let pads = {
             use gilrs::Button;
             HashMap::from([
@@ -66,19 +65,18 @@ impl Default for KeyMap {
 
         Self {
             keys,
-            #[cfg(feature = "gamepads")]
+
             pads,
             rebind_key: None,
         }
     }
 }
 
-#[cfg(feature = "gamepads")]
 struct GamepadHandler {
     pub api: gilrs::Gilrs,
     pub active: Option<gilrs::GamepadId>,
 }
-#[cfg(feature = "gamepads")]
+
 impl Default for GamepadHandler {
     fn default() -> Self {
         let api = gilrs::Gilrs::new().unwrap();
@@ -375,7 +373,7 @@ struct AppCtx {
     tex: Arc<Mutex<egui::TextureHandle>>,
 
     audio: AudioHandler,
-    #[cfg(feature = "gamepads")]
+
     gamepads: GamepadHandler,
 
     state: AppState,
@@ -388,10 +386,11 @@ impl AppCtx {
         let cfg = AppCfg::default();
 
         #[cfg(feature = "persistence")]
-        let cfg = c
-            .storage
-            .and_then(|storage| eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default())
-            .unwrap_or_default();
+        let cfg = if let Some(storage) = c.storage {
+            eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default()
+        } else {
+            AppCfg::default()
+        };
 
         let img = egui::ColorImage::filled([256, 240], egui::Color32::TRANSPARENT);
         let tex = c.egui_ctx.load_texture("emu_present", img, TEX_OPTS);
@@ -439,7 +438,7 @@ impl AppCtx {
             video_chain,
             tex,
             audio,
-            #[cfg(feature = "gamepads")]
+
             gamepads: GamepadHandler::default(),
 
             cfg,
@@ -1024,6 +1023,85 @@ impl AppCtx {
             }
         }
     }
+
+    fn handle_input(&mut self, ui: &mut egui::Ui) {
+        let current_input = self.emu_lock().joypad.buttons.clone();
+
+        let (keyboard_input, keyboard_changed) = ui.input(|i| {
+            let mut pressed = current_input.clone();
+
+            if !i.keys_down.is_empty() {
+                for (key, emu_btn) in &self.cfg.keymaps.keys {
+                    pressed.set(*emu_btn, i.key_down(*key));
+                }
+            }
+
+            (pressed, !i.keys_down.is_empty())
+        });
+
+        let (mut gamepad_input, mut gamepad_changed) = (current_input.clone(), false);
+
+        if let Some(active) = self.gamepads.active {
+            while let Some(gilrs::Event { id, event, .. }) = self.gamepads.api.next_event() {
+                if active != id {
+                    continue;
+                }
+
+                gamepad_changed = true;
+                match event {
+                    gilrs::EventType::ButtonReleased(btn, _) => {
+                        if let Some(emu_btn) = self.cfg.keymaps.pads.get(&btn) {
+                            gamepad_input.remove(*emu_btn);
+                        }
+                    }
+
+                    gilrs::EventType::ButtonPressed(btn, _) => {
+                        if let Some(emu_btn) = self.cfg.keymaps.pads.get(&btn) {
+                            gamepad_input.insert(*emu_btn);
+                        }
+                    }
+
+                    gilrs::EventType::AxisChanged(axis, amt, _) => match axis {
+                        gilrs::Axis::LeftStickX => {
+                            if amt >= 0.1 {
+                                gamepad_input.insert(joypad::JoypadBtn::Right);
+                            } else if amt <= -0.1 {
+                                gamepad_input.insert(joypad::JoypadBtn::Left);
+                            } else {
+                                gamepad_input.remove(joypad::JoypadBtn::Right);
+                                gamepad_input.remove(joypad::JoypadBtn::Left);
+                            }
+                        }
+                        gilrs::Axis::LeftStickY => {
+                            if amt >= 0.1 {
+                                gamepad_input.insert(joypad::JoypadBtn::Up);
+                            } else if amt <= -0.1 {
+                                gamepad_input.insert(joypad::JoypadBtn::Down);
+                            } else {
+                                gamepad_input.remove(joypad::JoypadBtn::Up);
+                                gamepad_input.remove(joypad::JoypadBtn::Down);
+                            }
+                        }
+                        _ => {}
+                    },
+
+                    _ => {}
+                }
+            }
+        }
+
+        {
+            let mut emu = self.emu_lock();
+
+            if keyboard_changed {
+                emu.set_buttons_all(keyboard_input);
+            }
+
+            if gamepad_changed {
+                emu.set_buttons_all(gamepad_input);
+            }
+        }
+    }
 }
 
 impl eframe::App for AppCtx {
@@ -1090,84 +1168,7 @@ impl eframe::App for AppCtx {
         self.show_rom_info_window(ui);
         self.show_error_window(ui);
 
-        let (keyboard_input, keyboard_pressed) = ui.input(|i| {
-            let mut pressed = joypad::JoypadBtn::empty();
-
-            if !i.keys_down.is_empty() {
-                for key in &i.keys_down {
-                    if let Some(emu_btn) = self.cfg.keymaps.keys.get(key) {
-                        pressed.insert(*emu_btn);
-                    }
-                }
-            }
-
-            (pressed, !i.keys_down.is_empty())
-        });
-
-        #[cfg(feature = "gamepads")]
-        let mut gamepad_input = joypad::JoypadBtn::empty();
-
-        #[cfg(feature = "gamepads")]
-        if let Some(active) = self.gamepads.active {
-            while let Some(gilrs::Event { id, event, .. }) = self.gamepads.api.next_event() {
-                if active != id {
-                    continue;
-                }
-
-                println!("{event:?}");
-
-                match event {
-                    gilrs::EventType::ButtonReleased(btn, _) => {
-                        if let Some(emu_btn) = self.cfg.keymaps.pads.get(&btn) {
-                            gamepad_input.remove(*emu_btn);
-                        }
-                    }
-
-                    gilrs::EventType::ButtonPressed(btn, _) => {
-                        if let Some(emu_btn) = self.cfg.keymaps.pads.get(&btn) {
-                            gamepad_input.insert(*emu_btn);
-                        }
-                    }
-
-                    gilrs::EventType::AxisChanged(axis, amt, _) => match axis {
-                        gilrs::Axis::LeftStickX => {
-                            if amt >= 0.1 {
-                                gamepad_input.insert(joypad::JoypadBtn::Right);
-                            } else if amt <= -0.1 {
-                                gamepad_input.insert(joypad::JoypadBtn::Left);
-                            } else {
-                                gamepad_input.remove(joypad::JoypadBtn::Right);
-                                gamepad_input.remove(joypad::JoypadBtn::Left);
-                            }
-                        }
-                        gilrs::Axis::LeftStickY => {
-                            if amt >= 0.1 {
-                                gamepad_input.insert(joypad::JoypadBtn::Up);
-                            } else if amt <= -0.1 {
-                                gamepad_input.insert(joypad::JoypadBtn::Down);
-                            } else {
-                                gamepad_input.remove(joypad::JoypadBtn::Up);
-                                gamepad_input.remove(joypad::JoypadBtn::Down);
-                            }
-                        }
-                        _ => {}
-                    },
-
-                    _ => {}
-                }
-            }
-        }
-
-        {
-            let mut emu = self.emu_lock();
-
-            if keyboard_pressed {
-                emu.set_buttons_all(keyboard_input);
-            }
-
-            #[cfg(feature = "gamepads")]
-            emu.set_buttons_all(gamepad_input);
-        }
+        self.handle_input(ui);
 
         if self.state.emulation != current_state {
             self.is_running.store(

@@ -1609,6 +1609,7 @@ dependencies = [
  "fnv",
  "gilrs-core",
  "log",
+ "serde",
  "uuid",
  "vec_map",
 ]
@@ -1628,6 +1629,7 @@ dependencies = [
  "objc2-core-foundation",
  "objc2-io-kit",
  "rusty-xinput",
+ "serde",
  "uuid",
  "vec_map",
  "wasm-bindgen",
