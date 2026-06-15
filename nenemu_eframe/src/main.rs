@@ -28,7 +28,6 @@ enum PlayerEvent {
 #[cfg_attr(feature = "persistence", derive(serde::Serialize, serde::Deserialize))]
 struct KeyMap {
     keys: HashMap<egui::Key, joypad::JoypadBtn>,
-
     pads: HashMap<gilrs::Button, joypad::JoypadBtn>,
     rebind_key: Option<(egui::Key, joypad::JoypadBtn)>,
 }
@@ -1027,19 +1026,17 @@ impl AppCtx {
     fn handle_input(&mut self, ui: &mut egui::Ui) {
         let current_input = self.emu_lock().joypad.buttons.clone();
 
-        let (keyboard_input, keyboard_changed) = ui.input(|i| {
+        let keyboard_input = ui.input(|i| {
             let mut pressed = current_input.clone();
 
-            if !i.keys_down.is_empty() {
-                for (key, emu_btn) in &self.cfg.keymaps.keys {
-                    pressed.set(*emu_btn, i.key_down(*key));
-                }
+            for (key, emu_btn) in &self.cfg.keymaps.keys {
+                pressed.set(*emu_btn, i.key_down(*key));
             }
 
-            (pressed, !i.keys_down.is_empty())
+            pressed
         });
 
-        let (mut gamepad_input, mut gamepad_changed) = (current_input.clone(), false);
+        let mut gamepad_input = current_input.clone();
 
         if let Some(active) = self.gamepads.active {
             while let Some(gilrs::Event { id, event, .. }) = self.gamepads.api.next_event() {
@@ -1047,7 +1044,6 @@ impl AppCtx {
                     continue;
                 }
 
-                gamepad_changed = true;
                 match event {
                     gilrs::EventType::ButtonReleased(btn, _) => {
                         if let Some(emu_btn) = self.cfg.keymaps.pads.get(&btn) {
@@ -1093,11 +1089,11 @@ impl AppCtx {
         {
             let mut emu = self.emu_lock();
 
-            if keyboard_changed {
+            if current_input != keyboard_input {
                 emu.set_buttons_all(keyboard_input);
             }
 
-            if gamepad_changed {
+            if current_input != gamepad_input {
                 emu.set_buttons_all(gamepad_input);
             }
         }
