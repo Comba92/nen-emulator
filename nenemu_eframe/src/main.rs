@@ -27,6 +27,7 @@ enum PlayerEvent {
 
 #[cfg_attr(feature = "persistence", derive(serde::Serialize, serde::Deserialize))]
 struct KeyMap {
+    btns_strings: HashMap<joypad::JoypadBtn, String>,
     keys: HashMap<egui::Key, joypad::JoypadBtn>,
     pads: HashMap<gilrs::Button, joypad::JoypadBtn>,
     rebind_key: Option<(egui::Key, joypad::JoypadBtn)>,
@@ -42,8 +43,8 @@ impl Default for KeyMap {
             (Key::ArrowDown, Btn::Down),
             (Key::ArrowLeft, Btn::Left),
             (Key::ArrowRight, Btn::Right),
-            (Key::A, Btn::B),
             (Key::S, Btn::A),
+            (Key::A, Btn::B),
             (Key::W, Btn::Start),
             (Key::E, Btn::Select),
         ]);
@@ -55,17 +56,32 @@ impl Default for KeyMap {
                 (Button::DPadDown, Btn::Down),
                 (Button::DPadLeft, Btn::Left),
                 (Button::DPadRight, Btn::Right),
-                (Button::West, Btn::B),
                 (Button::South, Btn::A),
+                (Button::West, Btn::B),
                 (Button::Start, Btn::Start),
                 (Button::Select, Btn::Select),
             ])
         };
 
+        let btns_strings = HashMap::from_iter(
+            [
+                (Btn::Up, "UP"),
+                (Btn::Down, "DOWN"),
+                (Btn::Left, "LEFT"),
+                (Btn::Right, "RIGHT"),
+                (Btn::A, "A"),
+                (Btn::B, "B"),
+                (Btn::Start, "Start"),
+                (Btn::Select, "Select"),
+            ]
+            .iter()
+            .map(|x| (x.0, x.1.to_string())),
+        );
+
         Self {
             keys,
-
             pads,
+            btns_strings,
             rebind_key: None,
         }
     }
@@ -105,6 +121,7 @@ fn main() {
 
 struct AudioHandler {
     stream: Option<cpal::Stream>,
+    volume: Arc<Mutex<f32>>,
 }
 
 impl AudioHandler {
@@ -118,23 +135,27 @@ impl AudioHandler {
                     buffer_size: cpal::BufferSize::Fixed(buf_size),
                 };
 
+                let volume = Arc::new(Mutex::new(0.5));
+                let volume_arc = Arc::clone(&volume);
+
                 let stream = device
                     .build_output_stream(
                         config,
                         move |audio_out, _| {
                             let mut emu_lock = emu.lock().unwrap();
+                            let volume = *volume_arc.lock().unwrap();
 
                             let (right, left) = emu_lock.get_audio_f32(audio_out.len() / 2);
                             for i in 0..right.len() {
-                                audio_out[2 * i] = right[i];
-                                audio_out[2 * i + 1] = right[i];
+                                audio_out[2 * i] = right[i] * volume;
+                                audio_out[2 * i + 1] = right[i] * volume;
                             }
 
                             if let Some(left) = left {
                                 let audio_out = &mut audio_out[2 * right.len()..];
                                 for i in 0..left.len() {
-                                    audio_out[2 * i] = left[i];
-                                    audio_out[2 * i + 1] = left[i];
+                                    audio_out[2 * i] = left[i] * volume;
+                                    audio_out[2 * i + 1] = left[i] * volume;
                                 }
                             }
                         },
@@ -147,10 +168,14 @@ impl AudioHandler {
 
                 Self {
                     stream: Some(stream),
+                    volume,
                 }
             }
 
-            None => Self { stream: None },
+            None => Self {
+                stream: None,
+                volume: Default::default(),
+            },
         }
     }
 
@@ -158,10 +183,10 @@ impl AudioHandler {
         self.stream.is_some()
     }
 
-    pub fn buffer_size(&self) -> Option<u32> {
+    pub fn buffer_size(&self) -> Option<usize> {
         self.stream
             .as_ref()
-            .map(|s| s.buffer_size().unwrap_or_default())
+            .map(|s| s.buffer_size().unwrap_or_default() as usize)
     }
 
     pub fn resume(&self) {
@@ -247,58 +272,58 @@ fn buffered_read<P: AsRef<Path>>(path: P) -> Result<Vec<u8>, GenericError> {
     Ok(bytes)
 }
 
-fn emulation_thread_proc(
-    emu: Arc<Mutex<NesEmulator>>,
-    video_chain: Arc<Mutex<RingBuffer<egui::ColorImage>>>,
-    samples_needed: usize,
-    is_running: Arc<atomic::AtomicBool>,
-) {
-    let frame_rate = time::Duration::from_secs_f32(1.0 / 288.0);
-    loop {
-        let frame_start = time::Instant::now();
+// fn emulation_thread_proc(
+//     emu: Arc<Mutex<NesEmulator>>,
+//     video_chain: Arc<Mutex<RingBuffer<egui::ColorImage>>>,
+//     samples_needed: usize,
+//     is_running: Arc<atomic::AtomicBool>,
+// ) {
+//     let frame_rate = time::Duration::from_secs_f32(1.0 / 288.0);
+//     loop {
+//         let frame_start = time::Instant::now();
 
-        if is_running.load(atomic::Ordering::Relaxed) {
-            let mut emu_lock = emu.lock().unwrap();
-            while emu_lock.audio_queued() < samples_needed {
-                emu_lock
-                    .step_until_samples_or_frame_ready(samples_needed)
-                    .unwrap();
+//         if is_running.load(atomic::Ordering::Relaxed) {
+//             let mut emu_lock = emu.lock().unwrap();
+//             while emu_lock.audio_queued() < samples_needed {
+//                 emu_lock
+//                     .step_until_samples_or_frame_ready(samples_needed)
+//                     .unwrap();
 
-                if emu_lock.is_frame_ready() {
-                    let framebuf = egui::ColorImage::from_rgba_unmultiplied(
-                        [256, 240],
-                        emu_lock.get_video_rgba(),
-                    );
-                    video_chain.lock().unwrap().push(framebuf);
-                }
-            }
-        }
+//                 if emu_lock.is_frame_ready() {
+//                     let framebuf = egui::ColorImage::from_rgba_unmultiplied(
+//                         [256, 240],
+//                         emu_lock.get_video_rgba(),
+//                     );
+//                     video_chain.lock().unwrap().push(framebuf);
+//                 }
+//             }
+//         }
 
-        sleep_until_fps(frame_start, frame_rate);
-    }
-}
+//         sleep_until_fps(frame_start, frame_rate);
+//     }
+// }
 
-fn emulation_thread_no_audio_proc(
-    emu: Arc<Mutex<NesEmulator>>,
-    video_chain: Arc<Mutex<RingBuffer<egui::ColorImage>>>,
-    is_running: Arc<atomic::AtomicBool>,
-) {
-    let frame_rate = time::Duration::from_secs_f32(1.0 / 61.0);
-    loop {
-        let frame_start = time::Instant::now();
+// fn emulation_thread_no_audio_proc(
+//     emu: Arc<Mutex<NesEmulator>>,
+//     video_chain: Arc<Mutex<RingBuffer<egui::ColorImage>>>,
+//     is_running: Arc<atomic::AtomicBool>,
+// ) {
+//     let frame_rate = time::Duration::from_secs_f32(1.0 / 61.0);
+//     loop {
+//         let frame_start = time::Instant::now();
 
-        if is_running.load(atomic::Ordering::Relaxed) {
-            let mut emu_lock = emu.lock().unwrap();
-            emu_lock.step_until_frame_ready().unwrap();
+//         if is_running.load(atomic::Ordering::Relaxed) {
+//             let mut emu_lock = emu.lock().unwrap();
+//             emu_lock.step_until_frame_ready().unwrap();
 
-            let framebuf =
-                egui::ColorImage::from_rgba_unmultiplied([256, 240], emu_lock.get_video_rgba());
-            video_chain.lock().unwrap().push(framebuf);
-        }
+//             let framebuf =
+//                 egui::ColorImage::from_rgba_unmultiplied([256, 240], emu_lock.get_video_rgba());
+//             video_chain.lock().unwrap().push(framebuf);
+//         }
 
-        sleep_until_fps(frame_start, frame_rate);
-    }
-}
+//         sleep_until_fps(frame_start, frame_rate);
+//     }
+// }
 
 #[derive(Default, PartialEq, Clone, Copy)]
 enum EmulationState {
@@ -322,7 +347,7 @@ struct AppCfg {
 
     restore_session: bool,
 
-    nes_settings: nenemu_core::emu::Settings,
+    nes_settings: nenemu_core::emu::NesSettings,
 
     volume: f32,
 }
@@ -365,14 +390,13 @@ fn file_dialog(prompt: &str, requires: &str, extensions: &[&str]) -> Option<Path
 struct AppCtx {
     // sdl: SdlCtx,
     emu: Arc<Mutex<NesEmulator>>,
-    emu_thread: thread::JoinHandle<()>,
+    // emu_thread: thread::JoinHandle<()>,
     is_running: Arc<atomic::AtomicBool>,
 
     video_chain: Arc<Mutex<RingBuffer<egui::ColorImage>>>,
     tex: Arc<Mutex<egui::TextureHandle>>,
 
     audio: AudioHandler,
-
     gamepads: GamepadHandler,
 
     state: AppState,
@@ -401,7 +425,11 @@ impl AppCtx {
 
         let video_chain = Arc::new(Mutex::new(RingBuffer::new(8)));
 
-        let audio = AudioHandler::new(48000, 512, Arc::clone(&emu));
+        let audio = AudioHandler::new(48000, 1024, Arc::clone(&emu));
+        if !audio.is_supported() {
+            panic!("No audio device found, this means emulation can't be driven by audio");
+        }
+
         let samples_needed = audio.buffer_size().unwrap_or(1024);
 
         let emu_arc = Arc::clone(&emu);
@@ -410,29 +438,29 @@ impl AppCtx {
         let is_running = Arc::new(atomic::AtomicBool::new(false));
         let is_running_arc = Arc::clone(&is_running);
 
-        let emu_thread = if audio.is_supported() {
-            thread::Builder::new()
-                .name("emulation".into())
-                .spawn(move || {
-                    emulation_thread_proc(
-                        emu_arc,
-                        chain_arc,
-                        samples_needed as usize,
-                        is_running_arc,
-                    )
-                })
-                .unwrap()
-        } else {
-            thread::Builder::new()
-                .name("emulation".into())
-                .spawn(move || emulation_thread_no_audio_proc(emu_arc, chain_arc, is_running_arc))
-                .unwrap()
-        };
+        // let emu_thread = if audio.is_supported() {
+        //     thread::Builder::new()
+        //         .name("emulation".into())
+        //         .spawn(move || {
+        //             emulation_thread_proc(
+        //                 emu_arc,
+        //                 chain_arc,
+        //                 samples_needed as usize,
+        //                 is_running_arc,
+        //             )
+        //         })
+        //         .unwrap()
+        // } else {
+        //     thread::Builder::new()
+        //         .name("emulation".into())
+        //         .spawn(move || emulation_thread_no_audio_proc(emu_arc, chain_arc, is_running_arc))
+        //         .unwrap()
+        // };
 
         let res = Self {
             // sdl,
             emu,
-            emu_thread,
+            // emu_thread,
             is_running,
             video_chain,
             tex,
@@ -493,7 +521,7 @@ impl AppCtx {
         }
     }
 
-    fn load_rom<P: AsRef<Path>>(&mut self, rom_path: P) {
+    fn load_rom<P: AsRef<Path>>(&mut self, rom_path: P, force_reset: bool) {
         let bios = self
             .cfg
             .bios_path
@@ -511,7 +539,7 @@ impl AppCtx {
                     }
                 }
 
-                new_emu.settings = self.cfg.nes_settings.clone();
+                new_emu.update_settings(self.cfg.nes_settings.clone());
                 if let Some(pal) = self.cfg.palettes.front() {
                     new_emu.palette = pal.clone();
                 }
@@ -527,7 +555,7 @@ impl AppCtx {
                 ring_push_front(&mut self.cfg.recent_roms, pathbuf, 12);
 
                 #[cfg(feature = "savestates")]
-                if self.cfg.restore_session {
+                if self.cfg.restore_session && !force_reset {
                     self.load_state("last");
                 }
 
@@ -549,13 +577,19 @@ impl AppCtx {
         }
     }
 
+    fn reset_rom(&mut self) {
+        if let Some(rom_path) = &self.state.current_rom_path {
+            self.load_rom(rom_path.clone(), true);
+        }
+    }
+
     fn show_menubar(&mut self, ui: &mut egui::Ui) {
         egui::MenuBar::new().ui(ui, |content| {
             content.horizontal_wrapped(|ui| {
                 ui.menu_button("💾 File", |ui| {
                     if ui.button("📂 Open...").clicked() {
                         file_dialog("Select game ROM", "NES ROM", &["nes", "fds", "zip", "rar"])
-                            .map(|path| self.load_rom(path));
+                            .map(|path| self.load_rom(path, false));
                     }
 
                     ui.menu_button("Recent ROMs", |ui| {
@@ -567,7 +601,7 @@ impl AppCtx {
                         for (i, entry) in self.cfg.recent_roms.iter().enumerate() {
                             if ui.button(entry.to_str().unwrap_or_default()).clicked() {
                                 let to_load = self.cfg.recent_roms.remove(i).unwrap();
-                                self.load_rom(to_load);
+                                self.load_rom(to_load, false);
                                 break;
                             }
                         }
@@ -577,10 +611,8 @@ impl AppCtx {
                         }
                     });
 
-                    let running = self.state.emulation == EmulationState::Running;
-
                     #[cfg(feature = "savestates")]
-                    ui.add_enabled_ui(running, |ui| {
+                    ui.add_enabled_ui(self.state.emulation != EmulationState::Stopped, |ui| {
                         ui.menu_button("Savestates", |ui| {
                             if ui.button("Quicksave").clicked() {
                                 self.save_state("quick");
@@ -618,8 +650,27 @@ impl AppCtx {
                                 }
                             });
 
+                            #[cfg(target_os = "windows")]
+                            if ui.button("Open states directory to clipboard").clicked() {
+                                use std::process;
+
+                                match process::Command::new("explorer.exe")
+                                    .arg(self.get_states_dir())
+                                    .spawn()
+                                {
+                                    Err(e) => self.add_message(e.into()),
+                                    _ => {}
+                                }
+                            }
+
+                            // #[cfg(not(target_os = "windows"))]
                             if ui.button("Copy states directory to clipboard").clicked() {
-                                ui.copy_text(self.get_states_dir().to_string_lossy().into_owned());
+                                ui.copy_text(
+                                    self.get_rom_states_dir()
+                                        .into_os_string()
+                                        .into_string()
+                                        .unwrap_or_default(),
+                                );
                             }
 
                             ui.separator();
@@ -666,7 +717,7 @@ impl AppCtx {
                                 self.state.emulation = EmulationState::Running;
                                 self.audio.resume();
                             } else if reset.clicked() {
-                                eprintln!("reset not implemented");
+                                self.reset_rom();
                             } else if stop.clicked() {
                                 self.state.emulation = EmulationState::Stopped;
                                 self.audio.pause();
@@ -683,7 +734,7 @@ impl AppCtx {
                                 self.state.emulation = EmulationState::Paused;
                                 self.audio.pause();
                             } else if reset.clicked() {
-                                eprintln!("reset not implemented");
+                                self.reset_rom();
                             } else if stop.clicked() {
                                 self.state.emulation = EmulationState::Stopped;
                                 self.audio.pause();
@@ -780,7 +831,7 @@ impl AppCtx {
                     ui.hyperlink("🛠 Report bugs, issues or features");
                 });
 
-                if running {
+                if self.state.emulation != EmulationState::Stopped {
                     let style = ui.style_mut();
                     style.spacing.slider_width *= 0.7;
 
@@ -817,7 +868,6 @@ impl AppCtx {
     }
 
     fn show_settings_window(&mut self, ui: &mut egui::Ui) {
-        let were_settings_open = self.state.settings_open;
         let mut should_update_palette = None;
 
         egui::Window::new("🔧 Settings")
@@ -852,11 +902,12 @@ impl AppCtx {
                 ui.collapsing("🔊 Audio", |ui| {
                     ui.label("Audio sample rate:");
                     ui.indent("Sample rates", |ui| {
-                    ui.radio_value(&mut settings.audio_sample_rate, 32000, "32000hz");
-                    ui.radio_value(&mut settings.audio_sample_rate, 44100, "44100hz");
-                    ui.radio_value(&mut settings.audio_sample_rate, 48000, "48000hz");
-                    ui.radio_value(&mut settings.audio_sample_rate, 96000, "96000hz");
-                });
+                        use nenemu_core::emu::SampleRate;
+                        ui.radio_value(&mut settings.audio_sample_rate, SampleRate::Hz32000, "32000hz");
+                        ui.radio_value(&mut settings.audio_sample_rate, SampleRate::Hz44100, "44100hz");
+                        ui.radio_value(&mut settings.audio_sample_rate, SampleRate::Hz48000, "48000hz");
+                        ui.radio_value(&mut settings.audio_sample_rate, SampleRate::Hz96000, "96000hz");
+                    });
 
                     ui.checkbox(&mut settings.disable_pulse0, "Disable pulse 0 channel");
                     ui.checkbox(&mut settings.disable_pulse1, "Disable pulse 1 channel");
@@ -883,13 +934,14 @@ impl AppCtx {
             });
 
         {
-            if self.state.settings_open != were_settings_open {
-                self.emu_lock().settings = self.cfg.nes_settings.clone();
+            let mut emu = self.emu_lock();
+            if self.cfg.nes_settings != emu.settings {
+                emu.update_settings(self.cfg.nes_settings.clone());
             }
+        }
 
-            if let Some(pal_path) = should_update_palette {
-                self.load_palette(pal_path);
-            }
+        if let Some(pal_path) = should_update_palette {
+            self.load_palette(pal_path);
         }
     }
 
@@ -899,23 +951,21 @@ impl AppCtx {
             .resizable([true, true])
             .open(&mut self.state.keybinds_open)
             .show(ui, |ui| {
-                const BTN_NAMES: &[&str] =
-                    &["Up", "Down", "Left", "Right", "A", "B", "Start", "Select"];
-
-                for (key, btn_name) in self.cfg.keymaps.keys.iter().zip(BTN_NAMES.iter()) {
+                for (key, emu_btn) in &self.cfg.keymaps.keys {
                     ui.columns_const::<2, _>(|ui| {
-                        let col1 = ui[0].label(*btn_name);
-                        let col2 = ui[1].button(format!("{:?}", key.0));
+                        let btn_name = &self.cfg.keymaps.btns_strings[emu_btn];
+                        let col_src = ui[0].label(btn_name);
+                        let col_dst = ui[1].button(format!("{:?}", key));
 
-                        if let Some(rebind_key) = &self.cfg.keymaps.rebind_key {
-                            if rebind_key.1 == *key.1 {
-                                col1.highlight();
-                                col2.highlight();
-                            } else if col2.clicked() {
-                                self.cfg.keymaps.rebind_key = Some((*key.0, *key.1));
+                        if let Some((rebind_key, _)) = &self.cfg.keymaps.rebind_key {
+                            if rebind_key == key {
+                                col_src.highlight();
+                                col_dst.highlight();
+                            } else if col_dst.clicked() {
+                                self.cfg.keymaps.rebind_key = Some((*key, *emu_btn));
                             }
-                        } else if col2.clicked() {
-                            self.cfg.keymaps.rebind_key = Some((*key.0, *key.1));
+                        } else if col_dst.clicked() {
+                            self.cfg.keymaps.rebind_key = Some((*key, *emu_btn));
                         }
                     });
                 }
@@ -935,6 +985,8 @@ impl AppCtx {
                 self.cfg.keymaps.rebind_key = None;
                 None
             });
+
+        // TODO: gamepad rebinds
     }
 
     fn show_rom_info_window(&mut self, ui: &mut egui::Ui) {
@@ -1096,6 +1148,16 @@ impl AppCtx {
             if current_input != gamepad_input {
                 emu.set_buttons_all(gamepad_input);
             }
+
+            while self.is_running.load(atomic::Ordering::Relaxed) && emu.audio_queued() < 1024 {
+                emu.step_until_samples_or_frame_ready(1024).unwrap();
+
+                if emu.is_frame_ready() {
+                    let framebuf =
+                        egui::ColorImage::from_rgba_unmultiplied([256, 240], emu.get_video_rgba());
+                    self.video_chain.lock().unwrap().push(framebuf);
+                }
+            }
         }
     }
 }
@@ -1135,7 +1197,7 @@ impl eframe::App for AppCtx {
                 if path.extension() == Some(pal_ext) {
                     self.load_palette(path);
                 } else {
-                    self.load_rom(path);
+                    self.load_rom(path, false);
                 }
             }
         });
@@ -1180,6 +1242,8 @@ impl eframe::App for AppCtx {
                 self.tex.lock().unwrap().set(framebuf, TEX_OPTS);
             }
         }
+
+        *self.audio.volume.lock().unwrap() = self.cfg.volume;
 
         const FPS: f32 = 1.0 / 144.0;
         ui.request_repaint_after_secs(FPS);

@@ -280,7 +280,7 @@ use serde_big_array::BigArray;
 #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub struct Bus {
     #[cfg_attr(feature = "savestates", serde(with = "BigArray"))]
-    ram: [u8; 2 * 1024],
+    pub ram: [u8; 2 * 1024],
     #[cfg_attr(feature = "savestates", serde(skip))]
     pub prg: Box<[u8]>,
     pub wram: Box<[u8]>,
@@ -356,9 +356,6 @@ impl Bus {
         ppu_handlers_1kb[..8].fill(chr_handler);
 
         let ram = [0; 2 * 1024];
-        // Final Fantasy, River City Ransom, Apple Town Story[5], Impossible Mission II[6] amongst others
-        // Use the semi-random contents of RAM on powerup to seed their RNGs.
-        // _ = getrandom::fill(&mut ram);
 
         Self {
             ram,

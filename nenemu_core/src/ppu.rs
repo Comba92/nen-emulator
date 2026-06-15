@@ -1,4 +1,4 @@
-use std::{array, mem};
+use std::array;
 
 use crate::{
     emu::{NesEmulator, Region},
@@ -171,10 +171,49 @@ struct SprScanlineData {
     _unused: u8,
 }
 
-struct SprScanline([SprScanlineData; 256]);
+pub struct SprScanline([SprScanlineData; 256]);
 impl Default for SprScanline {
     fn default() -> Self {
         Self([0.into(); 256])
+    }
+}
+impl SprScanline {
+    fn spr_push(&mut self, sprite: &Sprite, mut pttrn_lo: u8, mut pttrn_hi: u8) {
+        // flip here
+        if sprite.flip_hori() {
+            pttrn_lo = pttrn_lo.reverse_bits();
+            pttrn_hi = pttrn_hi.reverse_bits();
+        }
+
+        // check if any pixel is out of visible screen
+        let mx = 8.min(255 - sprite.x);
+
+        // for every pixel of sprite
+        for x in 0..mx {
+            // we skip this because the pixel pushed earlier has priority
+            if self.0[(sprite.x + x) as usize].pixel() > 0 {
+                continue;
+            }
+
+            // get the pixel
+            let mask = 0x80 >> x;
+            let pixel_lo = (pttrn_lo & mask) > 0;
+            let pixel_hi = (pttrn_hi & mask) > 0;
+            let pixel = ((pixel_hi as u8) << 1) | (pixel_lo as u8);
+            // pixel is transparent and shouldnt be drawn
+            // if pixel == 0 {
+            //     continue;
+            // }
+
+            let sprite_entry = SprScanlineDataBuilder::new()
+                .with_pixel(pixel)
+                .with_palette(sprite.palette())
+                .with_priority(sprite.priority())
+                .with_spr0(sprite.is_spr0());
+
+            // push to scanline cache
+            self.0[(sprite.x + x) as usize] = sprite_entry.build();
+        }
     }
 }
 
@@ -240,7 +279,7 @@ pub struct Ppu2C02 {
     spr_extra: Vec<Sprite>,
 
     #[cfg_attr(feature = "savestates", serde(skip))]
-    spr_scanline: SprScanline,
+    pub spr_scanline: SprScanline,
 
     pub dma: Option<u16>,
 
@@ -509,44 +548,6 @@ impl Ppu2C02 {
         self.stat.set(Status::SprOvfl, self.oam_tmp_count > 8);
     }
 
-    fn spr_push(&mut self, sprite: Sprite, mut pttrn_lo: u8, mut pttrn_hi: u8) {
-        // flip here
-        if sprite.flip_hori() {
-            pttrn_lo = pttrn_lo.reverse_bits();
-            pttrn_hi = pttrn_hi.reverse_bits();
-        }
-
-        // check if any pixel is out of visible screen
-        let mx = 8.min(255 - sprite.x);
-
-        // for every pixel of sprite
-        for x in 0..mx {
-            // we skip this because the pixel pushed earlier has priority
-            if self.spr_scanline.0[(sprite.x + x) as usize].pixel() > 0 {
-                continue;
-            }
-
-            // get the pixel
-            let mask = 0x80 >> x;
-            let pixel_lo = (pttrn_lo & mask) > 0;
-            let pixel_hi = (pttrn_hi & mask) > 0;
-            let pixel = ((pixel_hi as u8) << 1) | (pixel_lo as u8);
-            // pixel is transparent and shouldnt be drawn
-            // if pixel == 0 {
-            //     continue;
-            // }
-
-            let sprite_entry = SprScanlineDataBuilder::new()
-                .with_pixel(pixel)
-                .with_palette(sprite.palette())
-                .with_priority(sprite.priority())
-                .with_spr0(sprite.is_spr0());
-
-            // push to scanline cache
-            self.spr_scanline.0[(sprite.x + x) as usize] = sprite_entry.build();
-        }
-    }
-
     fn bg_color_from_palette(&mut self, palette: u8, pixel: u8) -> u8 {
         let addr = (palette << 2) | pixel;
         self.palettes_read(0x3f00 | addr as u16)
@@ -749,9 +750,11 @@ impl NesEmulator {
         // TODO: should be moved to different function for first 8 pixels?
         let in_lstrip = pixel_x < 8;
         let bg_visible = (!in_lstrip || ppu.mask.contains(Mask::ShowBgLeft))
-            && ppu.mask.contains(Mask::BgEnable);
+            && ppu.mask.contains(Mask::BgEnable)
+            && !self.settings.disable_background;
         let spr_visible = (!in_lstrip || ppu.mask.contains(Mask::ShowSprLeft))
-            && ppu.mask.contains(Mask::SprEnable);
+            && ppu.mask.contains(Mask::SprEnable)
+            && !self.settings.disable_sprites;
 
         let lstrip_bg_mask = ((bg_visible as u8) << 1) | bg_visible as u8;
         let lstrip_spr_mask = ((spr_visible as u8) << 1) | spr_visible as u8;
@@ -766,6 +769,12 @@ impl NesEmulator {
 
         let spr_data = ppu.spr_scanline.0[pixel_x];
         let spr_pixel = spr_data.pixel() & lstrip_spr_mask;
+
+        let grey_mask = if ppu.mask.contains(Mask::GreyScale) {
+            0xf0
+        } else {
+            0xff
+        };
 
         // TODO: can do this without ifs?
         let color_id = if spr_pixel > 0 && (spr_data.priority() || bg_pixel == 0) {
@@ -788,8 +797,7 @@ impl NesEmulator {
             ppu.stat.set(Status::Spr0Hit, spr0_hit);
         }
 
-        // TODO: color emphasis
-        self.videobuf_push(color_id);
+        self.videobuf_push(color_id & grey_mask);
     }
 
     // https://forums.nesdev.org/viewtopic.php?t=8066
@@ -918,8 +926,8 @@ impl NesEmulator {
                     self.ppu_dispatch_read(8 + self.ppu.spr_pttrn_addr(sprite));
 
                 if spr_idx < self.ppu.oam_tmp_count as i16 {
-                    self.ppu.spr_push(
-                        self.ppu.oam_tmp[spr_idx as usize].clone(),
+                    self.ppu.spr_scanline.spr_push(
+                        &self.ppu.oam_tmp[spr_idx as usize],
                         self.ppu.fetcher.pttrn_lo,
                         self.ppu.fetcher.pttrn_hi,
                     );
@@ -965,15 +973,17 @@ impl NesEmulator {
     }
 
     fn spr_push_extra(&mut self) {
-        // TODO: mem::take replaces the vector with a new one, so we lose the previous allocation
-        // find another way
-        for sprite in mem::take(&mut self.ppu.spr_extra) {
+        if !self.settings.no_sprite_limit {
+            return;
+        }
+
+        for sprite in &self.ppu.spr_extra {
             let pttrn_addr = self.ppu.spr_pttrn_addr(&sprite);
 
             let pttrn_lo = self.ppu_debug_read(pttrn_addr);
             let pttrn_hi = self.ppu_debug_read(pttrn_addr + 8);
 
-            self.ppu.spr_push(sprite, pttrn_lo, pttrn_hi);
+            self.ppu.spr_scanline.spr_push(sprite, pttrn_lo, pttrn_hi);
         }
     }
 }

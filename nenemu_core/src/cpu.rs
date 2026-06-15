@@ -96,7 +96,7 @@ impl NesEmulator {
         self.step_devices();
     }
 
-    pub(crate) fn cpu_read16(&mut self, addr: u16) -> u16 {
+    pub fn cpu_read16(&mut self, addr: u16) -> u16 {
         let lo = self.cpu_read8(addr);
         let hi = self.cpu_read8(addr.wrapping_add(1));
         u16::from_le_bytes([lo, hi])

@@ -1,5 +1,6 @@
 use crate::{
     bus::{self, IrqFlags},
+    emu::SampleRate,
     emu::{NTSC_CLOCK_RATE, NesEmulator, Region},
     utils::{byte_set_hi, byte_set_lo},
 };
@@ -484,20 +485,6 @@ enum FrameMode {
 //     }
 // }
 
-#[derive(Default)]
-pub enum SampleRate {
-    Hz32000 = 32000,
-    Hz44100 = 44100,
-    #[default]
-    Hz48000 = 48000,
-    Hz96000 = 96000,
-}
-impl Into<f32> for SampleRate {
-    fn into(self) -> f32 {
-        self as u32 as f32
-    }
-}
-
 // trait Resampler<T> {
 //     fn set_rate(clock: usize, freq: usize);
 //     fn add_sample(sample: T) -> Option<T>;
@@ -578,6 +565,7 @@ pub struct ApuRP2A {
 
 impl ApuRP2A {
     // https://www.nesdev.org/wiki/APU_Mixer#Lookup_Table
+    #[allow(unused)]
     const PULSE_TABLE: [f32; 31] = {
         let mut lut = [0.0; 31];
         let mut i = 0;
@@ -589,6 +577,7 @@ impl ApuRP2A {
         lut
     };
 
+    #[allow(unused)]
     const TND_TABLE: [f32; 203] = {
         let mut lut = [0.0; 203];
         let mut i = 0;
@@ -817,13 +806,26 @@ impl NesEmulator {
         self.frame_count_step();
 
         let apu = &mut self.apu;
-
         if apu.frame_write_delay > 0 {
             apu.frame_write_delay -= 1;
             if apu.frame_write_delay == 0 {
                 apu.frame_count = 0;
             }
         }
+
+        let sample = self.mix_channels();
+        if let Some(resample) = self.apu.resampler.add_sample(sample) {
+            self.audiobuf.push(resample);
+        }
+
+        // let delta = sample - apu.prev_sample;
+        // apu.blip.0.add_delta(apu.cycles, delta);
+        // apu.prev_sample = sample;
+        // apu.cycles += 1;
+    }
+
+    fn mix_channels(&mut self) -> f32 {
+        let apu = &mut self.apu;
 
         /* Linear Approximation */
         // let pulse = 0.00752 * (apu.p0.output as f32 + apu.p1.output as f32);
@@ -833,37 +835,30 @@ impl NesEmulator {
         //   + 0.00335 * apu.dmc.output as f32;
 
         /* Lookup table */
-        let pulse_sum = (apu.p0.output + apu.p1.output) as usize;
-        let pulse = ApuRP2A::PULSE_TABLE[pulse_sum];
-        let tnd_sum = (3 * apu.tri.output + 2 * apu.noise.output + apu.dmc.output) as usize;
-        let tnd = ApuRP2A::TND_TABLE[tnd_sum];
-        let ext = self.mapper.sample();
+        // let pulse_sum = (apu.p0.output + apu.p1.output) as usize;
+        // let pulse = ApuRP2A::PULSE_TABLE[pulse_sum];
+        // let tnd_sum = (3 * apu.tri.output + 2 * apu.noise.output + apu.dmc.output) as usize;
+        // let tnd = ApuRP2A::TND_TABLE[tnd_sum];
+        // let ext = self.mapper.sample();
 
-        // let settings = &self.settings;
+        let settings = &self.settings;
 
         /* Accurate emulation */
-        // let p0 = apu.p0.output * (!settings.disable_pulse0 as u8);
-        // let p1 = apu.p1.output * (!settings.disable_pulse1 as u8);
-        // let tri = apu.tri.output * (!settings.disable_triangle as u8);
-        // let noise = apu.noise.output * (!settings.disable_noise as u8);
-        // let dmc = apu.dmc.output * (!settings.disable_dmc as u8);
-        // let ext = self.mapper.sample() * (!settings.disable_ext_audio as u8 as f32);
+        let p0 = apu.p0.output * (!settings.disable_pulse0 as u8);
+        let p1 = apu.p1.output * (!settings.disable_pulse1 as u8);
+        let tri = apu.tri.output * (!settings.disable_triangle as u8);
+        let noise = apu.noise.output * (!settings.disable_noise as u8);
+        let dmc = apu.dmc.output * (!settings.disable_dmc as u8);
+        let ext = self.mapper.sample() * (!settings.disable_ext_audio as u8 as f32);
 
-        // let pulse = 95.88 / ((8128.0 / (p0 + p1) as f32) + 100.0);
-        // let tnd_sum = (tri as f32 / 8227.0) + (noise as f32 / 12241.0) + (dmc as f32 / 22638.0);
-        // let tnd = 159.79 / ((1.0 / tnd_sum) + 100.0);
+        let pulse = 95.88 / ((8128.0 / (p0 + p1) as f32) + 100.0);
+        let tnd_sum = (tri as f32 / 8227.0) + (noise as f32 / 12241.0) + (dmc as f32 / 22638.0);
+        let tnd = 159.79 / ((1.0 / tnd_sum) + 100.0);
 
         // let sample = (pulse + tnd + ext) * (self.settings.volume * 1000.0);
         let sample = pulse + tnd + ext;
 
-        if let Some(resample) = self.apu.resampler.add_sample(sample) {
-            self.audiobuf.push(resample);
-        }
-
-        // let delta = sample - apu.prev_sample;
-        // apu.blip.0.add_delta(apu.cycles, delta);
-        // apu.prev_sample = sample;
-        // apu.cycles += 1;
+        sample
     }
 
     fn frame_count_step(&mut self) {

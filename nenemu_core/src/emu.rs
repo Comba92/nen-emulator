@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     NesPalette,
-    apu::{ApuRP2A, SampleRate},
+    apu::ApuRP2A,
     bus::Bus,
     cpu::{self, Cpu6502},
     joypad::Joypad,
@@ -15,40 +15,40 @@ use crate::{
     utils::RingBuffer,
 };
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
-pub struct Settings {
-    // TODO: not implemented
+pub enum SampleRate {
+    Hz32000 = 32000,
+    Hz44100 = 44100,
+    #[default]
+    Hz48000 = 48000,
+    Hz96000 = 96000,
+}
+impl Into<f32> for SampleRate {
+    fn into(self) -> f32 {
+        self as u32 as f32
+    }
+}
+
+#[derive(Default, Clone, PartialEq)]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
+pub struct NesSettings {
     pub random_ram: bool,
     pub no_sprite_limit: bool,
 
-    // TODO: not implemented
     pub disable_background: bool,
-    // TODO: not implemented
     pub disable_sprites: bool,
+
     // TODO: not implemented
     pub pal_borders: bool,
 
-    // TODO: not implemented
-    pub audio_sample_rate: usize,
-    pub volume: f32,
+    pub audio_sample_rate: SampleRate,
     pub disable_pulse0: bool,
     pub disable_pulse1: bool,
     pub disable_triangle: bool,
     pub disable_noise: bool,
     pub disable_dmc: bool,
     pub disable_ext_audio: bool,
-}
-
-impl Settings {
-    pub fn new() -> Self {
-        Self {
-            no_sprite_limit: true,
-            audio_sample_rate: 44100,
-            volume: 0.5,
-            ..Default::default()
-        }
-    }
 }
 
 pub const BIOS_CRC32: u32 = 1583381967;
@@ -78,7 +78,7 @@ pub struct NesEmulator {
     pub(crate) audiobuf: RingBuffer<f32>,
 
     pub palette: NesPalette,
-    pub settings: Settings,
+    pub settings: NesSettings,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, bitcode::Encode, bitcode::Decode)]
@@ -181,11 +181,15 @@ impl NesEmulator {
             audiobuf: RingBuffer::new(0),
             palette: NesPalette::default(),
 
-            settings: Settings::default(),
+            settings: NesSettings::default(),
         }
     }
 
-    fn new<B: AsRef<[u8]>>(game: Game, bios: Option<B>) -> Result<Self, LoadError> {
+    fn new_with_settings<B: AsRef<[u8]>>(
+        game: Game,
+        bios: Option<B>,
+        settings: NesSettings,
+    ) -> Result<Self, LoadError> {
         let (mem, mapper) = match game {
             Game::Cart(cart) => {
                 let mut mem = Bus::with_cart(cart);
@@ -222,11 +226,21 @@ impl NesEmulator {
             ),
 
             palette,
-            settings: Settings::new(),
+            settings,
         };
+
+        if emu.settings.random_ram {
+            // Final Fantasy, River City Ransom, Apple Town Story[5], Impossible Mission II[6] amongst others
+            // Use the semi-random contents of RAM on powerup to seed their RNGs.
+            _ = getrandom::fill(&mut emu.mem.ram);
+        }
 
         emu.cpu.pc = emu.cpu_read16(cpu::InterruptVector::Rst as u16);
         Ok(emu)
+    }
+
+    fn new<B: AsRef<[u8]>>(game: Game, bios: Option<B>) -> Result<Self, LoadError> {
+        Self::new_with_settings(game, bios, NesSettings::default())
     }
 
     pub fn load_rom_from_bytes<R: AsRef<[u8]>, B: AsRef<[u8]>>(
@@ -247,8 +261,21 @@ impl NesEmulator {
         &self.mem.header.region
     }
 
+    pub fn clock_rate(&self) -> usize {
+        self.region().clock_rate()
+    }
+
+    pub fn frame_rate(&self) -> f32 {
+        self.region().frame_rate()
+    }
+
     pub fn header(&self) -> &RomData {
         &self.mem.header
+    }
+
+    pub fn update_settings(&mut self, settings: NesSettings) {
+        self.settings = settings;
+        self.set_audio_rate(self.settings.audio_sample_rate as usize);
     }
 
     pub(crate) fn step_devices(&mut self) {
