@@ -19,13 +19,9 @@ impl DividerCounter {
             self.count -= 1;
             false
         } else {
-            self.reload();
+            self.count = self.period + 1;
             true
         }
-    }
-
-    pub fn reload(&mut self) {
-        self.count = self.period + 1;
     }
 }
 
@@ -761,7 +757,7 @@ impl NesEmulator {
 
                 // Writing to $4017 resets the frame counter and the quarter/half frame triggers happen simultaneously, but only on "odd" cycles (and only after the first "even" cycle after the write occurs)
                 // thus, it happens either 2 or 3 cycles after the write (i.e. on the 2nd or 3rd cycle of the next instruction). After 2 or 3 clock cycles (depending on when the write is performed), the timer is reset.
-                apu.frame_write_delay = if self.cpu.cycles % 2 == 1 { 2 } else { 3 };
+                apu.frame_write_delay = if self.cpu.cycles % 2 == 1 { 4 } else { 3 };
             }
             _ => {}
         }
@@ -790,8 +786,10 @@ impl NesEmulator {
     }
 
     pub fn apu_step(&mut self) {
-        let apu = &mut self.apu;
+        // should be clocked each second cpu cycle, but we have doubled the apu cycles steps
+        self.frame_count_step();
 
+        let apu = &mut self.apu;
         // The triangle channel's timer is clocked on every CPU cycle, but the pulse, noise, and DMC timers are clocked only on every second CPU cycle and thus produce only even periods.
         apu.tri.step_divider();
         apu.dmc.step_divider();
@@ -800,17 +798,6 @@ impl NesEmulator {
             apu.p0.step_divider();
             apu.p1.step_divider();
             apu.noise.step_divider();
-        }
-
-        // should be clocked each second cpu cycle, but we have doubled the apu cycles steps
-        self.frame_count_step();
-
-        let apu = &mut self.apu;
-        if apu.frame_write_delay > 0 {
-            apu.frame_write_delay -= 1;
-            if apu.frame_write_delay == 0 {
-                apu.frame_count = 0;
-            }
         }
 
         let sample = self.mix_channels();
@@ -862,9 +849,16 @@ impl NesEmulator {
     }
 
     fn frame_count_step(&mut self) {
-        // The sequencer is clocked on every other CPU cycle, so 2 CPU cycles = 1 APU cycle
+        let apu = &mut self.apu;
+        if apu.frame_write_delay > 0 {
+            apu.frame_write_delay -= 1;
+            if apu.frame_write_delay == 0 {
+                apu.frame_count = 0;
+            }
+        }
 
-        // 1: change this so that the table is copied to a local one at construction, with the correct const table
+        // The sequencer is clocked on every other CPU cycle, so 2 CPU cycles = 1 APU cycle
+        // TODO: change this so that the table is copied to a local one at construction, with the correct const table
         match self.region() {
             Region::NTSC => self.frame_count_step_ntsc(),
             Region::PAL => self.frame_count_step_pal(),
@@ -880,8 +874,13 @@ impl NesEmulator {
         // Every value is multiplied by two in respect to the wiki
         // https://www.nesdev.org/wiki/APU_Frame_Counter
         match (apu.frame_count, &apu.frame_mode) {
-            (7456 | 22370, _) => apu.frame_quarter_step(),
-            (14914, _) => apu.frame_half_step(),
+            // 3728 (PUT) -> (3278 * 2) + 1 = 7457
+            // 7456 (PUT) -> (7456 * 2) + 1 = 14913
+            // 11185 (PUT) -> (11185 * 2) + 1 = 22371
+            // 14914 (GET) -> (14914 * 2) = 29828
+            // 14914 (PUT) -> (14914 * 2) + 1 = 29829
+            (7457 | 22371, _) => apu.frame_quarter_step(),
+            (14913, _) => apu.frame_half_step(),
             (29828, FrameMode::Step4) => {
                 if !apu.frame_irq_disable {
                     self.mem.irq.insert(IrqFlags::FRAME);
@@ -899,23 +898,26 @@ impl NesEmulator {
                 }
                 apu.frame_count = 0;
             }
-            (37280, FrameMode::Step5) => {
+            (37281, FrameMode::Step5) => {
                 apu.frame_half_step();
             }
-            (37281, FrameMode::Step5) => {
+            (37282, FrameMode::Step5) => {
                 apu.frame_count = 0;
             }
             _ => {}
         }
 
-        self.apu.frame_count += 1;
+        apu.frame_count += 1;
     }
 
     fn frame_count_step_pal(&mut self) {
         let apu = &mut self.apu;
-        match (apu.frame_count, &apu.frame_mode) {
-            (8312 | 16626, _) => apu.frame_quarter_step(),
-            (24938, _) => apu.frame_half_step(),
+        let frame_count = apu.frame_count;
+        apu.frame_count += 1;
+
+        match (frame_count, &apu.frame_mode) {
+            (8313 | 16627, _) => apu.frame_quarter_step(),
+            (24939, _) => apu.frame_half_step(),
             (33252, FrameMode::Step4) => {
                 if !apu.frame_irq_disable {
                     self.mem.irq.insert(IrqFlags::FRAME);
@@ -931,17 +933,15 @@ impl NesEmulator {
                 if !apu.frame_irq_disable {
                     self.mem.irq.insert(IrqFlags::FRAME);
                 }
-                apu.frame_count = 0;
-            }
-            (41564, FrameMode::Step5) => {
-                apu.frame_half_step();
+                apu.frame_count = 1;
             }
             (41565, FrameMode::Step5) => {
-                apu.frame_count = 0;
+                apu.frame_half_step();
+            }
+            (41566, FrameMode::Step5) => {
+                apu.frame_count = 1;
             }
             _ => {}
         }
-
-        self.apu.frame_count += 1;
     }
 }
