@@ -149,7 +149,9 @@ impl NesEmulator {
             }
 
             let byte = self.cpu_dispatch_read(self.apu.dmc.dma_addr);
+            self.step_devices();
             self.dmc_sample_read(byte);
+            self.step_devices();
 
             return true;
         } else if let Some(addr) = self.ppu.dma {
@@ -162,7 +164,9 @@ impl NesEmulator {
             }
 
             let byte = self.cpu_dispatch_read(addr);
+            self.step_devices();
             self.ppu.oam_write(byte);
+            self.step_devices();
 
             self.ppu.dma = if (addr & 0xff) == 0xff {
                 None

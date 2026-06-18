@@ -255,6 +255,7 @@ enum RenderCmd {
 pub struct Ppu2C02 {
     pub ctrl: CtrlStrut,
     mask: Mask,
+    mask_write_delay: u8,
     stat: Status,
 
     render_state: RenderState,
@@ -438,6 +439,33 @@ impl Ppu2C02 {
         self.line >= 240 && self.line != self.prerender_line
     }
 
+    fn handle_mask_write(&mut self) {
+        if self.mask_write_delay > 0 {
+            self.mask_write_delay -= 1;
+            if self.mask_write_delay == 0 {
+                match self.render_state {
+                    RenderState::Disabled => {
+                        if self.is_rendering_enabled() {
+                            self.render_state = if self.line < 240 {
+                                RenderState::Rendering
+                            } else if self.line == self.prerender_line {
+                                RenderState::PreRender
+                            } else {
+                                RenderState::Vblank
+                            };
+                        }
+                    }
+
+                    _ => {
+                        if !self.is_rendering_enabled() {
+                            self.render_state = RenderState::Disabled
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     fn shifter_load(&mut self) {
         // On every 8th dot in these background fetch regions (the same dot on which the coarse x component of v is incremented), the pattern and attributes data are transferred into registers used for producing pixel data.
         let fetcher = &self.fetcher;
@@ -537,6 +565,7 @@ impl Ppu2C02 {
         self.oam_tmp.fill(Sprite::default());
         self.spr_extra.clear();
 
+        let mut spr_ovfl_idx = 0;
         for (i, y) in self.oam.0.iter().copied().enumerate().step_by(4) {
             // Sprite data is delayed by one scanline; you must subtract 1 from the sprite's Y coordinate
             // let y = y.wrapping_sub(1) as i16;
@@ -549,14 +578,25 @@ impl Ppu2C02 {
                 if self.oam_tmp_count < 8 {
                     self.oam_tmp[self.oam_tmp_count as usize] = sprite;
                 } else {
+                    // we push extra sprites here, so we can show them later if sprite limit is disabled in settings
                     self.spr_extra.push(sprite);
                 }
 
                 self.oam_tmp_count += 1;
             }
-        }
 
-        self.stat.set(Status::SprOvfl, self.oam_tmp_count > 8);
+            if self.oam_tmp_count > 8 {
+                // sprite overflow bug
+                // If the value is not in range, increment n and m (without carry). If n overflows to 0, go to 4; otherwise go to 3
+                // The m increment is a hardware bug - if only n was incremented, the overflow flag would be set whenever more than 8 sprites were present on the same scanline, as expected.
+                let corrupt_y = self.oam.0[i + spr_ovfl_idx];
+                spr_ovfl_idx = (spr_ovfl_idx + 1) % 4;
+                let dist = self.line - corrupt_y as i16;
+                if 0 <= dist && dist < self.ctrl.spr_size as i16 {
+                    // self.stat.insert(Status::SprOvfl);
+                }
+            }
+        }
     }
 
     fn bg_color_from_palette(&mut self, palette: u8, pixel: u8) -> u8 {
@@ -677,26 +717,7 @@ impl NesEmulator {
             // Mask
             0x2001 => {
                 ppu.mask = Mask::from_bits_retain(val);
-
-                match ppu.render_state {
-                    RenderState::Disabled => {
-                        if ppu.is_rendering_enabled() {
-                            ppu.render_state = if ppu.line < 240 {
-                                RenderState::Rendering
-                            } else if ppu.line == ppu.prerender_line {
-                                RenderState::PreRender
-                            } else {
-                                RenderState::Vblank
-                            };
-                        }
-                    }
-
-                    _ => {
-                        if !ppu.is_rendering_enabled() {
-                            ppu.render_state = RenderState::Disabled
-                        }
-                    }
-                }
+                ppu.mask_write_delay = 3;
             }
             // OamAddr
             0x2003 => ppu.oam_addr = val,
@@ -761,8 +782,7 @@ impl NesEmulator {
         // TODO: should be moved to different function for first 8 pixels?
         let in_lstrip = pixel_x < 8;
         let bg_visible = (!in_lstrip || ppu.mask.contains(Mask::ShowBgLeft))
-            && ppu.mask.contains(Mask::BgEnable)
-            && !self.settings.disable_background;
+            && ppu.mask.contains(Mask::BgEnable);
         let spr_visible = (!in_lstrip || ppu.mask.contains(Mask::ShowSprLeft))
             && ppu.mask.contains(Mask::SprEnable);
 
@@ -809,8 +829,8 @@ impl NesEmulator {
         self.mem.nmi = self.ppu.ctrl.nmi_enabled && !self.ppu.nmi_suppress;
 
         std::mem::swap(
-            &mut self.output.videobuf_view,
-            &mut self.output.videobuf_back,
+            &mut self.output.videobuf_view.0,
+            &mut self.output.videobuf_back.0,
         );
 
         self.output.frame_ready = true;
@@ -832,6 +852,8 @@ impl NesEmulator {
 
     // https://www.nesdev.org/wiki/PPU_rendering
     pub fn ppu_step(&mut self) {
+        self.ppu.handle_mask_write();
+
         match self.ppu.render_state {
             RenderState::PreRender => self.ppu_render_step(&PRERENDER_LUT),
 
@@ -968,7 +990,7 @@ impl NesEmulator {
                 self.ppu_dispatch_read(self.ppu.nametbl_addr());
 
                 self.ppu.dot = 0;
-                if self.ppu.odd_frame && self.ppu.is_rendering_enabled() {
+                if self.ppu.odd_frame && self.ppu.mask.contains(Mask::BgEnable) {
                     self.ppu.dot = 1;
                 }
 

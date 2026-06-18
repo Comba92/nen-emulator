@@ -244,13 +244,22 @@ impl Cart {
 
         // only iNes supported
         let rom_start = header.len();
-        let prg = bytes[rom_start..rom_start + header.prg_size].to_vec();
-        let chr = if header.has_chr_ram {
+        let mut prg = bytes[rom_start..rom_start + header.prg_size].to_vec();
+        let mut chr = if header.has_chr_ram {
             vec![0; header.chr_size]
         } else {
             let chr_start = rom_start + header.prg_size;
             bytes[chr_start..chr_start + header.chr_size].to_vec()
         };
+
+        // fill with zeroes if rom is not large enough
+        if prg.len() < 16 * 1024 {
+            prg.resize(16 * 1024, 0);
+        }
+
+        if chr.len() < 8 * 1024 {
+            chr.resize(8 * 1024, 0);
+        }
 
         Ok(Self { header, prg, chr })
     }

@@ -373,6 +373,7 @@ impl Bus {
 
     pub fn with_cart(cart: Cart) -> Self {
         let banks = BanksHandler::new(&cart.header);
+        dbg!(&banks);
 
         let wram_handler = if cart.header.wram_size > 0 {
             CpuHandler::Wram
@@ -679,11 +680,7 @@ impl NesEmulator {
         match mem.ppu_handlers_1kb[handler as usize] {
             PpuHandler::ChrRom | PpuHandler::ChrMMC5 | PpuHandler::OpenBus => {}
             PpuHandler::ChrRam => mem.chr[mem.banks.chr.translate(addr)] = val,
-
-            PpuHandler::Vram | PpuHandler::VramMMC5 => {
-                self.mapper.ppu_bus_callback(mem, addr, self.cpu.cycles);
-                mem.vram[mem.banks.vram.translate(addr & 0x2fff)] = val;
-            }
+            PpuHandler::Vram => mem.vram[mem.banks.vram.translate(addr & 0x2fff)] = val,
             PpuHandler::Palette => {
                 if addr >= 0x3f00 {
                     self.ppu.palettes_write(addr, val);
@@ -699,6 +696,10 @@ impl NesEmulator {
             PpuHandler::ChrRamMMC3 => {
                 mem.chr[mem.banks.chr.translate(addr)] = val;
                 self.mapper.ppu_bus_callback(mem, addr, self.cpu.cycles);
+            }
+            PpuHandler::VramMMC5 => {
+                self.mapper.ppu_bus_callback(mem, addr, self.cpu.cycles);
+                mem.vram[mem.banks.vram.translate(addr & 0x2fff)] = val;
             }
         }
     }

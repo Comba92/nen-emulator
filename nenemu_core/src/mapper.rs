@@ -162,8 +162,7 @@ impl Mapper for CNROM {
 struct GxROM;
 #[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for GxROM {
-    fn new(mem: &mut Bus) -> Box<Self> {
-        mem.banks.prg = Banking::new_prg(&mem.header, 1);
+    fn new(_: &mut Bus) -> Box<Self> {
         Box::new(Self)
     }
 
@@ -179,11 +178,10 @@ impl Mapper for GxROM {
 struct AxROM;
 #[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for AxROM {
-    fn new(mem: &mut Bus) -> Box<Self>
+    fn new(_: &mut Bus) -> Box<Self>
     where
         Self: Sized,
     {
-        mem.banks.prg = Banking::new_prg(&mem.header, 1);
         Box::new(Self)
     }
 
@@ -204,14 +202,13 @@ impl Mapper for AxROM {
 struct ColorDreams;
 #[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for ColorDreams {
-    fn new(mem: &mut Bus) -> Box<Self> {
-        mem.banks.prg = Banking::new_prg(&mem.header, 1);
+    fn new(_: &mut Bus) -> Box<Self> {
         Box::new(Self)
     }
 
     fn prg_write(&mut self, mem: &mut Bus, _: u16, val: u8) {
         let val = val as u16;
-        mem.banks.prg.set_page(0, val);
+        mem.banks.prg.set_page(0, val & 0x3);
         mem.banks.chr.set_page(0, val >> 4);
     }
 }
@@ -274,7 +271,6 @@ struct CPROM;
 #[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for CPROM {
     fn new(mem: &mut Bus) -> Box<Self> {
-        mem.banks.prg = Banking::new_prg(&mem.header, 1);
         mem.banks.chr = Banking::new_chr(&mem.header, 2);
         Box::new(Self)
     }
@@ -647,7 +643,6 @@ impl Mapper for NINA00x_BNROM {
             mem.banks.chr = Banking::new_chr(&mem.header, 1);
             submapper = 2;
         }
-        mem.banks.prg = Banking::new_prg(&mem.header, 1);
 
         let submapper = if mem.header.mapper == 34 {
             submapper
@@ -685,11 +680,10 @@ impl Mapper for NINA00x_BNROM {
 struct NINA003_006;
 #[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for NINA003_006 {
-    fn new(mem: &mut Bus) -> Box<Self>
+    fn new(_: &mut Bus) -> Box<Self>
     where
         Self: Sized,
     {
-        mem.banks.prg = Banking::new_prg(&mem.header, 1);
         Box::new(Self)
     }
 
@@ -802,7 +796,6 @@ struct NapoleonSenki;
 #[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for NapoleonSenki {
     fn new(mem: &mut Bus) -> Box<Self> {
-        mem.banks.prg = Banking::new_prg(&mem.header, 1);
         mem.banks.chr = Banking::new(0x0000, mem.header.chr_size, 2 * 1024, 1);
 
         // this games provides 8kb of chr ram + 2kb of vram

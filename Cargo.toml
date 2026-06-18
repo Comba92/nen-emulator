@@ -1,6 +1,7 @@
 [workspace]
 members = ["nenemu_core", "nenemu_sdl2", "nenemu_sdl3", "nenemu_eframe"]
 default-members = ["nenemu_core", "nenemu_eframe"]
+
 resolver = "3"
 
 [workspace.package]
