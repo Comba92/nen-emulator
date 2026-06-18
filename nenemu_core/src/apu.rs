@@ -1,7 +1,6 @@
 use crate::{
     bus::{self, IrqFlags},
-    emu::SampleRate,
-    emu::{NTSC_CLOCK_RATE, NesEmulator, Region},
+    emu::{NesEmulator, Region},
     utils::{byte_set_hi, byte_set_lo},
 };
 

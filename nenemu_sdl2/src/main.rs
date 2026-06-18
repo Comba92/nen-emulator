@@ -26,14 +26,15 @@ impl AudioCallback for AudioHandler {
 
     fn callback(&mut self, audio_out: &mut [Self::Channel]) {
         let mut emu_lock = self.emu.lock().unwrap();
+        emu_lock.put_audio_f32(audio_out);
 
-        let (right, left) = emu_lock.get_audio_f32(audio_out.len());
-        let right_amt = right.len();
-        audio_out[..right_amt].copy_from_slice(right);
+        // let (right, left) = emu_lock.get_audio_f32(audio_out.len());
+        // let right_amt = right.len();
+        // audio_out[..right_amt].copy_from_slice(right);
 
-        if let Some(left) = left {
-            audio_out[right_amt..].copy_from_slice(left);
-        }
+        // if let Some(left) = left {
+        //     audio_out[right_amt..].copy_from_slice(left);
+        // }
     }
 }
 
@@ -96,17 +97,17 @@ fn main() {
         .unwrap();
     tex.set_scale_mode(ScaleMode::Nearest);
 
-    // let debug_window = video
-    //     .window("Debug", 256 * 2 * 2, 240 * 2 * 2)
-    //     .resizable()
-    //     .build()
-    //     .unwrap();
-    // let mut debug_canvas = debug_window.into_canvas().build().unwrap();
-    // let debug_texture_creator = debug_canvas.texture_creator();
-    // let mut debug_tex = debug_texture_creator
-    //     .create_texture_streaming(PixelFormatEnum::RGBA32, 256 * 2, 240 * 2)
-    //     .unwrap();
-    // debug_tex.set_scale_mode(sdl2::render::ScaleMode::Nearest);
+    let debug_window = video
+        .window("Debug", 256 * 2 * 2, 240 * 2 * 2)
+        .resizable()
+        .build()
+        .unwrap();
+    let mut debug_canvas = debug_window.into_canvas().build().unwrap();
+    let debug_texture_creator = debug_canvas.texture_creator();
+    let mut debug_tex = debug_texture_creator
+        .create_texture_streaming(PixelFormatEnum::RGBA32, 256 * 2, 240 * 2)
+        .unwrap();
+    debug_tex.set_scale_mode(sdl2::render::ScaleMode::Nearest);
 
     let bios = include_bytes!("../../nenemu_core/utils/disksys.rom");
     let mut rom_path = path::PathBuf::from("roms/donkey kong.nes");
@@ -297,7 +298,7 @@ fn main() {
         {
             let mut emu_lock = emu.lock().unwrap();
 
-            if emu_lock.audio_queued() < 1024 {
+            if emu_lock.audio_queued(48000) < 1024 {
                 emu_lock.step_until_frame_ready().unwrap();
 
                 tex.with_lock(None, |pixels, _| {
@@ -309,6 +310,16 @@ fn main() {
                 //     video_chain.push(emu_lock.get_video_rgba().clone());
                 // }
             }
+
+            debug_canvas.set_draw_color(Color::GREY);
+            debug_canvas.clear();
+            debug_tex
+                .with_lock(None, |pixels, _| {
+                    emu_lock.get_nametables_rgba(pixels);
+                })
+                .unwrap();
+            debug_canvas.copy(&debug_tex, None, None).unwrap();
+            debug_canvas.present();
         }
 
         canvas.copy(&tex, None, None).unwrap();

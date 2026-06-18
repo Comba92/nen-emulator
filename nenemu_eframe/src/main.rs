@@ -145,19 +145,25 @@ impl AudioHandler {
                             let mut emu_lock = emu.lock().unwrap();
                             let volume = *volume_arc.lock().unwrap();
 
-                            let (right, left) = emu_lock.get_audio_f32(audio_out.len() / 2);
-                            for i in 0..right.len() {
-                                audio_out[2 * i] = right[i] * volume;
-                                audio_out[2 * i + 1] = right[i] * volume;
+                            let samples = emu_lock.get_audio_f32(audio_out.len() / 2);
+                            for i in 0..samples.len() {
+                                audio_out[2 * i] = samples[i] * volume;
+                                audio_out[2 * i + 1] = samples[i] * volume;
                             }
 
-                            if let Some(left) = left {
-                                let audio_out = &mut audio_out[2 * right.len()..];
-                                for i in 0..left.len() {
-                                    audio_out[2 * i] = left[i] * volume;
-                                    audio_out[2 * i + 1] = left[i] * volume;
-                                }
-                            }
+                            // let (right, left) = emu_lock.get_audio_f32(audio_out.len() / 2);
+                            // for i in 0..right.len() {
+                            //     audio_out[2 * i] = right[i] * volume;
+                            //     audio_out[2 * i + 1] = right[i] * volume;
+                            // }
+
+                            // if let Some(left) = left {
+                            //     let audio_out = &mut audio_out[2 * right.len()..];
+                            //     for i in 0..left.len() {
+                            //         audio_out[2 * i] = left[i] * volume;
+                            //         audio_out[2 * i + 1] = left[i] * volume;
+                            //     }
+                            // }
                         },
                         |err| eprintln!("{err}"),
                         None,
@@ -345,6 +351,7 @@ struct AppCfg {
     hide_cursor: bool,
     battery_save_enabled: bool,
 
+    #[cfg(feature = "persistence")]
     restore_session: bool,
 
     nes_settings: nenemu_core::emu::NesSettings,
@@ -391,8 +398,8 @@ struct AppCtx {
     // sdl: SdlCtx,
     emu: Arc<Mutex<NesEmulator>>,
     // emu_thread: thread::JoinHandle<()>,
-    is_running: Arc<atomic::AtomicBool>,
-
+    // is_running: Arc<atomic::AtomicBool>,
+    //
     video_chain: Arc<Mutex<RingBuffer<egui::ColorImage>>>,
     tex: Arc<Mutex<egui::TextureHandle>>,
 
@@ -406,13 +413,19 @@ struct AppCtx {
 impl AppCtx {
     pub fn new(c: &eframe::CreationContext) -> Box<Self> {
         #[cfg(not(feature = "persistence"))]
-        let cfg = AppCfg::default();
+        let cfg = AppCfg {
+            volume: 0.5,
+            ..Default::default()
+        };
 
         #[cfg(feature = "persistence")]
         let cfg = if let Some(storage) = c.storage {
             eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default()
         } else {
-            AppCfg::default()
+            AppCfg {
+                volume: 0.5,
+                ..Default::default()
+            }
         };
 
         let img = egui::ColorImage::filled([256, 240], egui::Color32::TRANSPARENT);
@@ -461,7 +474,7 @@ impl AppCtx {
             // sdl,
             emu,
             // emu_thread,
-            is_running,
+            // is_running,
             video_chain,
             tex,
             audio,
@@ -895,6 +908,8 @@ impl AppCtx {
                 ui.collapsing("📺 Video", |ui| {
                     ui.checkbox(&mut settings.disable_sprite_limit, "Show more than 8 sprites per scaline")
                     .on_hover_text("Reduces flickering, but may show glitches in some games");
+                    ui.checkbox(&mut settings.enable_oam_read, "Enable fully emulated OAM read")
+                    .on_hover_text("Fully emulates OAM read with its quirks, might decrease performance");
                     ui.checkbox(&mut settings.disable_background, "Disable background tiles");
                     ui.checkbox(&mut settings.disable_sprites, "Disable sprite tiles");
                     ui.checkbox(&mut settings.pal_borders, "Show side PAL black borders");
@@ -1149,13 +1164,25 @@ impl AppCtx {
                 emu.set_buttons_all(gamepad_input);
             }
 
-            while self.is_running.load(atomic::Ordering::Relaxed) && emu.audio_queued() < 1024 {
-                emu.step_until_samples_or_frame_ready(1024).unwrap();
+            while self.state.emulation == EmulationState::Running && emu.audio_queued(48000) < 1024
+            {
+                match emu.step_until_samples_or_frame_ready(1024, 48000) {
+                    Ok(_) => {
+                        if emu.is_frame_ready() {
+                            let framebuf = egui::ColorImage::from_rgba_unmultiplied(
+                                [256, 240],
+                                emu.get_video_rgba(),
+                            );
+                            self.video_chain.lock().unwrap().push(framebuf);
+                        }
+                    }
 
-                if emu.is_frame_ready() {
-                    let framebuf =
-                        egui::ColorImage::from_rgba_unmultiplied([256, 240], emu.get_video_rgba());
-                    self.video_chain.lock().unwrap().push(framebuf);
+                    Err(e) => {
+                        drop(emu);
+                        self.state.emulation = EmulationState::Stopped;
+                        self.add_message(e.into());
+                        break;
+                    }
                 }
             }
         }
@@ -1228,12 +1255,12 @@ impl eframe::App for AppCtx {
 
         self.handle_input(ui);
 
-        if self.state.emulation != current_state {
-            self.is_running.store(
-                self.state.emulation == EmulationState::Running,
-                atomic::Ordering::Relaxed,
-            );
-        }
+        // if self.state.emulation != current_state {
+        // self.is_running.store(
+        //     self.state.emulation == EmulationState::Running,
+        //     atomic::Ordering::Relaxed,
+        // );
+        // }
 
         {
             let mut video_lock = self.video_chain.lock().unwrap();
