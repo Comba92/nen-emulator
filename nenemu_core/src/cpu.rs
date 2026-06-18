@@ -62,7 +62,7 @@ pub struct Cpu6502 {
     // TODO: not sure about this
     nmi_to_handle: bool,
     // TODO: the effect of toggling this flag is delayed 1 instruction when caused by SEI, CLI, or PLP.
-    // irq_to_set: Option<bool>,
+    irq_delay: Option<bool>,
     pub cycles: usize,
     // TODO: add more debugging info at jammed state
     pub jammed: bool,
@@ -181,6 +181,12 @@ impl NesEmulator {
     }
 
     fn poll_interrupts(&mut self) {
+        let irq_inhibit = self.cpu.p.contains(Status::IrqDisable);
+        // The CLI, SEI, and PLP instructions on the other hand change the I flag after polling for interrupts
+        if let Some(irq_set) = self.cpu.irq_delay.take() {
+            self.cpu.p.set(Status::IrqDisable, irq_set);
+        }
+
         // https://www.nesdev.org/wiki/CPU_interrupts#IRQ_and_NMI_tick-by-tick_execution
         if self.mem.nmi {
             self.mem.nmi = false;
@@ -189,7 +195,7 @@ impl NesEmulator {
         } else if self.cpu.nmi_to_handle {
             self.cpu.nmi_to_handle = false;
             self.handle_interrupt(InterruptVector::Nmi as u16);
-        } else if !self.mem.irq.is_empty() && !self.cpu.p.contains(Status::IrqDisable) {
+        } else if !self.mem.irq.is_empty() && !irq_inhibit {
             self.handle_interrupt(InterruptVector::Irq as u16);
         }
     }
@@ -399,9 +405,14 @@ impl NesEmulator {
         self.step_devices();
 
         // https://www.nesdev.org/wiki/Instruction_reference#PLP
-        // TODO: The effect of changing IrqDisable flag is delayed 1 instruction.
-        let res = self.stack_pop8();
-        self.cpu.p = (Status::from_bits_retain(res) | Status::Unused) - Status::Brk;
+        let mut res = Status::from_bits_retain(self.stack_pop8());
+
+        // The effect of changing IrqDisable flag is delayed 1 instruction.
+        // set res to the current p value, then update it later
+        self.cpu.irq_delay = Some(res.contains(Status::IrqDisable));
+        res.set(Status::IrqDisable, self.cpu.p.contains(Status::IrqDisable));
+
+        self.cpu.p = (res | Status::Unused) - Status::Brk;
     }
 
     fn and(&mut self) {
@@ -617,8 +628,9 @@ impl NesEmulator {
     }
     fn cli(&mut self) {
         // https://www.nesdev.org/wiki/Instruction_reference#CLI
-        // TODO: The effect of changing this flag is delayed 1 instruction.
-        self.cpu.p.remove(Status::IrqDisable);
+        // self.cpu.p.remove(Status::IrqDisable);
+        // The effect of changing this flag is delayed 1 instruction.
+        self.cpu.irq_delay = Some(false);
     }
     fn clv(&mut self) {
         self.cpu.p.remove(Status::Overflow);
@@ -631,8 +643,9 @@ impl NesEmulator {
     }
     fn sei(&mut self) {
         // https://www.nesdev.org/wiki/Instruction_reference#SEI
-        // TODO: The effect of changing this flag is delayed 1 instruction.
-        self.cpu.p.insert(Status::IrqDisable);
+        // self.cpu.p.insert(Status::IrqDisable);
+        // The effect of changing this flag is delayed 1 instruction.
+        self.cpu.irq_delay = Some(true);
     }
 
     fn brk(&mut self) {
@@ -642,8 +655,16 @@ impl NesEmulator {
         self.cpu.pc = self.cpu_read16(InterruptVector::Irq as u16);
     }
     fn rti(&mut self) {
-        // extra pull cycle is done in plp
-        self.plp();
+        // Instructions that pop data from the stack take 2 extra cycles, since they also need to pre-increment the stack pointer.
+        self.step_devices();
+
+        // https://www.nesdev.org/wiki/Instruction_reference#PLP
+        let res = Status::from_bits_retain(self.stack_pop8());
+
+        // The RTI instruction affects IRQ inhibition immediately
+        // We cannot reuse PLP.
+        self.cpu.p = (res | Status::Unused) - Status::Brk;
+
         self.cpu.pc = self.stack_pop16();
     }
 
