@@ -91,7 +91,7 @@ pub struct NesEmulator {
     pub cpu: Cpu6502,
     pub ppu: Ppu2C02,
     pub apu: ApuRP2A,
-    pub joypad: Joypad,
+    pub joy: Joypad,
     pub mem: Bus,
     pub mapper: Box<dyn Mapper>,
 
@@ -193,7 +193,7 @@ impl NesEmulator {
             cpu: Cpu6502::new(),
             ppu: Ppu2C02::default(),
             apu: ApuRP2A::default(),
-            joypad: Joypad::default(),
+            joy: Joypad::default(),
             mem: Bus::with_ram_64kb(),
             mapper: Box::new(mapper::NROM),
 
@@ -234,7 +234,7 @@ impl NesEmulator {
             cpu: Cpu6502::new(),
             ppu: Ppu2C02::new(&mem.header.region),
             apu: ApuRP2A::new(&mem.header.region),
-            joypad: Joypad::default(),
+            joy: Joypad::default(),
             mem,
             mapper,
 

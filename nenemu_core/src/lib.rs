@@ -1,4 +1,4 @@
-use crate::{emu::NesEmulator, joypad::JoypadBtn};
+use crate::{emu::NesEmulator, joypad::InputBtn};
 
 mod apu;
 mod bus;
@@ -233,7 +233,8 @@ pub mod joypad {
     bitflags::bitflags! {
       #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
       #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
-      pub struct JoypadBtn: u8 {
+      pub struct InputBtn: u16 {
+        // Order for first 8 buttons is important as they will iterate during polling
         const A = 1 << 0;
         const B = 1 << 1;
         const Select = 1 << 2;
@@ -242,49 +243,146 @@ pub mod joypad {
         const Down = 1 << 5;
         const Left = 1 << 6;
         const Right = 1 << 7;
+        const ZapTrigger = 1 << 8;
       }
     }
 
     #[derive(Default)]
     #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
     pub struct Joypad {
-        polling: bool,
-        curr_btn: u8,
-        pub buttons: JoypadBtn,
+        polling_controller: bool,
+        current_btn_polled: u8,
+        pub player1: InputBtn,
+        pub player2: InputBtn,
+        pub zapper_pos: (usize, usize),
     }
 
     impl Joypad {
-        pub fn read(&mut self) -> u8 {
-            if self.polling {
-                let res = (self.buttons.bits() >> self.curr_btn) & 1;
-                self.curr_btn = (self.curr_btn + 1) % 8;
-                res
+        fn read(&mut self, player: InputBtn) -> u8 {
+            let controller_input = if self.polling_controller {
+                let controller_btn = (self.player1.bits() >> self.current_btn_polled) & 1;
+                self.current_btn_polled = (self.current_btn_polled + 1) % 8;
+
+                controller_btn as u8
             } else {
-                self.buttons.contains(JoypadBtn::A) as u8
+                player.contains(InputBtn::A) as u8
+            };
+
+            let zap_trigger = player.contains(InputBtn::ZapTrigger) as u8;
+
+            (zap_trigger << 4) | controller_input
+        }
+
+        fn is_zap_light_sensed(&self) -> bool {
+            const LIGHT_RADIUS: isize = 3;
+
+            let click_x = self.zapper_pos.0 as isize;
+            let click_y = self.zapper_pos.1 as isize;
+            for y in -LIGHT_RADIUS..LIGHT_RADIUS {
+                for x in -LIGHT_RADIUS..LIGHT_RADIUS {
+                    let target_y = click_y + y;
+                    let target_x = click_x + x;
+                    if target_x < 0 || target_y < 0 || target_x >= 256 || target_y >= 240 {
+                        continue;
+                    }
+
+                    return true;
+
+                    // // TODO: light can only be detected in bright color
+                    // if ppu_y >= target_y && ppu_y.abs_diff(target_y) <= 20 && ppu_x >= target_x {
+                    //     self.joy.player2.insert(InputBtn::ZapLight);
+                    //     return;
+                    // }
+                }
             }
+
+            return false;
+        }
+
+        pub fn read_joypad1(&mut self) -> u8 {
+            self.read(self.player1)
+        }
+
+        pub fn read_joypad2(&mut self) -> u8 {
+            self.read(self.player2)
         }
 
         pub fn write(&mut self, val: u8) {
-            self.polling = val & 1 == 0;
-            self.curr_btn = if self.polling { 0 } else { self.curr_btn };
+            self.polling_controller = val & 1 == 0;
+            if self.polling_controller {
+                self.current_btn_polled = 0;
+            }
         }
     }
 }
 
 impl NesEmulator {
-    pub fn load_palette(&mut self, bytes: &[u8]) {
+    pub fn load_palette(&mut self, bytes: &[u8]) -> Result<(), &str> {
         if let Some(pal) = NesPalette::from_pal_file(bytes) {
             self.palette = pal;
+            Ok(())
         } else {
-            eprintln!("not a valid palette file");
+            Err("not a valid palette file")
         }
     }
 
-    pub fn set_button(&mut self, btn: JoypadBtn, state: bool) {
-        self.joypad.buttons.set(btn, state);
+    pub fn set_button(&mut self, btn: InputBtn, state: bool) {
+        self.joy.player1.set(btn, state);
     }
 
-    pub fn set_buttons_all(&mut self, input: JoypadBtn) {
-        self.joypad.buttons = input;
+    pub fn set_zapper_trigger(&mut self, state: bool) {
+        // TODO: this is currently only set as player 2 zapper (works on NTSC)
+
+        // The large capacitor (10µF) inside the Zapper when combined with the 10kΩ pullup inside the console means that it will take approximately 100ms to change to "released" after the trigger has been half-pulled
+        // This means a click too short (for example only when the click is just pressed) will not count as a trigger pull
+        self.joy.player2.set(InputBtn::ZapTrigger, state);
+    }
+
+    pub fn set_zapper_pos(&mut self, x: usize, y: usize) {
+        self.joy.zapper_pos = (x, y);
+    }
+
+    pub fn is_zapper_light_sensed(&mut self, click_x: usize, click_y: usize) -> bool {
+        // if current games supports zapper
+        if ![0x08, 0x07, 0x09, 0x49].contains(&self.header().expansions) {
+            return false;
+        }
+
+        let ppu_x = self.ppu.dot as isize;
+        let ppu_y = self.ppu.line as isize;
+
+        const LIGHT_RADIUS: isize = 3;
+
+        let click_x = click_x as isize;
+        let click_y = click_y as isize;
+        for y in -LIGHT_RADIUS..LIGHT_RADIUS {
+            for x in -LIGHT_RADIUS..LIGHT_RADIUS {
+                let target_y = click_y + y;
+                let target_x = click_x + x;
+                if target_x < 0 || target_y < 0 || target_x >= 256 || target_y >= 240 {
+                    continue;
+                }
+
+                println!("Setting light sensed");
+                // self.joy.player2.insert(InputBtn::ZapLight);
+                return true;
+
+                // // TODO: light can only be detected in bright color
+                // if ppu_y >= target_y && ppu_y.abs_diff(target_y) <= 20 && ppu_x >= target_x {
+                //     self.joy.player2.insert(InputBtn::ZapLight);
+                //     return;
+                // }
+            }
+        }
+
+        return false;
+    }
+
+    pub fn set_buttons_all(&mut self, input: InputBtn) {
+        self.joy.player1 = input;
+    }
+
+    pub fn clear_buttons(&mut self) {
+        self.joy.player1 = InputBtn::empty();
     }
 }

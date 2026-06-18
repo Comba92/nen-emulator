@@ -435,7 +435,6 @@ impl Dmc {
 
     fn restart_sample(&mut self) {
         // When a sample is (re)started, the current address is set to the sample address, and bytes remaining is set to the sample length.
-        // self.dma.load(self.sample_addr, self.sample_len);
         self.dma_addr = self.sample_addr;
         self.dma_remaining = self.sample_len;
     }
@@ -460,30 +459,6 @@ enum FrameMode {
     Step4,
     Step5,
 }
-
-// pub struct AudioBuf(pub BlipBuf);
-// // TODO: make sample rate configurable
-// impl Default for AudioBuf {
-//     fn default() -> Self {
-//         Self::new(&Region::default())
-//     }
-// }
-// impl AudioBuf {
-//     pub fn new(region: &Region) -> Self {
-//         let mut blip = BlipBuf::new(48000);
-//         let clock_rate = match region {
-//             Region::NTSC => emu::NTSC_CLOCK_RATE,
-//             Region::PAL => emu::PAL_CLOCK_RATE,
-//         };
-//         blip.set_rates(clock_rate as f64, 48000.0).unwrap();
-//         Self(blip)
-//     }
-// }
-
-// trait Resampler<T> {
-//     fn set_rate(clock: usize, freq: usize);
-//     fn add_sample(sample: T) -> Option<T>;
-// }
 
 #[derive(Default)]
 #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
@@ -572,7 +547,7 @@ const PULSE_STRENGTH: f32 = 95.88 / ((8128.0 / PULSE_MAX) + 100.0);
 pub const EXT_MIX: f32 = PULSE_STRENGTH / PULSE_MAX;
 
 impl NesEmulator {
-    pub fn apu_reg_read(&mut self, addr: u16) -> u8 {
+    pub fn io_reg_read(&mut self, addr: u16) -> u8 {
         let apu = &mut self.apu;
         match addr {
             0x4015 => {
@@ -590,11 +565,14 @@ impl NesEmulator {
                 self.mem.irq.remove(IrqFlags::FRAME);
                 res
             }
+
+            0x4016 => self.joy.read_joypad1() | (self.mem.cpu_open_bus & 0xe0),
+            0x4017 => self.joy.read_joypad2() | (self.mem.cpu_open_bus & 0xe0),
             _ => self.mem.cpu_open_bus,
         }
     }
 
-    pub fn apu_reg_write(&mut self, addr: u16, val: u8) {
+    pub fn io_reg_write(&mut self, addr: u16, val: u8) {
         let apu = &mut self.apu;
 
         match addr {
@@ -645,8 +623,8 @@ impl NesEmulator {
 
             0x4010 => {
                 apu.dmc.looping = val & 0x40 > 0;
-                apu.dmc.irq_enabled = val & 0x80 > 0;
 
+                apu.dmc.irq_enabled = val & 0x80 > 0;
                 if !apu.dmc.irq_enabled {
                     self.mem.irq.remove(IrqFlags::DMC);
                 }
@@ -666,8 +644,11 @@ impl NesEmulator {
                     50
                 };
             }
-            0x4012 => apu.dmc.sample_addr = 0xc000 + ((val as u16) * 64),
-            0x4013 => apu.dmc.sample_len = ((val as u16) * 16) + 1,
+            0x4012 => apu.dmc.sample_addr = 0xc000 | ((val as u16) * 64),
+            0x4013 => apu.dmc.sample_len = ((val as u16) * 16) | 1,
+
+            0x4014 => self.ppu.dma = Some((val as u16) << 8),
+            0x4016 => self.joy.write(val),
 
             0x4015 => {
                 apu.p0.enable(val & 0x1 > 0);
@@ -741,15 +722,6 @@ impl NesEmulator {
 
         let sample = self.mix_channels();
         self.output.audiobuf.push(sample);
-
-        // if let Some(resample) = self.apu.resampler.add_sample(sample) {
-        //     self.audiobuf.push(resample);
-        // }
-
-        // let delta = sample - apu.prev_sample;
-        // apu.blip.0.add_delta(apu.cycles, delta);
-        // apu.prev_sample = sample;
-        // apu.cycles += 1;
     }
 
     fn mix_channels(&mut self) -> f32 {

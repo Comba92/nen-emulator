@@ -162,6 +162,14 @@ impl RomData {
             _ => Mirroring::Vertical,
         };
 
+        if bytes[7] & 0x3 == 1 {
+            return Err("VS System roms are not supported");
+        } else if bytes[7] & 0x3 == 2 {
+            return Err("Playchoice 10 roms are not supported");
+        } else if bytes[7] & 0x3 == 3 {
+            return Err("Extended console types are not supported");
+        }
+
         let version = bytes[7] & 0xc;
 
         if version == 0x08 {
@@ -238,6 +246,12 @@ impl RomData {
     }
 }
 
+const SUPPORTED_EXPANSIONS: &[u8] = &[
+    0x00, // Unspecified
+    0x01, // Standard NES controllers
+    0x08, 0x07, 0x09, 0x49, // Zapper Lightgun
+];
+
 impl Cart {
     pub fn from(bytes: &[u8]) -> Result<Self, &'static str> {
         let header = RomData::from_db(bytes)?;
@@ -259,6 +273,13 @@ impl Cart {
 
         if chr.len() < 8 * 1024 {
             chr.resize(8 * 1024, 0);
+        }
+
+        if !SUPPORTED_EXPANSIONS.contains(&header.expansions) {
+            eprintln!(
+                "Rom uses unsupported expanion {}, game might not handle input correctly",
+                header.expansions
+            );
         }
 
         Ok(Self { header, prg, chr })

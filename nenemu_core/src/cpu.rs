@@ -62,7 +62,7 @@ pub struct Cpu6502 {
     // TODO: not sure about this
     nmi_to_handle: bool,
     // TODO: the effect of toggling this flag is delayed 1 instruction when caused by SEI, CLI, or PLP.
-    irq_delay: Option<bool>,
+    irq_to_handle: Option<bool>,
     pub cycles: usize,
     // TODO: add more debugging info at jammed state
     pub jammed: bool,
@@ -126,7 +126,6 @@ impl NesEmulator {
     }
 
     pub fn cpu_step(&mut self) {
-        // TODO: handle dma better
         if self.handle_dma() {
             return;
         }
@@ -140,6 +139,8 @@ impl NesEmulator {
 
     fn handle_dma(&mut self) -> bool {
         // https://www.nesdev.org/wiki/DMA
+        // TODO: this is not emulated correctly
+
         if self.apu.dmc.buffer.is_none() && self.apu.dmc.dma_remaining > 0 {
             self.step_devices(); // halting cycle
             self.step_devices(); // dummy cycle
@@ -151,7 +152,6 @@ impl NesEmulator {
             let byte = self.cpu_dispatch_read(self.apu.dmc.dma_addr);
             self.step_devices();
             self.dmc_sample_read(byte);
-            self.step_devices();
 
             return true;
         } else if let Some(addr) = self.ppu.dma {
@@ -183,18 +183,18 @@ impl NesEmulator {
     fn poll_interrupts(&mut self) {
         let irq_inhibit = self.cpu.p.contains(Status::IrqDisable);
         // The CLI, SEI, and PLP instructions on the other hand change the I flag after polling for interrupts
-        if let Some(irq_set) = self.cpu.irq_delay.take() {
+        if let Some(irq_set) = self.cpu.irq_to_handle.take() {
             self.cpu.p.set(Status::IrqDisable, irq_set);
         }
 
         // https://www.nesdev.org/wiki/CPU_interrupts#IRQ_and_NMI_tick-by-tick_execution
         if self.mem.nmi {
-            self.mem.nmi = false;
             // When NMI becomes enabled while the vblank flag is already set, the resulting NMI occurs late enough in the instruction that another instruction is able to execute before the NMI is serviced.
+            self.mem.nmi = false;
             self.cpu.nmi_to_handle = true;
         } else if self.cpu.nmi_to_handle {
-            self.cpu.nmi_to_handle = false;
             self.handle_interrupt(InterruptVector::Nmi as u16);
+            self.cpu.nmi_to_handle = false;
         } else if !self.mem.irq.is_empty() && !irq_inhibit {
             self.handle_interrupt(InterruptVector::Irq as u16);
         }
@@ -409,7 +409,7 @@ impl NesEmulator {
 
         // The effect of changing IrqDisable flag is delayed 1 instruction.
         // set res to the current p value, then update it later
-        self.cpu.irq_delay = Some(res.contains(Status::IrqDisable));
+        self.cpu.irq_to_handle = Some(res.contains(Status::IrqDisable));
         res.set(Status::IrqDisable, self.cpu.p.contains(Status::IrqDisable));
 
         self.cpu.p = (res | Status::Unused) - Status::Brk;
@@ -630,7 +630,7 @@ impl NesEmulator {
         // https://www.nesdev.org/wiki/Instruction_reference#CLI
         // self.cpu.p.remove(Status::IrqDisable);
         // The effect of changing this flag is delayed 1 instruction.
-        self.cpu.irq_delay = Some(false);
+        self.cpu.irq_to_handle = Some(false);
     }
     fn clv(&mut self) {
         self.cpu.p.remove(Status::Overflow);
@@ -645,10 +645,11 @@ impl NesEmulator {
         // https://www.nesdev.org/wiki/Instruction_reference#SEI
         // self.cpu.p.insert(Status::IrqDisable);
         // The effect of changing this flag is delayed 1 instruction.
-        self.cpu.irq_delay = Some(true);
+        self.cpu.irq_to_handle = Some(true);
     }
 
     fn brk(&mut self) {
+        // https://www.nesdev.org/wiki/CPU_interrupts#Interrupt_hijacking
         self.stack_push16(self.cpu.pc.wrapping_add(1));
         self.php();
         self.cpu.p.insert(Status::IrqDisable);

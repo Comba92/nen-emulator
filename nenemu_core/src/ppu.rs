@@ -585,7 +585,7 @@ impl Ppu2C02 {
                 self.oam_tmp_count += 1;
             }
 
-            if self.oam_tmp_count > 8 {
+            if self.oam_tmp_count >= 8 {
                 // sprite overflow bug
                 // If the value is not in range, increment n and m (without carry). If n overflows to 0, go to 4; otherwise go to 3
                 // The m increment is a hardware bug - if only n was incremented, the overflow flag would be set whenever more than 8 sprites were present on the same scanline, as expected.
@@ -593,7 +593,7 @@ impl Ppu2C02 {
                 spr_ovfl_idx = (spr_ovfl_idx + 1) % 4;
                 let dist = self.line - corrupt_y as i16;
                 if 0 <= dist && dist < self.ctrl.spr_size as i16 {
-                    // self.stat.insert(Status::SprOvfl);
+                    self.stat.insert(Status::SprOvfl);
                 }
             }
         }
@@ -696,13 +696,11 @@ impl NesEmulator {
                 if !old_nmi_enabled && new_nmi_enabled && ppu.stat.contains(Status::Vblank) {
                     // Changing NMI enable from 0 to 1 while the vblank flag in PPUSTATUS is 1 will immediately trigger an NMI.
                     self.mem.nmi = true;
-                } else if !new_nmi_enabled {
+                } else if old_nmi_enabled && !new_nmi_enabled {
                     // NMI shouldn't occur when disabled 0-1-2 PPU clock after VBL
-                    self.mem.nmi = if ppu.line == 241 && ppu.dot <= 2 {
-                        false
-                    } else {
-                        self.mem.nmi
-                    };
+                    if ppu.line == 241 && ppu.dot <= 2 {
+                        self.mem.nmi = false
+                    }
                 }
                 ppu.ctrl.nmi_enabled = new_nmi_enabled;
 

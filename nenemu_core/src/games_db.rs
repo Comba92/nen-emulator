@@ -4,6 +4,14 @@ use crate::{
 };
 use std::{collections::HashMap, io::Read, sync::LazyLock};
 
+// TODO: no support for VsSystem yet
+// enum Console {
+//     NES,
+//     PlayChoice10,
+//     VsSystem { ppu: u8, hw: u8 },
+//     Extended(u8),
+// }
+
 #[derive(Debug, bitcode::Encode, bitcode::Decode)]
 pub struct GameDbEntry {
     pub title: String,

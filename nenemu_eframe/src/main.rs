@@ -1,6 +1,12 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use eframe::egui;
-use nenemu_core::{NesPalette, emu::NesEmulator, joypad, rom, utils::RingBuffer};
+use nenemu_core::{
+    NesPalette,
+    emu::NesEmulator,
+    joypad::{self, InputBtn},
+    rom,
+    utils::RingBuffer,
+};
 use std::{
     collections::{HashMap, VecDeque},
     fs,
@@ -21,22 +27,22 @@ enum EmulatorAction {}
 
 #[cfg_attr(feature = "persistence", derive(serde::Serialize, serde::Deserialize))]
 enum PlayerEvent {
-    Joypad(joypad::JoypadBtn),
+    Joypad(joypad::InputBtn),
     Action(EmulatorAction),
 }
 
 #[cfg_attr(feature = "persistence", derive(serde::Serialize, serde::Deserialize))]
 struct KeyMap {
-    btns_strings: HashMap<joypad::JoypadBtn, String>,
-    keys: HashMap<egui::Key, joypad::JoypadBtn>,
-    pads: HashMap<gilrs::Button, joypad::JoypadBtn>,
-    rebind_key: Option<(egui::Key, joypad::JoypadBtn)>,
+    btns_strings: HashMap<joypad::InputBtn, String>,
+    keys: HashMap<egui::Key, joypad::InputBtn>,
+    pads: HashMap<gilrs::Button, joypad::InputBtn>,
+    rebind_key: Option<(egui::Key, joypad::InputBtn)>,
 }
 
 impl Default for KeyMap {
     fn default() -> Self {
         use egui::Key;
-        use joypad::JoypadBtn as Btn;
+        use joypad::InputBtn as Btn;
 
         let keys = HashMap::from([
             (Key::ArrowUp, Btn::Up),
@@ -1090,8 +1096,8 @@ impl AppCtx {
         }
     }
 
-    fn handle_input(&mut self, ui: &mut egui::Ui) {
-        let current_input = self.emu_lock().joypad.buttons.clone();
+    fn handle_input_and_emulation(&mut self, ui: &mut egui::Ui) {
+        let current_input = self.emu_lock().joy.player1.clone();
 
         let keyboard_input = ui.input(|i| {
             let mut pressed = current_input.clone();
@@ -1102,6 +1108,8 @@ impl AppCtx {
 
             pressed
         });
+
+        let mouse_clicked = ui.input(|i| i.pointer.any_down());
 
         let mut gamepad_input = current_input.clone();
 
@@ -1127,22 +1135,22 @@ impl AppCtx {
                     gilrs::EventType::AxisChanged(axis, amt, _) => match axis {
                         gilrs::Axis::LeftStickX => {
                             if amt >= 0.1 {
-                                gamepad_input.insert(joypad::JoypadBtn::Right);
+                                gamepad_input.insert(joypad::InputBtn::Right);
                             } else if amt <= -0.1 {
-                                gamepad_input.insert(joypad::JoypadBtn::Left);
+                                gamepad_input.insert(joypad::InputBtn::Left);
                             } else {
-                                gamepad_input.remove(joypad::JoypadBtn::Right);
-                                gamepad_input.remove(joypad::JoypadBtn::Left);
+                                gamepad_input.remove(joypad::InputBtn::Right);
+                                gamepad_input.remove(joypad::InputBtn::Left);
                             }
                         }
                         gilrs::Axis::LeftStickY => {
                             if amt >= 0.1 {
-                                gamepad_input.insert(joypad::JoypadBtn::Up);
+                                gamepad_input.insert(joypad::InputBtn::Up);
                             } else if amt <= -0.1 {
-                                gamepad_input.insert(joypad::JoypadBtn::Down);
+                                gamepad_input.insert(joypad::InputBtn::Down);
                             } else {
-                                gamepad_input.remove(joypad::JoypadBtn::Up);
-                                gamepad_input.remove(joypad::JoypadBtn::Down);
+                                gamepad_input.remove(joypad::InputBtn::Up);
+                                gamepad_input.remove(joypad::InputBtn::Down);
                             }
                         }
                         _ => {}
@@ -1163,6 +1171,8 @@ impl AppCtx {
             if current_input != gamepad_input {
                 emu.set_buttons_all(gamepad_input);
             }
+
+            emu.set_zapper_trigger(mouse_clicked);
 
             while self.state.emulation == EmulationState::Running && emu.audio_queued(48000) < 1024
             {
@@ -1196,8 +1206,6 @@ impl eframe::App for AppCtx {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        let current_state = self.state.emulation;
-
         egui::Panel::top("menubar")
             .show_separator_line(true)
             .show_inside(ui, |ui| self.show_menubar(ui));
@@ -1210,6 +1218,10 @@ impl eframe::App for AppCtx {
                     .fit_to_exact_size(ui.max_rect().size());
 
                 let screen = ui.add(img);
+                // ui.input(|i|
+                // println!("{:?}", i.pointer.latest_pos())
+                // );
+
                 if self.state.emulation == EmulationState::Running && self.cfg.hide_cursor {
                     screen.on_hover_cursor(egui::CursorIcon::None);
                 }
@@ -1253,7 +1265,7 @@ impl eframe::App for AppCtx {
         self.show_rom_info_window(ui);
         self.show_error_window(ui);
 
-        self.handle_input(ui);
+        self.handle_input_and_emulation(ui);
 
         // if self.state.emulation != current_state {
         // self.is_running.store(

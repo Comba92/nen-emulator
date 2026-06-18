@@ -530,10 +530,11 @@ impl NesEmulator {
             CpuHandler::Ram => mem.ram[addr as usize & 0x07ff],
             CpuHandler::Ppu | CpuHandler::PpuMMC5 => self.ppu_reg_read(addr),
             CpuHandler::IO => {
-                if matches!(addr, 0x4000..=0x4013 | 0x4015 | 0x4017) {
-                    self.apu_reg_read(addr)
-                } else if addr == 0x4016 {
-                    self.joypad.read() | (mem.cpu_open_bus & 0xe0)
+                // if matches!(addr, 0x4000..=0x4013 | 0x4015 | 0x4017) {
+                if addr <= 0x4017 {
+                    self.io_reg_read(addr)
+                // } else if addr == 0x4016 {
+                //     self.joy1.read() | (mem.cpu_open_bus & 0xe0)
                 } else {
                     self.mapper.io_read(mem, addr)
                 }
@@ -570,12 +571,13 @@ impl NesEmulator {
             CpuHandler::Ram => mem.ram[addr as usize & 0x07ff] = val,
             CpuHandler::Ppu => self.ppu_reg_write(addr & 0x2007, val),
             CpuHandler::IO => {
-                if matches!(addr, 0x4000..=0x4013 | 0x4015 | 0x4017) {
-                    self.apu_reg_write(addr, val)
-                } else if addr == 0x4014 {
-                    self.ppu.dma = Some((val as u16) << 8);
-                } else if addr == 0x4016 {
-                    self.joypad.write(val)
+                // if matches!(addr, 0x4000..=0x4013 | 0x4015 | 0x4017) {
+                if addr <= 0x4017 {
+                    self.io_reg_write(addr, val)
+                // } else if addr == 0x4014 {
+                // self.ppu.dma = Some((val as u16) << 8);
+                // } else if addr == 0x4016 {
+                // self.joy1.write(val)
                 } else {
                     self.mapper.io_write(mem, addr, val)
                 }
