@@ -273,20 +273,20 @@ const DEFAULT_PPU_MAP: [PpuHandler; 16] = [
     PpuHandler::Palette,
 ];
 
-#[cfg(feature = "savestates")]
-use serde_big_array::BigArray;
+// #[cfg(feature = "savestates")]
+// use serde_big_array::BigArray;
 
 // TODO: access prg, chr, sram, vram with unsafe uncheked get, as index bounds cannot be optimized
-#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "savestates", derive(serde::Deserialize))]
 pub struct Bus {
-    #[cfg_attr(feature = "savestates", serde(with = "BigArray"))]
-    pub ram: [u8; 2 * 1024],
+    // #[cfg_attr(feature = "savestates", serde(with = "BigArray"))]
+    pub ram: Box<[u8]>,
     #[cfg_attr(feature = "savestates", serde(skip))]
     pub prg: Box<[u8]>,
     pub wram: Box<[u8]>,
     pub chr: Box<[u8]>,
     // this has to be a vec (even if it is 2kb 99% of times), as some games can set it to 4kb
-    pub vram: Vec<u8>,
+    pub vram: Box<[u8]>,
 
     // 64kb / 4kb = 16
     pub cpu_handlers_8kb: [CpuHandler; 8],
@@ -303,6 +303,43 @@ pub struct Bus {
     pub banks: BanksHandler,
 }
 
+#[cfg(feature = "savestates")]
+impl serde::Serialize for Bus {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut se = serializer.serialize_struct("Bus", 12)?;
+
+        se.serialize_field("ram", &self.ram)?;
+        se.skip_field("prg")?; // we do not care to serialize prg and ctx
+        se.serialize_field("wram", &self.wram)?;
+
+        // we only serialize chr if it is chr ram
+        if self.header.has_chr_ram {
+            se.serialize_field("chr", &self.chr)?;
+        } else {
+            se.serialize_field("chr", &Vec::<u8>::new().into_boxed_slice())?;
+        }
+        se.serialize_field("vram", &self.vram)?;
+
+        se.serialize_field("cpu_handlers_8kb", &self.cpu_handlers_8kb)?;
+        se.serialize_field("ppu_handlers_1kb", &self.ppu_handlers_1kb)?;
+
+        se.serialize_field("cpu_open_bus", &self.cpu_open_bus)?;
+        se.serialize_field("ppu_open_bus", &self.ppu_open_bus)?;
+
+        se.serialize_field("nmi", &self.nmi)?;
+        se.serialize_field("irq", &self.irq)?;
+
+        se.serialize_field("header", &self.header)?;
+        se.serialize_field("banks", &self.banks)?;
+
+        se.end()
+    }
+}
+
 impl Bus {
     pub fn with_ram_64kb() -> Self {
         let header = RomData {
@@ -314,7 +351,7 @@ impl Bus {
         let ppu_handlers_1kb = array::from_fn(|_| PpuHandler::OpenBus);
 
         Self {
-            ram: [0; _],
+            ram: Default::default(),
             prg: Default::default(),
             chr: Default::default(),
             vram: Default::default(),
@@ -355,13 +392,11 @@ impl Bus {
         let mut ppu_handlers_1kb = DEFAULT_PPU_MAP;
         ppu_handlers_1kb[..8].fill(chr_handler);
 
-        let ram = [0; 2 * 1024];
-
         Self {
-            ram,
+            ram: vec![0; 2 * 1024].into_boxed_slice(),
             prg: cart.prg.into_boxed_slice(),
             chr: cart.chr.into_boxed_slice(),
-            vram: vec![0; 2 * 1024],
+            vram: vec![0; 2 * 1024].into_boxed_slice(),
             wram: vec![0; cart.header.wram_size].into_boxed_slice(),
 
             cpu_handlers_8kb,
@@ -414,11 +449,11 @@ impl Bus {
         ppu_handlers_1kb[..8].fill(PpuHandler::ChrRam);
 
         let mut mem = Self {
-            ram: [0; 2 * 1024],
+            ram: vec![0; 2 * 1024].into_boxed_slice(),
             prg: bios.to_vec().into_boxed_slice(),
             wram: vec![0; 32 * 1024].into_boxed_slice(),
             chr: vec![0; 8 * 1024].into_boxed_slice(),
-            vram: vec![0; 2 * 1024],
+            vram: vec![0; 2 * 1024].into_boxed_slice(),
 
             cpu_handlers_8kb,
             ppu_handlers_1kb,
@@ -480,8 +515,8 @@ impl Bus {
     pub fn set_4screen_mirroring(&mut self) {
         self.banks.vram = Banking::new(0x2000, 4 * 1024, 4 * 1024, 4);
         self.banks.vram.mirror(&Mirroring::FourScreens);
-        // self.vram = vec![0; 4 * 1024].into_boxed_slice();
-        self.vram.resize(4 * 1024, 0);
+        self.vram = vec![0; 4 * 1024].into_boxed_slice();
+        // self.vram.resize(4 * 1024, 0);
     }
 }
 
@@ -545,12 +580,10 @@ impl NesEmulator {
                 }
             }
 
-            // TODO: this could just be prg_write...
             CpuHandler::Mapper => self.mapper.io_write(mem, addr, val),
             CpuHandler::Wram => mem.wram[mem.banks.wram.translate(addr)] = val,
-            CpuHandler::Prg => {
-                self.mapper.prg_write(mem, addr, val);
-            }
+            CpuHandler::Prg => self.mapper.prg_write(mem, addr, val),
+
             CpuHandler::WramReadOnly | CpuHandler::OpenBus => {}
 
             CpuHandler::PpuMMC3 => {

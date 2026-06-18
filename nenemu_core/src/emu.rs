@@ -12,7 +12,7 @@ use crate::{
     mapper::{self, Mapper},
     ppu::Ppu2C02,
     rom::{Cart, Disk, RomData},
-    utils::RingBuffer,
+    utils::{AvgResampler, RingBuffer},
 };
 
 #[derive(Default, Clone, Copy, PartialEq)]
@@ -33,8 +33,10 @@ impl Into<f32> for SampleRate {
 #[derive(Default, Clone, PartialEq)]
 #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub struct NesSettings {
+    // TODO: settings should be inverted because we're always negating them
     pub random_ram: bool,
-    pub no_sprite_limit: bool,
+    pub disable_sprite_limit: bool,
+    pub enable_oam_read: bool,
 
     pub disable_background: bool,
     pub disable_sprites: bool,
@@ -49,6 +51,28 @@ pub struct NesSettings {
     pub disable_noise: bool,
     pub disable_dmc: bool,
     pub disable_ext_audio: bool,
+}
+
+#[derive(Default)]
+pub(crate) struct NesOutput {
+    pub(crate) frame_ready: bool,
+    pub(crate) videobuf_back: Box<Framebuf>,
+    pub(crate) videobuf_view: Box<Framebuf>,
+    pub(crate) audiobuf: RingBuffer<f32>,
+    pub(crate) resamplebuf: Vec<f32>,
+
+    pub resampler: AvgResampler,
+}
+impl NesOutput {
+    pub fn new(region: &Region) -> Self {
+        Self {
+            audiobuf: RingBuffer::new(
+                (AUDIO_FRAMES_BUFFERED as f32 * (region.clock_rate() as f32 / region.frame_rate()))
+                    as usize,
+            ),
+            ..Default::default()
+        }
+    }
 }
 
 pub const BIOS_CRC32: u32 = 1583381967;
@@ -71,11 +95,8 @@ pub struct NesEmulator {
     pub mem: Bus,
     pub mapper: Box<dyn Mapper>,
 
-    pub frame_ready: bool,
     #[cfg_attr(feature = "savestates", serde(skip))]
-    pub(crate) videobuf: Box<Framebuf>,
-    #[cfg_attr(feature = "savestates", serde(skip))]
-    pub(crate) audiobuf: RingBuffer<f32>,
+    pub(crate) output: NesOutput,
 
     pub palette: NesPalette,
     pub settings: NesSettings,
@@ -176,9 +197,7 @@ impl NesEmulator {
             mem: Bus::with_ram_64kb(),
             mapper: Box::new(mapper::NROM),
 
-            frame_ready: false,
-            videobuf: Box::new(Framebuf::default()),
-            audiobuf: RingBuffer::new(0),
+            output: NesOutput::default(),
             palette: NesPalette::default(),
 
             settings: NesSettings::default(),
@@ -209,21 +228,15 @@ impl NesEmulator {
 
         let palette = NesPalette::from_pal_file(include_bytes!("../utils/2C02G_wiki.pal")).unwrap();
 
-        let sample_rate: f32 = SampleRate::default().into();
-        let frame_rate = mem.header.region.frame_rate();
         let mut emu = Self {
+            output: NesOutput::new(&mem.header.region),
+
             cpu: Cpu6502::new(),
             ppu: Ppu2C02::new(&mem.header.region),
             apu: ApuRP2A::new(&mem.header.region),
             joypad: Joypad::default(),
             mem,
             mapper,
-
-            frame_ready: false,
-            videobuf: Box::new(Framebuf::default()),
-            audiobuf: RingBuffer::new(
-                (AUDIO_FRAMES_BUFFERED as f32 * (sample_rate / frame_rate)) as usize,
-            ),
 
             palette,
             settings,
@@ -232,7 +245,8 @@ impl NesEmulator {
         if emu.settings.random_ram {
             // Final Fantasy, River City Ransom, Apple Town Story[5], Impossible Mission II[6] amongst others
             // Use the semi-random contents of RAM on powerup to seed their RNGs.
-            _ = getrandom::fill(&mut emu.mem.ram);
+            getrandom::fill(&mut emu.mem.ram)?;
+            getrandom::fill(&mut emu.mem.wram)?;
         }
 
         emu.cpu.pc = emu.cpu_read16(cpu::InterruptVector::Rst as u16);
@@ -317,18 +331,19 @@ impl NesEmulator {
     }
 
     pub fn is_frame_ready(&self) -> bool {
-        self.frame_ready
+        self.output.frame_ready
     }
 
     pub fn step_until_samples_or_frame_ready(
         &mut self,
         samples_amt: usize,
+        sample_rate: usize,
     ) -> Result<(), &'static str> {
-        while self.audio_queued() < samples_amt && self.is_frame_ready() {
+        while self.audio_queued(sample_rate) < samples_amt && self.is_frame_ready() {
             self.cpu_step();
         }
 
-        while self.audio_queued() < samples_amt && !self.is_frame_ready() {
+        while self.audio_queued(sample_rate) < samples_amt && !self.is_frame_ready() {
             self.cpu_step();
         }
 
@@ -349,7 +364,7 @@ impl NesEmulator {
     }
 
     pub fn get_video_rgba(&self) -> &[u8; FRAMEBUF_SIZE] {
-        &self.videobuf.0
+        &self.output.videobuf_view.0
     }
 
     pub fn put_video_rgba(&self, buf: &mut [u8]) {
@@ -402,31 +417,47 @@ impl NesEmulator {
         }
     }
 
-    pub fn audio_queued(&self) -> usize {
-        self.audiobuf.queued()
+    fn resample(&mut self, amt: usize) {
+        let output = &mut self.output;
+
+        output.resamplebuf.clear();
+
+        while output.resamplebuf.len() < amt {
+            let sample = output.audiobuf.pop();
+            if let Some(resample) = output.resampler.add_sample(*sample) {
+                output.resamplebuf.push(resample);
+            }
+        }
+    }
+
+    pub fn audio_queued(&self, rate: usize) -> usize {
+        // queued : CLOCKRATE = x : TargetRate
+        (self.output.audiobuf.queued() as f64 * rate as f64 / self.clock_rate() as f64) as usize
     }
 
     pub fn set_audio_rate(&mut self, rate: usize) {
-        self.apu
+        self.output
             .resampler
             .set_rate(self.region().clock_rate(), rate);
     }
 
-    pub fn get_audio_f32(&mut self, amount: usize) -> (&[f32], Option<&[f32]>) {
-        self.audiobuf.take_available_contiguos(amount)
+    pub fn get_audio_f32(&mut self, amount: usize) -> &[f32] {
+        self.resample(amount);
+        &self.output.resamplebuf
     }
 
-    pub fn get_audio_f32_all(&mut self) -> (&[f32], Option<&[f32]>) {
-        self.get_audio_f32(self.audio_queued())
+    pub fn get_audio_f32_all(&mut self, sample_rate: usize) -> &[f32] {
+        self.get_audio_f32(self.audio_queued(sample_rate))
     }
 
     pub fn put_audio_f32(&mut self, buf: &mut [f32]) {
-        let (right, left) = self.get_audio_f32(buf.len());
-        buf[..right.len()].copy_from_slice(right);
+        // let (right, left) = self.get_audio_f32(buf.len());
+        // buf[..right.len()].copy_from_slice(right);
 
-        if let Some(left) = left {
-            buf[right.len()..].copy_from_slice(left);
-        }
+        // if let Some(left) = left {
+        //     buf[right.len()..].copy_from_slice(left);
+        // }
+        buf.copy_from_slice(self.get_audio_f32(buf.len()));
     }
 
     pub fn load_rom_from_file<P: AsRef<Path>, B: AsRef<[u8]>>(
@@ -561,9 +592,14 @@ impl NesEmulator {
         let mut new_emu: NesEmulator = pot::from_reader(reader)?;
         // let mut new_emu: NesEmulator = pot::from_reader(file)?;
 
-        std::mem::swap(&mut self.mem.prg, &mut new_emu.mem.prg);
-        std::mem::swap(&mut self.audiobuf, &mut new_emu.audiobuf);
-        std::mem::swap(&mut self.videobuf, &mut new_emu.videobuf);
+        use std::mem;
+
+        mem::swap(&mut self.mem.prg, &mut new_emu.mem.prg);
+        if !new_emu.header().has_chr_ram {
+            mem::swap(&mut self.mem.chr, &mut new_emu.mem.chr);
+        }
+
+        mem::swap(&mut self.output, &mut new_emu.output);
         *self = new_emu;
 
         Ok(())

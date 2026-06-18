@@ -807,7 +807,7 @@ impl Mapper for NapoleonSenki {
 
         // this games provides 8kb of chr ram + 2kb of vram
         // we simulate chr ram by extending our vram from 0x0800 to 0x2fff
-        mem.vram.resize(10 * 1024, 0);
+        mem.vram = vec![0; 10 * 1024].into_boxed_slice();
         mem.banks.vram = Banking::new(0x800, 10 * 1024, 10 * 1024, 5);
 
         for i in 0..5 {

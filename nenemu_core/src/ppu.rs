@@ -325,8 +325,8 @@ impl Ppu2C02 {
 
     pub fn palettes_read(&self, addr: u16) -> u8 {
         let pal = addr as usize % 32;
-        let res = if pal % 4 == 0 {
-            self.palettes[0]
+        let res = if pal >= 16 && pal % 4 == 0 {
+            self.palettes[pal & !0x10]
         } else {
             self.palettes[pal]
         };
@@ -353,28 +353,30 @@ impl Ppu2C02 {
         }
     }
 
-    fn oam_read(&mut self) -> u8 {
-        // if self.is_rendering() {
-        //   // https://www.nesdev.org/wiki/PPU_sprite_evaluation#Details
-        //   // https://forums.nesdev.org/viewtopic.php?p=141975#p141975
-        //   if self.dots < 64 { 0xff }
-        //   else if self.dots < 256 { 0 }
-        //   else if self.dots < 320 { 0xff }
-        //   else { self.oam_tmp[0].y }
-        // } else {
-        //   self.oam.0[self.oam_addr as usize]
-        // }
-        self.oam.0[self.oam_addr as usize]
+    fn oam_read(&mut self, enable: bool) -> u8 {
+        if enable && self.is_in_visible_scanline() {
+            // https://www.nesdev.org/wiki/PPU_sprite_evaluation#Details
+            // https://forums.nesdev.org/viewtopic.php?p=141975#p141975
+            if self.dot < 64 {
+                0xff
+            } else if self.dot < 256 {
+                0
+            } else if self.dot < 320 {
+                0xff
+            } else {
+                self.oam_tmp[0].y
+            }
+        } else {
+            self.oam.0[self.oam_addr as usize]
+        }
     }
 
     pub fn oam_write(&mut self, val: u8) {
         // Writes to OAMDATA during rendering (on the pre-render line and the visible lines 0–239, provided either sprite or background rendering is enabled) do not modify values in OAM, but do perform a glitchy increment of OAMADDR, bumping only the high 6 bits
-        // if !self.is_rendering() {
-        //   self.oam.0[self.oam_addr as usize] = val;
-        //   self.oam_addr = self.oam_addr.wrapping_add(1);
-        // }
-        self.oam.0[self.oam_addr as usize] = val;
-        self.oam_addr = self.oam_addr.wrapping_add(1);
+        if self.is_in_vblank() {
+            self.oam.0[self.oam_addr as usize] = val;
+            self.oam_addr = self.oam_addr.wrapping_add(1);
+        }
     }
 
     // https://www.nesdev.org/wiki/PPU_scrolling#Tile_and_attribute_fetching
@@ -426,6 +428,14 @@ impl Ppu2C02 {
 
     fn is_rendering_enabled(&self) -> bool {
         self.mask.contains(Mask::BgEnable) || self.mask.contains(Mask::SprEnable)
+    }
+
+    fn is_in_visible_scanline(&self) -> bool {
+        self.line < 240 || self.line == self.prerender_line
+    }
+
+    fn is_in_vblank(&self) -> bool {
+        self.line >= 240 && self.line != self.prerender_line
     }
 
     fn shifter_load(&mut self) {
@@ -525,6 +535,7 @@ impl Ppu2C02 {
     fn spr_evaluation(&mut self) {
         self.oam_tmp_count = 0;
         self.oam_tmp.fill(Sprite::default());
+        self.spr_extra.clear();
 
         for (i, y) in self.oam.0.iter().copied().enumerate().step_by(4) {
             // Sprite data is delayed by one scanline; you must subtract 1 from the sprite's Y coordinate
@@ -604,7 +615,7 @@ impl NesEmulator {
                 res | (ppu.open_bus & 0x1f)
             }
             // OamData
-            0x2004 => self.ppu.oam_read(),
+            0x2004 => self.ppu.oam_read(self.settings.enable_oam_read),
             // PpuData
             0x2007 => {
                 // This read buffer is updated on every PPUDATA read, but only after the previous contents have been returned to the CPU, effectively delaying PPUDATA reads by one.
@@ -737,9 +748,9 @@ impl NesEmulator {
 
     fn videobuf_push(&mut self, color_id: u8) {
         let color = self.palette.0[color_id as usize];
-        self.videobuf.0[self.ppu.pixel_idx + 0] = color.0;
-        self.videobuf.0[self.ppu.pixel_idx + 1] = color.1;
-        self.videobuf.0[self.ppu.pixel_idx + 2] = color.2;
+        self.output.videobuf_back.0[self.ppu.pixel_idx + 0] = color.0;
+        self.output.videobuf_back.0[self.ppu.pixel_idx + 1] = color.1;
+        self.output.videobuf_back.0[self.ppu.pixel_idx + 2] = color.2;
         self.ppu.pixel_idx += 4;
     }
 
@@ -753,11 +764,7 @@ impl NesEmulator {
             && ppu.mask.contains(Mask::BgEnable)
             && !self.settings.disable_background;
         let spr_visible = (!in_lstrip || ppu.mask.contains(Mask::ShowSprLeft))
-            && ppu.mask.contains(Mask::SprEnable)
-            && !self.settings.disable_sprites;
-
-        let lstrip_bg_mask = ((bg_visible as u8) << 1) | bg_visible as u8;
-        let lstrip_spr_mask = ((spr_visible as u8) << 1) | spr_visible as u8;
+            && ppu.mask.contains(Mask::SprEnable);
 
         // On every dot in these background fetch regions, a 4-bit pixel is selected by the fine x register from the low 8 bits of the pattern and attributes shift registers, which are then shifted.
         let shift_mask = 0x8000 >> ppu.x;
@@ -765,21 +772,18 @@ impl NesEmulator {
         let pixel_lo = ppu.shifter.shift_ptrn_lo & shift_mask > 0;
         let pixel_hi = ppu.shifter.shift_ptrn_hi & shift_mask > 0;
         let mut bg_pixel = ((pixel_hi as u8) << 1) | (pixel_lo as u8);
-        bg_pixel &= lstrip_bg_mask;
+        bg_pixel *= bg_visible as u8;
 
         let spr_data = ppu.spr_scanline.0[pixel_x];
-        let spr_pixel = spr_data.pixel() & lstrip_spr_mask;
-
-        let grey_mask = if ppu.mask.contains(Mask::GreyScale) {
-            0xf0
-        } else {
-            0xff
-        };
+        let spr_pixel = spr_data.pixel() * spr_visible as u8;
 
         // TODO: can do this without ifs?
-        let color_id = if spr_pixel > 0 && (spr_data.priority() || bg_pixel == 0) {
+        let color_id = if !self.settings.disable_sprites
+            && spr_pixel > 0
+            && (spr_data.priority() || bg_pixel == 0)
+        {
             ppu.spr_color_from_palette(spr_data.palette(), spr_pixel)
-        } else if bg_pixel > 0 {
+        } else if !self.settings.disable_background && bg_pixel > 0 {
             let palette_lo = ppu.shifter.shift_attr_lo & shift_mask > 0;
             let palette_hi = ppu.shifter.shift_attr_hi & shift_mask > 0;
             let bg_palette = ((palette_hi as u8) << 1) | (palette_lo as u8);
@@ -797,7 +801,29 @@ impl NesEmulator {
             ppu.stat.set(Status::Spr0Hit, spr0_hit);
         }
 
-        self.videobuf_push(color_id & grey_mask);
+        self.videobuf_push(color_id);
+    }
+
+    fn start_vblank(&mut self) {
+        self.ppu.stat.set(Status::Vblank, !self.ppu.vblank_suppress);
+        self.mem.nmi = self.ppu.ctrl.nmi_enabled && !self.ppu.nmi_suppress;
+
+        std::mem::swap(
+            &mut self.output.videobuf_view,
+            &mut self.output.videobuf_back,
+        );
+
+        self.output.frame_ready = true;
+    }
+
+    fn end_frame(&mut self) {
+        self.ppu.line = 0;
+        self.ppu.pixel_idx = 0;
+        self.ppu.odd_frame = !self.ppu.odd_frame;
+        self.ppu.nmi_suppress = false;
+        self.ppu.vblank_suppress = false;
+
+        self.output.frame_ready = false;
     }
 
     // https://forums.nesdev.org/viewtopic.php?t=8066
@@ -817,14 +843,11 @@ impl NesEmulator {
             }
 
             RenderState::Vblank => {
-                let ppu = &mut self.ppu;
-
-                if ppu.line == 241 && ppu.dot == 0 {
-                    ppu.stat.set(Status::Vblank, !ppu.vblank_suppress);
-                    self.mem.nmi = ppu.ctrl.nmi_enabled && !ppu.nmi_suppress;
-                    self.frame_ready = true;
+                if self.ppu.line == 241 && self.ppu.dot == 0 {
+                    self.start_vblank();
                 }
 
+                let ppu = &mut self.ppu;
                 ppu.dot += 1;
                 if ppu.dot >= 341 {
                     ppu.dot = 0;
@@ -844,9 +867,7 @@ impl NesEmulator {
                 } else if ppu.line == ppu.prerender_line && ppu.dot == 0 {
                     ppu.stat.clear();
                 } else if ppu.line == 241 && ppu.dot == 0 {
-                    ppu.stat.set(Status::Vblank, !ppu.vblank_suppress);
-                    self.mem.nmi = ppu.ctrl.nmi_enabled && !ppu.nmi_suppress;
-                    self.frame_ready = true;
+                    self.start_vblank();
                 }
 
                 let ppu = &mut self.ppu;
@@ -855,13 +876,7 @@ impl NesEmulator {
                     ppu.dot = 0;
                     ppu.line += 1;
                     if ppu.line > ppu.prerender_line {
-                        ppu.line = 0;
-                        ppu.nmi_suppress = false;
-                        ppu.vblank_suppress = false;
-                        ppu.pixel_idx = 0;
-                        ppu.odd_frame = !ppu.odd_frame;
-
-                        self.frame_ready = false;
+                        self.end_frame();
                     }
                 }
             }
@@ -907,6 +922,7 @@ impl NesEmulator {
             }
             RenderCmd::ResetHori => {
                 self.ppu.restore_scroll_x();
+                self.ppu.oam_addr = 0;
 
                 // clear scanline sprite cache here
                 self.ppu.spr_scanline.0.fill(0.into());
@@ -937,9 +953,7 @@ impl NesEmulator {
                 self.ppu_dispatch_read(self.ppu.nametbl_addr());
 
                 // push extra sprites here
-                if false {
-                    self.spr_push_extra();
-                }
+                self.spr_push_extra();
 
                 self.ppu.dot = 0;
                 self.ppu.line += 1;
@@ -958,22 +972,17 @@ impl NesEmulator {
                     self.ppu.dot = 1;
                 }
 
+                self.end_frame();
                 self.ppu.render_state = RenderState::Rendering;
-                self.ppu.line = 0;
-                self.ppu.pixel_idx = 0;
-                self.ppu.odd_frame = !self.ppu.odd_frame;
-                self.ppu.nmi_suppress = false;
-                self.ppu.vblank_suppress = false;
 
                 // no sprites should be visible on the first scanline
                 self.ppu.spr_scanline.0.fill(0.into());
-                self.frame_ready = false;
             }
         }
     }
 
     fn spr_push_extra(&mut self) {
-        if !self.settings.no_sprite_limit {
+        if !self.settings.disable_sprite_limit {
             return;
         }
 

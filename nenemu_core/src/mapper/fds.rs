@@ -657,6 +657,18 @@ impl Mapper for FDS {
                 // TODO: automatic side picker
                 println!("[BIOS: ${addr:04x}] CheckDiskHeader()");
             }
+            0xe484 => {
+                println!("[BIOS: ${addr:04x}] GetNumFiles()");
+            }
+            0xe492 => {
+                println!("[BIOS: ${addr:04x}] SetNumFiles()");
+            }
+            0xe4a0 => {
+                println!("[BIOS: ${addr:04x}] FileMatchTest()");
+            }
+            0xe4da => {
+                println!("[BIOS: ${addr:04x}] SkipFiles()");
+            }
 
             _ => {}
         }

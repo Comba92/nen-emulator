@@ -798,7 +798,6 @@ impl NesEmulator {
 
     fn jam(&mut self) {
         self.cpu.jammed = true;
-        // panic!("===[SYSTEM JAMMED]===\n{:?}", self.cpu);
     }
 }
 

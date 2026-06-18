@@ -893,7 +893,7 @@ impl AppCtx {
                 });
 
                 ui.collapsing("📺 Video", |ui| {
-                    ui.checkbox(&mut settings.no_sprite_limit, "Show more than 8 sprites per scaline")
+                    ui.checkbox(&mut settings.disable_sprite_limit, "Show more than 8 sprites per scaline")
                     .on_hover_text("Reduces flickering, but may show glitches in some games");
                     ui.checkbox(&mut settings.disable_background, "Disable background tiles");
                     ui.checkbox(&mut settings.disable_sprites, "Disable sprite tiles");

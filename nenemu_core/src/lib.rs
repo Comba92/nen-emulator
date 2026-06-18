@@ -10,6 +10,8 @@ mod ppu;
 pub mod rom;
 
 pub mod utils {
+    use super::emu::*;
+
     // pub fn bit_get(x: u8, bit: u8) -> bool { (x >> bit) & 1 == 1 }
     // pub fn bit_set(x: u8, flags: u8) -> u8 { x | flags }
     // pub fn bit_change(x: u8, flags: u8, cond: bool) -> u8 {
@@ -117,7 +119,7 @@ pub mod utils {
             }
         }
 
-        pub fn take_available_contiguos(&mut self, amount: usize) -> (&[T], Option<&[T]>) {
+        pub fn take(&mut self, amount: usize) -> (&[T], Option<&[T]>) {
             let amount = amount.min(self.data.len());
 
             let right_amount = amount.min(self.queued_contiguos());
@@ -134,6 +136,61 @@ pub mod utils {
             self.queued = self.queued.saturating_sub(amount);
 
             (right, left)
+        }
+    }
+
+    pub struct AvgResampler {
+        sample_avg: f32,
+        sample_count: usize,
+        sample_timer: f32,
+        cycles_per_sample: f32,
+    }
+    impl Default for AvgResampler {
+        fn default() -> Self {
+            Self::new(NTSC_CLOCK_RATE, SampleRate::default())
+        }
+    }
+
+    impl AvgResampler {
+        pub fn new(clock_rate: usize, frequency: SampleRate) -> Self {
+            let freq: f32 = frequency.into();
+            Self {
+                sample_avg: 0.0,
+                sample_count: 0,
+                sample_timer: 0.0,
+                cycles_per_sample: clock_rate as f32 / freq,
+            }
+        }
+
+        pub fn clear(&self) -> Self {
+            Self {
+                sample_avg: 0.0,
+                sample_count: 0,
+                sample_timer: 0.0,
+                cycles_per_sample: self.cycles_per_sample,
+            }
+        }
+
+        pub fn set_rate(&mut self, clock_rate: usize, frequency: usize) {
+            self.cycles_per_sample = clock_rate as f32 / frequency as f32
+        }
+
+        pub fn add_sample(&mut self, sample: f32) -> Option<f32> {
+            self.sample_avg += sample;
+            self.sample_count += 1;
+            self.sample_timer += 1.0;
+
+            if self.sample_timer >= self.cycles_per_sample {
+                self.sample_timer -= self.cycles_per_sample;
+                let res = self.sample_avg / self.sample_count as f32;
+
+                self.sample_avg = 0.0;
+                self.sample_count = 0;
+
+                Some(res)
+            } else {
+                None
+            }
         }
     }
 }

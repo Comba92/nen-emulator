@@ -486,62 +486,6 @@ enum FrameMode {
 //     fn add_sample(sample: T) -> Option<T>;
 // }
 
-#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
-pub struct AvgResampler {
-    sample_avg: f32,
-    sample_count: usize,
-    sample_timer: f32,
-    cycles_per_sample: f32,
-}
-impl Default for AvgResampler {
-    fn default() -> Self {
-        Self::new(NTSC_CLOCK_RATE, SampleRate::default())
-    }
-}
-
-impl AvgResampler {
-    pub fn new(clock_rate: usize, frequency: SampleRate) -> Self {
-        let freq: f32 = frequency.into();
-        Self {
-            sample_avg: 0.0,
-            sample_count: 0,
-            sample_timer: 0.0,
-            cycles_per_sample: clock_rate as f32 / freq,
-        }
-    }
-
-    pub fn clear(&self) -> Self {
-        Self {
-            sample_avg: 0.0,
-            sample_count: 0,
-            sample_timer: 0.0,
-            cycles_per_sample: self.cycles_per_sample,
-        }
-    }
-
-    pub fn set_rate(&mut self, clock_rate: usize, frequency: usize) {
-        self.cycles_per_sample = clock_rate as f32 / frequency as f32
-    }
-
-    pub fn add_sample(&mut self, sample: f32) -> Option<f32> {
-        self.sample_avg += sample;
-        self.sample_count += 1;
-        self.sample_timer += 1.0;
-
-        if self.sample_timer >= self.cycles_per_sample {
-            self.sample_timer -= self.cycles_per_sample;
-            let res = self.sample_avg / self.sample_count as f32;
-
-            self.sample_avg = 0.0;
-            self.sample_count = 0;
-
-            Some(res)
-        } else {
-            None
-        }
-    }
-}
-
 #[derive(Default)]
 #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub struct ApuRP2A {
@@ -555,8 +499,6 @@ pub struct ApuRP2A {
     frame_irq_disable: bool,
     frame_mode: FrameMode,
     frame_write_delay: u8,
-
-    pub resampler: AvgResampler,
 }
 
 impl ApuRP2A {
@@ -585,13 +527,12 @@ impl ApuRP2A {
         lut
     };
 
-    pub fn new(region: &Region) -> Self {
+    pub fn new(_region: &Region) -> Self {
         Self {
             frame_irq_disable: true,
             p0: Pulse::new(true),
             p1: Pulse::new(false),
             dmc: Dmc::new(),
-            resampler: AvgResampler::new(region.clock_rate(), Default::default()),
             ..Default::default()
         }
     }
@@ -621,7 +562,6 @@ impl ApuRP2A {
             p0: Pulse::new(true),
             p1: Pulse::new(false),
             dmc: Dmc::new(),
-            resampler: self.resampler.clear(),
             ..Default::default()
         };
     }
@@ -801,9 +741,11 @@ impl NesEmulator {
         }
 
         let sample = self.mix_channels();
-        if let Some(resample) = self.apu.resampler.add_sample(sample) {
-            self.audiobuf.push(resample);
-        }
+        self.output.audiobuf.push(sample);
+
+        // if let Some(resample) = self.apu.resampler.add_sample(sample) {
+        //     self.audiobuf.push(resample);
+        // }
 
         // let delta = sample - apu.prev_sample;
         // apu.blip.0.add_delta(apu.cycles, delta);
@@ -813,6 +755,7 @@ impl NesEmulator {
 
     fn mix_channels(&mut self) -> f32 {
         let apu = &mut self.apu;
+        let settings = &self.settings;
 
         /* Linear Approximation */
         // let pulse = 0.00752 * (apu.p0.output as f32 + apu.p1.output as f32);
@@ -822,13 +765,11 @@ impl NesEmulator {
         //   + 0.00335 * apu.dmc.output as f32;
 
         /* Lookup table */
-        // let pulse_sum = (apu.p0.output + apu.p1.output) as usize;
+        // let pulse_sum = (apu.p0.output  * (!settings.disable_pulse0 as u8) + apu.p1.output * (!settings.disable_pulse1 as u8)) as usize;
         // let pulse = ApuRP2A::PULSE_TABLE[pulse_sum];
-        // let tnd_sum = (3 * apu.tri.output + 2 * apu.noise.output + apu.dmc.output) as usize;
+        // let tnd_sum = (3 * apu.tri.output * (!settings.disable_triangle as u8) + 2 * apu.noise.output * (!settings.disable_noise as u8) + apu.dmc.output * (!settings.disable_dmc as u8)) as usize;
         // let tnd = ApuRP2A::TND_TABLE[tnd_sum];
-        // let ext = self.mapper.sample();
-
-        let settings = &self.settings;
+        // let ext = self.mapper.sample() * (!settings.disable_ext_audio as u8 as f32);
 
         /* Accurate emulation */
         let p0 = apu.p0.output * (!settings.disable_pulse0 as u8);
@@ -842,7 +783,6 @@ impl NesEmulator {
         let tnd_sum = (tri as f32 / 8227.0) + (noise as f32 / 12241.0) + (dmc as f32 / 22638.0);
         let tnd = 159.79 / ((1.0 / tnd_sum) + 100.0);
 
-        // let sample = (pulse + tnd + ext) * (self.settings.volume * 1000.0);
         let sample = pulse + tnd + ext;
 
         sample
