@@ -44,6 +44,7 @@ pub struct NesSettings {
     // TODO: not implemented
     pub pal_borders: bool,
 
+    // TODO: not sure about this being here
     pub audio_sample_rate: SampleRate,
     pub disable_pulse0: bool,
     pub disable_pulse1: bool,
@@ -74,9 +75,6 @@ impl NesOutput {
         }
     }
 }
-
-pub const BIOS_CRC32: u32 = 1583381967;
-pub const BATTERY_SAVE_EXTENSION: &str = "srm";
 
 pub(crate) struct Framebuf(pub [u8; FRAMEBUF_SIZE]);
 impl Default for Framebuf {
@@ -119,8 +117,14 @@ pub const PAL_CLOCK_RATE: usize = 1662607;
 pub const NTSC_FRAME_RATE: f32 = 60.0988;
 pub const PAL_FRAME_RATE: f32 = 50.0070;
 
-pub const FRAMEBUF_SIZE: usize = 256 * 240 * 4;
-pub const AUDIO_FRAMES_BUFFERED: usize = 4;
+pub const SCREEN_WIDTH: isize = 256;
+pub const SCREEN_HEIGHT: isize = 240;
+
+pub const FRAMEBUF_SIZE: usize = SCREEN_WIDTH as usize * SCREEN_HEIGHT as usize * 4;
+pub const AUDIO_FRAMES_BUFFERED: usize = 2;
+
+pub const BIOS_CRC32: u32 = 1583381967;
+pub const BATTERY_SAVE_EXTENSION: &str = "srm";
 
 #[derive(Debug, Default, Clone, bitcode::Encode, bitcode::Decode)]
 #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
@@ -283,7 +287,7 @@ impl NesEmulator {
         self.region().frame_rate()
     }
 
-    pub fn header(&self) -> &RomData {
+    pub fn rom_data(&self) -> &RomData {
         &self.mem.header
     }
 
@@ -499,14 +503,14 @@ impl NesEmulator {
     }
 
     pub fn save_battery(&self) -> Option<&[u8]> {
-        if self.mem.header.has_battery {
-            if self.mem.header.mapper == 1 && self.mem.wram.len() == 16 * 1024 {
+        if self.rom_data().has_battery {
+            if self.rom_data().mapper == 1 && self.mem.wram.len() == 16 * 1024 {
                 // https://www.nesdev.org/wiki/MMC1#SxROM_board_types
                 // Even if the SOROM and SZROM boards utilizes a battery, it is connected to only one PRG-RAM chip. The first RAM chip will not retain its data, but the second one will.
                 return Some(&self.mem.wram[8 * 1024..]);
             }
 
-            if self.mem.header.mapper == 5 && self.mem.wram.len() == 16 * 1024 {
+            if self.rom_data().mapper == 5 && self.mem.wram.len() == 16 * 1024 {
                 // https://www.nesdev.org/wiki/MMC5#Other_PRG-RAM_notes
                 // Games with 16K PRG-RAM only battery-save the first 8K.
                 return Some(&self.mem.wram[..8 * 1024]);
@@ -519,16 +523,16 @@ impl NesEmulator {
     }
 
     pub fn load_battery(&mut self, bytes: &[u8]) -> Result<(), LoadError> {
-        if !self.header().has_battery {
+        if !self.rom_data().has_battery {
             return Ok(());
         } else if bytes.len() != self.mem.wram.len() {
             return Err("invalid save ram dump provided, size don't match".into());
         } else {
-            if self.mem.header.mapper == 1 && self.mem.wram.len() == 16 * 1024 {
+            if self.rom_data().mapper == 1 && self.mem.wram.len() == 16 * 1024 {
                 // https://www.nesdev.org/wiki/MMC1#SxROM_board_types
                 // Even if the SOROM and SZROM boards utilizes a battery, it is connected to only one PRG-RAM chip. The first RAM chip will not retain its data, but the second one will.
                 self.mem.wram[8 * 1024..].copy_from_slice(bytes)
-            } else if self.mem.header.mapper == 5 && self.mem.wram.len() == 16 * 1024 {
+            } else if self.rom_data().mapper == 5 && self.mem.wram.len() == 16 * 1024 {
                 // https://www.nesdev.org/wiki/MMC5#Other_PRG-RAM_notes
                 // Games with 16K PRG-RAM only battery-save the first 8K.
                 self.mem.wram[..8 * 1024].copy_from_slice(bytes)
@@ -558,7 +562,7 @@ impl NesEmulator {
     }
 
     pub fn load_battery_from_file<P: AsRef<Path>>(&mut self, path: P) -> Result<(), LoadError> {
-        if !self.header().has_battery {
+        if !self.rom_data().has_battery {
             return Ok(());
         }
         use std::{fs, io::Read};

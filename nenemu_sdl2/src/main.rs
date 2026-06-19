@@ -162,7 +162,7 @@ fn main() {
 
                             *emu_lock = res;
                             rom_path = path::PathBuf::from(filename);
-                            println!("{:?}", emu_lock.header());
+                            println!("{:?}", emu_lock.rom_data());
 
                             load_battery(&rom_path, &mut emu_lock);
                         }

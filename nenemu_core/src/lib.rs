@@ -1,4 +1,7 @@
-use crate::{emu::NesEmulator, joypad::InputBtn};
+use crate::{
+    emu::{NesEmulator, SCREEN_HEIGHT, SCREEN_WIDTH},
+    joypad::InputBtn,
+};
 
 mod apu;
 mod bus;
@@ -233,7 +236,7 @@ pub mod joypad {
     bitflags::bitflags! {
       #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
       #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
-      pub struct InputBtn: u16 {
+      pub struct InputBtn: u8 {
         // Order for first 8 buttons is important as they will iterate during polling
         const A = 1 << 0;
         const B = 1 << 1;
@@ -243,70 +246,33 @@ pub mod joypad {
         const Down = 1 << 5;
         const Left = 1 << 6;
         const Right = 1 << 7;
-        const ZapTrigger = 1 << 8;
       }
     }
 
-    #[derive(Default)]
     #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
     pub struct Joypad {
-        polling_controller: bool,
-        current_btn_polled: u8,
-        pub player1: InputBtn,
-        pub player2: InputBtn,
-        pub zapper_pos: (usize, usize),
+        pub(crate) polling_controller: bool,
+        pub(crate) current_btn_polled: u8,
+        pub(crate) player1: InputBtn,
+        pub(crate) player2: InputBtn,
+        pub(crate) zapper_trigger: bool,
+        pub(crate) zapper_pos: (isize, isize),
+    }
+
+    impl Default for Joypad {
+        fn default() -> Self {
+            Self {
+                polling_controller: false,
+                current_btn_polled: 0,
+                player1: Default::default(),
+                player2: Default::default(),
+                zapper_pos: (-1, -1),
+                zapper_trigger: false,
+            }
+        }
     }
 
     impl Joypad {
-        fn read(&mut self, player: InputBtn) -> u8 {
-            let controller_input = if self.polling_controller {
-                let controller_btn = (self.player1.bits() >> self.current_btn_polled) & 1;
-                self.current_btn_polled = (self.current_btn_polled + 1) % 8;
-
-                controller_btn as u8
-            } else {
-                player.contains(InputBtn::A) as u8
-            };
-
-            let zap_trigger = player.contains(InputBtn::ZapTrigger) as u8;
-
-            (zap_trigger << 4) | controller_input
-        }
-
-        fn is_zap_light_sensed(&self) -> bool {
-            const LIGHT_RADIUS: isize = 3;
-
-            let click_x = self.zapper_pos.0 as isize;
-            let click_y = self.zapper_pos.1 as isize;
-            for y in -LIGHT_RADIUS..LIGHT_RADIUS {
-                for x in -LIGHT_RADIUS..LIGHT_RADIUS {
-                    let target_y = click_y + y;
-                    let target_x = click_x + x;
-                    if target_x < 0 || target_y < 0 || target_x >= 256 || target_y >= 240 {
-                        continue;
-                    }
-
-                    return true;
-
-                    // // TODO: light can only be detected in bright color
-                    // if ppu_y >= target_y && ppu_y.abs_diff(target_y) <= 20 && ppu_x >= target_x {
-                    //     self.joy.player2.insert(InputBtn::ZapLight);
-                    //     return;
-                    // }
-                }
-            }
-
-            return false;
-        }
-
-        pub fn read_joypad1(&mut self) -> u8 {
-            self.read(self.player1)
-        }
-
-        pub fn read_joypad2(&mut self) -> u8 {
-            self.read(self.player2)
-        }
-
         pub fn write(&mut self, val: u8) {
             self.polling_controller = val & 1 == 0;
             if self.polling_controller {
@@ -326,8 +292,87 @@ impl NesEmulator {
         }
     }
 
+    fn read(&mut self, player: InputBtn) -> u8 {
+        let joy = &mut self.joy;
+        let controller_input = if joy.polling_controller {
+            let controller_btn = (joy.player1.bits() >> joy.current_btn_polled) & 1;
+            joy.current_btn_polled = (joy.current_btn_polled + 1) % 8;
+
+            controller_btn as u8
+        } else {
+            player.contains(InputBtn::A) as u8
+        };
+
+        let zap_trigger = joy.zapper_trigger as u8;
+        let zap_light = !self.is_zapper_light_sensed() as u8;
+
+        (zap_trigger << 4) | (zap_light << 3) | controller_input
+    }
+
+    pub fn read_joypad1(&mut self) -> u8 {
+        self.read(self.joy.player1) | (self.mem.cpu_open_bus & 0xe0)
+    }
+
+    pub fn read_joypad2(&mut self) -> u8 {
+        self.read(self.joy.player2) | (self.mem.cpu_open_bus & 0xe0)
+    }
+
+    fn is_zapper_light_sensed(&mut self) -> bool {
+        let click_x = self.joy.zapper_pos.0 as isize;
+        let click_y = self.joy.zapper_pos.1 as isize;
+
+        if click_x < 0 || click_y < 0 || click_x >= SCREEN_WIDTH || click_y >= SCREEN_HEIGHT {
+            return false;
+        }
+
+        let ppu_x = self.ppu.dot as isize - 1;
+        let ppu_y = self.ppu.line as isize;
+
+        const LIGHT_RADIUS: isize = 3;
+
+        for y in -LIGHT_RADIUS..=LIGHT_RADIUS {
+            for x in -LIGHT_RADIUS..=LIGHT_RADIUS {
+                let target_y = click_y + y;
+                let target_x = click_x + x;
+
+                if target_x < 0
+                    || target_y < 0
+                    || target_x >= SCREEN_WIDTH
+                    || target_y >= SCREEN_HEIGHT
+                {
+                    continue;
+                }
+
+                // same as (target_y * 256 + target_x) * 4
+                let pixel_idx = ((target_y << 8) | target_x) << 2;
+                // sum the rgb components
+                let pixel_brightness = self.output.videobuf_back.0[pixel_idx as usize + 0] as u16
+                    + self.output.videobuf_back.0[pixel_idx as usize + 1] as u16
+                    + self.output.videobuf_back.0[pixel_idx as usize + 2] as u16;
+
+                // light can only be detected in bright color, and can only detect if the position is earlier than ppu current rendering position
+                if pixel_brightness >= 100
+                    && ppu_y >= target_y
+                    && ppu_y.abs_diff(target_y) <= 20 // Tests in the Zap Ruder test ROM show that the photodiode stays on for about 26 scanlines with pure white, 24 scanlines with light gray, or 19 lines with dark gray
+                    && (ppu_y != target_y || ppu_x >= target_x)
+                {
+                    println!(
+                        "LIGHT SENSED at {target_x} {target_y} with brightness {pixel_brightness}"
+                    );
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     pub fn set_button(&mut self, btn: InputBtn, state: bool) {
         self.joy.player1.set(btn, state);
+    }
+
+    pub fn get_buttons(&mut self) -> InputBtn {
+        self.joy.player1
     }
 
     pub fn set_zapper_trigger(&mut self, state: bool) {
@@ -335,47 +380,11 @@ impl NesEmulator {
 
         // The large capacitor (10µF) inside the Zapper when combined with the 10kΩ pullup inside the console means that it will take approximately 100ms to change to "released" after the trigger has been half-pulled
         // This means a click too short (for example only when the click is just pressed) will not count as a trigger pull
-        self.joy.player2.set(InputBtn::ZapTrigger, state);
+        self.joy.zapper_trigger = state;
     }
 
-    pub fn set_zapper_pos(&mut self, x: usize, y: usize) {
+    pub fn set_zapper_light(&mut self, x: isize, y: isize) {
         self.joy.zapper_pos = (x, y);
-    }
-
-    pub fn is_zapper_light_sensed(&mut self, click_x: usize, click_y: usize) -> bool {
-        // if current games supports zapper
-        if ![0x08, 0x07, 0x09, 0x49].contains(&self.header().expansions) {
-            return false;
-        }
-
-        let ppu_x = self.ppu.dot as isize;
-        let ppu_y = self.ppu.line as isize;
-
-        const LIGHT_RADIUS: isize = 3;
-
-        let click_x = click_x as isize;
-        let click_y = click_y as isize;
-        for y in -LIGHT_RADIUS..LIGHT_RADIUS {
-            for x in -LIGHT_RADIUS..LIGHT_RADIUS {
-                let target_y = click_y + y;
-                let target_x = click_x + x;
-                if target_x < 0 || target_y < 0 || target_x >= 256 || target_y >= 240 {
-                    continue;
-                }
-
-                println!("Setting light sensed");
-                // self.joy.player2.insert(InputBtn::ZapLight);
-                return true;
-
-                // // TODO: light can only be detected in bright color
-                // if ppu_y >= target_y && ppu_y.abs_diff(target_y) <= 20 && ppu_x >= target_x {
-                //     self.joy.player2.insert(InputBtn::ZapLight);
-                //     return;
-                // }
-            }
-        }
-
-        return false;
     }
 
     pub fn set_buttons_all(&mut self, input: InputBtn) {
@@ -384,5 +393,6 @@ impl NesEmulator {
 
     pub fn clear_buttons(&mut self) {
         self.joy.player1 = InputBtn::empty();
+        self.joy.player2 = InputBtn::empty();
     }
 }

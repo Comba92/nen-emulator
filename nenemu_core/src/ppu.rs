@@ -2,6 +2,7 @@ use std::array;
 
 use crate::{
     emu::{NesEmulator, Region},
+    joypad,
     utils::{byte_set_hi, byte_set_lo},
 };
 use bitflags::Flags;

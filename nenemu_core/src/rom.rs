@@ -277,7 +277,7 @@ impl Cart {
 
         if !SUPPORTED_EXPANSIONS.contains(&header.expansions) {
             eprintln!(
-                "Rom uses unsupported expanion {}, game might not handle input correctly",
+                "Rom uses unsupported expanion {}, emulator might not handle input correctly",
                 header.expansions
             );
         }

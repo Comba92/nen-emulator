@@ -375,6 +375,7 @@ struct AppState {
     rom_info_open: bool,
     about_open: bool,
     message_open: Option<(bool, time::Instant, GenericError)>,
+    mouse_pos: (isize, isize),
 
     current_rom_path: Option<PathBuf>,
     current_rom_header: rom::RomData,
@@ -566,7 +567,7 @@ impl AppCtx {
                 self.state.current_rom_header = {
                     let mut emu = self.emu_lock();
                     *emu = new_emu;
-                    emu.header().clone()
+                    emu.rom_data().clone()
                 };
 
                 let pathbuf = rom_path.as_ref().to_path_buf();
@@ -762,7 +763,7 @@ impl AppCtx {
                     }
 
                     let mut emu = self.emu_lock();
-                    let header = emu.header();
+                    let header = emu.rom_data();
                     if header.format == rom::HeaderFormat::Fds {
                         ui.separator();
                         if ui.button("💿 Insert next FDS disk/side").clicked() {
@@ -1097,7 +1098,7 @@ impl AppCtx {
     }
 
     fn handle_input_and_emulation(&mut self, ui: &mut egui::Ui) {
-        let current_input = self.emu_lock().joy.player1.clone();
+        let current_input = self.emu_lock().get_buttons();
 
         let keyboard_input = ui.input(|i| {
             let mut pressed = current_input.clone();
@@ -1109,7 +1110,11 @@ impl AppCtx {
             pressed
         });
 
-        let mouse_clicked = ui.input(|i| i.pointer.any_down());
+        let mouse_clicked = ui.input(|i| {
+            i.pointer.any_down()
+                && matches!(self.state.mouse_pos.0, 0..256)
+                && matches!(self.state.mouse_pos.1, 0..240)
+        });
 
         let mut gamepad_input = current_input.clone();
 
@@ -1169,10 +1174,12 @@ impl AppCtx {
             }
 
             if current_input != gamepad_input {
+                // trigger will stay set at least for the whole frame
                 emu.set_buttons_all(gamepad_input);
             }
 
             emu.set_zapper_trigger(mouse_clicked);
+            emu.set_zapper_light(self.state.mouse_pos.0, self.state.mouse_pos.1);
 
             while self.state.emulation == EmulationState::Running && emu.audio_queued(48000) < 1024
             {
@@ -1212,19 +1219,27 @@ impl eframe::App for AppCtx {
 
         egui::CentralPanel::default().show_inside(ui, |ui| {
             ui.vertical_centered(|ui| {
-                let tex = self.tex.lock().unwrap();
-                let img = egui::Image::new(&*tex)
-                    .maintain_aspect_ratio(self.cfg.keep_aspect_ratio)
-                    .fit_to_exact_size(ui.max_rect().size());
+                egui::Frame::new().show(ui, |ui| {
+                    let tex = self.tex.lock().unwrap();
+                    let img = egui::Image::new(&*tex)
+                        .maintain_aspect_ratio(self.cfg.keep_aspect_ratio)
+                        .fit_to_exact_size(ui.max_rect().size());
 
-                let screen = ui.add(img);
-                // ui.input(|i|
-                // println!("{:?}", i.pointer.latest_pos())
-                // );
+                    let screen = ui.add(img);
+                    self.state.mouse_pos = ui.input(|i| {
+                        let abs_pos = i.pointer.latest_pos().unwrap_or_default();
+                        let rel_pos = abs_pos - screen.rect.min;
+                        let nes_pos = (
+                            (rel_pos.x * 256.0) / screen.rect.width(),
+                            (rel_pos.y * 240.0) / screen.rect.height(),
+                        );
+                        (nes_pos.0.round() as isize, nes_pos.1.round() as isize)
+                    });
 
-                if self.state.emulation == EmulationState::Running && self.cfg.hide_cursor {
-                    screen.on_hover_cursor(egui::CursorIcon::None);
-                }
+                    if self.state.emulation == EmulationState::Running && self.cfg.hide_cursor {
+                        screen.on_hover_cursor(egui::CursorIcon::None);
+                    }
+                });
             });
         });
 
@@ -1284,7 +1299,7 @@ impl eframe::App for AppCtx {
 
         *self.audio.volume.lock().unwrap() = self.cfg.volume;
 
-        const FPS: f32 = 1.0 / 144.0;
+        const FPS: f32 = 1.0 / 61.0;
         ui.request_repaint_after_secs(FPS);
 
         if ui.input(|i| i.viewport().close_requested()) {

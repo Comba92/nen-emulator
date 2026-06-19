@@ -566,8 +566,8 @@ impl NesEmulator {
                 res
             }
 
-            0x4016 => self.joy.read_joypad1() | (self.mem.cpu_open_bus & 0xe0),
-            0x4017 => self.joy.read_joypad2() | (self.mem.cpu_open_bus & 0xe0),
+            0x4016 => self.read_joypad1(),
+            0x4017 => self.read_joypad2(),
             _ => self.mem.cpu_open_bus,
         }
     }
