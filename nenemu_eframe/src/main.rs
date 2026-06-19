@@ -174,14 +174,17 @@ impl AudioHandler {
                         |err| eprintln!("{err}"),
                         None,
                     )
-                    .unwrap();
+                    .inspect_err(|e| eprintln!("{e}"))
+                    .ok();
 
-                stream.play().unwrap();
-
-                Self {
-                    stream: Some(stream),
+                let res = Self {
+                    stream: stream,
                     volume,
-                }
+                };
+
+                res.resume();
+
+                res
             }
 
             None => Self {
@@ -337,7 +340,7 @@ fn buffered_read<P: AsRef<Path>>(path: P) -> Result<Vec<u8>, GenericError> {
 //     }
 // }
 
-#[derive(Default, PartialEq, Clone, Copy)]
+#[derive(Default, PartialEq, Clone, Copy, Debug)]
 enum EmulationState {
     #[default]
     Stopped,
@@ -375,6 +378,9 @@ struct AppState {
     rom_info_open: bool,
     about_open: bool,
     message_open: Option<(bool, time::Instant, GenericError)>,
+
+    keyboard_input: joypad::InputBtn,
+    gamepad_input: joypad::InputBtn,
     mouse_pos: (isize, isize),
 
     current_rom_path: Option<PathBuf>,
@@ -503,6 +509,18 @@ impl AppCtx {
         self.state.message_open = Some((true, time::Instant::now(), e));
     }
 
+    fn open_dialog(
+        &mut self,
+        prompt: &str,
+        requires: &str,
+        extensions: &[&str],
+    ) -> Option<PathBuf> {
+        self.audio.pause();
+        let res = file_dialog(prompt, requires, extensions);
+        self.audio.resume();
+        res
+    }
+
     fn load_palette<P: AsRef<Path>>(&mut self, path: P) {
         let res = fs::read(path)
             .map(|bytes| {
@@ -608,8 +626,12 @@ impl AppCtx {
             content.horizontal_wrapped(|ui| {
                 ui.menu_button("💾 File", |ui| {
                     if ui.button("📂 Open...").clicked() {
-                        file_dialog("Select game ROM", "NES ROM", &["nes", "fds", "zip", "rar"])
-                            .map(|path| self.load_rom(path, false));
+                        self.open_dialog(
+                            "Select game ROM",
+                            "NES ROM",
+                            &["nes", "fds", "zip", "rar"],
+                        )
+                        .map(|path| self.load_rom(path, false));
                     }
 
                     ui.menu_button("Recent ROMs", |ui| {
@@ -889,17 +911,18 @@ impl AppCtx {
 
     fn show_settings_window(&mut self, ui: &mut egui::Ui) {
         let mut should_update_palette = None;
+        let mut settings_open = self.state.settings_open;
 
         egui::Window::new("🔧 Settings")
             .collapsible(true)
             .resizable([true, true])
-            .open(&mut self.state.settings_open)
+            .open(&mut settings_open)
             .show(ui, |ui| {
-                let settings = &mut self.cfg.nes_settings;
-
                 if ui.button("🎨 Load palette file...").clicked() {
-                    should_update_palette = file_dialog("Select a NES palette file", "NES PAL file", &["pal"]);
+                    should_update_palette = self.open_dialog("Select a NES palette file", "NES PAL file", &["pal"]);
                 }
+
+                let settings = &mut self.cfg.nes_settings;
 
                 ui.collapsing(" Misc", |ui| {
                     ui.checkbox(&mut self.cfg.battery_save_enabled, "Enable battery saving")
@@ -947,13 +970,15 @@ impl AppCtx {
                     };
 
                     if ui.button(bios_btn_text).clicked() {
-                        file_dialog("Select FDS BIOS file", "FDS BIOS", &["rom"])
+                        self.open_dialog("Select FDS BIOS file", "FDS BIOS", &["rom"])
                             .map(|path| self.cfg.bios_path = Some(path));
                     }
 
                     // TODO: disk handling
                 })
             });
+
+        self.state.settings_open = settings_open;
 
         {
             let mut emu = self.emu_lock();
@@ -968,6 +993,8 @@ impl AppCtx {
     }
 
     fn show_keybids_window(&mut self, ui: &mut egui::Ui) {
+        // TODO: controller keybindings
+
         egui::Window::new("🎮 Keybindings")
             .collapsible(true)
             .resizable([true, true])
@@ -1101,14 +1128,10 @@ impl AppCtx {
         let current_input = self.emu_lock().get_buttons();
 
         let keyboard_input = ui.input(|i| {
-            let mut pressed = current_input.clone();
+            let mut pressed = joypad::InputBtn::empty();
 
             for (key, emu_btn) in &self.cfg.keymaps.keys {
-                if i.key_pressed(*key) {
-                    pressed.insert(*emu_btn);
-                } else if i.key_released(*key) {
-                    pressed.remove(*emu_btn);
-                }
+                pressed.set(*emu_btn, i.key_down(*key));
             }
 
             pressed
@@ -1118,6 +1141,14 @@ impl AppCtx {
             i.pointer.any_down()
                 && matches!(self.state.mouse_pos.0, 0..256)
                 && matches!(self.state.mouse_pos.1, 0..240)
+        });
+
+        ui.input(|i| {
+            if i.viewport().minimized.filter(|x| *x).is_some() {
+                self.audio.pause();
+            } else if i.viewport().maximized.filter(|x| *x).is_some() {
+                self.audio.resume();
+            }
         });
 
         let mut gamepad_input = current_input.clone();
@@ -1183,9 +1214,9 @@ impl AppCtx {
         {
             let mut emu = self.emu_lock();
 
-            if keyboard_input != current_input {
+            if keyboard_input != self.state.keyboard_input {
                 emu.set_buttons_all(keyboard_input);
-            } else {
+            } else if gamepad_input != self.state.gamepad_input {
                 emu.set_buttons_all(gamepad_input);
             }
 
@@ -1214,6 +1245,9 @@ impl AppCtx {
                 }
             }
         }
+
+        self.state.keyboard_input = keyboard_input;
+        self.state.gamepad_input = gamepad_input;
     }
 }
 

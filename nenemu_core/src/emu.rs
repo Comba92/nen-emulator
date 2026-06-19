@@ -599,7 +599,7 @@ impl NesEmulator {
         use std::mem;
 
         mem::swap(&mut self.mem.prg, &mut new_emu.mem.prg);
-        if !new_emu.header().has_chr_ram {
+        if !new_emu.rom_info().has_chr_ram {
             mem::swap(&mut self.mem.chr, &mut new_emu.mem.chr);
         }
 

@@ -373,7 +373,6 @@ impl Bus {
 
     pub fn with_cart(cart: Cart) -> Self {
         let banks = BanksHandler::new(&cart.header);
-        dbg!(&banks);
 
         let wram_handler = if cart.header.wram_size > 0 {
             CpuHandler::Wram
