@@ -198,6 +198,7 @@ pub mod utils {
     }
 }
 
+use bitflags::Flags;
 #[cfg(feature = "savestates")]
 use serde_big_array::BigArray;
 
@@ -303,10 +304,14 @@ impl NesEmulator {
             player.contains(InputBtn::A) as u8
         };
 
-        let zap_trigger = joy.zapper_trigger as u8;
-        let zap_light = !self.is_zapper_light_sensed() as u8;
+        if self.rom_data().supports_zapper() {
+            let zap_trigger = self.joy.zapper_trigger as u8;
+            let zap_light = !self.is_zapper_light_sensed() as u8;
 
-        (zap_trigger << 4) | (zap_light << 3) | controller_input
+            (zap_trigger << 4) | (zap_light << 3) | controller_input
+        } else {
+            controller_input
+        }
     }
 
     pub fn read_joypad1(&mut self) -> u8 {
@@ -314,7 +319,9 @@ impl NesEmulator {
     }
 
     pub fn read_joypad2(&mut self) -> u8 {
-        self.read(self.joy.player2) | (self.mem.cpu_open_bus & 0xe0)
+        // TODO: some games seems to not work with this
+        // self.read(self.joy.player2) | (self.mem.cpu_open_bus & 0xe0)
+        self.mem.cpu_open_bus
     }
 
     fn is_zapper_light_sensed(&mut self) -> bool {
@@ -356,9 +363,6 @@ impl NesEmulator {
                     && ppu_y.abs_diff(target_y) <= 20 // Tests in the Zap Ruder test ROM show that the photodiode stays on for about 26 scanlines with pure white, 24 scanlines with light gray, or 19 lines with dark gray
                     && (ppu_y != target_y || ppu_x >= target_x)
                 {
-                    println!(
-                        "LIGHT SENSED at {target_x} {target_y} with brightness {pixel_brightness}"
-                    );
                     return true;
                 }
             }
@@ -371,7 +375,7 @@ impl NesEmulator {
         self.joy.player1.set(btn, state);
     }
 
-    pub fn get_buttons(&mut self) -> InputBtn {
+    pub fn get_buttons(&self) -> InputBtn {
         self.joy.player1
     }
 
@@ -392,7 +396,7 @@ impl NesEmulator {
     }
 
     pub fn clear_buttons(&mut self) {
-        self.joy.player1 = InputBtn::empty();
-        self.joy.player2 = InputBtn::empty();
+        self.joy.player1.clear();
+        self.joy.player2.clear();
     }
 }

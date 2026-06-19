@@ -1104,7 +1104,11 @@ impl AppCtx {
             let mut pressed = current_input.clone();
 
             for (key, emu_btn) in &self.cfg.keymaps.keys {
-                pressed.set(*emu_btn, i.key_down(*key));
+                if i.key_pressed(*key) {
+                    pressed.insert(*emu_btn);
+                } else if i.key_released(*key) {
+                    pressed.remove(*emu_btn);
+                }
             }
 
             pressed
@@ -1125,6 +1129,16 @@ impl AppCtx {
                 }
 
                 match event {
+                    gilrs::EventType::Connected => {
+                        self.gamepads.active = Some(id);
+                    }
+
+                    gilrs::EventType::Disconnected => {
+                        if self.gamepads.active.filter(|x| *x == id).is_some() {
+                            self.gamepads.active = None;
+                        }
+                    }
+
                     gilrs::EventType::ButtonReleased(btn, _) => {
                         if let Some(emu_btn) = self.cfg.keymaps.pads.get(&btn) {
                             gamepad_input.remove(*emu_btn);
@@ -1169,12 +1183,9 @@ impl AppCtx {
         {
             let mut emu = self.emu_lock();
 
-            if current_input != keyboard_input {
+            if keyboard_input != current_input {
                 emu.set_buttons_all(keyboard_input);
-            }
-
-            if current_input != gamepad_input {
-                // trigger will stay set at least for the whole frame
+            } else {
                 emu.set_buttons_all(gamepad_input);
             }
 

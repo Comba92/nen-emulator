@@ -156,7 +156,7 @@ impl NesEmulator {
             return true;
         } else if let Some(addr) = self.ppu.dma {
             // https://www.nesdev.org/wiki/PPU_registers#OAMDMA_-_Sprite_DMA_($4014_write)
-            if (addr & 0xff) == 0 {
+            if addr & 0xff == 0 {
                 self.step_devices(); // halting cycle
                 if self.cpu.cycles % 2 == 1 {
                     self.step_devices(); // +1 cycle on odd cpu cyles

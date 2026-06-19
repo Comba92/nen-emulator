@@ -109,6 +109,10 @@ impl RomData {
         }
     }
 
+    pub fn supports_zapper(&self) -> bool {
+        [0x08, 0x07, 0x09, 0x49].contains(&self.expansions)
+    }
+
     pub fn from_db(bytes: &[u8]) -> Result<Self, &'static str> {
         let header = Self::parse(bytes);
 

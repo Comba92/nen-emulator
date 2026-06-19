@@ -10,7 +10,7 @@ use crate::{
 #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub struct MMC3 {
     bank_select: u8,
-    chr_invert: bool,
+    chr_mode: bool,
 
     prg_mode: u8,
     prg_swapped: u8,
@@ -70,12 +70,12 @@ impl Mapper for MMC3 {
                 self.bank_select = val & 0x7;
 
                 let chr_invert = val & 0x80 > 0;
-                if self.chr_invert != chr_invert {
+                if self.chr_mode != chr_invert {
                     for i in 0..4 {
                         mem.banks.chr.swap_pages(i, i + 4);
                     }
 
-                    self.chr_invert = chr_invert;
+                    self.chr_mode = chr_invert;
                 }
 
                 let prg_mode = val & 0x40;
@@ -94,7 +94,7 @@ impl Mapper for MMC3 {
             // (0x8000..=0x9fff, false)
             0x8001 => {
                 let val = val as u16;
-                match (self.bank_select, self.chr_invert) {
+                match (self.bank_select, self.chr_mode) {
                     (6, _) => mem.banks.prg.set_page(self.prg_swapped, val),
                     (7, _) => mem.banks.prg.set_page(1, val),
                     (0 | 1, false) => mem.banks.chr.set_pages_aligned2(self.bank_select * 2, val),

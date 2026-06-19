@@ -375,10 +375,8 @@ impl Ppu2C02 {
 
     pub fn oam_write(&mut self, val: u8) {
         // Writes to OAMDATA during rendering (on the pre-render line and the visible lines 0–239, provided either sprite or background rendering is enabled) do not modify values in OAM, but do perform a glitchy increment of OAMADDR, bumping only the high 6 bits
-        if self.is_in_vblank() {
-            self.oam.0[self.oam_addr as usize] = val;
-            self.oam_addr = self.oam_addr.wrapping_add(1);
-        }
+        self.oam.0[self.oam_addr as usize] = val;
+        self.oam_addr = self.oam_addr.wrapping_add(1);
     }
 
     // https://www.nesdev.org/wiki/PPU_scrolling#Tile_and_attribute_fetching
@@ -552,13 +550,13 @@ impl Ppu2C02 {
     }
 
     fn increase_vram_addr(&mut self) {
-        // if !ppu.is_rendering() {
-        self.v.0 = (self.v.0 + self.ctrl.vram_addr_inc) & 0x3fff;
-        // } else {
-        // https://www.nesdev.org/wiki/PPU_scrolling#$2007_(PPUDATA)_reads_and_writes
-        //   self.inc_scroll_x();
-        //   self.inc_scroll_y();
+        // if self.is_in_visible_scanline() && self.is_rendering_enabled() {
+        //     // https://www.nesdev.org/wiki/PPU_scrolling#$2007_(PPUDATA)_reads_and_writes
+        //     self.inc_scroll_x();
+        //     self.inc_scroll_y();
         // }
+
+        self.v.0 = (self.v.0 + self.ctrl.vram_addr_inc) & 0x3fff;
     }
 
     fn spr_evaluation(&mut self) {
@@ -716,7 +714,25 @@ impl NesEmulator {
             // Mask
             0x2001 => {
                 ppu.mask = Mask::from_bits_retain(val);
-                ppu.mask_write_delay = 3;
+                match ppu.render_state {
+                    RenderState::Disabled => {
+                        if ppu.is_rendering_enabled() {
+                            ppu.render_state = if ppu.line < 240 {
+                                RenderState::Rendering
+                            } else if ppu.line == ppu.prerender_line {
+                                RenderState::PreRender
+                            } else {
+                                RenderState::Vblank
+                            };
+                        }
+                    }
+
+                    _ => {
+                        if !ppu.is_rendering_enabled() {
+                            ppu.render_state = RenderState::Disabled
+                        }
+                    }
+                }
             }
             // OamAddr
             0x2003 => ppu.oam_addr = val,
@@ -851,7 +867,7 @@ impl NesEmulator {
 
     // https://www.nesdev.org/wiki/PPU_rendering
     pub fn ppu_step(&mut self) {
-        self.ppu.handle_mask_write();
+        // self.ppu.handle_mask_write();
 
         match self.ppu.render_state {
             RenderState::PreRender => self.ppu_render_step(&PRERENDER_LUT),

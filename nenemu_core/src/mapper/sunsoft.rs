@@ -81,6 +81,8 @@ pub struct SunsoftFME7 {
 impl Mapper for SunsoftFME7 {
     fn new(mem: &mut Bus) -> Box<Self> {
         mem.banks.prg = Banking::new(0x6000, mem.header.prg_size, 40 * 1024, 5);
+        mem.banks.prg.fix_last_page();
+
         mem.banks.chr = Banking::new_chr(&mem.header, 8);
 
         Box::new(Self {

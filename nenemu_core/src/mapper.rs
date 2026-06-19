@@ -162,7 +162,8 @@ impl Mapper for CNROM {
 struct GxROM;
 #[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for GxROM {
-    fn new(_: &mut Bus) -> Box<Self> {
+    fn new(mem: &mut Bus) -> Box<Self> {
+        mem.banks.prg = Banking::new_prg(&mem.header, 1);
         Box::new(Self)
     }
 
@@ -178,10 +179,11 @@ impl Mapper for GxROM {
 struct AxROM;
 #[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for AxROM {
-    fn new(_: &mut Bus) -> Box<Self>
+    fn new(mem: &mut Bus) -> Box<Self>
     where
         Self: Sized,
     {
+        mem.banks.prg = Banking::new_prg(&mem.header, 1);
         Box::new(Self)
     }
 
@@ -202,7 +204,8 @@ impl Mapper for AxROM {
 struct ColorDreams;
 #[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for ColorDreams {
-    fn new(_: &mut Bus) -> Box<Self> {
+    fn new(mem: &mut Bus) -> Box<Self> {
+        mem.banks.prg = Banking::new_prg(&mem.header, 1);
         Box::new(Self)
     }
 
@@ -271,6 +274,7 @@ struct CPROM;
 #[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for CPROM {
     fn new(mem: &mut Bus) -> Box<Self> {
+        mem.banks.prg = Banking::new_prg(&mem.header, 1);
         mem.banks.chr = Banking::new_chr(&mem.header, 2);
         Box::new(Self)
     }
@@ -609,6 +613,7 @@ struct J87 {
 #[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for J87 {
     fn new(mem: &mut Bus) -> Box<Self> {
+        mem.banks.prg = Banking::new_prg(&mem.header, 1);
         mem.set_wram_handlers(CpuHandler::Mapper);
         let shift = if mem.header.mapper == 87 { 1 } else { 0 };
         Box::new(Self { shift })
@@ -634,6 +639,8 @@ struct NINA00x_BNROM {
 #[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for NINA00x_BNROM {
     fn new(mem: &mut Bus) -> Box<Self> {
+        mem.banks.prg = Banking::new_prg(&mem.header, 1);
+
         // should be considered BNROM when the CHR-ROM size is 0-8 KiB, and NINA-001/NINA-002 when the CHR-ROM size is above 8 KiB.
         let mut submapper = 0;
         if mem.header.submapper == 1 || mem.header.chr_size > 8 * 1024 {
@@ -680,10 +687,11 @@ impl Mapper for NINA00x_BNROM {
 struct NINA003_006;
 #[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for NINA003_006 {
-    fn new(_: &mut Bus) -> Box<Self>
+    fn new(mem: &mut Bus) -> Box<Self>
     where
         Self: Sized,
     {
+        mem.banks.prg = Banking::new_prg(&mem.header, 1);
         Box::new(Self)
     }
 
@@ -796,6 +804,7 @@ struct NapoleonSenki;
 #[cfg_attr(feature = "savestates", typetag::serde)]
 impl Mapper for NapoleonSenki {
     fn new(mem: &mut Bus) -> Box<Self> {
+        mem.banks.prg = Banking::new_prg(&mem.header, 1);
         mem.banks.chr = Banking::new(0x0000, mem.header.chr_size, 2 * 1024, 1);
 
         // this games provides 8kb of chr ram + 2kb of vram
