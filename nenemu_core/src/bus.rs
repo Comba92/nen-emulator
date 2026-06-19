@@ -231,13 +231,13 @@ pub enum CpuHandler {
 #[derive(Clone, Copy, PartialEq, Debug)]
 #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub enum PpuHandler {
-    ChrRom,
+    Chr,
     ChrRam,
     Vram,
     Palette,
     OpenBus,
     ChrMMC2,
-    ChrRomMMC3,
+    ChrMMC3,
     ChrRamMMC3,
     ChrMMC5,
     VramMMC5,
@@ -255,14 +255,14 @@ const DEFAULT_CPU_MAP: [CpuHandler; 8] = [
 ];
 
 const DEFAULT_PPU_MAP: [PpuHandler; 16] = [
-    PpuHandler::ChrRom,
-    PpuHandler::ChrRom,
-    PpuHandler::ChrRom,
-    PpuHandler::ChrRom,
-    PpuHandler::ChrRom,
-    PpuHandler::ChrRom,
-    PpuHandler::ChrRom,
-    PpuHandler::ChrRom,
+    PpuHandler::Chr,
+    PpuHandler::Chr,
+    PpuHandler::Chr,
+    PpuHandler::Chr,
+    PpuHandler::Chr,
+    PpuHandler::Chr,
+    PpuHandler::Chr,
+    PpuHandler::Chr,
     PpuHandler::Vram,
     PpuHandler::Vram,
     PpuHandler::Vram,
@@ -384,7 +384,7 @@ impl Bus {
         let chr_handler = if cart.header.has_chr_ram {
             PpuHandler::ChrRam
         } else {
-            PpuHandler::ChrRom
+            PpuHandler::Chr
         };
 
         let mut cpu_handlers_8kb = DEFAULT_CPU_MAP;
@@ -569,7 +569,7 @@ impl NesEmulator {
         let handler = (addr >> 13) % 8;
         match mem.cpu_handlers_8kb[handler as usize] {
             CpuHandler::Ram => mem.ram[addr as usize & 0x07ff] = val,
-            CpuHandler::Ppu => self.ppu_reg_write(addr & 0x2007, val),
+            CpuHandler::Ppu => self.ppu_reg_write(addr, val),
             CpuHandler::IO => {
                 // if matches!(addr, 0x4000..=0x4013 | 0x4015 | 0x4017) {
                 if addr <= 0x4017 {
@@ -597,7 +597,7 @@ impl NesEmulator {
                 }
             }
             CpuHandler::PpuMMC5 => {
-                self.ppu_reg_write(addr & 0x2007, val);
+                self.ppu_reg_write(addr, val);
                 self.mapper.cpu_bus_callback(&mut self.mem, addr, Some(val));
             }
             CpuHandler::PrgCustom => {}
@@ -614,7 +614,7 @@ impl NesEmulator {
         let handler = mem.ppu_handlers_1kb[handler_id as usize];
 
         let res = match handler {
-            PpuHandler::ChrRom | PpuHandler::ChrRam => mem.chr[mem.banks.chr.translate(addr)],
+            PpuHandler::Chr | PpuHandler::ChrRam => mem.chr[mem.banks.chr.translate(addr)],
             PpuHandler::Vram => mem.vram[mem.banks.vram.translate(addr)],
             PpuHandler::Palette => {
                 if addr >= 0x3f00 {
@@ -627,7 +627,7 @@ impl NesEmulator {
             PpuHandler::OpenBus => mem.ppu_open_bus as u8,
 
             PpuHandler::ChrMMC2
-            | PpuHandler::ChrRomMMC3
+            | PpuHandler::ChrMMC3
             | PpuHandler::ChrRamMMC3
             | PpuHandler::ChrMMC5 => mem.chr[mem.banks.chr.translate(addr)],
 
@@ -647,14 +647,9 @@ impl NesEmulator {
         let handler = mem.ppu_handlers_1kb[handler_id as usize];
 
         let res = match handler {
-            PpuHandler::ChrRom | PpuHandler::ChrRam => mem.chr[mem.banks.chr.translate(addr)],
-            PpuHandler::Vram => {
-                self.mapper.ppu_bus_callback(mem, addr, self.cpu.cycles);
-                mem.vram[mem.banks.vram.translate(addr & 0x2fff)]
-            }
+            PpuHandler::Chr | PpuHandler::ChrRam => mem.chr[mem.banks.chr.translate(addr)],
+            PpuHandler::Vram => mem.vram[mem.banks.vram.translate(addr & 0x2fff)],
             PpuHandler::Palette => {
-                self.mapper.ppu_bus_callback(mem, addr, self.cpu.cycles);
-
                 if addr >= 0x3f00 {
                     self.ppu.palettes_read(addr)
                 } else {
@@ -664,7 +659,7 @@ impl NesEmulator {
             }
             PpuHandler::OpenBus => mem.ppu_open_bus as u8,
 
-            PpuHandler::ChrMMC2 | PpuHandler::ChrRomMMC3 | PpuHandler::ChrRamMMC3 => {
+            PpuHandler::ChrMMC2 | PpuHandler::ChrMMC3 | PpuHandler::ChrRamMMC3 => {
                 self.mapper.ppu_bus_callback(mem, addr, self.cpu.cycles);
                 mem.chr[mem.banks.chr.translate(addr)]
             }
@@ -685,7 +680,7 @@ impl NesEmulator {
         let handler = (addr >> 10) % 16;
 
         match mem.ppu_handlers_1kb[handler as usize] {
-            PpuHandler::ChrRom | PpuHandler::ChrMMC5 | PpuHandler::OpenBus => {}
+            PpuHandler::Chr | PpuHandler::ChrMMC5 | PpuHandler::OpenBus => {}
             PpuHandler::ChrRam => mem.chr[mem.banks.chr.translate(addr)] = val,
             PpuHandler::Vram => {
                 self.mapper.ppu_bus_callback(mem, addr, self.cpu.cycles);
@@ -702,7 +697,7 @@ impl NesEmulator {
                 }
             }
 
-            PpuHandler::ChrMMC2 | PpuHandler::ChrRomMMC3 => {
+            PpuHandler::ChrMMC2 | PpuHandler::ChrMMC3 => {
                 self.mapper.ppu_bus_callback(mem, addr, self.cpu.cycles)
             }
             PpuHandler::ChrRamMMC3 => {

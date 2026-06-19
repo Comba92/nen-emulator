@@ -53,7 +53,7 @@ impl Mapper for MMC3 {
         let chr_handler = if mem.header.has_chr_ram {
             PpuHandler::ChrRamMMC3
         } else {
-            PpuHandler::ChrRamMMC3
+            PpuHandler::ChrMMC3
         };
         mem.set_chr_handlers(chr_handler);
 

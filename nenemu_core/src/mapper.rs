@@ -1066,7 +1066,7 @@ impl Mapper for Sunsoft4 {
                 let mode = val & 0x10 > 0;
                 if mode != self.uses_chr_rom {
                     let handler = if mode {
-                        PpuHandler::ChrRom
+                        PpuHandler::Chr
                     } else {
                         PpuHandler::Vram
                     };

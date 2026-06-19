@@ -567,7 +567,7 @@ impl AppCtx {
                 self.state.current_rom_header = {
                     let mut emu = self.emu_lock();
                     *emu = new_emu;
-                    emu.rom_data().clone()
+                    emu.rom_info().clone()
                 };
 
                 let pathbuf = rom_path.as_ref().to_path_buf();
@@ -763,7 +763,7 @@ impl AppCtx {
                     }
 
                     let mut emu = self.emu_lock();
-                    let header = emu.rom_data();
+                    let header = emu.rom_info();
                     if header.format == rom::HeaderFormat::Fds {
                         ui.separator();
                         if ui.button("💿 Insert next FDS disk/side").clicked() {
@@ -1310,7 +1310,7 @@ impl eframe::App for AppCtx {
 
         *self.audio.volume.lock().unwrap() = self.cfg.volume;
 
-        const FPS: f32 = 1.0 / 61.0;
+        const FPS: f32 = 1.0 / 120.0;
         ui.request_repaint_after_secs(FPS);
 
         if ui.input(|i| i.viewport().close_requested()) {

@@ -254,7 +254,7 @@ impl Mapper for Namco129_163 {
                     // use chr
                     mem.banks.chr.set_page(page, val as u16);
                     // All commercial-era titles only come with CHR-ROM.
-                    mem.ppu_handlers_1kb[page as usize] = PpuHandler::ChrRom;
+                    mem.ppu_handlers_1kb[page as usize] = PpuHandler::Chr;
                 }
             }
 

@@ -2,7 +2,6 @@ use std::array;
 
 use crate::{
     emu::{NesEmulator, Region},
-    joypad,
     utils::{byte_set_hi, byte_set_lo},
 };
 use bitflags::Flags;
@@ -438,29 +437,33 @@ impl Ppu2C02 {
         self.line >= 240 && self.line != self.prerender_line
     }
 
+    fn toggle_rendering(&mut self) {
+        match self.render_state {
+            RenderState::Disabled => {
+                if self.is_rendering_enabled() {
+                    self.render_state = if self.line < 240 {
+                        RenderState::Rendering
+                    } else if self.line == self.prerender_line {
+                        RenderState::PreRender
+                    } else {
+                        RenderState::Vblank
+                    };
+                }
+            }
+
+            _ => {
+                if !self.is_rendering_enabled() {
+                    self.render_state = RenderState::Disabled
+                }
+            }
+        }
+    }
+
     fn handle_mask_write(&mut self) {
         if self.mask_write_delay > 0 {
             self.mask_write_delay -= 1;
             if self.mask_write_delay == 0 {
-                match self.render_state {
-                    RenderState::Disabled => {
-                        if self.is_rendering_enabled() {
-                            self.render_state = if self.line < 240 {
-                                RenderState::Rendering
-                            } else if self.line == self.prerender_line {
-                                RenderState::PreRender
-                            } else {
-                                RenderState::Vblank
-                            };
-                        }
-                    }
-
-                    _ => {
-                        if !self.is_rendering_enabled() {
-                            self.render_state = RenderState::Disabled
-                        }
-                    }
-                }
+                self.toggle_rendering();
             }
         }
     }
@@ -551,12 +554,12 @@ impl Ppu2C02 {
 
     fn increase_vram_addr(&mut self) {
         // if self.is_in_visible_scanline() && self.is_rendering_enabled() {
-        //     // https://www.nesdev.org/wiki/PPU_scrolling#$2007_(PPUDATA)_reads_and_writes
-        //     self.inc_scroll_x();
-        //     self.inc_scroll_y();
-        // }
-
+        // https://www.nesdev.org/wiki/PPU_scrolling#$2007_(PPUDATA)_reads_and_writes
+        // self.inc_scroll_x();
+        // self.inc_scroll_y();
+        // } else {
         self.v.0 = (self.v.0 + self.ctrl.vram_addr_inc) & 0x3fff;
+        // }
     }
 
     fn spr_evaluation(&mut self) {
@@ -669,9 +672,7 @@ impl NesEmulator {
                     self.ppu.ppu_data = self.ppu_dispatch_read(self.ppu.v.0);
                     val
                 };
-
                 self.ppu.increase_vram_addr();
-
                 res
             }
 
@@ -686,7 +687,7 @@ impl NesEmulator {
     pub fn ppu_reg_write(&mut self, addr: u16, val: u8) {
         let ppu = &mut self.ppu;
 
-        match addr {
+        match addr & 0x2007 {
             // Ctrl
             0x2000 => {
                 let old_nmi_enabled = ppu.ctrl.nmi_enabled;
@@ -714,25 +715,7 @@ impl NesEmulator {
             // Mask
             0x2001 => {
                 ppu.mask = Mask::from_bits_retain(val);
-                match ppu.render_state {
-                    RenderState::Disabled => {
-                        if ppu.is_rendering_enabled() {
-                            ppu.render_state = if ppu.line < 240 {
-                                RenderState::Rendering
-                            } else if ppu.line == ppu.prerender_line {
-                                RenderState::PreRender
-                            } else {
-                                RenderState::Vblank
-                            };
-                        }
-                    }
-
-                    _ => {
-                        if !ppu.is_rendering_enabled() {
-                            ppu.render_state = RenderState::Disabled
-                        }
-                    }
-                }
+                ppu.toggle_rendering();
             }
             // OamAddr
             0x2003 => ppu.oam_addr = val,

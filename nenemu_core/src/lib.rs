@@ -174,8 +174,8 @@ pub mod utils {
             }
         }
 
-        pub fn set_rate(&mut self, clock_rate: usize, frequency: usize) {
-            self.cycles_per_sample = clock_rate as f32 / frequency as f32
+        pub fn set_rate(&mut self, clock_rate: usize, frequency: f32) {
+            self.cycles_per_sample = clock_rate as f32 / frequency
         }
 
         pub fn add_sample(&mut self, sample: f32) -> Option<f32> {
@@ -304,7 +304,7 @@ impl NesEmulator {
             player.contains(InputBtn::A) as u8
         };
 
-        if self.rom_data().supports_zapper() {
+        if self.rom_info().supports_zapper() {
             let zap_trigger = self.joy.zapper_trigger as u8;
             let zap_light = !self.is_zapper_light_sensed() as u8;
 
