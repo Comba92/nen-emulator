@@ -55,13 +55,12 @@ pub struct NesSettings {
 }
 
 #[derive(Default)]
-pub(crate) struct NesOutput {
-    pub(crate) frame_ready: bool,
-    pub(crate) videobuf_back: Box<Framebuf>,
-    pub(crate) videobuf_view: Box<Framebuf>,
-    pub(crate) audiobuf: RingBuffer<f32>,
-    pub(crate) resamplebuf: Vec<f32>,
-
+pub struct NesOutput {
+    pub frame_ready: bool,
+    pub videobuf_back: Box<Framebuf>,
+    pub videobuf_view: Box<Framebuf>,
+    pub audiobuf: RingBuffer<f32>,
+    // pub(crate) resamplebuf: Vec<f32>,
     pub resampler: AvgResampler,
 }
 impl NesOutput {
@@ -94,7 +93,7 @@ pub struct NesEmulator {
     pub mapper: Box<dyn Mapper>,
 
     #[cfg_attr(feature = "savestates", serde(skip))]
-    pub(crate) output: NesOutput,
+    pub output: NesOutput,
 
     pub palette: NesPalette,
     pub settings: NesSettings,
@@ -121,7 +120,7 @@ pub const SCREEN_WIDTH: isize = 256;
 pub const SCREEN_HEIGHT: isize = 240;
 
 pub const FRAMEBUF_SIZE: usize = SCREEN_WIDTH as usize * SCREEN_HEIGHT as usize * 4;
-pub const AUDIO_FRAMES_BUFFERED: usize = 2;
+pub const AUDIO_FRAMES_BUFFERED: usize = 16;
 
 pub const BIOS_CRC32: u32 = 1583381967;
 pub const BATTERY_SAVE_EXTENSION: &str = "srm";
@@ -421,22 +420,28 @@ impl NesEmulator {
         }
     }
 
-    fn resample(&mut self, amt: usize) {
-        let output = &mut self.output;
+    // fn resample(&mut self, amt: usize) {
+    //     let output = &mut self.output;
 
-        output.resamplebuf.clear();
+    //     output.resamplebuf.clear();
 
-        while output.resamplebuf.len() < amt {
-            let sample = output.audiobuf.pop();
-            if let Some(resample) = output.resampler.add_sample(*sample) {
-                output.resamplebuf.push(resample);
-            }
-        }
-    }
+    //     while output.resamplebuf.len() < amt {
+    //         let sample = output.audiobuf.pop();
+    //         if let Some(resample) = output.resampler.add_sample(*sample) {
+    //             output.resamplebuf.push(resample);
+    //         }
+    //     }
+    // }
 
     pub fn audio_queued(&self, rate: usize) -> usize {
         // queued : CLOCKRATE = x : TargetRate
-        (self.output.audiobuf.queued() as f64 * rate as f64 / self.clock_rate() as f64) as usize
+        // (self.output.audiobuf.queued() as f64 * rate as f64 / self.clock_rate() as f64).round()
+        //     as usize
+        self.output.audiobuf.queued()
+    }
+
+    pub fn audio_capacity(&self) -> usize {
+        self.output.audiobuf.capacity()
     }
 
     pub fn set_audio_rate(&mut self, rate: f32) {
@@ -445,23 +450,24 @@ impl NesEmulator {
             .set_rate(self.region().clock_rate(), rate);
     }
 
-    pub fn get_audio_f32(&mut self, amount: usize) -> &[f32] {
-        self.resample(amount);
-        &self.output.resamplebuf
-    }
+    // pub fn get_audio_f32(&mut self, amount: usize) -> &[f32] {
+    //     // self.resample(amount);
+    //     // &self.output.resamplebuf
+    // }
 
-    pub fn get_audio_f32_all(&mut self, sample_rate: usize) -> &[f32] {
-        self.get_audio_f32(self.audio_queued(sample_rate))
-    }
+    // pub fn get_audio_f32_all(&mut self, sample_rate: usize) -> &[f32] {
+    //     self.get_audio_f32(self.audio_queued(sample_rate))
+    // }
 
     pub fn put_audio_f32(&mut self, buf: &mut [f32]) {
-        // let (right, left) = self.get_audio_f32(buf.len());
-        // buf[..right.len()].copy_from_slice(right);
+        let (right, left) = self.output.audiobuf.take(buf.len());
+        buf[..right.len()].copy_from_slice(right);
 
-        // if let Some(left) = left {
-        //     buf[right.len()..].copy_from_slice(left);
-        // }
-        buf.copy_from_slice(self.get_audio_f32(buf.len()));
+        if let Some(left) = left {
+            buf[right.len()..].copy_from_slice(left);
+        }
+
+        // buf.copy_from_slice(self.get_audio_f32(buf.len()));
     }
 
     pub fn load_rom_from_file<P: AsRef<Path>, B: AsRef<[u8]>>(

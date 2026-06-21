@@ -140,6 +140,11 @@ pub mod utils {
 
             (right, left)
         }
+
+        pub fn take_iter(&mut self, amount: usize) -> impl Iterator<Item = &T> {
+            let (right, left) = self.take(amount);
+            right.iter().chain(left.unwrap_or_default().iter())
+        }
     }
 
     pub struct AvgResampler {

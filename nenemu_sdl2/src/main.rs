@@ -26,6 +26,10 @@ impl AudioCallback for AudioHandler {
 
     fn callback(&mut self, audio_out: &mut [Self::Channel]) {
         let mut emu_lock = self.emu.lock().unwrap();
+        if emu_lock.audio_queued(48000) < audio_out.len() {
+            return;
+        }
+
         emu_lock.put_audio_f32(audio_out);
 
         // let (right, left) = emu_lock.get_audio_f32(audio_out.len());
@@ -112,8 +116,10 @@ fn main() {
     let bios = include_bytes!("../../nenemu_core/utils/disksys.rom");
     let mut rom_path = path::PathBuf::from("roms/donkey kong.nes");
 
-    let emu = NesEmulator::load_bios_only(Some(bios)).unwrap();
+    let mut emu = NesEmulator::load_bios_only(Some(bios)).unwrap();
     // let emu = NesEmulator::load_rom_from_file(&rom_path, Some(bios)).unwrap();
+
+    let mut videoq = RingBuffer::new_with(4, [0; _]);
 
     let emu = arc_mutex(emu);
     let emu_shared_clone = Arc::clone(&emu);
@@ -121,19 +127,22 @@ fn main() {
     let audiospec = AudioSpecDesired {
         channels: Some(1),
         freq: Some(48000),
-        samples: Some(800),
+        samples: Some(512),
     };
 
-    let audiocb = audio
+    let mut audiocb = audio
         .open_playback(None, &audiospec, move |_| AudioHandler {
             emu: emu_shared_clone,
         })
         .unwrap();
     audiocb.resume();
 
-    println!("{:?}", audiocb.spec());
+    // let audioq = audio.open_queue(None, &audiospec).unwrap();
+    // audioq.resume();
 
-    let frame_rate = time::Duration::from_secs_f32(1.0 / 144.0);
+    // println!("{:?}", audiocb.spec());
+
+    let frame_rate = time::Duration::from_secs_f32(1.0 / 60.0);
     'running: loop {
         // let frame_start = timer.ticks64();
         let frame_start = time::Instant::now();
@@ -168,6 +177,10 @@ fn main() {
                         }
                         Err(e) => eprintln!("{e}"),
                     }
+
+                    let cb = audiocb.close_and_get_callback();
+                    audiocb = audio.open_playback(None, &audiospec, move |_| cb).unwrap();
+                    audiocb.resume();
                 }
                 Event::KeyDown { keycode, .. } => {
                     if let Some(keycode) = keycode {
@@ -298,18 +311,42 @@ fn main() {
         {
             let mut emu_lock = emu.lock().unwrap();
 
-            if emu_lock.audio_queued(48000) < 1024 {
-                emu_lock.step_until_frame_ready().unwrap();
+            if emu_lock.audio_queued(48000) > emu_lock.audio_capacity() / 2 {
+            } else {
+                if emu_lock.audio_queued(48000) < emu_lock.audio_capacity() / 3 {
+                    emu_lock.step_until_frame_ready().unwrap();
+                    videoq.push(emu_lock.get_video_rgba().clone());
 
-                tex.with_lock(None, |pixels, _| {
-                    pixels.copy_from_slice(emu_lock.get_video_rgba());
-                })
-                .unwrap();
-
-                // if emu_lock.is_frame_ready() {
-                //     video_chain.push(emu_lock.get_video_rgba().clone());
-                // }
+                    println!("Video queued: {}", videoq.queued());
+                }
             }
+
+            let queued = emu_lock.audio_queued(48000);
+
+            let dyn_rate = if queued < 1024 {
+                48000.0 * (1.0 + 0.05)
+            } else if queued >= 1024 {
+                48000.0 * (1.0 - 0.05)
+            } else {
+                48000.0
+            };
+            // println!("{dyn_rate}");
+
+            // emu_lock.set_audio_rate(dyn_rate);
+
+            // if emu_lock.is_frame_ready() {
+            //     video_chain.push(emu_lock.get_video_rgba().clone());
+            // }
+            // }
+
+            // audioq
+            //     .queue_audio(emu_lock.get_audio_f32_all(48000))
+            //     .unwrap();
+
+            tex.with_lock(None, |pixels, _| {
+                pixels.copy_from_slice(videoq.pop());
+            })
+            .unwrap();
 
             debug_canvas.set_draw_color(Color::GREY);
             debug_canvas.clear();

@@ -721,7 +721,10 @@ impl NesEmulator {
         }
 
         let sample = self.mix_channels();
-        self.output.audiobuf.push(sample);
+        // self.output.audiobuf.push(sample);
+        if let Some(sample) = self.output.resampler.add_sample(sample) {
+            self.output.audiobuf.push(sample);
+        }
     }
 
     fn mix_channels(&mut self) -> f32 {
