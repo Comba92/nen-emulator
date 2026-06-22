@@ -317,6 +317,18 @@ impl NesEmulator {
         }
     }
 
+    pub fn check_for_errrors(&self) -> Result<(), &'static str> {
+        self.cpu
+            .jammed
+            .not()
+            .then(|| ())
+            .ok_or("cpu panicked (reached a jam instruction or unimplemented illegal)")
+    }
+
+    pub fn step(&mut self) {
+        self.cpu_step();
+    }
+
     pub fn step_until_frame_ready(&mut self) -> Result<(), &'static str> {
         while self.is_frame_ready() {
             self.cpu_step();
@@ -326,11 +338,7 @@ impl NesEmulator {
             self.cpu_step();
         }
 
-        self.cpu
-            .jammed
-            .not()
-            .then(|| ())
-            .ok_or("cpu panicked (reached a jam instruction or unimplemented illegal)")
+        self.check_for_errrors()
     }
 
     pub fn is_frame_ready(&self) -> bool {
@@ -349,11 +357,7 @@ impl NesEmulator {
             self.cpu_step();
         }
 
-        self.cpu
-            .jammed
-            .not()
-            .then(|| ())
-            .ok_or("cpu panicked (reached a jam instruction or unimplemented illegal)")
+        self.check_for_errrors()
     }
 
     pub fn emu_reset(&mut self) {
@@ -365,11 +369,18 @@ impl NesEmulator {
         // TODO: some mappers need to be reset too
     }
 
-    pub fn get_video_rgba(&self) -> &[u8; FRAMEBUF_SIZE] {
+    pub fn get_video_rgba(&mut self) -> &[u8; FRAMEBUF_SIZE] {
+        if self.output.frame_ready {
+            self.output.frame_ready = false;
+        }
         &self.output.videobuf_view.0
     }
 
-    pub fn put_video_rgba(&self, buf: &mut [u8]) {
+    pub fn put_video_rgba(&mut self, buf: &mut [u8]) {
+        if self.output.frame_ready {
+            self.output.frame_ready = false;
+        }
+
         buf.copy_from_slice(self.get_video_rgba());
     }
 
@@ -457,6 +468,14 @@ impl NesEmulator {
     // pub fn get_audio_f32_all(&mut self, sample_rate: usize) -> &[f32] {
     //     self.get_audio_f32(self.audio_queued(sample_rate))
     // }
+
+    pub fn get_audio_f32(&mut self, amount: usize) -> (&[f32], Option<&[f32]>) {
+        self.output.audiobuf.take(amount)
+    }
+
+    pub fn get_audio_f32_iter(&mut self, amount: usize) -> impl Iterator<Item = &f32> {
+        self.output.audiobuf.take_iter(amount)
+    }
 
     pub fn put_audio_f32(&mut self, buf: &mut [f32]) {
         let (right, left) = self.output.audiobuf.take(buf.len());

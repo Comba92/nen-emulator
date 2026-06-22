@@ -6,7 +6,7 @@ use std::{
     thread, time,
 };
 
-use nenemu_core::{emu::NesEmulator, joypad::InputBtn, utils::RingBuffer};
+use nenemu_core::{emu::NesEmulator, joypad::InputBtn};
 use sdl2::{
     audio::{AudioCallback, AudioSpecDesired},
     controller::{Axis, Button},
@@ -106,7 +106,7 @@ fn main() {
     let bios = include_bytes!("../../nenemu_core/utils/disksys.rom");
     let mut rom_path = path::PathBuf::from("roms/donkey kong.nes");
 
-    let mut emu = NesEmulator::load_bios_only(Some(bios)).unwrap();
+    let emu = NesEmulator::load_bios_only(Some(bios)).unwrap();
     // let emu = NesEmulator::load_rom_from_file(&rom_path, Some(bios)).unwrap();
 
     let emu = arc_mutex(emu);
@@ -291,7 +291,7 @@ fn main() {
             let mut emu_lock = emu.lock().unwrap();
 
             while emu_lock.audio_queued() < 1024 {
-                emu_lock.cpu_step();
+                emu_lock.step();
             }
 
             // videoq.push(emu_lock.get_video_rgba().clone());

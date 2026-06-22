@@ -1,3 +1,6 @@
+// this removes the windows console
+#![windows_subsystem = "windows"]
+
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use eframe::egui;
 use nenemu_core::{
@@ -151,10 +154,10 @@ impl AudioHandler {
                             let mut emu_lock = emu.lock().unwrap();
                             let volume = *volume_arc.lock().unwrap();
 
-                            let samples = emu_lock.get_audio_f32(audio_out.len() / 2);
-                            for i in 0..samples.len() {
-                                audio_out[2 * i] = samples[i] * volume;
-                                audio_out[2 * i + 1] = samples[i] * volume;
+                            let samples = emu_lock.get_audio_f32_iter(audio_out.len() / 2);
+                            for (i, sample) in samples.enumerate() {
+                                audio_out[2 * i] = sample * volume;
+                                audio_out[2 * i + 1] = sample * volume;
                             }
 
                             // let (right, left) = emu_lock.get_audio_f32(audio_out.len() / 2);
@@ -1223,25 +1226,25 @@ impl AppCtx {
             emu.set_zapper_trigger(mouse_clicked);
             emu.set_zapper_light(self.state.mouse_pos.0, self.state.mouse_pos.1);
 
-            while self.state.emulation == EmulationState::Running && emu.audio_queued(48000) < 1024
-            {
-                match emu.step_until_samples_or_frame_ready(1024, 48000) {
-                    Ok(_) => {
-                        if emu.is_frame_ready() {
-                            let framebuf = egui::ColorImage::from_rgba_unmultiplied(
-                                [256, 240],
-                                emu.get_video_rgba(),
-                            );
-                            self.video_chain.lock().unwrap().push(framebuf);
-                        }
-                    }
+            while self.state.emulation == EmulationState::Running && emu.audio_queued() < 1024 {
+                emu.step()
+            }
 
-                    Err(e) => {
-                        drop(emu);
-                        self.state.emulation = EmulationState::Stopped;
-                        self.add_message(e.into());
-                        break;
+            match emu.check_for_errrors() {
+                Ok(_) => {
+                    if emu.is_frame_ready() {
+                        let framebuf = egui::ColorImage::from_rgba_unmultiplied(
+                            [256, 240],
+                            emu.get_video_rgba(),
+                        );
+                        self.video_chain.lock().unwrap().push(framebuf);
                     }
+                }
+
+                Err(e) => {
+                    drop(emu);
+                    self.state.emulation = EmulationState::Stopped;
+                    self.add_message(e.into());
                 }
             }
         }

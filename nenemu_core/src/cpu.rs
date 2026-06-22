@@ -125,7 +125,7 @@ impl NesEmulator {
         val
     }
 
-    pub fn cpu_step(&mut self) {
+    pub(crate) fn cpu_step(&mut self) {
         if self.handle_dma() {
             return;
         }
