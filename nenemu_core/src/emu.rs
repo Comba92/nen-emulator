@@ -56,9 +56,9 @@ pub struct NesSettings {
 
 #[derive(Default)]
 pub struct NesOutput {
-    pub frame_ready: bool,
-    pub videobuf_back: Box<Framebuf>,
-    pub videobuf_view: Box<Framebuf>,
+    pub(crate) frame_ready: bool,
+    pub(crate) videobuf_back: Box<Framebuf>,
+    pub(crate) videobuf_view: Box<Framebuf>,
     pub audiobuf: RingBuffer<f32>,
     // pub(crate) resamplebuf: Vec<f32>,
     pub resampler: AvgResampler,
@@ -340,13 +340,12 @@ impl NesEmulator {
     pub fn step_until_samples_or_frame_ready(
         &mut self,
         samples_amt: usize,
-        sample_rate: usize,
     ) -> Result<(), &'static str> {
-        while self.audio_queued(sample_rate) < samples_amt && self.is_frame_ready() {
+        while self.audio_queued() < samples_amt && self.is_frame_ready() {
             self.cpu_step();
         }
 
-        while self.audio_queued(sample_rate) < samples_amt && !self.is_frame_ready() {
+        while self.audio_queued() < samples_amt && !self.is_frame_ready() {
             self.cpu_step();
         }
 
@@ -433,7 +432,7 @@ impl NesEmulator {
     //     }
     // }
 
-    pub fn audio_queued(&self, rate: usize) -> usize {
+    pub fn audio_queued(&self) -> usize {
         // queued : CLOCKRATE = x : TargetRate
         // (self.output.audiobuf.queued() as f64 * rate as f64 / self.clock_rate() as f64).round()
         //     as usize

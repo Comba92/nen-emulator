@@ -1,0 +1,12 @@
+[package]
+name = "nenemu_sdl3"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+savestates = ["nenemu_core/savestates"]
+static = ["sdl3/static-link"]
+
+[dependencies]
+sdl3 = "0.18.4"
+nenemu_core = { path = "../nenemu_core" }

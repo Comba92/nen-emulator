@@ -94,14 +94,14 @@ pub mod utils {
         }
 
         pub fn queued(&self) -> usize {
-            if self.is_queued_all_contiguos() {
-                // tail is right of head, consecutive
-                self.write_pos - self.read_pos
-            } else {
-                // tail is left of head, not consecutive
-                self.write_pos + self.queued_contiguos()
-            }
-            // self.queued
+            // if self.is_queued_all_contiguos() {
+            //     // tail is right of head, consecutive
+            //     self.write_pos - self.read_pos
+            // } else {
+            //     // tail is left of head, not consecutive
+            //     self.write_pos + self.queued_contiguos()
+            // }
+            self.queued
         }
 
         pub fn queued_contiguos(&self) -> usize {
@@ -113,13 +113,14 @@ pub mod utils {
         }
 
         pub fn available(&self) -> usize {
-            if self.is_queued_all_contiguos() {
-                // tail is right of head, consecutive
-                self.available_contiguos() + self.read_pos
-            } else {
-                // tail is left of head, not consecutive
-                self.read_pos - self.write_pos
-            }
+            // if self.is_queued_all_contiguos() {
+            //     // tail is right of head, consecutive
+            //     self.available_contiguos() + self.read_pos
+            // } else {
+            //     // tail is left of head, not consecutive
+            //     self.read_pos - self.write_pos
+            // }
+            self.data.len() - self.queued
         }
 
         pub fn take(&mut self, amount: usize) -> (&[T], Option<&[T]>) {

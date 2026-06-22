@@ -6,28 +6,30 @@ use std::{
     thread, time,
 };
 
-use nenemu_core::{emu::NesEmulator, joypad::InputBtn, utils::RingBuffer};
-use sdl2::{
-    audio::{AudioCallback, AudioSpecDesired},
-    controller::{Axis, Button},
+use nenemu_core::{emu::NesEmulator, joypad::JoypadBtn, utils::RingBuffer};
+use sdl3::{
+    audio::{AudioCallback, AudioFormat, AudioSpec, AudioStream},
     event::{Event, WindowEvent},
+    gamepad::{Axis, Button},
+    joystick::JoystickId,
     keyboard::Keycode,
-    pixels::Color,
-    pixels::PixelFormatEnum,
+    pixels::{Color, PixelFormat},
     render::ScaleMode,
+    sys::render::SDL_LOGICAL_PRESENTATION_INTEGER_SCALE,
 };
 const AXIS_DEAD_ZONE: i16 = 10_000;
 
 struct AudioHandler {
     emu: Arc<Mutex<NesEmulator>>,
 }
-impl AudioCallback for AudioHandler {
-    type Channel = f32;
-
-    fn callback(&mut self, audio_out: &mut [Self::Channel]) {
+impl AudioCallback<f32> for AudioHandler {
+    fn callback(&mut self, stream: &mut AudioStream, requested: i32) {
         let mut emu_lock = self.emu.lock().unwrap();
-        if emu_lock.audio_queued() >= audio_out.len() {
-            emu_lock.put_audio_f32(audio_out);
+
+        let (right, left) = emu_lock.get_audio_f32(requested as usize);
+        stream.put_data_f32(right).unwrap();
+        if let Some(left) = left {
+            stream.put_data_f32(left).unwrap();
         }
     }
 }
@@ -67,12 +69,19 @@ fn load_battery(rom_path: &path::PathBuf, emu_lock: &mut sync::MutexGuard<NesEmu
     }
 }
 
+fn sleep_until_fps(frame_start: time::Instant, frame_rate: time::Duration) {
+    let frame_duration = frame_start.elapsed();
+    if frame_duration < frame_rate {
+        thread::sleep(frame_rate - frame_duration);
+    }
+}
+
 fn main() {
-    let sdl = sdl2::init().unwrap();
+    let sdl = sdl3::init().unwrap();
     let video = sdl.video().unwrap();
     let audio = sdl.audio().unwrap();
     let mut events = sdl.event_pump().unwrap();
-    let controller = sdl.game_controller().unwrap();
+    let controller = sdl.gamepad().unwrap();
     let mut controllers = Vec::new();
     // let timer = sdl.timer().unwrap();
 
@@ -80,14 +89,18 @@ fn main() {
         .window("NesEmu", 256 * 3, 240 * 3)
         .position_centered()
         .resizable()
+        .opengl()
         .build()
         .unwrap();
 
-    let mut canvas = window.into_canvas().present_vsync().build().unwrap();
-    canvas.set_logical_size(256, 240).unwrap();
+    let mut canvas = window.into_canvas();
+
+    canvas
+        .set_logical_size(256, 240, SDL_LOGICAL_PRESENTATION_INTEGER_SCALE)
+        .unwrap();
     let texture_creator = canvas.texture_creator();
     let mut tex = texture_creator
-        .create_texture_streaming(PixelFormatEnum::RGBA32, 256, 240)
+        .create_texture_streaming(PixelFormat::RGBA32, 256, 240)
         .unwrap();
     tex.set_scale_mode(ScaleMode::Nearest);
 
@@ -106,24 +119,29 @@ fn main() {
     let bios = include_bytes!("../../nenemu_core/utils/disksys.rom");
     let mut rom_path = path::PathBuf::from("roms/donkey kong.nes");
 
-    let mut emu = NesEmulator::load_bios_only(Some(bios)).unwrap();
+    let emu = NesEmulator::load_bios_only(Some(bios)).unwrap();
     // let emu = NesEmulator::load_rom_from_file(&rom_path, Some(bios)).unwrap();
 
-    let emu = arc_mutex(emu);
-    let emu_shared_clone = Arc::clone(&emu);
+    // let mut video_chain = nenemu_core::utils::RingBuffer::new_with(8, [0; _]);
 
-    let audiospec = AudioSpecDesired {
+    let emu = arc_mutex(emu);
+    let emu_shared_clone1 = Arc::clone(&emu);
+
+    let audiospec = AudioSpec {
+        format: Some(AudioFormat::f32_sys()),
         channels: Some(1),
         freq: Some(48000),
-        samples: Some(1024),
     };
 
     let audiocb = audio
-        .open_playback(None, &audiospec, move |_| AudioHandler {
-            emu: emu_shared_clone,
-        })
+        .open_playback_stream(
+            &audiospec,
+            AudioHandler {
+                emu: emu_shared_clone1,
+            },
+        )
         .unwrap();
-    audiocb.resume();
+    audiocb.resume().unwrap();
 
     let frame_rate = time::Duration::from_secs_f32(1.0 / 144.0);
     'running: loop {
@@ -134,13 +152,13 @@ fn main() {
             match event {
                 Event::Quit { .. } => break 'running,
                 Event::Window { win_event, .. } => match win_event {
-                    WindowEvent::Close => break 'running,
+                    WindowEvent::CloseRequested => break 'running,
                     _ => {}
                 },
                 Event::DropFile { filename, .. } => {
                     if filename.ends_with(".pal") {
                         let buf = fs::read(filename).unwrap();
-                        _ = emu.lock().unwrap().load_palette(&buf);
+                        emu.lock().unwrap().load_palette(&buf);
                         continue;
                     }
 
@@ -154,7 +172,7 @@ fn main() {
 
                             *emu_lock = res;
                             rom_path = path::PathBuf::from(filename);
-                            println!("{:?}", emu_lock.rom_info());
+                            println!("{:?}", emu_lock.header());
 
                             load_battery(&rom_path, &mut emu_lock);
                         }
@@ -165,19 +183,19 @@ fn main() {
                     if let Some(keycode) = keycode {
                         let mut emu_lock = emu.lock().unwrap();
                         match keycode {
-                            Keycode::Up => emu_lock.set_button(InputBtn::Up, true),
-                            Keycode::Left => emu_lock.set_button(InputBtn::Left, true),
-                            Keycode::Down => emu_lock.set_button(InputBtn::Down, true),
-                            Keycode::Right => emu_lock.set_button(InputBtn::Right, true),
-                            Keycode::S => emu_lock.set_button(InputBtn::A, true),
-                            Keycode::A => emu_lock.set_button(InputBtn::B, true),
-                            Keycode::W => emu_lock.set_button(InputBtn::Start, true),
-                            Keycode::E => emu_lock.set_button(InputBtn::Select, true),
-                            Keycode::NUM_0 => emu_lock.mapper.special_input(),
+                            Keycode::Up => emu_lock.set_button(JoypadBtn::Up, true),
+                            Keycode::Left => emu_lock.set_button(JoypadBtn::Left, true),
+                            Keycode::Down => emu_lock.set_button(JoypadBtn::Down, true),
+                            Keycode::Right => emu_lock.set_button(JoypadBtn::Right, true),
+                            Keycode::S => emu_lock.set_button(JoypadBtn::A, true),
+                            Keycode::A => emu_lock.set_button(JoypadBtn::B, true),
+                            Keycode::W => emu_lock.set_button(JoypadBtn::Start, true),
+                            Keycode::E => emu_lock.set_button(JoypadBtn::Select, true),
+                            Keycode::_0 => emu_lock.mapper.special_input(),
                             #[cfg(feature = "savestates")]
-                            Keycode::NUM_9 => emu_lock.savestate("./save.tmp").unwrap(),
+                            Keycode::_9 => emu_lock.savestate("./save.tmp").unwrap(),
                             #[cfg(feature = "savestates")]
-                            Keycode::NUM_8 => {
+                            Keycode::_8 => {
                                 emu_lock.loadstate("./save.tmp").unwrap();
                             }
                             Keycode::R => {
@@ -195,14 +213,14 @@ fn main() {
                     if let Some(keycode) = keycode {
                         let mut emu_lock = emu.lock().unwrap();
                         match keycode {
-                            Keycode::Up => emu_lock.set_button(InputBtn::Up, false),
-                            Keycode::Left => emu_lock.set_button(InputBtn::Left, false),
-                            Keycode::Down => emu_lock.set_button(InputBtn::Down, false),
-                            Keycode::Right => emu_lock.set_button(InputBtn::Right, false),
-                            Keycode::S => emu_lock.set_button(InputBtn::A, false),
-                            Keycode::A => emu_lock.set_button(InputBtn::B, false),
-                            Keycode::W => emu_lock.set_button(InputBtn::Start, false),
-                            Keycode::E => emu_lock.set_button(InputBtn::Select, false),
+                            Keycode::Up => emu_lock.set_button(JoypadBtn::Up, false),
+                            Keycode::Left => emu_lock.set_button(JoypadBtn::Left, false),
+                            Keycode::Down => emu_lock.set_button(JoypadBtn::Down, false),
+                            Keycode::Right => emu_lock.set_button(JoypadBtn::Right, false),
+                            Keycode::S => emu_lock.set_button(JoypadBtn::A, false),
+                            Keycode::A => emu_lock.set_button(JoypadBtn::B, false),
+                            Keycode::W => emu_lock.set_button(JoypadBtn::Start, false),
+                            Keycode::E => emu_lock.set_button(JoypadBtn::Select, false),
                             _ => {}
                         }
                     }
@@ -211,14 +229,14 @@ fn main() {
                 Event::ControllerButtonDown { button, .. } => {
                     let mut emu_lock = emu.lock().unwrap();
                     match button {
-                        Button::DPadUp => emu_lock.set_button(InputBtn::Up, true),
-                        Button::DPadLeft => emu_lock.set_button(InputBtn::Left, true),
-                        Button::DPadDown => emu_lock.set_button(InputBtn::Down, true),
-                        Button::DPadRight => emu_lock.set_button(InputBtn::Right, true),
-                        Button::A => emu_lock.set_button(InputBtn::A, true),
-                        Button::X => emu_lock.set_button(InputBtn::B, true),
-                        Button::Start => emu_lock.set_button(InputBtn::Start, true),
-                        Button::Back => emu_lock.set_button(InputBtn::Select, true),
+                        Button::DPadUp => emu_lock.set_button(JoypadBtn::Up, true),
+                        Button::DPadLeft => emu_lock.set_button(JoypadBtn::Left, true),
+                        Button::DPadDown => emu_lock.set_button(JoypadBtn::Down, true),
+                        Button::DPadRight => emu_lock.set_button(JoypadBtn::Right, true),
+                        Button::South => emu_lock.set_button(JoypadBtn::A, true),
+                        Button::West => emu_lock.set_button(JoypadBtn::B, true),
+                        Button::Start => emu_lock.set_button(JoypadBtn::Start, true),
+                        Button::Back => emu_lock.set_button(JoypadBtn::Select, true),
                         _ => {}
                     }
                 }
@@ -226,14 +244,14 @@ fn main() {
                 Event::ControllerButtonUp { button, .. } => {
                     let mut emu_lock = emu.lock().unwrap();
                     match button {
-                        Button::DPadUp => emu_lock.set_button(InputBtn::Up, false),
-                        Button::DPadLeft => emu_lock.set_button(InputBtn::Left, false),
-                        Button::DPadDown => emu_lock.set_button(InputBtn::Down, false),
-                        Button::DPadRight => emu_lock.set_button(InputBtn::Right, false),
-                        Button::A => emu_lock.set_button(InputBtn::A, false),
-                        Button::X => emu_lock.set_button(InputBtn::B, false),
-                        Button::Start => emu_lock.set_button(InputBtn::Start, false),
-                        Button::Back => emu_lock.set_button(InputBtn::Select, false),
+                        Button::DPadUp => emu_lock.set_button(JoypadBtn::Up, false),
+                        Button::DPadLeft => emu_lock.set_button(JoypadBtn::Left, false),
+                        Button::DPadDown => emu_lock.set_button(JoypadBtn::Down, false),
+                        Button::DPadRight => emu_lock.set_button(JoypadBtn::Right, false),
+                        Button::South => emu_lock.set_button(JoypadBtn::A, false),
+                        Button::West => emu_lock.set_button(JoypadBtn::B, false),
+                        Button::Start => emu_lock.set_button(JoypadBtn::Start, false),
+                        Button::Back => emu_lock.set_button(JoypadBtn::Select, false),
                         _ => {}
                     }
                 }
@@ -246,12 +264,12 @@ fn main() {
                     let mut emu_lock = emu.lock().unwrap();
 
                     if value > AXIS_DEAD_ZONE {
-                        emu_lock.set_button(InputBtn::Right, true);
+                        emu_lock.set_button(JoypadBtn::Right, true);
                     } else if value < -AXIS_DEAD_ZONE {
-                        emu_lock.set_button(InputBtn::Left, true);
+                        emu_lock.set_button(JoypadBtn::Left, true);
                     } else {
-                        emu_lock.set_button(InputBtn::Left, false);
-                        emu_lock.set_button(InputBtn::Right, false);
+                        emu_lock.set_button(JoypadBtn::Left, false);
+                        emu_lock.set_button(JoypadBtn::Right, false);
                     }
                 }
                 Event::ControllerAxisMotion {
@@ -262,18 +280,20 @@ fn main() {
                     let mut emu_lock = emu.lock().unwrap();
 
                     if value > AXIS_DEAD_ZONE {
-                        emu_lock.set_button(InputBtn::Down, true);
+                        emu_lock.set_button(JoypadBtn::Down, true);
                     } else if value < -AXIS_DEAD_ZONE {
-                        emu_lock.set_button(InputBtn::Up, true);
+                        emu_lock.set_button(JoypadBtn::Up, true);
                     } else {
-                        emu_lock.set_button(InputBtn::Up, false);
-                        emu_lock.set_button(InputBtn::Down, false);
+                        emu_lock.set_button(JoypadBtn::Up, false);
+                        emu_lock.set_button(JoypadBtn::Down, false);
                     }
                 }
 
-                Event::ControllerDeviceAdded { which, .. } => match controller.open(which) {
+                Event::ControllerDeviceAdded { which, .. } => match controller
+                    .open(JoystickId::new(which))
+                {
                     Ok(controller) => {
-                        println!("Found controller: {}\n", controller.name());
+                        println!("Found controller: {:?}\n", controller.name());
                         controllers.push(controller);
                     }
                     Err(e) => {
@@ -290,65 +310,30 @@ fn main() {
         {
             let mut emu_lock = emu.lock().unwrap();
 
-            while emu_lock.audio_queued() < 1024 {
-                emu_lock.cpu_step();
+            if emu_lock.audio_queued() < 1024 {
+                emu_lock.step_until_frame_ready().unwrap();
+
+                tex.with_lock(None, |pixels, _| {
+                    pixels.copy_from_slice(emu_lock.get_video_rgba());
+                })
+                .unwrap();
+
+                // if emu_lock.is_frame_ready() {
+                //     video_chain.push(emu_lock.get_video_rgba().clone());
+                // }
             }
-
-            // videoq.push(emu_lock.get_video_rgba().clone());
-            tex.with_lock(None, |pixels, _| {
-                pixels.copy_from_slice(emu_lock.get_video_rgba());
-            })
-            .unwrap();
-
-            // let queued = emu_lock.audio_queued();
-
-            // let dyn_rate = if queued < 1024 {
-            //     48000.0 * (1.0 + 0.05)
-            // } else if queued >= 1024 {
-            //     48000.0 * (1.0 - 0.05)
-            // } else {
-            //     48000.0
-            // };
-            // println!("{dyn_rate}");
-
-            // emu_lock.set_audio_rate(dyn_rate);
-
-            // }
-
-            // audioq
-            //     .queue_audio(emu_lock.get_audio_f32_all(48000))
-            //     .unwrap();
-
-            // debug_canvas.set_draw_color(Color::GREY);
-            // debug_canvas.clear();
-            // debug_tex
-            //     .with_lock(None, |pixels, _| {
-            //         emu_lock.get_nametables_rgba(pixels);
-            //     })
-            //     .unwrap();
-            // debug_canvas.copy(&debug_tex, None, None).unwrap();
-            // debug_canvas.present();
         }
 
-        // if frame_counter >= emu_frame_rate {
-        //     frame_counter -= emu_frame_rate;
+        // if video_chain.queued() > 0 {
         //     tex.with_lock(None, |pixels, _| {
-        //         pixels.copy_from_slice(videoq.pop());
+        //         pixels.copy_from_slice(video_chain.pop());
         //     })
         //     .unwrap();
         // }
-        // frame_counter += 1.0;
 
         canvas.copy(&tex, None, None).unwrap();
         canvas.present();
 
         sleep_until_fps(frame_start, frame_rate);
-    }
-}
-
-fn sleep_until_fps(frame_start: time::Instant, frame_rate: time::Duration) {
-    let frame_duration = frame_start.elapsed();
-    if frame_duration < frame_rate {
-        thread::sleep(frame_rate - frame_duration);
     }
 }

@@ -29,6 +29,14 @@ impl AudioCallback for AudioHandler {
         if emu_lock.audio_queued() >= audio_out.len() {
             emu_lock.put_audio_f32(audio_out);
         }
+
+        // let (right, left) = emu_lock.get_audio_f32(audio_out.len());
+        // let right_amt = right.len();
+        // audio_out[..right_amt].copy_from_slice(right);
+
+        // if let Some(left) = left {
+        //     audio_out[right_amt..].copy_from_slice(left);
+        // }
     }
 }
 
@@ -70,7 +78,6 @@ fn load_battery(rom_path: &path::PathBuf, emu_lock: &mut sync::MutexGuard<NesEmu
 fn main() {
     let sdl = sdl2::init().unwrap();
     let video = sdl.video().unwrap();
-    let audio = sdl.audio().unwrap();
     let mut events = sdl.event_pump().unwrap();
     let controller = sdl.game_controller().unwrap();
     let mut controllers = Vec::new();
@@ -91,41 +98,15 @@ fn main() {
         .unwrap();
     tex.set_scale_mode(ScaleMode::Nearest);
 
-    // let debug_window = video
-    //     .window("Debug", 256 * 2 * 2, 240 * 2 * 2)
-    //     .resizable()
-    //     .build()
-    //     .unwrap();
-    // let mut debug_canvas = debug_window.into_canvas().build().unwrap();
-    // let debug_texture_creator = debug_canvas.texture_creator();
-    // let mut debug_tex = debug_texture_creator
-    //     .create_texture_streaming(PixelFormatEnum::RGBA32, 256 * 2, 240 * 2)
-    //     .unwrap();
-    // debug_tex.set_scale_mode(sdl2::render::ScaleMode::Nearest);
-
-    let bios = include_bytes!("../../nenemu_core/utils/disksys.rom");
+    let bios = include_bytes!("../../../nenemu_core/utils/disksys.rom");
     let mut rom_path = path::PathBuf::from("roms/donkey kong.nes");
 
     let mut emu = NesEmulator::load_bios_only(Some(bios)).unwrap();
     // let emu = NesEmulator::load_rom_from_file(&rom_path, Some(bios)).unwrap();
 
+    let frame_rate = time::Duration::from_secs_f32(1.0 / emu.frame_rate());
     let emu = arc_mutex(emu);
-    let emu_shared_clone = Arc::clone(&emu);
 
-    let audiospec = AudioSpecDesired {
-        channels: Some(1),
-        freq: Some(48000),
-        samples: Some(1024),
-    };
-
-    let audiocb = audio
-        .open_playback(None, &audiospec, move |_| AudioHandler {
-            emu: emu_shared_clone,
-        })
-        .unwrap();
-    audiocb.resume();
-
-    let frame_rate = time::Duration::from_secs_f32(1.0 / 144.0);
     'running: loop {
         // let frame_start = timer.ticks64();
         let frame_start = time::Instant::now();
@@ -290,54 +271,13 @@ fn main() {
         {
             let mut emu_lock = emu.lock().unwrap();
 
-            while emu_lock.audio_queued() < 1024 {
-                emu_lock.cpu_step();
-            }
+            emu_lock.step_until_frame_ready().unwrap();
 
-            // videoq.push(emu_lock.get_video_rgba().clone());
             tex.with_lock(None, |pixels, _| {
                 pixels.copy_from_slice(emu_lock.get_video_rgba());
             })
             .unwrap();
-
-            // let queued = emu_lock.audio_queued();
-
-            // let dyn_rate = if queued < 1024 {
-            //     48000.0 * (1.0 + 0.05)
-            // } else if queued >= 1024 {
-            //     48000.0 * (1.0 - 0.05)
-            // } else {
-            //     48000.0
-            // };
-            // println!("{dyn_rate}");
-
-            // emu_lock.set_audio_rate(dyn_rate);
-
-            // }
-
-            // audioq
-            //     .queue_audio(emu_lock.get_audio_f32_all(48000))
-            //     .unwrap();
-
-            // debug_canvas.set_draw_color(Color::GREY);
-            // debug_canvas.clear();
-            // debug_tex
-            //     .with_lock(None, |pixels, _| {
-            //         emu_lock.get_nametables_rgba(pixels);
-            //     })
-            //     .unwrap();
-            // debug_canvas.copy(&debug_tex, None, None).unwrap();
-            // debug_canvas.present();
         }
-
-        // if frame_counter >= emu_frame_rate {
-        //     frame_counter -= emu_frame_rate;
-        //     tex.with_lock(None, |pixels, _| {
-        //         pixels.copy_from_slice(videoq.pop());
-        //     })
-        //     .unwrap();
-        // }
-        // frame_counter += 1.0;
 
         canvas.copy(&tex, None, None).unwrap();
         canvas.present();
