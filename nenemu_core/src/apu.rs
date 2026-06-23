@@ -721,7 +721,6 @@ impl NesEmulator {
         }
 
         let sample = self.mix_channels();
-        // self.output.audiobuf.push(sample);
         if let Some(sample) = self.output.resampler.add_sample(sample) {
             self.output.audiobuf.push(sample);
         }
@@ -739,19 +738,19 @@ impl NesEmulator {
         //   + 0.00335 * apu.dmc.output as f32;
 
         /* Lookup table */
-        // let pulse_sum = (apu.p0.output  * (!settings.disable_pulse0 as u8) + apu.p1.output * (!settings.disable_pulse1 as u8)) as usize;
+        // let pulse_sum = (apu.p0.output  * (settings.disable_pulse0 as u8) + apu.p1.output * (settings.disable_pulse1 as u8)) as usize;
         // let pulse = ApuRP2A::PULSE_TABLE[pulse_sum];
-        // let tnd_sum = (3 * apu.tri.output * (!settings.disable_triangle as u8) + 2 * apu.noise.output * (!settings.disable_noise as u8) + apu.dmc.output * (!settings.disable_dmc as u8)) as usize;
+        // let tnd_sum = (3 * apu.tri.output * (settings.disable_triangle as u8) + 2 * apu.noise.output * (settings.disable_noise as u8) + apu.dmc.output * (settings.disable_dmc as u8)) as usize;
         // let tnd = ApuRP2A::TND_TABLE[tnd_sum];
-        // let ext = self.mapper.sample() * (!settings.disable_ext_audio as u8 as f32);
+        // let ext = self.mapper.sample() * (settings.disable_ext_audio as u8 as f32);
 
         /* Accurate emulation */
-        let p0 = apu.p0.output * (!settings.disable_pulse0 as u8);
-        let p1 = apu.p1.output * (!settings.disable_pulse1 as u8);
-        let tri = apu.tri.output * (!settings.disable_triangle as u8);
-        let noise = apu.noise.output * (!settings.disable_noise as u8);
-        let dmc = apu.dmc.output * (!settings.disable_dmc as u8);
-        let ext = self.mapper.sample() * (!settings.disable_ext_audio as u8 as f32);
+        let p0 = apu.p0.output * (settings.enable_pulse0 as u8);
+        let p1 = apu.p1.output * (settings.enable_pulse1 as u8);
+        let tri = apu.tri.output * (settings.enable_triangle as u8);
+        let noise = apu.noise.output * (settings.enable_noise as u8);
+        let dmc = apu.dmc.output * (settings.enable_dmc as u8);
+        let ext = self.mapper.sample() * (settings.enable_ext_audio as u8 as f32);
 
         let pulse = 95.88 / ((8128.0 / (p0 + p1) as f32) + 100.0);
         let tnd_sum = (tri as f32 / 8227.0) + (noise as f32 / 12241.0) + (dmc as f32 / 22638.0);

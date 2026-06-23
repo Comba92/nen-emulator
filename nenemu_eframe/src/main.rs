@@ -1,20 +1,14 @@
 // this removes the windows console
-#![windows_subsystem = "windows"]
+// #![windows_subsystem = "windows"]
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use eframe::egui;
-use nenemu_core::{
-    NesPalette,
-    emu::NesEmulator,
-    joypad::{self, InputBtn},
-    rom,
-    utils::RingBuffer,
-};
+use nenemu_core::{NesPalette, emu::NesEmulator, joypad, rom};
 use std::{
     collections::{HashMap, VecDeque},
     fs,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, MutexGuard, atomic},
+    sync::{Arc, Mutex, MutexGuard},
     thread, time,
 };
 
@@ -97,47 +91,174 @@ impl Default for KeyMap {
 }
 
 struct GamepadHandler {
-    pub api: gilrs::Gilrs,
+    pub api: Option<gilrs::Gilrs>,
+    // for now, we only handle the first active gamepad
     pub active: Option<gilrs::GamepadId>,
+}
+impl GamepadHandler {
+    pub fn poll(
+        &mut self,
+        current_input: nenemu_core::joypad::InputBtn,
+        keymaps: &KeyMap,
+    ) -> nenemu_core::joypad::InputBtn {
+        let mut gamepad_input = current_input;
+
+        while let Some(gilrs::Event { id, event, .. }) =
+            self.api.as_mut().and_then(|api| api.next_event())
+        {
+            if event == gilrs::EventType::Connected {
+                self.active = Some(id);
+            }
+
+            if let Some(active) = self.active {
+                if active != id {
+                    continue;
+                }
+
+                match event {
+                    gilrs::EventType::Disconnected => {
+                        if self.active.filter(|x| *x == id).is_some() {
+                            self.active = None;
+                        }
+                    }
+
+                    gilrs::EventType::ButtonReleased(btn, _) => {
+                        if let Some(emu_btn) = keymaps.pads.get(&btn) {
+                            gamepad_input.remove(*emu_btn);
+                        }
+                    }
+
+                    gilrs::EventType::ButtonPressed(btn, _) => {
+                        if let Some(emu_btn) = keymaps.pads.get(&btn) {
+                            gamepad_input.insert(*emu_btn);
+                        }
+                    }
+
+                    gilrs::EventType::AxisChanged(axis, amt, _) => match axis {
+                        gilrs::Axis::LeftStickX => {
+                            if amt >= 0.1 {
+                                gamepad_input.insert(joypad::InputBtn::Right);
+                            } else if amt <= -0.1 {
+                                gamepad_input.insert(joypad::InputBtn::Left);
+                            } else {
+                                gamepad_input.remove(joypad::InputBtn::Right);
+                                gamepad_input.remove(joypad::InputBtn::Left);
+                            }
+                        }
+                        gilrs::Axis::LeftStickY => {
+                            if amt >= 0.1 {
+                                gamepad_input.insert(joypad::InputBtn::Up);
+                            } else if amt <= -0.1 {
+                                gamepad_input.insert(joypad::InputBtn::Down);
+                            } else {
+                                gamepad_input.remove(joypad::InputBtn::Up);
+                                gamepad_input.remove(joypad::InputBtn::Down);
+                            }
+                        }
+                        _ => {}
+                    },
+
+                    _ => {}
+                }
+            }
+        }
+
+        gamepad_input
+    }
 }
 
 impl Default for GamepadHandler {
     fn default() -> Self {
-        let api = gilrs::Gilrs::new().unwrap();
-        let active = api.gamepads().next().map(|x| x.0);
+        let api = gilrs::Gilrs::new()
+            .inspect_err(|err| eprintln!("{err}"))
+            .ok();
+
+        let active = api
+            .as_ref()
+            .and_then(|api| api.gamepads().next().map(|x| x.0));
         Self { api, active }
     }
 }
 
-const APP_NAME: &'static str = "NenEmu";
-type GenericError = Box<dyn std::error::Error>;
+fn cpal_callback(emu: &Arc<Mutex<NesEmulator>>, volume: &Arc<Mutex<f32>>, audio_out: &mut [f32]) {
+    let mut emu_lock = emu.lock().unwrap();
 
-fn main() {
-    let opts = eframe::NativeOptions {
-        centered: true,
-        viewport: egui::ViewportBuilder::default()
-            .with_drag_and_drop(true)
-            .with_inner_size((256.0 * 3.0, 240.0 * 3.0))
-            .with_title(APP_NAME),
-        vsync: true,
-        hardware_acceleration: eframe::HardwareAcceleration::Preferred,
+    while emu_lock.audio_queued() < audio_out.len() {
+        emu_lock.step();
+    }
 
-        ..Default::default()
-    };
+    let volume = *volume.lock().unwrap();
 
-    eframe::run_native(APP_NAME, opts, Box::new(|c| Ok(AppCtx::new(c)))).unwrap();
+    let samples = emu_lock.get_audio_f32_iter(audio_out.len() / 2);
+    for (i, sample) in samples.enumerate() {
+        audio_out[2 * i] = sample * volume;
+        audio_out[2 * i + 1] = sample * volume;
+    }
+
+    // let (right, left) = emu_lock.get_audio_f32(audio_out.len() / 2);
+    // for i in 0..right.len() {
+    //     audio_out[2 * i] = right[i] * volume;
+    //     audio_out[2 * i + 1] = right[i] * volume;
+    // }
+
+    // if let Some(left) = left {
+    //     let audio_out = &mut audio_out[2 * right.len()..];
+    //     for i in 0..left.len() {
+    //         audio_out[2 * i] = left[i] * volume;
+    //         audio_out[2 * i + 1] = left[i] * volume;
+    //     }
+    // }
 }
 
 struct AudioHandler {
     stream: Option<cpal::Stream>,
+    sample_rate: u32,
+    buf_size: u32,
+    devices: Vec<cpal::Device>,
+    enabled: bool,
     volume: Arc<Mutex<f32>>,
 }
 
 impl AudioHandler {
-    pub fn new(sample_rate: u32, buf_size: u32, emu: Arc<Mutex<NesEmulator>>) -> Self {
+    pub fn new(
+        sample_rate: u32,
+        buf_size: u32,
+        emu: Arc<Mutex<NesEmulator>>,
+        enabled: bool,
+    ) -> Self {
         let host = cpal::default_host();
+
+        for device in host.output_devices().unwrap() {
+            println!("{:?}", device.description().unwrap());
+            println!("{:?}", device.default_output_config());
+            println!(
+                "Supported configs {}",
+                device.supported_output_configs().unwrap().count()
+            );
+        }
+
+        let devices = host
+            .output_devices()
+            .map(|devices| devices.collect())
+            .unwrap_or_default();
+
+        // take the default device for now
         match host.default_output_device() {
             Some(device) => {
+                println!("{:?}", device.description());
+                println!("{:?}", device.default_output_config());
+                println!(
+                    "Supported configs {}",
+                    device.supported_output_configs().iter().count()
+                );
+
+                let range = device
+                    .supported_output_configs()
+                    .unwrap()
+                    .filter(|cfg| cfg.contains_rate(sample_rate))
+                    .count();
+                println!("Good cfgs: {range}");
+
                 let config = cpal::StreamConfig {
                     channels: 2,
                     sample_rate: sample_rate,
@@ -150,30 +271,7 @@ impl AudioHandler {
                 let stream = device
                     .build_output_stream(
                         config,
-                        move |audio_out, _| {
-                            let mut emu_lock = emu.lock().unwrap();
-                            let volume = *volume_arc.lock().unwrap();
-
-                            let samples = emu_lock.get_audio_f32_iter(audio_out.len() / 2);
-                            for (i, sample) in samples.enumerate() {
-                                audio_out[2 * i] = sample * volume;
-                                audio_out[2 * i + 1] = sample * volume;
-                            }
-
-                            // let (right, left) = emu_lock.get_audio_f32(audio_out.len() / 2);
-                            // for i in 0..right.len() {
-                            //     audio_out[2 * i] = right[i] * volume;
-                            //     audio_out[2 * i + 1] = right[i] * volume;
-                            // }
-
-                            // if let Some(left) = left {
-                            //     let audio_out = &mut audio_out[2 * right.len()..];
-                            //     for i in 0..left.len() {
-                            //         audio_out[2 * i] = left[i] * volume;
-                            //         audio_out[2 * i + 1] = left[i] * volume;
-                            //     }
-                            // }
-                        },
+                        move |audio_out, _| cpal_callback(&emu, &volume_arc, audio_out),
                         |err| eprintln!("{err}"),
                         None,
                     )
@@ -182,23 +280,52 @@ impl AudioHandler {
 
                 let res = Self {
                     stream: stream,
+                    sample_rate,
+                    buf_size,
+                    devices,
+                    enabled,
                     volume,
                 };
-
-                res.resume();
 
                 res
             }
 
             None => Self {
                 stream: None,
+                sample_rate,
+                buf_size,
+                devices: Vec::new(),
+                enabled: false,
                 volume: Default::default(),
             },
         }
     }
 
-    pub fn is_supported(&self) -> bool {
-        self.stream.is_some()
+    pub fn is_enabled(&self) -> bool {
+        self.stream.is_some() && self.enabled
+    }
+
+    pub fn set_enabled(&mut self, cond: bool) {
+        match &self.stream {
+            Some(stream) => {
+                self.enabled = cond;
+                if self.enabled {
+                    // TODO: should reset stream
+                    _ = stream.play();
+                } else {
+                    _ = stream.pause();
+                }
+            }
+            None => {}
+        }
+    }
+
+    fn set_ouput_device(&mut self) {}
+
+    fn set_sample_rate(&mut self, rate: nenemu_core::emu::SampleRate) {
+        if let Some(_) = self.stream.take() {
+            todo!()
+        }
     }
 
     pub fn buffer_size(&self) -> usize {
@@ -209,15 +336,23 @@ impl AudioHandler {
     }
 
     pub fn resume(&self) {
+        if !self.enabled {
+            return;
+        }
+
         match &self.stream {
-            Some(stream) => stream.play().unwrap(),
+            Some(stream) => _ = stream.play(),
             _ => {}
         }
     }
 
     pub fn pause(&self) {
+        if !self.enabled {
+            return;
+        }
+
         match &self.stream {
-            Some(stream) => stream.pause().unwrap(),
+            Some(stream) => _ = stream.pause(),
             _ => {}
         }
     }
@@ -352,6 +487,38 @@ enum EmulationState {
     Paused,
 }
 
+// #[derive(Default, PartialEq, Clone, Copy)]
+// enum RefreshRate {
+//     Fps60 = 60,
+//     #[default]
+//     Fps120 = 120,
+//     Fps144 = 144,
+// }
+// impl RefreshRate {
+//     pub fn fps(&self) -> f32 {
+//         1.0 / *self as usize as f32
+//     }
+// }
+
+const APP_NAME: &'static str = "NenEmu";
+type GenericError = Box<dyn std::error::Error>;
+
+fn main() {
+    let opts = eframe::NativeOptions {
+        centered: true,
+        viewport: egui::ViewportBuilder::default()
+            .with_drag_and_drop(true)
+            .with_inner_size((256.0 * 3.0, 240.0 * 3.0))
+            .with_title(APP_NAME),
+        vsync: true,
+        hardware_acceleration: eframe::HardwareAcceleration::Preferred,
+
+        ..Default::default()
+    };
+
+    eframe::run_native(APP_NAME, opts, Box::new(|c| Ok(AppCtx::new(c)))).unwrap();
+}
+
 #[derive(Default)]
 #[cfg_attr(feature = "persistence", derive(serde::Serialize, serde::Deserialize))]
 struct AppCfg {
@@ -369,7 +536,10 @@ struct AppCfg {
 
     nes_settings: nenemu_core::emu::NesSettings,
 
+    disable_audio: bool,
+    // refresh_rate: RefreshRate,
     volume: f32,
+    sample_rate: nenemu_core::emu::SampleRate,
 }
 
 #[derive(Default)]
@@ -389,6 +559,12 @@ struct AppState {
 
     current_rom_path: Option<PathBuf>,
     current_rom_header: rom::RomData,
+
+    monitor_refresh_rate: usize,
+    // fps: f32,
+    // used only when audio is disabled
+    video_sync_frame: f32,
+    video_sync_ratio: f32,
 
     frame_number: usize,
     emulation: EmulationState,
@@ -430,6 +606,13 @@ struct AppCtx {
 
 impl AppCtx {
     pub fn new(c: &eframe::CreationContext) -> Box<Self> {
+        let refresh_rate = c
+            .winit_window()
+            .and_then(|window| window.current_monitor())
+            .and_then(|monitor| monitor.refresh_rate_millihertz())
+            .and_then(|refresh_rate| Some(refresh_rate / 1000))
+            .unwrap_or(60);
+
         #[cfg(not(feature = "persistence"))]
         let cfg = AppCfg {
             volume: 0.5,
@@ -456,10 +639,7 @@ impl AppCtx {
 
         // let video_chain = Arc::new(Mutex::new(RingBuffer::new(8)));
 
-        let audio = AudioHandler::new(48000, 1024, Arc::clone(&emu));
-        if !audio.is_supported() {
-            panic!("No audio device found, this means emulation can't be driven by audio");
-        }
+        let audio = AudioHandler::new(48000, 1024, Arc::clone(&emu), !cfg.disable_audio);
 
         // let samples_needed = audio.buffer_size();
 
@@ -488,7 +668,7 @@ impl AppCtx {
         //         .unwrap()
         // };
 
-        let res = Self {
+        let mut res = Self {
             // sdl,
             emu,
             // emu_thread,
@@ -503,11 +683,28 @@ impl AppCtx {
             state: Default::default(),
         };
 
+        res.state.monitor_refresh_rate = refresh_rate as usize;
+        res.update_fps();
+
         Box::new(res)
     }
 
     fn emu_lock(&self) -> MutexGuard<'_, NesEmulator> {
         self.emu.lock().unwrap()
+    }
+
+    fn update_fps(&mut self) {
+        // if self.audio.is_enabled() {
+        //     self.state.fps = self.cfg.refresh_rate.fps();
+        //     println!("FPS updated to sync audio: {}", self.state.fps);
+        // } else {
+        //     let fps = 1.0 / self.emu_lock().region().frame_rate();
+        //     self.state.fps = fps;
+        //     println!("FPS updated to sync video: {fps}");
+        // }
+
+        let ratio = self.state.monitor_refresh_rate as f32 / self.emu_lock().region().frame_rate();
+        self.state.video_sync_ratio = ratio;
     }
 
     fn add_message(&mut self, e: GenericError) {
@@ -522,7 +719,10 @@ impl AppCtx {
     ) -> Option<PathBuf> {
         self.audio.pause();
         let res = file_dialog(prompt, requires, extensions);
-        self.audio.resume();
+
+        if self.state.emulation == EmulationState::Running {
+            self.audio.resume();
+        }
         res
     }
 
@@ -602,13 +802,14 @@ impl AppCtx {
                     self.load_state("last");
                 }
 
+                self.update_fps();
                 self.state.emulation = match self.state.emulation {
                     EmulationState::Stopped | EmulationState::Running => {
-                        // self.audio_stream.play().unwrap();
+                        self.audio.resume();
                         EmulationState::Running
                     }
                     EmulationState::Paused => {
-                        // self.audio_stream.pause().unwrap();
+                        self.audio.pause();
                         EmulationState::Paused
                     }
                 };
@@ -762,12 +963,10 @@ impl AppCtx {
 
                             if run.clicked() {
                                 self.state.emulation = EmulationState::Running;
-                                self.audio.resume();
                             } else if reset.clicked() {
                                 self.reset_rom();
                             } else if stop.clicked() {
                                 self.state.emulation = EmulationState::Stopped;
-                                self.audio.pause();
                             }
                         }
 
@@ -779,14 +978,17 @@ impl AppCtx {
 
                             if pause.clicked() {
                                 self.state.emulation = EmulationState::Paused;
-                                self.audio.pause();
                             } else if reset.clicked() {
                                 self.reset_rom();
                             } else if stop.clicked() {
                                 self.state.emulation = EmulationState::Stopped;
-                                self.audio.pause();
                             }
                         }
+                    }
+
+                    match self.state.emulation {
+                        EmulationState::Running => self.audio.resume(),
+                        _ => self.audio.pause(),
                     }
 
                     let mut emu = self.emu_lock();
@@ -885,7 +1087,7 @@ impl AppCtx {
                     ui.separator();
                     ui.label("🔊 Vol");
 
-                    let volume_slider = egui::Slider::new(&mut self.cfg.volume, 0.0..=1.0);
+                    let volume_slider = egui::Slider::new(&mut self.cfg.volume, 0.0..=4.0);
                     ui.add(volume_slider);
                 }
             });
@@ -916,6 +1118,7 @@ impl AppCtx {
 
     fn show_settings_window(&mut self, ui: &mut egui::Ui) {
         let mut should_update_palette = None;
+        let audio_disabled = self.cfg.disable_audio;
         let mut settings_open = self.state.settings_open;
 
         egui::Window::new("🔧 Settings")
@@ -936,7 +1139,7 @@ impl AppCtx {
                     #[cfg(feature = "savestates")]
                     ui.checkbox(&mut self.cfg.restore_session, "Automatically restore last session when a game is reopened later");
 
-                    ui.checkbox(&mut settings.random_ram, "Randomize RAM at startup")
+                    ui.checkbox(&mut settings.random_ram, "Enable randomized RAM at startup")
                     .on_hover_text("Some games (such as Final Fantasy) use the random state of RAM at boot to seed their rngs");
                 });
 
@@ -945,26 +1148,42 @@ impl AppCtx {
                     .on_hover_text("Reduces flickering, but may show glitches in some games");
                     ui.checkbox(&mut settings.enable_oam_read, "Enable fully emulated OAM read")
                     .on_hover_text("Fully emulates OAM read with its quirks, might decrease performance");
-                    ui.checkbox(&mut settings.disable_background, "Disable background tiles");
-                    ui.checkbox(&mut settings.disable_sprites, "Disable sprite tiles");
-                    ui.checkbox(&mut settings.pal_borders, "Show side PAL black borders");
+                    ui.checkbox(&mut settings.enable_background, "Enable background tiles");
+                    ui.checkbox(&mut settings.enable_sprites, "Enable sprite tiles");
+                    ui.checkbox(&mut settings.pal_borders, "Show side PAL black borders (unimplemented)");
+
+                    // if self.audio.is_enabled() {
+                    //     ui.label("Video refresh rate:").on_hover_text("Higer video refresh rate might reduce input latency");
+                    //     ui.indent("Refresh rates", |ui| {
+                    //         ui.radio_value(&mut self.cfg.refresh_rate, RefreshRate::Fps60, "60fps");
+                    //         ui.radio_value(&mut self.cfg.refresh_rate, RefreshRate::Fps120, "120fps");
+                    //         ui.radio_value(&mut self.cfg.refresh_rate, RefreshRate::Fps144, "144fps");
+                    //     });
+                    //     self.state.fps = self.cfg.refresh_rate.fps();
+                    // }
+
                 });
                 ui.collapsing("🔊 Audio", |ui| {
-                    ui.label("Audio sample rate:");
-                    ui.indent("Sample rates", |ui| {
-                        use nenemu_core::emu::SampleRate;
-                        ui.radio_value(&mut settings.audio_sample_rate, SampleRate::Hz32000, "32000hz");
-                        ui.radio_value(&mut settings.audio_sample_rate, SampleRate::Hz44100, "44100hz");
-                        ui.radio_value(&mut settings.audio_sample_rate, SampleRate::Hz48000, "48000hz");
-                        ui.radio_value(&mut settings.audio_sample_rate, SampleRate::Hz96000, "96000hz");
-                    });
+                    ui.checkbox(&mut self.cfg.disable_audio, "Disable audio and drive emulation by video")
+                    .on_hover_text("By driving emulation with video, we get better good pacing and no skipped frames");
 
-                    ui.checkbox(&mut settings.disable_pulse0, "Disable pulse 0 channel");
-                    ui.checkbox(&mut settings.disable_pulse1, "Disable pulse 1 channel");
-                    ui.checkbox(&mut settings.disable_triangle, "Disable triangle channel");
-                    ui.checkbox(&mut settings.disable_noise, "Disable noise channel");
-                    ui.checkbox(&mut settings.disable_dmc, "Disable dmc channel");
-                    ui.checkbox(&mut settings.disable_ext_audio, "Disable external sound chip");
+                    if self.audio.is_enabled() {
+                        ui.label("Audio sample rate:");
+                        ui.indent("Sample rates", |ui| {
+                            use nenemu_core::emu::SampleRate;
+                            ui.radio_value(&mut self.cfg.sample_rate, SampleRate::Hz32000, "32000hz");
+                            ui.radio_value(&mut self.cfg.sample_rate, SampleRate::Hz44100, "44100hz");
+                            ui.radio_value(&mut self.cfg.sample_rate, SampleRate::Hz48000, "48000hz");
+                            ui.radio_value(&mut self.cfg.sample_rate, SampleRate::Hz96000, "96000hz");
+                        });
+
+                        ui.checkbox(&mut settings.enable_pulse0, "Enable pulse 0 channel");
+                        ui.checkbox(&mut settings.enable_pulse1, "Enable pulse 1 channel");
+                        ui.checkbox(&mut settings.enable_triangle, "Enable triangle channel");
+                        ui.checkbox(&mut settings.enable_noise, "Enable noise channel");
+                        ui.checkbox(&mut settings.enable_dmc, "Enable dmc channel");
+                        ui.checkbox(&mut settings.enable_ext_audio, "Enable external sound chip");
+                    }
                 });
 
                 ui.collapsing("💿 Famicon Disk System (FDS)", |ui| {
@@ -984,6 +1203,16 @@ impl AppCtx {
             });
 
         self.state.settings_open = settings_open;
+
+        if audio_disabled != self.cfg.disable_audio {
+            if self.cfg.disable_audio {
+                self.audio.set_enabled(false);
+            } else {
+                self.audio.set_enabled(true);
+            }
+
+            self.update_fps();
+        }
 
         {
             let mut emu = self.emu_lock();
@@ -1156,65 +1385,7 @@ impl AppCtx {
             }
         });
 
-        let mut gamepad_input = current_input.clone();
-
-        if let Some(active) = self.gamepads.active {
-            while let Some(gilrs::Event { id, event, .. }) = self.gamepads.api.next_event() {
-                if active != id {
-                    continue;
-                }
-
-                match event {
-                    gilrs::EventType::Connected => {
-                        self.gamepads.active = Some(id);
-                    }
-
-                    gilrs::EventType::Disconnected => {
-                        if self.gamepads.active.filter(|x| *x == id).is_some() {
-                            self.gamepads.active = None;
-                        }
-                    }
-
-                    gilrs::EventType::ButtonReleased(btn, _) => {
-                        if let Some(emu_btn) = self.cfg.keymaps.pads.get(&btn) {
-                            gamepad_input.remove(*emu_btn);
-                        }
-                    }
-
-                    gilrs::EventType::ButtonPressed(btn, _) => {
-                        if let Some(emu_btn) = self.cfg.keymaps.pads.get(&btn) {
-                            gamepad_input.insert(*emu_btn);
-                        }
-                    }
-
-                    gilrs::EventType::AxisChanged(axis, amt, _) => match axis {
-                        gilrs::Axis::LeftStickX => {
-                            if amt >= 0.1 {
-                                gamepad_input.insert(joypad::InputBtn::Right);
-                            } else if amt <= -0.1 {
-                                gamepad_input.insert(joypad::InputBtn::Left);
-                            } else {
-                                gamepad_input.remove(joypad::InputBtn::Right);
-                                gamepad_input.remove(joypad::InputBtn::Left);
-                            }
-                        }
-                        gilrs::Axis::LeftStickY => {
-                            if amt >= 0.1 {
-                                gamepad_input.insert(joypad::InputBtn::Up);
-                            } else if amt <= -0.1 {
-                                gamepad_input.insert(joypad::InputBtn::Down);
-                            } else {
-                                gamepad_input.remove(joypad::InputBtn::Up);
-                                gamepad_input.remove(joypad::InputBtn::Down);
-                            }
-                        }
-                        _ => {}
-                    },
-
-                    _ => {}
-                }
-            }
-        }
+        let gamepad_input = self.gamepads.poll(current_input, &self.cfg.keymaps);
 
         if self.state.emulation == EmulationState::Running {
             {
@@ -1229,8 +1400,14 @@ impl AppCtx {
                 emu.set_zapper_trigger(mouse_clicked);
                 emu.set_zapper_light(self.state.mouse_pos.0, self.state.mouse_pos.1);
 
-                while emu.audio_queued() < 1024 * 2 {
-                    emu.step()
+                // while emu.audio_queued() < 1024 * 2 {
+                //     emu.step()
+                // }
+
+                if !self.audio.is_enabled()
+                    && self.state.video_sync_frame >= self.state.video_sync_ratio
+                {
+                    _ = emu.step_until_frame_ready();
                 }
 
                 match emu.check_for_errrors() {
@@ -1241,8 +1418,10 @@ impl AppCtx {
                                 emu.get_video_rgba(),
                             );
                             // self.video_chain.lock().unwrap().push(framebuf);
+                            let frame_number = emu.frame_number();
 
                             drop(emu);
+                            self.state.frame_number = frame_number;
                             self.tex.lock().unwrap().set(framebuf, TEX_OPTS);
                         }
                     }
@@ -1253,6 +1432,14 @@ impl AppCtx {
                         self.add_message(e.into());
                     }
                 }
+            }
+
+            if !self.audio.is_enabled() {
+                if self.state.video_sync_frame >= self.state.video_sync_ratio {
+                    self.state.video_sync_frame -= self.state.video_sync_ratio;
+                }
+
+                self.state.video_sync_frame += 1.0;
             }
 
             self.state.keyboard_input = keyboard_input;
@@ -1356,6 +1543,7 @@ impl eframe::App for AppCtx {
 
         const FPS: f32 = 1.0 / 120.0;
         ui.request_repaint_after_secs(FPS);
+        // ui.request_repaint_after_secs(self.state.fps);
 
         if ui.input(|i| i.viewport().close_requested()) {
             if !self.state.should_close {

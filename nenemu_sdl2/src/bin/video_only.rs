@@ -6,9 +6,8 @@ use std::{
     thread, time,
 };
 
-use nenemu_core::{emu::NesEmulator, joypad::InputBtn, utils::RingBuffer};
+use nenemu_core::{emu::NesEmulator, joypad::InputBtn};
 use sdl2::{
-    audio::{AudioCallback, AudioSpecDesired},
     controller::{Axis, Button},
     event::{Event, WindowEvent},
     keyboard::Keycode,
@@ -17,28 +16,6 @@ use sdl2::{
     render::ScaleMode,
 };
 const AXIS_DEAD_ZONE: i16 = 10_000;
-
-struct AudioHandler {
-    emu: Arc<Mutex<NesEmulator>>,
-}
-impl AudioCallback for AudioHandler {
-    type Channel = f32;
-
-    fn callback(&mut self, audio_out: &mut [Self::Channel]) {
-        let mut emu_lock = self.emu.lock().unwrap();
-        if emu_lock.audio_queued() >= audio_out.len() {
-            emu_lock.put_audio_f32(audio_out);
-        }
-
-        // let (right, left) = emu_lock.get_audio_f32(audio_out.len());
-        // let right_amt = right.len();
-        // audio_out[..right_amt].copy_from_slice(right);
-
-        // if let Some(left) = left {
-        //     audio_out[right_amt..].copy_from_slice(left);
-        // }
-    }
-}
 
 fn arc_mutex<T>(inner: T) -> Arc<Mutex<T>> {
     Arc::new(Mutex::new(inner))
@@ -90,7 +67,11 @@ fn main() {
         .build()
         .unwrap();
 
-    let mut canvas = window.into_canvas().present_vsync().build().unwrap();
+    let mut canvas = window
+        .into_canvas()
+        // .present_vsync()
+        .build()
+        .unwrap();
     canvas.set_logical_size(256, 240).unwrap();
     let texture_creator = canvas.texture_creator();
     let mut tex = texture_creator
@@ -101,7 +82,7 @@ fn main() {
     let bios = include_bytes!("../../../nenemu_core/utils/disksys.rom");
     let mut rom_path = path::PathBuf::from("roms/donkey kong.nes");
 
-    let mut emu = NesEmulator::load_bios_only(Some(bios)).unwrap();
+    let emu = NesEmulator::load_bios_only(Some(bios)).unwrap();
     // let emu = NesEmulator::load_rom_from_file(&rom_path, Some(bios)).unwrap();
 
     let frame_rate = time::Duration::from_secs_f32(1.0 / emu.frame_rate());

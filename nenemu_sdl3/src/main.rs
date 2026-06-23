@@ -26,6 +26,10 @@ impl AudioCallback<f32> for AudioHandler {
     fn callback(&mut self, stream: &mut AudioStream, requested: i32) {
         let mut emu_lock = self.emu.lock().unwrap();
 
+        while emu_lock.audio_queued() < requested as usize {
+            emu_lock.step();
+        }
+
         let (right, left) = emu_lock.get_audio_f32(requested as usize);
         stream.put_data_f32(right).unwrap();
         if let Some(left) = left {
@@ -310,10 +314,6 @@ fn main() {
 
         {
             let mut emu_lock = emu.lock().unwrap();
-
-            while emu_lock.audio_queued() < 1024 * 2 {
-                emu_lock.step();
-            }
 
             if emu_lock.frame_number() != frame_number {
                 tex.with_lock(None, |pixels, _| {

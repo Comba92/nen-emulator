@@ -796,12 +796,12 @@ impl NesEmulator {
         let spr_pixel = spr_data.pixel() * spr_visible as u8;
 
         // TODO: can do this without ifs?
-        let color_id = if !self.settings.disable_sprites
+        let color_id = if self.settings.enable_sprites
             && spr_pixel > 0
             && (spr_data.priority() || bg_pixel == 0)
         {
             ppu.spr_color_from_palette(spr_data.palette(), spr_pixel)
-        } else if !self.settings.disable_background && bg_pixel > 0 {
+        } else if self.settings.enable_background && bg_pixel > 0 {
             let palette_lo = ppu.shifter.shift_attr_lo & shift_mask > 0;
             let palette_hi = ppu.shifter.shift_attr_hi & shift_mask > 0;
             let bg_palette = ((palette_hi as u8) << 1) | (palette_lo as u8);
@@ -989,7 +989,10 @@ impl NesEmulator {
                 self.ppu_dispatch_read(self.ppu.nametbl_addr());
 
                 self.ppu.dot = 0;
-                if self.ppu.odd_frame && self.ppu.mask.contains(Mask::BgEnable) {
+                if self.ppu.odd_frame
+                    && self.ppu.mask.contains(Mask::BgEnable)
+                    && self.region() == Region::NTSC
+                {
                     self.ppu.dot = 1;
                 }
 

@@ -1,5 +1,4 @@
 use std::{
-    collections::VecDeque,
     fs,
     io::{Read, Write},
     path,
@@ -27,8 +26,18 @@ impl AudioCallback for AudioHandler {
 
     fn callback(&mut self, audio_out: &mut [Self::Channel]) {
         let mut emu_lock = self.emu.lock().unwrap();
+
+        while emu_lock.audio_queued() < audio_out.len() {
+            emu_lock.step();
+        }
+
         if emu_lock.audio_queued() >= audio_out.len() {
             emu_lock.put_audio_f32(audio_out);
+        }
+
+        // run a little more so next time we might have samples ready early
+        while emu_lock.audio_queued() < audio_out.len() * 2 {
+            emu_lock.step();
         }
     }
 }
@@ -85,6 +94,7 @@ fn main() {
         .unwrap();
 
     let mut canvas = window.into_canvas().present_vsync().build().unwrap();
+
     canvas.set_logical_size(256, 240).unwrap();
     let texture_creator = canvas.texture_creator();
     let mut tex = texture_creator
@@ -113,7 +123,7 @@ fn main() {
     let emu = arc_mutex(emu);
     let emu_shared_clone = Arc::clone(&emu);
 
-    // let mut videoq = VecDeque::new();
+    // let mut videoq = std::collections::VecDeque::new();
 
     let audiospec = AudioSpecDesired {
         channels: Some(1),
@@ -128,13 +138,12 @@ fn main() {
         .unwrap();
     audiocb.resume();
 
-    let frame_rate = time::Duration::from_secs_f32(1.0 / 120.0);
+    // let frame_rate = time::Duration::from_secs_f32(1.0 / 144.0);
     // let mut frame_counter = 0.0;
-    // let emu_frame_rate = 1.0 / emu.lock().unwrap().frame_rate() as f64;
     let mut frame_number = 0;
     'running: loop {
         // let frame_start = timer.ticks64();
-        let frame_start = time::Instant::now();
+        // let frame_start = time::Instant::now();
 
         for event in events.poll_iter() {
             match event {
@@ -296,9 +305,9 @@ fn main() {
         {
             let mut emu_lock = emu.lock().unwrap();
 
-            while emu_lock.audio_queued() < 1024 * 2 {
-                emu_lock.step();
-            }
+            // while emu_lock.audio_queued() < audiocb.spec().samples as usize * 2 {
+            //     emu_lock.step();
+            // }
 
             if emu_lock.frame_number() != frame_number {
                 // videoq.push_back(emu_lock.get_video_rgba().clone());
@@ -345,10 +354,8 @@ fn main() {
             // debug_canvas.present();
         }
 
-        // if frame_counter >= emu_frame_rate {
-        //     frame_counter -= emu_frame_rate;
-
-        //     println!("{}", videoq.len());
+        // if frame_counter >= rate_ratio {
+        //     frame_counter -= rate_ratio;
 
         //     if let Some(frame) = videoq.pop_front() {
         //         tex.with_lock(None, |pixels, _| {
@@ -362,7 +369,8 @@ fn main() {
         canvas.copy(&tex, None, None).unwrap();
         canvas.present();
 
-        sleep_until_fps(frame_start, frame_rate);
+        // we are using vsync
+        // sleep_until_fps(frame_start, frame_rate);
     }
 }
 
