@@ -143,7 +143,8 @@ fn main() {
         .unwrap();
     audiocb.resume().unwrap();
 
-    let frame_rate = time::Duration::from_secs_f32(1.0 / 144.0);
+    let frame_rate = time::Duration::from_secs_f32(1.0 / 120.0);
+    let mut frame_number = 0;
     'running: loop {
         // let frame_start = timer.ticks64();
         let frame_start = time::Instant::now();
@@ -310,14 +311,17 @@ fn main() {
         {
             let mut emu_lock = emu.lock().unwrap();
 
-            while emu_lock.audio_queued() < 1024 {
+            while emu_lock.audio_queued() < 1024 * 2 {
                 emu_lock.step();
             }
 
-            tex.with_lock(None, |pixels, _| {
-                emu_lock.put_video_rgba(pixels);
-            })
-            .unwrap();
+            if emu_lock.frame_number() != frame_number {
+                tex.with_lock(None, |pixels, _| {
+                    emu_lock.put_video_rgba(pixels);
+                })
+                .unwrap();
+                frame_number = emu_lock.frame_number();
+            }
         }
 
         canvas.copy(&tex, None, None).unwrap();

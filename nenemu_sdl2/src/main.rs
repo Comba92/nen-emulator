@@ -1,4 +1,5 @@
 use std::{
+    collections::VecDeque,
     fs,
     io::{Read, Write},
     path,
@@ -112,6 +113,8 @@ fn main() {
     let emu = arc_mutex(emu);
     let emu_shared_clone = Arc::clone(&emu);
 
+    // let mut videoq = VecDeque::new();
+
     let audiospec = AudioSpecDesired {
         channels: Some(1),
         freq: Some(48000),
@@ -125,7 +128,10 @@ fn main() {
         .unwrap();
     audiocb.resume();
 
-    let frame_rate = time::Duration::from_secs_f32(1.0 / 144.0);
+    let frame_rate = time::Duration::from_secs_f32(1.0 / 120.0);
+    // let mut frame_counter = 0.0;
+    // let emu_frame_rate = 1.0 / emu.lock().unwrap().frame_rate() as f64;
+    let mut frame_number = 0;
     'running: loop {
         // let frame_start = timer.ticks64();
         let frame_start = time::Instant::now();
@@ -290,15 +296,24 @@ fn main() {
         {
             let mut emu_lock = emu.lock().unwrap();
 
-            while emu_lock.audio_queued() < 1024 {
+            while emu_lock.audio_queued() < 1024 * 2 {
                 emu_lock.step();
             }
 
+            if emu_lock.frame_number() != frame_number {
+                // videoq.push_back(emu_lock.get_video_rgba().clone());
+                tex.with_lock(None, |pixels, _| {
+                    pixels.copy_from_slice(emu_lock.get_video_rgba());
+                })
+                .unwrap();
+                frame_number = emu_lock.frame_number();
+            }
+
             // videoq.push(emu_lock.get_video_rgba().clone());
-            tex.with_lock(None, |pixels, _| {
-                pixels.copy_from_slice(emu_lock.get_video_rgba());
-            })
-            .unwrap();
+            // tex.with_lock(None, |pixels, _| {
+            //     pixels.copy_from_slice(emu_lock.get_video_rgba());
+            // })
+            // .unwrap();
 
             // let queued = emu_lock.audio_queued();
 
@@ -332,10 +347,15 @@ fn main() {
 
         // if frame_counter >= emu_frame_rate {
         //     frame_counter -= emu_frame_rate;
-        //     tex.with_lock(None, |pixels, _| {
-        //         pixels.copy_from_slice(videoq.pop());
-        //     })
-        //     .unwrap();
+
+        //     println!("{}", videoq.len());
+
+        //     if let Some(frame) = videoq.pop_front() {
+        //         tex.with_lock(None, |pixels, _| {
+        //             pixels.copy_from_slice(&frame);
+        //         })
+        //         .unwrap();
+        //     }
         // }
         // frame_counter += 1.0;
 

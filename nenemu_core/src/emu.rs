@@ -57,6 +57,7 @@ pub struct NesSettings {
 #[derive(Default)]
 pub struct NesOutput {
     pub(crate) frame_ready: bool,
+    pub(crate) frame_number: usize,
     pub(crate) videobuf_back: Box<Framebuf>,
     pub(crate) videobuf_view: Box<Framebuf>,
     pub audiobuf: RingBuffer<f32>,
@@ -341,10 +342,6 @@ impl NesEmulator {
         self.check_for_errrors()
     }
 
-    pub fn is_frame_ready(&self) -> bool {
-        self.output.frame_ready
-    }
-
     pub fn step_until_samples_or_frame_ready(
         &mut self,
         samples_amt: usize,
@@ -367,6 +364,14 @@ impl NesEmulator {
 
         // TODO: should reload wram battery!
         // TODO: some mappers need to be reset too
+    }
+
+    pub fn is_frame_ready(&self) -> bool {
+        self.output.frame_ready
+    }
+
+    pub fn frame_number(&self) -> usize {
+        self.output.frame_number
     }
 
     pub fn get_video_rgba(&mut self) -> &[u8; FRAMEBUF_SIZE] {

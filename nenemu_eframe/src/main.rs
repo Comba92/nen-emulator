@@ -201,10 +201,11 @@ impl AudioHandler {
         self.stream.is_some()
     }
 
-    pub fn buffer_size(&self) -> Option<usize> {
+    pub fn buffer_size(&self) -> usize {
         self.stream
             .as_ref()
-            .map(|s| s.buffer_size().unwrap_or_default() as usize)
+            .map(|s| s.buffer_size().unwrap_or_default())
+            .unwrap_or_default() as usize
     }
 
     pub fn resume(&self) {
@@ -389,6 +390,7 @@ struct AppState {
     current_rom_path: Option<PathBuf>,
     current_rom_header: rom::RomData,
 
+    frame_number: usize,
     emulation: EmulationState,
 }
 
@@ -416,7 +418,7 @@ struct AppCtx {
     // emu_thread: thread::JoinHandle<()>,
     // is_running: Arc<atomic::AtomicBool>,
     //
-    video_chain: Arc<Mutex<RingBuffer<egui::ColorImage>>>,
+    // video_chain: Arc<Mutex<RingBuffer<egui::ColorImage>>>,
     tex: Arc<Mutex<egui::TextureHandle>>,
 
     audio: AudioHandler,
@@ -452,20 +454,20 @@ impl AppCtx {
         let emu = Arc::new(Mutex::new(emu));
         // let sdl = SdlCtx::new(44100, Arc::clone(&emu));
 
-        let video_chain = Arc::new(Mutex::new(RingBuffer::new(8)));
+        // let video_chain = Arc::new(Mutex::new(RingBuffer::new(8)));
 
         let audio = AudioHandler::new(48000, 1024, Arc::clone(&emu));
         if !audio.is_supported() {
             panic!("No audio device found, this means emulation can't be driven by audio");
         }
 
-        let samples_needed = audio.buffer_size().unwrap_or(1024);
+        // let samples_needed = audio.buffer_size();
 
-        let emu_arc = Arc::clone(&emu);
-        let chain_arc = Arc::clone(&video_chain);
+        // let emu_arc = Arc::clone(&emu);
+        // let chain_arc = Arc::clone(&video_chain);
 
-        let is_running = Arc::new(atomic::AtomicBool::new(false));
-        let is_running_arc = Arc::clone(&is_running);
+        // let is_running = Arc::new(atomic::AtomicBool::new(false));
+        // let is_running_arc = Arc::clone(&is_running);
 
         // let emu_thread = if audio.is_supported() {
         //     thread::Builder::new()
@@ -491,7 +493,7 @@ impl AppCtx {
             emu,
             // emu_thread,
             // is_running,
-            video_chain,
+            // video_chain,
             tex,
             audio,
 
@@ -1214,43 +1216,48 @@ impl AppCtx {
             }
         }
 
-        {
-            let mut emu = self.emu_lock();
+        if self.state.emulation == EmulationState::Running {
+            {
+                let mut emu = self.emu_lock();
 
-            if keyboard_input != self.state.keyboard_input {
-                emu.set_buttons_all(keyboard_input);
-            } else if gamepad_input != self.state.gamepad_input {
-                emu.set_buttons_all(gamepad_input);
-            }
+                if keyboard_input != self.state.keyboard_input {
+                    emu.set_buttons_all(keyboard_input);
+                } else if gamepad_input != self.state.gamepad_input {
+                    emu.set_buttons_all(gamepad_input);
+                }
 
-            emu.set_zapper_trigger(mouse_clicked);
-            emu.set_zapper_light(self.state.mouse_pos.0, self.state.mouse_pos.1);
+                emu.set_zapper_trigger(mouse_clicked);
+                emu.set_zapper_light(self.state.mouse_pos.0, self.state.mouse_pos.1);
 
-            while self.state.emulation == EmulationState::Running && emu.audio_queued() < 1024 {
-                emu.step()
-            }
+                while emu.audio_queued() < 1024 * 2 {
+                    emu.step()
+                }
 
-            match emu.check_for_errrors() {
-                Ok(_) => {
-                    if emu.is_frame_ready() {
-                        let framebuf = egui::ColorImage::from_rgba_unmultiplied(
-                            [256, 240],
-                            emu.get_video_rgba(),
-                        );
-                        self.video_chain.lock().unwrap().push(framebuf);
+                match emu.check_for_errrors() {
+                    Ok(_) => {
+                        if emu.frame_number() != self.state.frame_number {
+                            let framebuf = egui::ColorImage::from_rgba_unmultiplied(
+                                [256, 240],
+                                emu.get_video_rgba(),
+                            );
+                            // self.video_chain.lock().unwrap().push(framebuf);
+
+                            drop(emu);
+                            self.tex.lock().unwrap().set(framebuf, TEX_OPTS);
+                        }
+                    }
+
+                    Err(e) => {
+                        drop(emu);
+                        self.state.emulation = EmulationState::Stopped;
+                        self.add_message(e.into());
                     }
                 }
-
-                Err(e) => {
-                    drop(emu);
-                    self.state.emulation = EmulationState::Stopped;
-                    self.add_message(e.into());
-                }
             }
-        }
 
-        self.state.keyboard_input = keyboard_input;
-        self.state.gamepad_input = gamepad_input;
+            self.state.keyboard_input = keyboard_input;
+            self.state.gamepad_input = gamepad_input;
+        }
     }
 }
 
@@ -1337,13 +1344,13 @@ impl eframe::App for AppCtx {
         // );
         // }
 
-        {
-            let mut video_lock = self.video_chain.lock().unwrap();
-            if video_lock.queued() > 0 {
-                let framebuf = std::mem::take(video_lock.pop_mut());
-                self.tex.lock().unwrap().set(framebuf, TEX_OPTS);
-            }
-        }
+        // {
+        //     let mut video_lock = self.video_chain.lock().unwrap();
+        //     if video_lock.queued() > 0 {
+        //         let framebuf = std::mem::take(video_lock.pop_mut());
+        //         self.tex.lock().unwrap().set(framebuf, TEX_OPTS);
+        //     }
+        // }
 
         *self.audio.volume.lock().unwrap() = self.cfg.volume;
 

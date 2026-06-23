@@ -842,6 +842,7 @@ impl NesEmulator {
         self.ppu.vblank_suppress = false;
 
         self.output.frame_ready = false;
+        self.output.frame_number += 1;
     }
 
     // https://forums.nesdev.org/viewtopic.php?t=8066
