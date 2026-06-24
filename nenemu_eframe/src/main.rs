@@ -16,7 +16,7 @@ const TEX_OPTS: egui::TextureOptions = egui::TextureOptions {
     magnification: egui::TextureFilter::Nearest,
     minification: egui::TextureFilter::Nearest,
     wrap_mode: egui::TextureWrapMode::ClampToEdge,
-    mipmap_mode: None,
+    mipmap_mode: Some(egui::TextureFilter::Nearest),
 };
 
 #[cfg_attr(feature = "persistence", derive(serde::Serialize, serde::Deserialize))]
@@ -213,84 +213,94 @@ fn cpal_callback(emu: &Arc<Mutex<NesEmulator>>, volume: &Arc<Mutex<f32>>, audio_
 struct AudioStreamData {
     cb: cpal::Stream,
     device: cpal::Device,
-    cfg: cpal::StreamConfig
+    device_id: cpal::DeviceId,
+    cfg: cpal::StreamConfig,
+}
+impl AudioStreamData {
+    fn new(
+        device: cpal::Device,
+        cfg: cpal::SupportedStreamConfig,
+        volume: &Arc<Mutex<f32>>,
+        emu: &Arc<Mutex<NesEmulator>>,
+    ) -> Option<Self> {
+        let volume_arc = Arc::clone(volume);
+        let emu_arc = Arc::clone(emu);
+
+        device
+            .build_output_stream(
+                cfg.into(),
+                move |audio_out, _| cpal_callback(&emu_arc, &volume_arc, audio_out),
+                |err| eprintln!("Cpal callback error: {err}"),
+                None,
+            )
+            .inspect_err(|e| eprintln!("Cpal creation error {e}")) // TODO: poll for new output device here
+            .ok()
+            .and_then(|cb| {
+                Some(AudioStreamData {
+                    cb,
+                    device_id: device.id().unwrap(),
+                    device,
+                    cfg: cfg.into(),
+                })
+            })
+    }
+}
+
+fn cpal_query_cfgs(device: &cpal::Device) -> Option<cpal::SupportedStreamConfig> {
+    device
+        .default_output_config()
+        .inspect_err(|err| eprintln!("{err}"))
+        .ok()
+        .filter(|cfg| {
+            // check if default config is ok
+            cfg.channels() == 2 && cfg.sample_format() == cpal::SampleFormat::F32
+        })
+        .or_else(|| {
+            // search for a good config
+            device
+                .supported_output_configs()
+                .inspect_err(|err| eprintln!("{err}"))
+                .ok()
+                .and_then(|cfgs| {
+                    cfgs.filter(|cfg| {
+                        cfg.channels() == 2 && cfg.sample_format() == cpal::SampleFormat::F32
+                    })
+                    .filter_map(|cfg| cfg.try_with_standard_sample_rate())
+                    .next()
+                })
+        })
 }
 
 struct AudioHandler {
     host: cpal::Host,
     stream: Option<AudioStreamData>,
-    sample_rate: u32,
-    buf_size: u32,
-    devices: Vec<cpal::Device>,
     enabled: bool,
+    playing: bool,
     volume: Arc<Mutex<f32>>,
 }
 
 impl AudioHandler {
-    pub fn new(
-        sample_rate: u32,
-        buf_size: u32,
-        emu: Arc<Mutex<NesEmulator>>,
-        enabled: bool,
-    ) -> Self {
+    pub fn new(emu: &Arc<Mutex<NesEmulator>>, enabled: bool) -> Self {
         let host = cpal::default_host();
-
-        let devices = host
-            .output_devices()
-            .map(|devices| devices.collect())
-            .unwrap_or_default();
 
         // take the default device for now
         match host.default_output_device() {
             Some(device) => {
-                let mut good_cfgs = device
-                    .supported_output_configs()
-                    .unwrap()
-                    .filter(|cfg| cfg.channels() == 2 && cfg.sample_format() == cpal::SampleFormat::F32)
-                    .filter_map(|cfg| cfg.try_with_standard_sample_rate());
+                // println!("HOSTS: {:?}", cpal::available_hosts());
+                // println!("HOST chosen: {:?}", host.id());
+                // println!("DEV chosen: {device:?}");
+
+                // let default_cfg = device.default_output_config();
+                // println!("Default CFG: {default_cfg:?}");
 
                 let volume = Arc::new(Mutex::new(0.5));
-
-                let stream = good_cfgs.next().and_then(|cfg| {
-                    let volume_arc = Arc::clone(&volume);
-                    device
-                        .build_output_stream(
-                            cfg.into(),
-                            move |audio_out, _| cpal_callback(&emu, &volume_arc, audio_out),
-                            |err| eprintln!("Cpal callback error: {err}"),
-                            None,
-                        )
-                        .inspect_err(|e| eprintln!("Cpal creation error {e}"))
-                        .ok()
-                        .and_then(|cb| Some(AudioStreamData {
-                            cb,
-                            device,
-                            cfg: cfg.into(),
-                        }))
-                });
-
-                // let config = cpal::StreamConfig {
-                //     channels: 2,
-                //     sample_rate: sample_rate,
-                //     buffer_size: cpal::BufferSize::Fixed(buf_size),
-                // };
-
-                // let stream = device
-                //     .build_output_stream(
-                //         config,
-                //         move |audio_out, _| cpal_callback(&emu, &volume_arc, audio_out),
-                //         |err| eprintln!("{err}"),
-                //         None,
-                //     )
-                //     .inspect_err(|e| eprintln!("{e}"))
-                //     .ok();
+                let stream = cpal_query_cfgs(&device)
+                    .and_then(|cfg| AudioStreamData::new(device, cfg, &volume, emu));
 
                 let res = Self {
                     host,
                     stream,
-                    sample_rate,
-                    buf_size,
-                    devices,
+                    playing: false,
                     enabled,
                     volume,
                 };
@@ -301,22 +311,37 @@ impl AudioHandler {
             None => Self {
                 host,
                 stream: None,
-                sample_rate,
-                buf_size,
-                devices: Vec::new(),
+                playing: false,
                 enabled: false,
                 volume: Default::default(),
             },
         }
     }
 
+    pub fn current_device_id(&self) -> Option<&cpal::DeviceId> {
+        self.stream.as_ref().map(|s| &s.device_id)
+    }
+
     pub fn is_enabled(&self) -> bool {
         self.stream.is_some() && self.enabled
     }
 
-    pub fn set_enabled(&mut self, cond: bool, emu: Arc<Mutex<NesEmulator>>) {
+    pub fn sample_rate(&self) -> u32 {
+        self.stream
+            .as_ref()
+            .map(|s| s.cfg.sample_rate)
+            .unwrap_or_default()
+    }
+
+    pub fn buffer_size(&self) -> usize {
+        self.stream
+            .as_ref()
+            .map(|s| s.cb.buffer_size().unwrap_or_default())
+            .unwrap_or_default() as usize
+    }
+
+    pub fn set_enabled(&mut self, cond: bool) {
         self.enabled = cond;
-        self.clear(emu);
 
         match &self.stream {
             Some(stream) => {
@@ -330,61 +355,69 @@ impl AudioHandler {
         }
     }
 
-    fn set_ouput_device(&mut self, emu: Arc<Mutex<NesEmulator>>) {
-        todo!()
-    }
+    fn set_ouput_device(
+        &mut self,
+        device_id: cpal::DeviceId,
+        emu: &Arc<Mutex<NesEmulator>>,
+    ) -> bool {
+        if let Some(device) = self.host.device_by_id(&device_id) {
+            let new_stream = cpal_query_cfgs(&device)
+                .and_then(|cfg| AudioStreamData::new(device, cfg, &self.volume, emu));
 
-    fn set_sample_rate(&mut self, rate: nenemu_core::emu::SampleRate, emu: Arc<Mutex<NesEmulator>>) {
-        if let Some(stream) = self.stream.take() {
-            todo!()
-        }
-    }
-
-    pub fn buffer_size(&self) -> usize {
-        self.stream
-            .as_ref()
-            .map(|s| s.cb.buffer_size().unwrap_or_default())
-            .unwrap_or_default() as usize
-    }
-
-    pub fn clear(&mut self, emu: Arc<Mutex<NesEmulator>>) {
-        if let Some(mut stream) = self.stream.take() {
-            let volume_arc = Arc::clone(&self.volume);
-            let cb = stream.device.build_output_stream(
-                stream.cfg,
-                move |buf, _| cpal_callback(&emu, &volume_arc, buf),
-                |err| eprintln!("Cpal callback error: {err}"),
-                None
-            );
-
-            _ = stream.cb.pause();
-            if let Ok(cb) = cb {
-                stream.cb = cb;
-                self.stream = Some(stream);
-            } else {
-                self.stream = None;
+            if new_stream.is_some() {
+                self.stream = new_stream;
             }
+
+            if self.playing {
+                self.resume();
+            }
+
+            true
         } else {
-            // TODO: find another device
+            false
         }
     }
 
-    pub fn resume(&self) {
+    // pub fn clear(&mut self, emu: Arc<Mutex<NesEmulator>>) {
+    //     if let Some(mut stream) = self.stream.take() {
+    //         let volume_arc = Arc::clone(&self.volume);
+    //         let cb = stream.device.build_output_stream(
+    //             stream.cfg,
+    //             move |buf, _| cpal_callback(&emu, &volume_arc, buf),
+    //             |err| eprintln!("Cpal callback error: {err}"),
+    //             None,
+    //         );
+
+    //         _ = stream.cb.pause();
+    //         if let Ok(cb) = cb {
+    //             stream.cb = cb;
+    //             self.stream = Some(stream);
+    //         } else {
+    //             self.stream = None;
+    //         }
+    //     } else {
+    //         // TODO: find another device
+    //     }
+    // }
+
+    pub fn resume(&mut self) {
         if !self.enabled {
             return;
         }
 
+        self.playing = true;
         match &self.stream {
             Some(stream) => _ = stream.cb.play(),
             _ => {}
         }
     }
 
-    pub fn pause(&self) {
+    pub fn pause(&mut self) {
         if !self.enabled {
             return;
         }
 
+        self.playing = false;
         match &self.stream {
             Some(stream) => _ = stream.cb.pause(),
             _ => {}
@@ -521,19 +554,6 @@ enum EmulationState {
     Paused,
 }
 
-// #[derive(Default, PartialEq, Clone, Copy)]
-// enum RefreshRate {
-//     Fps60 = 60,
-//     #[default]
-//     Fps120 = 120,
-//     Fps144 = 144,
-// }
-// impl RefreshRate {
-//     pub fn fps(&self) -> f32 {
-//         1.0 / *self as usize as f32
-//     }
-// }
-
 const APP_NAME: &'static str = "NenEmu";
 type GenericError = Box<dyn std::error::Error>;
 
@@ -546,6 +566,8 @@ fn main() {
             .with_title(APP_NAME),
         vsync: true,
         hardware_acceleration: eframe::HardwareAcceleration::Preferred,
+        #[cfg(feature = "opengl")]
+        renderer: eframe::Renderer::Glow,
 
         ..Default::default()
     };
@@ -571,9 +593,7 @@ struct AppCfg {
     nes_settings: nenemu_core::emu::NesSettings,
 
     disable_audio: bool,
-    // refresh_rate: RefreshRate,
     volume: f32,
-    sample_rate: nenemu_core::emu::SampleRate,
 }
 
 #[derive(Default)]
@@ -673,8 +693,10 @@ impl AppCtx {
 
         // let video_chain = Arc::new(Mutex::new(RingBuffer::new(8)));
 
-        let audio = AudioHandler::new(48000, 1024, Arc::clone(&emu), !cfg.disable_audio);
-        emu.lock().unwrap().set_audio_rate(audio.buffer_size() as f32);
+        let audio = AudioHandler::new(&emu, !cfg.disable_audio);
+        emu.lock()
+            .unwrap()
+            .set_audio_rate(audio.buffer_size() as f32);
 
         // let samples_needed = audio.buffer_size();
 
@@ -818,6 +840,8 @@ impl AppCtx {
                 }
 
                 new_emu.update_settings(self.cfg.nes_settings.clone());
+                new_emu.set_audio_rate(self.audio.sample_rate() as f32);
+
                 if let Some(pal) = self.cfg.palettes.front() {
                     new_emu.palette = pal.clone();
                 }
@@ -1198,27 +1222,52 @@ impl AppCtx {
                     // }
 
                 });
+
+
                 ui.collapsing("🔊 Audio", |ui| {
                     ui.checkbox(&mut self.cfg.disable_audio, "Disable audio and drive emulation by video")
                     .on_hover_text("By driving emulation with video, we get better good pacing and no skipped frames");
 
                     if self.audio.is_enabled() {
-                        ui.label("Audio sample rate:");
-                        ui.indent("Sample rates", |ui| {
-                            use nenemu_core::emu::SampleRate;
-                            ui.radio_value(&mut self.cfg.sample_rate, SampleRate::Hz32000, "32000hz");
-                            ui.radio_value(&mut self.cfg.sample_rate, SampleRate::Hz44100, "44100hz");
-                            ui.radio_value(&mut self.cfg.sample_rate, SampleRate::Hz48000, "48000hz");
-                            ui.radio_value(&mut self.cfg.sample_rate, SampleRate::Hz96000, "96000hz");
+                        ui.label("Audio device");
+                        ui.indent("Audio devices", |ui| {
+                            if let Ok(devices) = self.audio.host.output_devices() {
+                                let curr_device = self.audio.current_device_id().unwrap(); // we are sure this is some here because of is_enabled()
+                                let mut selected_device = curr_device.clone();
+
+                                for dev in devices.into_iter() {
+                                    if let Ok(id) = dev.id() {
+                                        let descr = dev.description().unwrap();
+                                        let name = descr.name();
+                                        ui.radio_value(&mut selected_device, id, name);
+                                    }
+                                }
+
+                                if *curr_device != selected_device {
+                                    self.audio.set_ouput_device(selected_device, &self.emu);
+                                    self.emu_lock().set_audio_rate(self.audio.sample_rate() as f32);
+                                }
+                            }
                         });
 
-                        ui.checkbox(&mut settings.enable_pulse0, "Enable pulse 0 channel");
-                        ui.checkbox(&mut settings.enable_pulse1, "Enable pulse 1 channel");
-                        ui.checkbox(&mut settings.enable_triangle, "Enable triangle channel");
-                        ui.checkbox(&mut settings.enable_noise, "Enable noise channel");
-                        ui.checkbox(&mut settings.enable_dmc, "Enable dmc channel");
-                        ui.checkbox(&mut settings.enable_ext_audio, "Enable external sound chip");
+                        // ui.label("Audio sample rate:");
+                        // ui.indent("Sample rates", |ui| {
+                        //     use nenemu_core::emu::SampleRate;
+                        //     ui.radio_value(&mut self.cfg.sample_rate, SampleRate::Hz32000, "32000hz");
+                        //     ui.radio_value(&mut self.cfg.sample_rate, SampleRate::Hz44100, "44100hz");
+                        //     ui.radio_value(&mut self.cfg.sample_rate, SampleRate::Hz48000, "48000hz");
+                        //     ui.radio_value(&mut self.cfg.sample_rate, SampleRate::Hz96000, "96000hz");
+                        // });
                     }
+
+                    let settings = &mut self.cfg.nes_settings;
+
+                    ui.checkbox(&mut settings.enable_pulse0, "Enable pulse 0 channel");
+                    ui.checkbox(&mut settings.enable_pulse1, "Enable pulse 1 channel");
+                    ui.checkbox(&mut settings.enable_triangle, "Enable triangle channel");
+                    ui.checkbox(&mut settings.enable_noise, "Enable noise channel");
+                    ui.checkbox(&mut settings.enable_dmc, "Enable dmc channel");
+                    ui.checkbox(&mut settings.enable_ext_audio, "Enable external sound chip");
                 });
 
                 ui.collapsing("💿 Famicon Disk System (FDS)", |ui| {
@@ -1240,7 +1289,8 @@ impl AppCtx {
         self.state.settings_open = settings_open;
 
         if audio_disabled != self.cfg.disable_audio {
-            self.audio.set_enabled(!self.cfg.disable_audio, Arc::clone(&self.emu));
+            self.audio.set_enabled(!self.cfg.disable_audio);
+            self.emu_lock().get_audiobuf().clear();
             self.update_fps();
         }
 
@@ -1571,7 +1621,7 @@ impl eframe::App for AppCtx {
 
         *self.audio.volume.lock().unwrap() = self.cfg.volume;
 
-        const FPS: f32 = 1.0 / 120.0;
+        const FPS: f32 = 1.0 / 144.0;
         ui.request_repaint_after_secs(FPS);
         // ui.request_repaint_after_secs(self.state.fps);
 

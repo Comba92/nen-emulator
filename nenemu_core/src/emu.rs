@@ -88,6 +88,7 @@ impl NesOutput {
                 (AUDIO_FRAMES_BUFFERED as f32 * (region.clock_rate() as f32 / region.frame_rate()))
                     as usize,
             ),
+            resampler: AvgResampler::new(region.clock_rate(), SampleRate::default()),
             ..Default::default()
         }
     }
@@ -448,10 +449,6 @@ impl NesEmulator {
         self.output.audiobuf.queued()
     }
 
-    pub fn audio_capacity(&self) -> usize {
-        self.output.audiobuf.capacity()
-    }
-
     pub fn set_audio_rate(&mut self, rate: f32) {
         self.output
             .resampler
@@ -464,6 +461,10 @@ impl NesEmulator {
 
     pub fn get_audio_f32_iter(&mut self, amount: usize) -> impl Iterator<Item = &f32> {
         self.output.audiobuf.take_iter(amount)
+    }
+
+    pub fn get_audiobuf(&mut self) -> &mut RingBuffer<f32> {
+        &mut self.output.audiobuf
     }
 
     pub fn put_audio_f32(&mut self, buf: &mut [f32]) {

@@ -58,6 +58,11 @@ pub mod utils {
     }
 
     impl<T> RingBuffer<T> {
+        pub fn clear(&mut self) {
+            self.read_pos = 0;
+            self.write_pos = 0;
+        }
+
         pub fn read_pos(&self) -> usize {
             self.read_pos
         }

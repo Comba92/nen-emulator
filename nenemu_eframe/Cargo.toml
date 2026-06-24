@@ -6,6 +6,7 @@ edition = "2024"
 [features]
 savestates = ["nenemu_core/savestates"]
 persistence = ["savestates", "serde", "eframe/persistence", "gilrs/serde-serialize"]
+opengl = ["eframe/glow"]
 
 [dependencies]
 rfd = { version = "0.17.2" }
