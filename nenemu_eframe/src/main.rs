@@ -286,12 +286,12 @@ impl AudioHandler {
         // take the default device for now
         match host.default_output_device() {
             Some(device) => {
-                // println!("HOSTS: {:?}", cpal::available_hosts());
-                // println!("HOST chosen: {:?}", host.id());
-                // println!("DEV chosen: {device:?}");
+                println!("HOSTS: {:?}", cpal::available_hosts());
+                println!("HOST chosen: {:?}", host.id());
+                println!("DEV chosen: {device:?} {:?}", device.id());
 
-                // let default_cfg = device.default_output_config();
-                // println!("Default CFG: {default_cfg:?}");
+                let default_cfg = device.default_output_config();
+                println!("Default CFG: {default_cfg:?}");
 
                 let volume = Arc::new(Mutex::new(0.5));
                 let stream = cpal_query_cfgs(&device)
@@ -361,6 +361,7 @@ impl AudioHandler {
         emu: &Arc<Mutex<NesEmulator>>,
     ) -> bool {
         if let Some(device) = self.host.device_by_id(&device_id) {
+            println!("{device:?}");
             let new_stream = cpal_query_cfgs(&device)
                 .and_then(|cfg| AudioStreamData::new(device, cfg, &self.volume, emu));
 
@@ -593,7 +594,18 @@ struct AppCfg {
     nes_settings: nenemu_core::emu::NesSettings,
 
     disable_audio: bool,
+    use_default_audio_dev: bool,
     volume: f32,
+}
+impl AppCfg {
+    fn new() -> Self {
+        Self {
+            volume: 0.5,
+            keep_aspect_ratio: true,
+            use_default_audio_dev: true,
+            ..Default::default()
+        }
+    }
 }
 
 #[derive(Default)]
@@ -649,7 +661,8 @@ struct AppCtx {
     // is_running: Arc<atomic::AtomicBool>,
     //
     // video_chain: Arc<Mutex<RingBuffer<egui::ColorImage>>>,
-    tex: Arc<Mutex<egui::TextureHandle>>,
+    // tex: Arc<Mutex<egui::TextureHandle>>,
+    tex: egui::TextureHandle,
 
     audio: AudioHandler,
     gamepads: GamepadHandler,
@@ -666,26 +679,21 @@ impl AppCtx {
             .and_then(|monitor| monitor.refresh_rate_millihertz())
             .and_then(|refresh_rate| Some(refresh_rate / 1000))
             .unwrap_or(60);
+        println!("Refresh rate: {refresh_rate}");
 
         #[cfg(not(feature = "persistence"))]
-        let cfg = AppCfg {
-            volume: 0.5,
-            ..Default::default()
-        };
+        let cfg = AppCfg::new();
 
         #[cfg(feature = "persistence")]
         let cfg = if let Some(storage) = c.storage {
             eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default()
         } else {
-            AppCfg {
-                volume: 0.5,
-                ..Default::default()
-            }
+            AppCfg::new()
         };
 
         let img = egui::ColorImage::filled([256, 240], egui::Color32::TRANSPARENT);
         let tex = c.egui_ctx.load_texture("emu_present", img, TEX_OPTS);
-        let tex = Arc::new(Mutex::new(tex));
+        // let tex = Arc::new(Mutex::new(tex));
 
         let emu = NesEmulator::empty();
         let emu = Arc::new(Mutex::new(emu));
@@ -733,7 +741,6 @@ impl AppCtx {
             // video_chain,
             tex,
             audio,
-
             gamepads: GamepadHandler::default(),
 
             cfg,
@@ -741,7 +748,7 @@ impl AppCtx {
         };
 
         res.state.monitor_refresh_rate = refresh_rate as usize;
-        res.update_fps();
+        res.update_video_sync_fps();
 
         Box::new(res)
     }
@@ -750,7 +757,7 @@ impl AppCtx {
         self.emu.lock().unwrap()
     }
 
-    fn update_fps(&mut self) {
+    fn update_video_sync_fps(&mut self) {
         // if self.audio.is_enabled() {
         //     self.state.fps = self.cfg.refresh_rate.fps();
         //     println!("FPS updated to sync audio: {}", self.state.fps);
@@ -861,7 +868,7 @@ impl AppCtx {
                     self.load_state("last");
                 }
 
-                self.update_fps();
+                self.update_video_sync_fps();
                 self.state.emulation = match self.state.emulation {
                     EmulationState::Stopped | EmulationState::Running => {
                         self.audio.resume();
@@ -1146,7 +1153,7 @@ impl AppCtx {
                     ui.separator();
                     ui.label("🔊 Vol");
 
-                    let volume_slider = egui::Slider::new(&mut self.cfg.volume, 0.0..=4.0);
+                    let volume_slider = egui::Slider::new(&mut self.cfg.volume, 0.0..=2.0);
                     ui.add(volume_slider);
                 }
             });
@@ -1228,27 +1235,46 @@ impl AppCtx {
                     ui.checkbox(&mut self.cfg.disable_audio, "Disable audio and drive emulation by video")
                     .on_hover_text("By driving emulation with video, we get better good pacing and no skipped frames");
 
-                    if self.audio.is_enabled() {
+                    ui.add_enabled_ui(self.audio.is_enabled(), |ui| {
                         ui.label("Audio device");
                         ui.indent("Audio devices", |ui| {
-                            if let Ok(devices) = self.audio.host.output_devices() {
-                                let curr_device = self.audio.current_device_id().unwrap(); // we are sure this is some here because of is_enabled()
-                                let mut selected_device = curr_device.clone();
+                            // TODO: cant tell if it is default with DeviceId, should use Device
+                            let mut use_default_audio_dev = self.cfg.use_default_audio_dev;
+                            ui.checkbox(&mut use_default_audio_dev, "Automatically choose default audio device");
 
-                                for dev in devices.into_iter() {
-                                    if let Ok(id) = dev.id() {
-                                        let descr = dev.description().unwrap();
-                                        let name = descr.name();
-                                        ui.radio_value(&mut selected_device, id, name);
+                            if use_default_audio_dev != self.cfg.use_default_audio_dev {
+                                self.cfg.use_default_audio_dev = use_default_audio_dev;
+                                if use_default_audio_dev {
+                                    if let Some(device_id) = self.audio.host.default_output_device().and_then(|dev| dev.id().ok()) {
+                                        println!("{device_id:?}");
+                                        self.audio.set_ouput_device(device_id, &self.emu);
                                     }
-                                }
+                                } else {
 
-                                if *curr_device != selected_device {
-                                    self.audio.set_ouput_device(selected_device, &self.emu);
-                                    self.emu_lock().set_audio_rate(self.audio.sample_rate() as f32);
                                 }
                             }
-                        });
+
+                            ui.add_enabled_ui(!self.cfg.use_default_audio_dev, |ui| {
+                                if let Ok(devices) = self.audio.host.output_devices() {
+                                    let curr_device = self.audio.current_device_id().unwrap(); // we are sure this is some here because of is_enabled()
+                                    let mut selected_device = curr_device.clone();
+
+                                    for dev in devices.into_iter() {
+                                        if let Ok(id) = dev.id() {
+                                            let descr = dev.description().unwrap();
+                                            let name = descr.name();
+                                            ui.radio_value(&mut selected_device, id, name);
+                                        }
+                                    }
+
+                                    if !use_default_audio_dev && *curr_device != selected_device {
+                                        self.audio.set_ouput_device(selected_device, &self.emu);
+                                        self.emu_lock().set_audio_rate(self.audio.sample_rate() as f32);
+                                    }
+                                }
+                            });
+                        })
+                    });
 
                         // ui.label("Audio sample rate:");
                         // ui.indent("Sample rates", |ui| {
@@ -1258,7 +1284,6 @@ impl AppCtx {
                         //     ui.radio_value(&mut self.cfg.sample_rate, SampleRate::Hz48000, "48000hz");
                         //     ui.radio_value(&mut self.cfg.sample_rate, SampleRate::Hz96000, "96000hz");
                         // });
-                    }
 
                     let settings = &mut self.cfg.nes_settings;
 
@@ -1291,7 +1316,7 @@ impl AppCtx {
         if audio_disabled != self.cfg.disable_audio {
             self.audio.set_enabled(!self.cfg.disable_audio);
             self.emu_lock().get_audiobuf().clear();
-            self.update_fps();
+            self.update_video_sync_fps();
         }
 
         {
@@ -1502,7 +1527,8 @@ impl AppCtx {
 
                             drop(emu);
                             self.state.frame_number = frame_number;
-                            self.tex.lock().unwrap().set(framebuf, TEX_OPTS);
+                            // self.tex.lock().unwrap().set(framebuf, TEX_OPTS);
+                            self.tex.set(framebuf, TEX_OPTS);
                         }
                     }
 
@@ -1542,8 +1568,9 @@ impl eframe::App for AppCtx {
         egui::CentralPanel::default().show_inside(ui, |ui| {
             ui.vertical_centered(|ui| {
                 egui::Frame::new().show(ui, |ui| {
-                    let tex = self.tex.lock().unwrap();
-                    let img = egui::Image::new(&*tex)
+                    // let tex = self.tex.lock().unwrap();
+                    // let img = egui::Image::new(&*tex)
+                    let img = egui::Image::new(&self.tex)
                         .maintain_aspect_ratio(self.cfg.keep_aspect_ratio)
                         .fit_to_exact_size(ui.max_rect().size());
 
