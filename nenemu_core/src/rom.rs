@@ -113,6 +113,10 @@ impl RomData {
         [0x08, 0x07, 0x09, 0x49].contains(&self.expansions)
     }
 
+    pub fn is_fds_disk(&self) -> bool {
+        self.mapper == 20
+    }
+
     pub fn from_db(bytes: &[u8]) -> Result<Self, &'static str> {
         let header = Self::parse(bytes);
 

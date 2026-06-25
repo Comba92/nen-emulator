@@ -322,6 +322,10 @@ impl AudioHandler {
         self.stream.as_ref().map(|s| &s.device_id)
     }
 
+    pub fn current_device(&self) -> Option<&cpal::Device> {
+        self.stream.as_ref().map(|s| &s.device)
+    }
+
     pub fn is_enabled(&self) -> bool {
         self.stream.is_some() && self.enabled
     }
@@ -355,27 +359,16 @@ impl AudioHandler {
         }
     }
 
-    fn set_ouput_device(
-        &mut self,
-        device_id: cpal::DeviceId,
-        emu: &Arc<Mutex<NesEmulator>>,
-    ) -> bool {
-        if let Some(device) = self.host.device_by_id(&device_id) {
-            println!("{device:?}");
-            let new_stream = cpal_query_cfgs(&device)
-                .and_then(|cfg| AudioStreamData::new(device, cfg, &self.volume, emu));
+    fn set_ouput_device(&mut self, device: cpal::Device, emu: &Arc<Mutex<NesEmulator>>) {
+        let new_stream = cpal_query_cfgs(&device)
+            .and_then(|cfg| AudioStreamData::new(device, cfg, &self.volume, emu));
 
-            if new_stream.is_some() {
-                self.stream = new_stream;
-            }
+        if new_stream.is_some() {
+            self.stream = new_stream;
+        }
 
-            if self.playing {
-                self.resume();
-            }
-
-            true
-        } else {
-            false
+        if self.playing {
+            self.resume();
         }
     }
 
@@ -401,6 +394,7 @@ impl AudioHandler {
     //     }
     // }
 
+    // TODO: maybe its a good idea to extract these to AppCtx as they also control if emulator runs or not
     pub fn resume(&mut self) {
         if !self.enabled {
             return;
@@ -413,6 +407,7 @@ impl AudioHandler {
         }
     }
 
+    // TODO: maybe its a good idea to extract these to AppCtx as they also control if emulator runs or not
     pub fn pause(&mut self) {
         if !self.enabled {
             return;
@@ -587,6 +582,7 @@ struct AppCfg {
     fullscreen: bool,
     hide_cursor: bool,
     battery_save_enabled: bool,
+    show_exit_dialog: bool,
 
     #[cfg(feature = "persistence")]
     restore_session: bool,
@@ -594,15 +590,14 @@ struct AppCfg {
     nes_settings: nenemu_core::emu::NesSettings,
 
     disable_audio: bool,
-    use_default_audio_dev: bool,
     volume: f32,
 }
 impl AppCfg {
     fn new() -> Self {
         Self {
             volume: 0.5,
+            show_exit_dialog: true,
             keep_aspect_ratio: true,
-            use_default_audio_dev: true,
             ..Default::default()
         }
     }
@@ -1057,12 +1052,14 @@ impl AppCtx {
                         _ => self.audio.pause(),
                     }
 
-                    let mut emu = self.emu_lock();
-                    let header = emu.rom_info();
-                    if header.format == rom::HeaderFormat::Fds {
-                        ui.separator();
-                        if ui.button("💿 Insert next FDS disk/side").clicked() {
-                            emu.mapper.special_input();
+                    {
+                        let mut emu = self.emu_lock();
+                        let header = emu.rom_info();
+                        if header.format == rom::HeaderFormat::Fds {
+                            ui.separator();
+                            if ui.button("💿 Insert next FDS disk/side").clicked() {
+                                emu.mapper.special_input();
+                            }
                         }
                     }
                 });
@@ -1161,6 +1158,8 @@ impl AppCtx {
     }
 
     fn show_exit_dialog(&mut self, ui: &mut egui::Ui) {
+        // TODO: better this
+
         if self.state.exit_modal_open {
             egui::Modal::new(egui::Id::new("❌ Close")).show(ui, |ui| {
                 ui.heading("❌ Closing emulator..");
@@ -1207,6 +1206,8 @@ impl AppCtx {
 
                     ui.checkbox(&mut settings.random_ram, "Enable randomized RAM at startup")
                     .on_hover_text("Some games (such as Final Fantasy) use the random state of RAM at boot to seed their rngs");
+
+                    ui.checkbox(&mut self.cfg.show_exit_dialog, "Show exit dialog");
                 });
 
                 ui.collapsing("📺 Video", |ui| {
@@ -1238,52 +1239,36 @@ impl AppCtx {
                     ui.add_enabled_ui(self.audio.is_enabled(), |ui| {
                         ui.label("Audio device");
                         ui.indent("Audio devices", |ui| {
-                            // TODO: cant tell if it is default with DeviceId, should use Device
-                            let mut use_default_audio_dev = self.cfg.use_default_audio_dev;
-                            ui.checkbox(&mut use_default_audio_dev, "Automatically choose default audio device");
+                            let curr_device = self.audio.current_device().unwrap(); // we are sure this is some here because of is_enabled()
+                            let mut selected_device = curr_device.clone();
 
-                            if use_default_audio_dev != self.cfg.use_default_audio_dev {
-                                self.cfg.use_default_audio_dev = use_default_audio_dev;
-                                if use_default_audio_dev {
-                                    if let Some(device_id) = self.audio.host.default_output_device().and_then(|dev| dev.id().ok()) {
-                                        println!("{device_id:?}");
-                                        self.audio.set_ouput_device(device_id, &self.emu);
-                                    }
-                                } else {
-
-                                }
+                            if let Some(default) = self.audio.host.default_output_device() {
+                                ui.radio_value(&mut selected_device, default, "Default audio device");
                             }
 
-                            ui.add_enabled_ui(!self.cfg.use_default_audio_dev, |ui| {
-                                if let Ok(devices) = self.audio.host.output_devices() {
-                                    let curr_device = self.audio.current_device_id().unwrap(); // we are sure this is some here because of is_enabled()
-                                    let mut selected_device = curr_device.clone();
-
-                                    for dev in devices.into_iter() {
-                                        if let Ok(id) = dev.id() {
-                                            let descr = dev.description().unwrap();
-                                            let name = descr.name();
-                                            ui.radio_value(&mut selected_device, id, name);
-                                        }
-                                    }
-
-                                    if !use_default_audio_dev && *curr_device != selected_device {
-                                        self.audio.set_ouput_device(selected_device, &self.emu);
-                                        self.emu_lock().set_audio_rate(self.audio.sample_rate() as f32);
-                                    }
+                            if let Ok(devices) = self.audio.host.output_devices() {
+                                for dev in devices.into_iter() {
+                                    let descr = dev.description().unwrap();
+                                    let name = descr.name();
+                                    ui.radio_value(&mut selected_device, dev, name);
                                 }
-                            });
+
+                                if *curr_device != selected_device {
+                                    self.audio.set_ouput_device(selected_device, &self.emu);
+                                    self.emu_lock().set_audio_rate(self.audio.sample_rate() as f32);
+                                }
+                            }
                         })
                     });
 
-                        // ui.label("Audio sample rate:");
-                        // ui.indent("Sample rates", |ui| {
-                        //     use nenemu_core::emu::SampleRate;
-                        //     ui.radio_value(&mut self.cfg.sample_rate, SampleRate::Hz32000, "32000hz");
-                        //     ui.radio_value(&mut self.cfg.sample_rate, SampleRate::Hz44100, "44100hz");
-                        //     ui.radio_value(&mut self.cfg.sample_rate, SampleRate::Hz48000, "48000hz");
-                        //     ui.radio_value(&mut self.cfg.sample_rate, SampleRate::Hz96000, "96000hz");
-                        // });
+                    // ui.label("Audio sample rate:");
+                    // ui.indent("Sample rates", |ui| {
+                    //     use nenemu_core::emu::SampleRate;
+                    //     ui.radio_value(&mut self.cfg.sample_rate, SampleRate::Hz32000, "32000hz");
+                    //     ui.radio_value(&mut self.cfg.sample_rate, SampleRate::Hz44100, "44100hz");
+                    //     ui.radio_value(&mut self.cfg.sample_rate, SampleRate::Hz48000, "48000hz");
+                    //     ui.radio_value(&mut self.cfg.sample_rate, SampleRate::Hz96000, "96000hz");
+                    // });
 
                     let settings = &mut self.cfg.nes_settings;
 
@@ -1306,8 +1291,6 @@ impl AppCtx {
                         self.open_dialog("Select FDS BIOS file", "FDS BIOS", &["rom"])
                             .map(|path| self.cfg.bios_path = Some(path));
                     }
-
-                    // TODO: disk handling
                 })
             });
 
@@ -1380,6 +1363,7 @@ impl AppCtx {
     fn show_rom_info_window(&mut self, ui: &mut egui::Ui) {
         let header = &self.state.current_rom_header;
 
+        // TODO: fix this
         egui::Window::new("💾 ROM information")
             .collapsible(true)
             .open(&mut self.state.rom_info_open)
@@ -1480,14 +1464,6 @@ impl AppCtx {
             i.pointer.any_down()
                 && matches!(self.state.mouse_pos.0, 0..256)
                 && matches!(self.state.mouse_pos.1, 0..240)
-        });
-
-        ui.input(|i| {
-            if i.viewport().minimized.filter(|x| *x).is_some() {
-                self.audio.pause();
-            } else if i.viewport().maximized.filter(|x| *x).is_some() {
-                self.audio.resume();
-            }
         });
 
         let gamepad_input = self.gamepads.poll(current_input, &self.cfg.keymaps);
@@ -1652,10 +1628,12 @@ impl eframe::App for AppCtx {
         ui.request_repaint_after_secs(FPS);
         // ui.request_repaint_after_secs(self.state.fps);
 
-        if ui.input(|i| i.viewport().close_requested()) {
-            if !self.state.should_close {
-                ui.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-                self.state.exit_modal_open = true;
+        if self.cfg.show_exit_dialog {
+            if ui.input(|i| i.viewport().close_requested()) {
+                if !self.state.should_close {
+                    ui.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                    self.state.exit_modal_open = true;
+                }
             }
         }
     }
