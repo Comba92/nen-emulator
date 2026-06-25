@@ -419,7 +419,7 @@ impl Bus {
         header.title = "FDS Disk Game".to_string();
         header.format = rom::HeaderFormat::Fds;
         header.mapper = 20;
-        header.mapper_name = rom::get_mapper_name(20).to_string();
+        header.mapper_name = rom::get_mapper_name(20).into();
         header.has_chr_ram = true;
         header.prg_size = 8 * 1024;
         header.chr_size = 8 * 1024;

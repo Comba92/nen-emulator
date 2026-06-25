@@ -59,9 +59,7 @@ pub struct Cpu6502 {
     op_val: Option<u8>,
     op_addr: u16,
 
-    // TODO: not sure about this
     nmi_to_handle: bool,
-    // TODO: the effect of toggling this flag is delayed 1 instruction when caused by SEI, CLI, or PLP.
     irq_to_handle: Option<bool>,
     pub cycles: usize,
     // TODO: add more debugging info at jammed state
@@ -126,9 +124,7 @@ impl NesEmulator {
     }
 
     pub(crate) fn cpu_step(&mut self) {
-        if self.handle_dma() {
-            return;
-        }
+        self.handle_dma();
 
         self.poll_interrupts();
         let opcode = self.pc_fetch8();
@@ -137,47 +133,45 @@ impl NesEmulator {
         self.decode_n_exec(opcode);
     }
 
-    fn handle_dma(&mut self) -> bool {
+    fn handle_dma(&mut self) {
         // https://www.nesdev.org/wiki/DMA
         // TODO: this is not emulated correctly
 
-        if self.apu.dmc.buffer.is_none() && self.apu.dmc.dma_remaining > 0 {
-            self.step_devices(); // halting cycle
-            self.step_devices(); // dummy cycle
-
-            if self.cpu.cycles % 2 == 1 {
-                self.step_devices(); // +1 cycle on odd cpu cyles
-            }
-
-            let byte = self.cpu_dispatch_read(self.apu.dmc.dma_addr);
-            self.step_devices();
-            self.dmc_sample_read(byte);
-
-            return true;
-        } else if let Some(addr) = self.ppu.dma {
-            // https://www.nesdev.org/wiki/PPU_registers#OAMDMA_-_Sprite_DMA_($4014_write)
-            if addr & 0xff == 0 {
+        loop {
+            if self.apu.dmc.buffer.is_none() && self.apu.dmc.dma_remaining > 0 {
                 self.step_devices(); // halting cycle
+                self.step_devices(); // dummy cycle
+
                 if self.cpu.cycles % 2 == 1 {
                     self.step_devices(); // +1 cycle on odd cpu cyles
                 }
-            }
 
-            let byte = self.cpu_dispatch_read(addr);
-            self.step_devices();
-            self.ppu.oam_write(byte);
-            self.step_devices();
+                let byte = self.cpu_dispatch_read(self.apu.dmc.dma_addr);
+                self.step_devices();
+                self.dmc_sample_read(byte);
+            } else if let Some(addr) = self.ppu.dma {
+                // https://www.nesdev.org/wiki/PPU_registers#OAMDMA_-_Sprite_DMA_($4014_write)
+                if addr & 0xff == 0 {
+                    self.step_devices(); // halting cycle
+                    if self.cpu.cycles % 2 == 1 {
+                        self.step_devices(); // +1 cycle on odd cpu cyles
+                    }
+                }
 
-            self.ppu.dma = if (addr & 0xff) == 0xff {
-                None
+                let byte = self.cpu_dispatch_read(addr);
+                self.step_devices();
+                self.ppu.oam_write(byte);
+                self.step_devices();
+
+                self.ppu.dma = if (addr & 0xff) == 0xff {
+                    None
+                } else {
+                    Some(addr + 1)
+                };
             } else {
-                Some(addr + 1)
-            };
-
-            return true;
+                break;
+            }
         }
-
-        return false;
     }
 
     fn poll_interrupts(&mut self) {
@@ -190,24 +184,25 @@ impl NesEmulator {
         // https://www.nesdev.org/wiki/CPU_interrupts#IRQ_and_NMI_tick-by-tick_execution
         if self.mem.nmi {
             // When NMI becomes enabled while the vblank flag is already set, the resulting NMI occurs late enough in the instruction that another instruction is able to execute before the NMI is serviced.
+            // Needed for some games
             self.mem.nmi = false;
             self.cpu.nmi_to_handle = true;
         } else if self.cpu.nmi_to_handle {
-            self.handle_interrupt(InterruptVector::Nmi as u16);
+            self.handle_interrupt(InterruptVector::Nmi);
             self.cpu.nmi_to_handle = false;
         } else if !self.mem.irq.is_empty() && !irq_inhibit {
-            self.handle_interrupt(InterruptVector::Irq as u16);
+            self.handle_interrupt(InterruptVector::Irq);
         }
     }
 
-    fn handle_interrupt(&mut self, int_vector: u16) {
+    fn handle_interrupt(&mut self, int_vector: InterruptVector) {
         self.step_devices();
         self.step_devices();
 
         self.stack_push16(self.cpu.pc);
         self.stack_push8(self.cpu.p.bits());
         self.cpu.p.insert(Status::IrqDisable);
-        self.cpu.pc = self.cpu_read16(int_vector);
+        self.cpu.pc = self.cpu_read16(int_vector as u16);
     }
 
     fn fetch_zeropage_op(&mut self, offset: u8) {

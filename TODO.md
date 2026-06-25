@@ -29,22 +29,8 @@ https://www.reddit.com/r/EmuDev/comments/xta12t/confused_about_cycles_and_emulat
 - https://www.nesdev.org/wiki/GTROM
 
 # TODO
-- Optimize savestates
-- Fastforwarding
-
-- FDS audio
-- MMC5 irq fix + unknown exram mode glitches
-
-- better public interface
-- build script?
-
-
+- optimize savestates
+- fastforwarding
 - better reset
-- check perf of unchecked accesses to memory vectors
-- cpu irq disable delay
-- unknown palette bug
 
-- merge with nen-emulator
-
-- performance imprevements?
 - WASM

@@ -164,7 +164,7 @@ mod namco {
 }
 
 #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
-pub struct Namco129_163 {
+pub struct Namcot {
     irq_count: u16,
     irq_enabled: bool,
 
@@ -178,7 +178,7 @@ pub struct Namco129_163 {
 }
 // TODO: games with wram.len == 0 and battery should save the 128 bytes ram in audio struct
 #[cfg_attr(feature = "savestates", typetag::serde)]
-impl Mapper for Namco129_163 {
+impl Mapper for Namcot {
     fn new(mem: &mut Bus) -> Box<Self> {
         mem.banks.prg = Banking::new_prg(&mem.header, 4);
 

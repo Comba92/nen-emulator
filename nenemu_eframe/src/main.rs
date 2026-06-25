@@ -5,7 +5,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use eframe::egui;
 use nenemu_core::{NesPalette, emu::NesEmulator, joypad, rom};
 use std::{
-    collections::{BTreeMap, HashMap, VecDeque},
+    collections::{HashMap, VecDeque},
     fs,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard},
@@ -24,6 +24,7 @@ const TEX_OPTS: egui::TextureOptions = egui::TextureOptions {
 enum EmulatorAction {
     Reset,
     TogglePause,
+    ToggleMute,
     #[cfg(feature = "persistence")]
     Savestate,
     #[cfg(feature = "persistence")]
@@ -38,11 +39,36 @@ enum PlayerEvent {
 }
 
 #[cfg_attr(feature = "persistence", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum ActionKind {
+    Up,
+    Down,
+    Left,
+    Right,
+    A,
+    B,
+    Start,
+    Select,
+    Reset,
+    TogglePause,
+    ToggleMute,
+    #[cfg(feature = "persistence")]
+    Savestate,
+    #[cfg(feature = "persistence")]
+    Loadstate,
+}
+impl std::fmt::Display for ActionKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+#[cfg_attr(feature = "persistence", derive(serde::Serialize, serde::Deserialize))]
 struct KeyMap {
-    evt: HashMap<&'static str, PlayerEvent>, // to keep order
-    keys: HashMap<egui::Key, &'static str>,
-    pads: HashMap<gilrs::Button, &'static str>,
-    rebind_key: Option<(Option<egui::Key>, &'static str)>,
+    evt: HashMap<ActionKind, PlayerEvent>, // to keep order
+    keys: HashMap<egui::Key, ActionKind>,
+    pads: HashMap<gilrs::Button, ActionKind>,
+    rebind_key: Option<(Option<egui::Key>, ActionKind)>,
 }
 impl KeyMap {
     pub fn get_from_keyboard(&self, key: &egui::Key) -> Option<&PlayerEvent> {
@@ -60,48 +86,64 @@ impl Default for KeyMap {
         use joypad::InputBtn as Btn;
 
         let keys = HashMap::from([
-            (Key::ArrowUp, "Up"),
-            (Key::ArrowDown, "Down"),
-            (Key::ArrowLeft, "Left"),
-            (Key::ArrowRight, "Right"),
-            (Key::S, "A"),
-            (Key::A, "B"),
-            (Key::W, "Start"),
-            (Key::E, "Select"),
+            (Key::ArrowUp, ActionKind::Up),
+            (Key::ArrowDown, ActionKind::Down),
+            (Key::ArrowLeft, ActionKind::Left),
+            (Key::ArrowRight, ActionKind::Right),
+            (Key::S, ActionKind::A),
+            (Key::A, ActionKind::B),
+            (Key::W, ActionKind::Start),
+            (Key::E, ActionKind::Select),
+            (Key::P, ActionKind::TogglePause),
+            (Key::M, ActionKind::ToggleMute),
+            (Key::R, ActionKind::Reset),
+            #[cfg(feature = "persistence")]
+            (Key::Num0, ActionKind::Savestate),
+            #[cfg(feature = "persistence")]
+            (Key::Num9, ActionKind::Loadstate),
         ]);
 
         let pads = {
             use gilrs::Button;
             HashMap::from([
-                (Button::DPadUp, "Up"),
-                (Button::DPadDown, "Down"),
-                (Button::DPadLeft, "Left"),
-                (Button::DPadRight, "Right"),
-                (Button::South, "A"),
-                (Button::West, "B"),
-                (Button::Start, "Start"),
-                (Button::Select, "Select"),
+                (Button::DPadUp, ActionKind::Up),
+                (Button::DPadDown, ActionKind::Down),
+                (Button::DPadLeft, ActionKind::Left),
+                (Button::DPadRight, ActionKind::Right),
+                (Button::South, ActionKind::A),
+                (Button::West, ActionKind::B),
+                (Button::Start, ActionKind::Start),
+                (Button::Select, ActionKind::Select),
             ])
         };
 
         let evt = HashMap::from([
-            ("Up", PlayerEvent::Joypad(Btn::Up)),
-            ("Down", PlayerEvent::Joypad(Btn::Down)),
-            ("Left", PlayerEvent::Joypad(Btn::Left)),
-            ("Right", PlayerEvent::Joypad(Btn::Right)),
-            ("A", PlayerEvent::Joypad(Btn::A)),
-            ("B", PlayerEvent::Joypad(Btn::B)),
-            ("Start", PlayerEvent::Joypad(Btn::Start)),
-            ("Select", PlayerEvent::Joypad(Btn::Select)),
-            ("Reset", PlayerEvent::Action(EmulatorAction::Reset)),
+            (ActionKind::Up, PlayerEvent::Joypad(Btn::Up)),
+            (ActionKind::Down, PlayerEvent::Joypad(Btn::Down)),
+            (ActionKind::Left, PlayerEvent::Joypad(Btn::Left)),
+            (ActionKind::Right, PlayerEvent::Joypad(Btn::Right)),
+            (ActionKind::A, PlayerEvent::Joypad(Btn::A)),
+            (ActionKind::B, PlayerEvent::Joypad(Btn::B)),
+            (ActionKind::Start, PlayerEvent::Joypad(Btn::Start)),
+            (ActionKind::Select, PlayerEvent::Joypad(Btn::Select)),
             (
-                "TogglePause",
+                ActionKind::Reset,
+                PlayerEvent::Action(EmulatorAction::Reset),
+            ),
+            (
+                ActionKind::TogglePause,
                 PlayerEvent::Action(EmulatorAction::TogglePause),
             ),
             #[cfg(feature = "persistence")]
-            ("Save", PlayerEvent::Action(EmulatorAction::Savestate)),
+            (
+                ActionKind::Savestate,
+                PlayerEvent::Action(EmulatorAction::Savestate),
+            ),
             #[cfg(feature = "persistence")]
-            ("Load", PlayerEvent::Action(EmulatorAction::Loadstate)),
+            (
+                ActionKind::Loadstate,
+                PlayerEvent::Action(EmulatorAction::Loadstate),
+            ),
         ]);
 
         Self {
@@ -231,6 +273,7 @@ struct AudioHandler {
     host: cpal::Host,
     stream: Option<AudioStreamData>,
     enabled: bool,
+    muted: bool,
     playing: bool,
     volume: Arc<Mutex<f32>>,
 }
@@ -254,6 +297,7 @@ impl AudioHandler {
                 let res = Self {
                     host,
                     stream,
+                    muted: false,
                     playing: false,
                     enabled,
                     volume,
@@ -265,6 +309,7 @@ impl AudioHandler {
             None => Self {
                 host,
                 stream: None,
+                muted: false,
                 playing: false,
                 enabled: false,
                 volume: Default::default(),
@@ -517,9 +562,10 @@ type GenericError = Box<dyn std::error::Error>;
 fn main() {
     let opts = eframe::NativeOptions {
         centered: true,
+        persist_window: false,
         viewport: egui::ViewportBuilder::default()
             .with_drag_and_drop(true)
-            .with_inner_size((256.0 * 3.0, 240.0 * 3.0))
+            .with_inner_size((256.0 * 3.0, 240.0 * 2.5))
             .with_title(APP_NAME),
         vsync: true,
         hardware_acceleration: eframe::HardwareAcceleration::Preferred,
@@ -804,7 +850,7 @@ impl AppCtx {
         }
     }
 
-    fn load_rom<P: AsRef<Path>>(&mut self, rom_path: P, force_reset: bool) {
+    fn load_rom<P: AsRef<Path>>(&mut self, rom_path: P, _force_reset: bool) {
         let bios = self
             .cfg
             .bios_path
@@ -840,7 +886,7 @@ impl AppCtx {
                 ring_push_front(&mut self.cfg.recent_roms, pathbuf, 12);
 
                 #[cfg(feature = "savestates")]
-                if self.cfg.restore_session && !force_reset {
+                if self.cfg.restore_session && !_force_reset {
                     self.load_state("last");
                 }
 
@@ -935,7 +981,7 @@ impl AppCtx {
                             });
 
                             #[cfg(target_os = "windows")]
-                            if ui.button("Open states directory to clipboard").clicked() {
+                            if ui.button("Open states directory").clicked() {
                                 use std::process;
 
                                 match process::Command::new("explorer.exe")
@@ -1304,7 +1350,7 @@ impl AppCtx {
 
                 for (key, btn_name) in &keymaps.keys {
                     ui.columns_const::<2, _>(|ui| {
-                        let col_src = ui[0].label(*btn_name);
+                        let col_src = ui[0].label(btn_name.to_string());
                         let col_dst = ui[1].button(format!("{:?}", key));
                         // let col_add = ui[2].button("Add");
 
@@ -1461,15 +1507,13 @@ impl AppCtx {
 
         egui::Window::new("ℹ About")
             .collapsible(true)
+            .resizable(false)
             .open(&mut self.state.about_open)
             .show(ui, |ui| {
                 ui.vertical_centered(|ui| {
                     ui.hyperlink_to("Nen Emulator ", "https://github.com/Comba92/nen-emulator");
-
-                    ui.columns(2, |ui| {
-                        ui[0].label("Developed by:");
-                        ui[1].hyperlink_to("Comba92 ", "https://github.com/Comba92");
-                    });
+                    ui.label("Developed by:");
+                    ui.hyperlink_to("Comba92 ", "https://github.com/Comba92");
 
                     ui.hyperlink_to(
                         "Report bugs or issues",
@@ -1512,7 +1556,14 @@ impl AppCtx {
                 EmulationState::Running => self.pause_emulation(),
                 EmulationState::Stopped => {}
             },
+            EmulatorAction::ToggleMute => {
+                self.audio.muted = !self.audio.muted;
+                if self.audio.muted {
+                    *self.audio.volume.lock().unwrap() = self.cfg.volume;
+                }
+            }
 
+            #[cfg(feature = "persistence")]
             _ => {}
         }
     }
@@ -1677,6 +1728,16 @@ impl AppCtx {
 
             self.state.keyboard_input = keyboard_input;
             self.state.gamepad_input = gamepad_input;
+        } else if self.state.emulation == EmulationState::Stopped {
+            egui::Window::new("Start any ROM")
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .title_bar(false)
+                .collapsible(false)
+                .interactable(false)
+                .auto_sized()
+                .show(ui, |ui| {
+                    ui.heading("Open a ROM to start.");
+                });
         }
     }
 }
@@ -1694,28 +1755,30 @@ impl eframe::App for AppCtx {
 
         egui::CentralPanel::default().show_inside(ui, |ui| {
             ui.vertical_centered(|ui| {
-                egui::Frame::new().show(ui, |ui| {
-                    // let tex = self.tex.lock().unwrap();
-                    // let img = egui::Image::new(&*tex)
-                    let img = egui::Image::new(&self.tex)
-                        .maintain_aspect_ratio(self.cfg.keep_aspect_ratio)
-                        .fit_to_exact_size(ui.max_rect().size());
+                egui::Frame::new()
+                    .fill(egui::Color32::BLACK.gamma_multiply(0.6))
+                    .show(ui, |ui| {
+                        // let tex = self.tex.lock().unwrap();
+                        // let img = egui::Image::new(&*tex)
+                        let img = egui::Image::new(&self.tex)
+                            .maintain_aspect_ratio(self.cfg.keep_aspect_ratio)
+                            .fit_to_exact_size(ui.max_rect().size());
 
-                    let screen = ui.add(img);
-                    self.state.mouse_pos = ui.input(|i| {
-                        let abs_pos = i.pointer.latest_pos().unwrap_or_default();
-                        let rel_pos = abs_pos - screen.rect.min;
-                        let nes_pos = (
-                            (rel_pos.x * 256.0) / screen.rect.width(),
-                            (rel_pos.y * 240.0) / screen.rect.height(),
-                        );
-                        (nes_pos.0.round() as isize, nes_pos.1.round() as isize)
+                        let screen = ui.add(img);
+                        self.state.mouse_pos = ui.input(|i| {
+                            let abs_pos = i.pointer.latest_pos().unwrap_or_default();
+                            let rel_pos = abs_pos - screen.rect.min;
+                            let nes_pos = (
+                                (rel_pos.x * 256.0) / screen.rect.width(),
+                                (rel_pos.y * 240.0) / screen.rect.height(),
+                            );
+                            (nes_pos.0.round() as isize, nes_pos.1.round() as isize)
+                        });
+
+                        if self.state.emulation == EmulationState::Running && self.cfg.hide_cursor {
+                            screen.on_hover_cursor(egui::CursorIcon::None);
+                        }
                     });
-
-                    if self.state.emulation == EmulationState::Running && self.cfg.hide_cursor {
-                        screen.on_hover_cursor(egui::CursorIcon::None);
-                    }
-                });
             });
         });
 
@@ -1727,10 +1790,21 @@ impl eframe::App for AppCtx {
                 if path.extension() == Some(pal_ext) {
                     self.load_palette(path);
                 } else {
-                    self.load_rom(path, false);
+                    self.load_rom(path, true);
                 }
             }
         });
+
+        if ui.input_mut(|i| {
+            if i.consume_key(egui::Modifiers::ALT, egui::Key::Enter) {
+                self.cfg.fullscreen = !self.cfg.fullscreen;
+                true
+            } else {
+                false
+            }
+        }) {
+            ui.send_viewport_cmd(egui::ViewportCommand::Fullscreen(self.cfg.fullscreen));
+        }
 
         // {
         //     let mut emu_lock = self.emu.lock().unwrap();
@@ -1775,7 +1849,7 @@ impl eframe::App for AppCtx {
 
         *self.audio.volume.lock().unwrap() = self.cfg.volume;
 
-        const FPS: f32 = 1.0 / 288.0;
+        const FPS: f32 = 1.0 / 144.0;
         ui.request_repaint_after_secs(FPS);
         // ui.request_repaint_after_secs(self.state.fps);
 

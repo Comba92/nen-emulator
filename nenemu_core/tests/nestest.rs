@@ -96,7 +96,7 @@ fn nestest_no_graphics() {
         // println!("Line {} OK", i+1);
 
         cycles = emu.cpu.cycles;
-        emu.cpu_step();
+        emu.step();
     });
 
     println!(

@@ -62,7 +62,7 @@ impl From<&GameDbEntry> for RomData {
             mirroring: value.mirroring.clone(),
             region: value.region.clone(),
             mapper: value.mapper,
-            mapper_name: get_mapper_name(value.mapper).to_string(),
+            mapper_name: get_mapper_name(value.mapper).into(),
             submapper: value.submapper,
             has_battery: value.has_battery,
             expansions: value.expansions,

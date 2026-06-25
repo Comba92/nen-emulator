@@ -255,6 +255,7 @@ enum RenderCmd {
 pub struct Ppu2C02 {
     pub ctrl: CtrlStrut,
     mask: Mask,
+    mask_tmp: u8,
     mask_write_delay: u8,
     stat: Status,
 
@@ -433,10 +434,6 @@ impl Ppu2C02 {
         self.line < 240 || self.line == self.prerender_line
     }
 
-    fn is_in_vblank(&self) -> bool {
-        self.line >= 240 && self.line != self.prerender_line
-    }
-
     fn toggle_rendering(&mut self) {
         match self.render_state {
             RenderState::Disabled => {
@@ -463,6 +460,7 @@ impl Ppu2C02 {
         if self.mask_write_delay > 0 {
             self.mask_write_delay -= 1;
             if self.mask_write_delay == 0 {
+                self.mask = Mask::from_bits_retain(self.mask_tmp);
                 self.toggle_rendering();
             }
         }
@@ -714,8 +712,8 @@ impl NesEmulator {
             }
             // Mask
             0x2001 => {
-                ppu.mask = Mask::from_bits_retain(val);
-                ppu.toggle_rendering();
+                ppu.mask_tmp = val;
+                ppu.mask_write_delay = 3;
             }
             // OamAddr
             0x2003 => ppu.oam_addr = val,
@@ -851,7 +849,7 @@ impl NesEmulator {
 
     // https://www.nesdev.org/wiki/PPU_rendering
     pub fn ppu_step(&mut self) {
-        // self.ppu.handle_mask_write();
+        self.ppu.handle_mask_write();
 
         match self.ppu.render_state {
             RenderState::PreRender => self.ppu_render_step(&PRERENDER_LUT),

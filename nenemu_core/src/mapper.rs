@@ -63,7 +63,7 @@ pub fn new(mem: &mut Bus) -> Result<BoxedMapper, String> {
         11 => ColorDreams::new(mem),
         13 => CPROM::new(mem),
         16 | 153 | 157 | 159 => BandaiFCG::new(mem),
-        19 | 210 => Namco129_163::new(mem),
+        19 | 210 => Namcot::new(mem),
         20 => FDS::new(mem),
         21 | 22 | 23 | 25 => VRC2_4::new(mem),
         24 | 26 => VRC6::new(mem),
@@ -71,7 +71,7 @@ pub fn new(mem: &mut Bus) -> Result<BoxedMapper, String> {
         31 => NSF::new(mem),
         34 | 177 | 241 => NINA00x_BNROM::new(mem),
         // 32 => IremG101::new(mem),
-        40 => NTDEC2722::new(mem),
+        40 => NTDEC272x::new(mem),
         // 65 => IremH3001::new(mem),
         66 => GxROM::new(mem),
         67 => Sunsoft3::new(mem),
@@ -82,8 +82,8 @@ pub fn new(mem: &mut Bus) -> Result<BoxedMapper, String> {
         73 => VRC3::new(mem),
         75 => VRC1::new(mem),
         77 => NapoleonSenki::new(mem),
-        78 => Irem74HCx::new(mem),
-        79 => NINA003_006::new(mem),
+        78 => HolyDiverCosmoCarrier::new(mem),
+        79 => NINA03_06::new(mem),
         85 => VRC7::new(mem),
         87 | 101 => J87::new(mem),
         89 => Sunsoft89::new(mem),
@@ -304,11 +304,11 @@ impl Mapper for NSF {
 
 // https://www.nesdev.org/wiki/INES_Mapper_078
 #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
-struct Irem74HCx {
+struct HolyDiverCosmoCarrier {
     is_holy_diver: bool,
 }
 #[cfg_attr(feature = "savestates", typetag::serde)]
-impl Mapper for Irem74HCx {
+impl Mapper for HolyDiverCosmoCarrier {
     fn new(mem: &mut Bus) -> Box<Self> {
         Box::new(Self {
             is_holy_diver: mem.header.submapper == 3 || mem.header.alt_mirroring,
@@ -542,13 +542,13 @@ impl Mapper for IremTAMS1 {
 // https://www.nesdev.org/wiki/INES_Mapper_040
 #[derive(Default)]
 #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
-struct NTDEC2722 {
+struct NTDEC272x {
     irq_enabled: bool,
     irq_count: u16,
     submapper: u8,
 }
 #[cfg_attr(feature = "savestates", typetag::serde)]
-impl Mapper for NTDEC2722 {
+impl Mapper for NTDEC272x {
     fn new(mem: &mut Bus) -> Box<Self> {
         mem.banks.prg = Banking::new(0x6000, mem.header.prg_size, 40 * 1024, 5);
         mem.set_wram_handlers(CpuHandler::Prg);
@@ -684,9 +684,9 @@ impl Mapper for NINA00x_BNROM {
 
 // https://www.nesdev.org/wiki/INES_Mapper_034
 #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
-struct NINA003_006;
+struct NINA03_06;
 #[cfg_attr(feature = "savestates", typetag::serde)]
-impl Mapper for NINA003_006 {
+impl Mapper for NINA03_06 {
     fn new(mem: &mut Bus) -> Box<Self>
     where
         Self: Sized,
