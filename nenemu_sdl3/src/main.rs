@@ -120,10 +120,11 @@ fn main() {
     //     .unwrap();
     // debug_tex.set_scale_mode(sdl2::render::ScaleMode::Nearest);
 
-    let bios = include_bytes!("../../nenemu_core/utils/disksys.rom");
-    let mut rom_path = path::PathBuf::from("roms/donkey kong.nes");
+    // let bios = include_bytes!("../../nenemu_core/utils/disksys.rom");
+    let mut bios_path = None;
+    let mut rom_path = path::PathBuf::new();
 
-    let emu = NesEmulator::load_bios_only(Some(bios)).unwrap();
+    let emu = NesEmulator::empty();
     // let emu = NesEmulator::load_rom_from_file(&rom_path, Some(bios)).unwrap();
 
     // let mut video_chain = nenemu_core::utils::RingBuffer::new_with(8, [0; _]);
@@ -165,9 +166,11 @@ fn main() {
                         let buf = fs::read(filename).unwrap();
                         _ = emu.lock().unwrap().load_palette(&buf);
                         continue;
+                    } else if filename == "disksys.bin" {
+                        bios_path = Some(path::PathBuf::from(&filename));
                     }
 
-                    let new_emu = NesEmulator::load_rom_from_file(&filename, Some(bios));
+                    let new_emu = NesEmulator::load_rom_from_file(&filename, bios_path.as_ref());
                     match new_emu {
                         Ok(res) => {
                             let mut emu_lock = emu.lock().unwrap();

@@ -287,10 +287,10 @@ impl NesEmulator {
         Self::new(game, bios)
     }
 
-    pub fn load_bios_only<B: AsRef<[u8]>>(bios: Option<B>) -> Result<Self, LoadError> {
+    pub fn load_bios_only<B: AsRef<[u8]>>(bios: B) -> Result<Self, LoadError> {
         let empty_disk = Disk::default();
         let game = Game::Disk(empty_disk);
-        Self::new(game, bios)
+        Self::new(game, Some(bios))
     }
 
     pub fn region(&self) -> Region {
@@ -476,8 +476,8 @@ impl NesEmulator {
         }
     }
 
-    pub fn load_rom_from_file<P: AsRef<Path>, B: AsRef<[u8]>>(
-        rom_path: P,
+    pub fn load_rom_from_file<R: AsRef<Path>, B: AsRef<Path>>(
+        rom_path: R,
         bios: Option<B>,
     ) -> Result<Self, LoadError> {
         use std::{
@@ -485,10 +485,22 @@ impl NesEmulator {
             io::{Read, Seek},
         };
 
-        let mut bytes = Vec::new();
         let mut file = fs::File::open(rom_path)?;
+        let mut bytes = Vec::new();
         let mut reader = std::io::BufReader::new(&file);
         reader.read_to_end(&mut bytes)?;
+
+        let bios = bios
+            .and_then(|bios_path| fs::File::open(bios_path).ok())
+            .and_then(|file| {
+                let mut bytes = Vec::new();
+                let mut reader = std::io::BufReader::new(&file);
+                if let Ok(_) = reader.read_to_end(&mut bytes) {
+                    Some(bytes)
+                } else {
+                    None
+                }
+            });
 
         // let mut bytes = Vec::new();
         // let mut file = fs::File::open(rom_path)?;

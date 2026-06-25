@@ -851,13 +851,7 @@ impl AppCtx {
     }
 
     fn load_rom<P: AsRef<Path>>(&mut self, rom_path: P, _force_reset: bool) {
-        let bios = self
-            .cfg
-            .bios_path
-            .as_ref()
-            .and_then(|path| buffered_read(path).ok());
-
-        let res = NesEmulator::load_rom_from_file(&rom_path, bios);
+        let res = NesEmulator::load_rom_from_file(&rom_path, self.cfg.bios_path.as_ref());
         match res {
             Ok(mut new_emu) => {
                 self.close_and_save_rom_if_open();
@@ -1129,7 +1123,7 @@ impl AppCtx {
 
                                 match bios {
                                     Ok(bios) => {
-                                        let new_emu = NesEmulator::load_bios_only(Some(bios));
+                                        let new_emu = NesEmulator::load_bios_only(bios);
 
                                         match new_emu {
                                             Ok(new_emu) => {
@@ -1868,6 +1862,7 @@ impl AppCtx {
     fn get_user_dir(&self) -> PathBuf {
         // todo: this fails on mobile lol
         let mut dir = eframe::storage_dir(APP_NAME).unwrap();
+        dir.pop();
         dir.push("states");
         dir
     }

@@ -17,7 +17,7 @@ impl Default for Cart {
                 chr_size: 8 * 1024,
                 ..Default::default()
             },
-            prg: vec![0; 16 * 1024],
+            prg: vec![0xea; 16 * 1024], // prg full of NOPs
             chr: vec![0; 8 * 1024],
         }
     }
