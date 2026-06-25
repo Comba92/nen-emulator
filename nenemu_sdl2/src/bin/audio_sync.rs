@@ -93,7 +93,11 @@ fn main() {
         .build()
         .unwrap();
 
-    let mut canvas = window.into_canvas().present_vsync().build().unwrap();
+    let mut canvas = window
+        .into_canvas()
+        .present_vsync() // yes
+        .build()
+        .unwrap();
 
     canvas.set_logical_size(256, 240).unwrap();
     let texture_creator = canvas.texture_creator();
@@ -114,7 +118,7 @@ fn main() {
     //     .unwrap();
     // debug_tex.set_scale_mode(sdl2::render::ScaleMode::Nearest);
 
-    let bios = include_bytes!("../../nenemu_core/utils/disksys.rom");
+    let bios = include_bytes!("../../../nenemu_core/utils/disksys.rom");
     let mut rom_path = path::PathBuf::from("roms/donkey kong.nes");
 
     let emu = NesEmulator::load_bios_only(Some(bios)).unwrap();

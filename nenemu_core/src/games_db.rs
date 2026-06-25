@@ -1,6 +1,6 @@
 use crate::{
     emu::{Mirroring, Region},
-    rom::{HeaderFormat, RomData},
+    rom::{HeaderFormat, RomData, get_mapper_name},
 };
 use std::{collections::HashMap, io::Read, sync::LazyLock};
 
@@ -62,6 +62,7 @@ impl From<&GameDbEntry> for RomData {
             mirroring: value.mirroring.clone(),
             region: value.region.clone(),
             mapper: value.mapper,
+            mapper_name: get_mapper_name(value.mapper).to_string(),
             submapper: value.submapper,
             has_battery: value.has_battery,
             expansions: value.expansions,

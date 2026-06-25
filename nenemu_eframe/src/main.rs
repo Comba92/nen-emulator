@@ -1,11 +1,11 @@
 // this removes the windows console
-// #![windows_subsystem = "windows"]
+#![windows_subsystem = "windows"]
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use eframe::egui;
 use nenemu_core::{NesPalette, emu::NesEmulator, joypad, rom};
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{BTreeMap, HashMap, VecDeque},
     fs,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard},
@@ -20,9 +20,18 @@ const TEX_OPTS: egui::TextureOptions = egui::TextureOptions {
 };
 
 #[cfg_attr(feature = "persistence", derive(serde::Serialize, serde::Deserialize))]
-enum EmulatorAction {}
+#[derive(Debug, Clone, Copy)]
+enum EmulatorAction {
+    Reset,
+    TogglePause,
+    #[cfg(feature = "persistence")]
+    Savestate,
+    #[cfg(feature = "persistence")]
+    Loadstate,
+}
 
 #[cfg_attr(feature = "persistence", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone)]
 enum PlayerEvent {
     Joypad(joypad::InputBtn),
     Action(EmulatorAction),
@@ -30,10 +39,19 @@ enum PlayerEvent {
 
 #[cfg_attr(feature = "persistence", derive(serde::Serialize, serde::Deserialize))]
 struct KeyMap {
-    btns_strings: HashMap<joypad::InputBtn, String>,
-    keys: HashMap<egui::Key, joypad::InputBtn>,
-    pads: HashMap<gilrs::Button, joypad::InputBtn>,
-    rebind_key: Option<(egui::Key, joypad::InputBtn)>,
+    evt: HashMap<&'static str, PlayerEvent>, // to keep order
+    keys: HashMap<egui::Key, &'static str>,
+    pads: HashMap<gilrs::Button, &'static str>,
+    rebind_key: Option<(Option<egui::Key>, &'static str)>,
+}
+impl KeyMap {
+    pub fn get_from_keyboard(&self, key: &egui::Key) -> Option<&PlayerEvent> {
+        self.keys.get(key).and_then(|id| self.evt.get(id))
+    }
+
+    pub fn get_from_gamepad(&self, btn: &gilrs::Button) -> Option<&PlayerEvent> {
+        self.pads.get(btn).and_then(|id| self.evt.get(id))
+    }
 }
 
 impl Default for KeyMap {
@@ -42,49 +60,54 @@ impl Default for KeyMap {
         use joypad::InputBtn as Btn;
 
         let keys = HashMap::from([
-            (Key::ArrowUp, Btn::Up),
-            (Key::ArrowDown, Btn::Down),
-            (Key::ArrowLeft, Btn::Left),
-            (Key::ArrowRight, Btn::Right),
-            (Key::S, Btn::A),
-            (Key::A, Btn::B),
-            (Key::W, Btn::Start),
-            (Key::E, Btn::Select),
+            (Key::ArrowUp, "Up"),
+            (Key::ArrowDown, "Down"),
+            (Key::ArrowLeft, "Left"),
+            (Key::ArrowRight, "Right"),
+            (Key::S, "A"),
+            (Key::A, "B"),
+            (Key::W, "Start"),
+            (Key::E, "Select"),
         ]);
 
         let pads = {
             use gilrs::Button;
             HashMap::from([
-                (Button::DPadUp, Btn::Up),
-                (Button::DPadDown, Btn::Down),
-                (Button::DPadLeft, Btn::Left),
-                (Button::DPadRight, Btn::Right),
-                (Button::South, Btn::A),
-                (Button::West, Btn::B),
-                (Button::Start, Btn::Start),
-                (Button::Select, Btn::Select),
+                (Button::DPadUp, "Up"),
+                (Button::DPadDown, "Down"),
+                (Button::DPadLeft, "Left"),
+                (Button::DPadRight, "Right"),
+                (Button::South, "A"),
+                (Button::West, "B"),
+                (Button::Start, "Start"),
+                (Button::Select, "Select"),
             ])
         };
 
-        let btns_strings = HashMap::from_iter(
-            [
-                (Btn::Up, "UP"),
-                (Btn::Down, "DOWN"),
-                (Btn::Left, "LEFT"),
-                (Btn::Right, "RIGHT"),
-                (Btn::A, "A"),
-                (Btn::B, "B"),
-                (Btn::Start, "Start"),
-                (Btn::Select, "Select"),
-            ]
-            .iter()
-            .map(|x| (x.0, x.1.to_string())),
-        );
+        let evt = HashMap::from([
+            ("Up", PlayerEvent::Joypad(Btn::Up)),
+            ("Down", PlayerEvent::Joypad(Btn::Down)),
+            ("Left", PlayerEvent::Joypad(Btn::Left)),
+            ("Right", PlayerEvent::Joypad(Btn::Right)),
+            ("A", PlayerEvent::Joypad(Btn::A)),
+            ("B", PlayerEvent::Joypad(Btn::B)),
+            ("Start", PlayerEvent::Joypad(Btn::Start)),
+            ("Select", PlayerEvent::Joypad(Btn::Select)),
+            ("Reset", PlayerEvent::Action(EmulatorAction::Reset)),
+            (
+                "TogglePause",
+                PlayerEvent::Action(EmulatorAction::TogglePause),
+            ),
+            #[cfg(feature = "persistence")]
+            ("Save", PlayerEvent::Action(EmulatorAction::Savestate)),
+            #[cfg(feature = "persistence")]
+            ("Load", PlayerEvent::Action(EmulatorAction::Loadstate)),
+        ]);
 
         Self {
             keys,
             pads,
-            btns_strings,
+            evt,
             rebind_key: None,
         }
     }
@@ -94,77 +117,6 @@ struct GamepadHandler {
     pub api: Option<gilrs::Gilrs>,
     // for now, we only handle the first active gamepad
     pub active: Option<gilrs::GamepadId>,
-}
-impl GamepadHandler {
-    pub fn poll(
-        &mut self,
-        current_input: nenemu_core::joypad::InputBtn,
-        keymaps: &KeyMap,
-    ) -> nenemu_core::joypad::InputBtn {
-        let mut gamepad_input = current_input;
-
-        while let Some(gilrs::Event { id, event, .. }) =
-            self.api.as_mut().and_then(|api| api.next_event())
-        {
-            if event == gilrs::EventType::Connected {
-                self.active = Some(id);
-            }
-
-            if let Some(active) = self.active {
-                if active != id {
-                    continue;
-                }
-
-                match event {
-                    gilrs::EventType::Disconnected => {
-                        if self.active.filter(|x| *x == id).is_some() {
-                            self.active = None;
-                        }
-                    }
-
-                    gilrs::EventType::ButtonReleased(btn, _) => {
-                        if let Some(emu_btn) = keymaps.pads.get(&btn) {
-                            gamepad_input.remove(*emu_btn);
-                        }
-                    }
-
-                    gilrs::EventType::ButtonPressed(btn, _) => {
-                        if let Some(emu_btn) = keymaps.pads.get(&btn) {
-                            gamepad_input.insert(*emu_btn);
-                        }
-                    }
-
-                    gilrs::EventType::AxisChanged(axis, amt, _) => match axis {
-                        gilrs::Axis::LeftStickX => {
-                            if amt >= 0.1 {
-                                gamepad_input.insert(joypad::InputBtn::Right);
-                            } else if amt <= -0.1 {
-                                gamepad_input.insert(joypad::InputBtn::Left);
-                            } else {
-                                gamepad_input.remove(joypad::InputBtn::Right);
-                                gamepad_input.remove(joypad::InputBtn::Left);
-                            }
-                        }
-                        gilrs::Axis::LeftStickY => {
-                            if amt >= 0.1 {
-                                gamepad_input.insert(joypad::InputBtn::Up);
-                            } else if amt <= -0.1 {
-                                gamepad_input.insert(joypad::InputBtn::Down);
-                            } else {
-                                gamepad_input.remove(joypad::InputBtn::Up);
-                                gamepad_input.remove(joypad::InputBtn::Down);
-                            }
-                        }
-                        _ => {}
-                    },
-
-                    _ => {}
-                }
-            }
-        }
-
-        gamepad_input
-    }
 }
 
 impl Default for GamepadHandler {
@@ -226,9 +178,13 @@ impl AudioStreamData {
         let volume_arc = Arc::clone(volume);
         let emu_arc = Arc::clone(emu);
 
+        let mut cfg = cfg.config();
+        cfg.buffer_size = cpal::BufferSize::Fixed(1024);
+        println!("{cfg:?}");
+
         device
             .build_output_stream(
-                cfg.into(),
+                cfg,
                 move |audio_out, _| cpal_callback(&emu_arc, &volume_arc, audio_out),
                 |err| eprintln!("Cpal callback error: {err}"),
                 None,
@@ -286,12 +242,10 @@ impl AudioHandler {
         // take the default device for now
         match host.default_output_device() {
             Some(device) => {
-                println!("HOSTS: {:?}", cpal::available_hosts());
-                println!("HOST chosen: {:?}", host.id());
-                println!("DEV chosen: {device:?} {:?}", device.id());
-
-                let default_cfg = device.default_output_config();
-                println!("Default CFG: {default_cfg:?}");
+                // println!("HOSTS: {:?}", cpal::available_hosts());
+                // println!("HOST chosen: {:?}", host.id());
+                // println!("DEV chosen: {device:?} {:?}", device.id());
+                // println!("Default CFG: {:?}", device.default_output_config(););
 
                 let volume = Arc::new(Mutex::new(0.5));
                 let stream = cpal_query_cfgs(&device)
@@ -394,7 +348,6 @@ impl AudioHandler {
     //     }
     // }
 
-    // TODO: maybe its a good idea to extract these to AppCtx as they also control if emulator runs or not
     pub fn resume(&mut self) {
         if !self.enabled {
             return;
@@ -407,7 +360,6 @@ impl AudioHandler {
         }
     }
 
-    // TODO: maybe its a good idea to extract these to AppCtx as they also control if emulator runs or not
     pub fn pause(&mut self) {
         if !self.enabled {
             return;
@@ -487,6 +439,15 @@ fn buffered_read<P: AsRef<Path>>(path: P) -> Result<Vec<u8>, GenericError> {
     let mut reader = std::io::BufReader::new(file);
     reader.read_to_end(&mut bytes)?;
     Ok(bytes)
+}
+
+fn buffered_write<P: AsRef<Path>>(path: P, bytes: &[u8]) -> Result<(), GenericError> {
+    use std::io::Write;
+
+    let file = std::fs::File::open(path)?;
+    let mut writer = std::io::BufWriter::new(file);
+    writer.write_all(bytes)?;
+    Ok(())
 }
 
 // fn emulation_thread_proc(
@@ -582,7 +543,7 @@ struct AppCfg {
     fullscreen: bool,
     hide_cursor: bool,
     battery_save_enabled: bool,
-    show_exit_dialog: bool,
+    hide_exit_dialog: bool,
 
     #[cfg(feature = "persistence")]
     restore_session: bool,
@@ -596,7 +557,6 @@ impl AppCfg {
     fn new() -> Self {
         Self {
             volume: 0.5,
-            show_exit_dialog: true,
             keep_aspect_ratio: true,
             ..Default::default()
         }
@@ -770,6 +730,27 @@ impl AppCtx {
         self.state.message_open = Some((true, time::Instant::now(), e));
     }
 
+    fn resume_emulation(&mut self) {
+        self.state.emulation = EmulationState::Running;
+        self.audio.resume();
+    }
+
+    fn pause_emulation(&mut self) {
+        self.state.emulation = EmulationState::Paused;
+        self.audio.pause();
+    }
+
+    fn stop_emulation(&mut self) {
+        self.state.emulation = EmulationState::Stopped;
+        self.audio.pause();
+
+        // clear screen
+        self.tex.set(
+            egui::ColorImage::filled([256, 240], egui::Color32::TRANSPARENT),
+            TEX_OPTS,
+        );
+    }
+
     fn open_dialog(
         &mut self,
         prompt: &str,
@@ -864,15 +845,9 @@ impl AppCtx {
                 }
 
                 self.update_video_sync_fps();
-                self.state.emulation = match self.state.emulation {
-                    EmulationState::Stopped | EmulationState::Running => {
-                        self.audio.resume();
-                        EmulationState::Running
-                    }
-                    EmulationState::Paused => {
-                        self.audio.pause();
-                        EmulationState::Paused
-                    }
+                match self.state.emulation {
+                    EmulationState::Stopped | EmulationState::Running => self.resume_emulation(),
+                    EmulationState::Paused => self.pause_emulation(),
                 };
             }
 
@@ -882,7 +857,7 @@ impl AppCtx {
         }
     }
 
-    fn reset_rom(&mut self) {
+    fn reset_emulation(&mut self) {
         if let Some(rom_path) = &self.state.current_rom_path {
             self.load_rom(rom_path.clone(), true);
         }
@@ -964,7 +939,7 @@ impl AppCtx {
                                 use std::process;
 
                                 match process::Command::new("explorer.exe")
-                                    .arg(self.get_states_dir())
+                                    .arg(self.get_user_dir())
                                     .spawn()
                                 {
                                     Err(e) => self.add_message(e.into()),
@@ -991,15 +966,17 @@ impl AppCtx {
 
                             if ui.button("☠ Clear all states").clicked() {
                                 // TODO: show modal
-                                let dir = self.get_states_dir();
+                                let dir = self.get_user_dir();
                                 _ = std::fs::remove_dir_all(dir);
                             }
                         })
                     });
 
                     if ui.button("📷 Screenshot").clicked() {
-                        // TODO
-                        eprintln!("screenshots not implemented yet");
+                        // TODO: dump texture to file
+                        let mut screenshots_dir = self.get_rom_states_dir();
+                        screenshots_dir.push("screenshots");
+                        eprintln!("screenshots not yet implemented");
                     }
 
                     if ui.button("❌ Close").clicked() {
@@ -1023,11 +1000,11 @@ impl AppCtx {
                             let stop = ui.button("⏹ Stop");
 
                             if run.clicked() {
-                                self.state.emulation = EmulationState::Running;
+                                self.resume_emulation();
                             } else if reset.clicked() {
-                                self.reset_rom();
+                                self.reset_emulation();
                             } else if stop.clicked() {
-                                self.state.emulation = EmulationState::Stopped;
+                                self.stop_emulation();
                             }
                         }
 
@@ -1038,18 +1015,13 @@ impl AppCtx {
                             let stop = ui.button("⏹ Stop");
 
                             if pause.clicked() {
-                                self.state.emulation = EmulationState::Paused;
+                                self.pause_emulation();
                             } else if reset.clicked() {
-                                self.reset_rom();
+                                self.reset_emulation();
                             } else if stop.clicked() {
-                                self.state.emulation = EmulationState::Stopped;
+                                self.stop_emulation();
                             }
                         }
-                    }
-
-                    match self.state.emulation {
-                        EmulationState::Running => self.audio.resume(),
-                        _ => self.audio.pause(),
                     }
 
                     {
@@ -1116,12 +1088,11 @@ impl AppCtx {
                                         match new_emu {
                                             Ok(new_emu) => {
                                                 self.close_and_save_rom_if_open();
+                                                self.state.current_rom_header =
+                                                    new_emu.rom_info().clone();
                                                 *self.emu_lock() = new_emu;
-                                                self.state.current_rom_header = rom::RomData {
-                                                    title: "FDS BIOS".to_string(),
-                                                    ..Default::default()
-                                                };
-                                                self.state.emulation = EmulationState::Running;
+
+                                                self.resume_emulation();
                                             }
                                             Err(e) => self.add_message(e),
                                         }
@@ -1158,14 +1129,14 @@ impl AppCtx {
     }
 
     fn show_exit_dialog(&mut self, ui: &mut egui::Ui) {
-        // TODO: better this
-
         if self.state.exit_modal_open {
             egui::Modal::new(egui::Id::new("❌ Close")).show(ui, |ui| {
                 ui.heading("❌ Closing emulator..");
                 ui.label("Are you sure??");
+                ui.checkbox(&mut self.cfg.hide_exit_dialog, "Don't show again");
 
-                ui.horizontal(|ui| {
+                ui.separator();
+                ui.horizontal_centered(|ui| {
                     if ui.button("Yes").clicked() {
                         self.close_and_save_rom_if_open();
 
@@ -1190,10 +1161,12 @@ impl AppCtx {
             .collapsible(true)
             .resizable([true, true])
             .open(&mut settings_open)
-            .show(ui, |ui| {
+            .show(ui, |ui| egui::ScrollArea::vertical().show(ui, |ui| {
                 if ui.button("🎨 Load palette file...").clicked() {
                     should_update_palette = self.open_dialog("Select a NES palette file", "NES PAL file", &["pal"]);
                 }
+
+                ui.separator();
 
                 let settings = &mut self.cfg.nes_settings;
 
@@ -1207,8 +1180,10 @@ impl AppCtx {
                     ui.checkbox(&mut settings.random_ram, "Enable randomized RAM at startup")
                     .on_hover_text("Some games (such as Final Fantasy) use the random state of RAM at boot to seed their rngs");
 
-                    ui.checkbox(&mut self.cfg.show_exit_dialog, "Show exit dialog");
+                    ui.checkbox(&mut self.cfg.hide_exit_dialog, "Show exit dialog");
                 });
+
+                ui.separator();
 
                 ui.collapsing("📺 Video", |ui| {
                     ui.checkbox(&mut settings.disable_sprite_limit, "Show more than 8 sprites per scaline")
@@ -1231,6 +1206,7 @@ impl AppCtx {
 
                 });
 
+                ui.separator();
 
                 ui.collapsing("🔊 Audio", |ui| {
                     ui.checkbox(&mut self.cfg.disable_audio, "Disable audio and drive emulation by video")
@@ -1280,19 +1256,20 @@ impl AppCtx {
                     ui.checkbox(&mut settings.enable_ext_audio, "Enable external sound chip");
                 });
 
-                ui.collapsing("💿 Famicon Disk System (FDS)", |ui| {
-                    let bios_btn_text = if let Some(path) = &self.cfg.bios_path {
-                    format!("👢 BIOS selected at: {:?}, click to change...", path)
-                    } else {
-                        "👢 Load FDS BIOS file...".to_string()
-                    };
+                ui.separator();
 
-                    if ui.button(bios_btn_text).clicked() {
+                ui.collapsing("💿 Famicon Disk System (FDS)", |ui| {
+                    if ui.button("👢 Load FDS BIOS file...").clicked() {
                         self.open_dialog("Select FDS BIOS file", "FDS BIOS", &["rom"])
                             .map(|path| self.cfg.bios_path = Some(path));
                     }
+
+                    if let Some(path) = &self.cfg.bios_path {
+                        ui.separator();
+                        ui.label(format!("👢 BIOS selected at: {:?}", path));
+                    }
                 })
-            });
+            }));
 
         self.state.settings_open = settings_open;
 
@@ -1315,42 +1292,54 @@ impl AppCtx {
     }
 
     fn show_keybids_window(&mut self, ui: &mut egui::Ui) {
-        // TODO: controller keybindings
-
         egui::Window::new("🎮 Keybindings")
             .collapsible(true)
-            .resizable([true, true])
+            .resizable([false, false])
             .open(&mut self.state.keybinds_open)
             .show(ui, |ui| {
-                for (key, emu_btn) in &self.cfg.keymaps.keys {
-                    ui.columns_const::<2, _>(|ui| {
-                        let btn_name = &self.cfg.keymaps.btns_strings[emu_btn];
-                        let col_src = ui[0].label(btn_name);
-                        let col_dst = ui[1].button(format!("{:?}", key));
+                ui.heading("Keyboard bindings");
+                ui.separator();
 
-                        if let Some((rebind_key, _)) = &self.cfg.keymaps.rebind_key {
+                let keymaps = &mut self.cfg.keymaps;
+
+                for (key, btn_name) in &keymaps.keys {
+                    ui.columns_const::<2, _>(|ui| {
+                        let col_src = ui[0].label(*btn_name);
+                        let col_dst = ui[1].button(format!("{:?}", key));
+                        // let col_add = ui[2].button("Add");
+
+                        if col_dst.clicked() {
+                            keymaps.rebind_key = Some((Some(*key), *btn_name));
+                        }
+
+                        // if col_add.clicked() {
+                        //     keymaps.rebind_key = Some((None, *btn_name));
+                        // }
+
+                        if let Some((Some(rebind_key), _)) = &keymaps.rebind_key {
                             if rebind_key == key {
                                 col_src.highlight();
                                 col_dst.highlight();
-                            } else if col_dst.clicked() {
-                                self.cfg.keymaps.rebind_key = Some((*key, *emu_btn));
                             }
-                        } else if col_dst.clicked() {
-                            self.cfg.keymaps.rebind_key = Some((*key, *emu_btn));
                         }
                     });
                 }
 
                 ui.vertical_centered(|ui| {
-                    if let Some(rebind_key) = &self.cfg.keymaps.rebind_key {
-                        ui.label(format!(
-                            "Rebinding {:?}... Press any button, close window to cancel",
-                            rebind_key.1
-                        ));
+                    if let Some(rebind_key) = &keymaps.rebind_key {
+                        if rebind_key.0.is_some() {
+                            ui.label(format!(
+                                "Rebinding {:?}... Press any button, close window to cancel",
+                                rebind_key.1
+                            ));
+                        } else {
+                            ui.label(format!(
+                                "Adding bind for {:?}... Press any button, close window to cancel",
+                                rebind_key.1
+                            ));
+                        }
                     }
                 });
-
-                ui.set_clip_rect(ui.min_rect());
             })
             .or_else(|| {
                 self.cfg.keymaps.rebind_key = None;
@@ -1358,66 +1347,134 @@ impl AppCtx {
             });
 
         // TODO: gamepad rebinds
+
+        ui.input(|i| {
+            let keymaps = &mut self.cfg.keymaps;
+            if let Some((old_key, evt_id)) = &keymaps.rebind_key {
+                // take the first key pressed
+                if let Some(new_key) = i.keys_down.iter().next() {
+                    if !keymaps.keys.contains_key(new_key) {
+                        // TODO: show error?
+                        keymaps.keys.insert(*new_key, *evt_id);
+
+                        if let Some(old_key) = old_key {
+                            keymaps.keys.remove(old_key);
+                        }
+                    }
+                    keymaps.rebind_key = None;
+                }
+            }
+        });
     }
 
     fn show_rom_info_window(&mut self, ui: &mut egui::Ui) {
         let header = &self.state.current_rom_header;
 
-        // TODO: fix this
         egui::Window::new("💾 ROM information")
             .collapsible(true)
             .open(&mut self.state.rom_info_open)
             .show(ui, |ui| {
-                ui.columns_const::<2, _>(|ui| {
-                    ui[0].label("Game Title");
-                    ui[1].label(&header.title);
+                egui::ScrollArea::horizontal().show(ui, |ui| {
+                    ui.columns(2, |ui| {
+                        ui[0].label("Game Title");
+                        ui[1].label(&header.title);
+                    });
 
-                    ui[0].label("Header kind");
-                    ui[1].label(format!("{:?}", header.format));
+                    ui.columns(2, |ui| {
+                        ui[0].label("Header kind");
+                        ui[1].label(format!("{:?}", header.format));
+                    });
 
-                    // TODO: more mapper information
-                    ui[0].label("Mapper ID");
-                    ui[1].label(header.mapper.to_string());
-                    ui[0].label("SubMapper ID");
-                    ui[1].label(header.submapper.to_string());
+                    ui.columns(2, |ui| {
+                        ui[0].label("Mapper ID");
+                        ui[1].hyperlink_to(
+                            format!("{} ({})", header.mapper_name, header.mapper),
+                            format!(
+                                "https://www.nesdev.org/wiki/INES_Mapper_{:03}",
+                                header.mapper
+                            ),
+                        );
+                    });
 
-                    ui[0].label("Region");
-                    ui[1].label(format!("{:?}", header.region));
+                    ui.columns(2, |ui| {
+                        ui[0].label("SubMapper ID");
+                        ui[1].label(header.submapper.to_string());
+                    });
 
-                    ui[0].label("PRG size");
-                    ui[1].label(format!("{} KB", header.prg_size / 1024));
-                    ui[0].label("WRAM size");
-                    ui[1].label(format!("{} KB", header.wram_size / 1024));
+                    ui.columns(2, |ui| {
+                        ui[0].label("Region");
+                        ui[1].label(format!("{:?}", header.region));
+                    });
 
-                    ui[0].label("CHR size");
-                    ui[1].label(format!("{} KB", header.chr_size / 1024));
-                    ui[0].label("CHR RAM");
-                    ui[1].label(header.has_chr_ram.to_string());
+                    ui.columns(2, |ui| {
+                        ui[0].label("Mirroring");
+                        let mirroring = if header.alt_mirroring {
+                            "Alternative"
+                        } else {
+                            &format!("{:?}", header.mirroring)
+                        };
+                        ui[1].label(mirroring);
+                    });
 
-                    ui[0].label("Battery");
-                    ui[1].label(header.has_battery.to_string());
-                });
+                    ui.columns(2, |ui| {
+                        ui[0].label("PRG size");
+                        ui[1].add(
+                            egui::ProgressBar::new((header.prg_size / 1024) as f32 / 512.0)
+                                .corner_radius(egui::CornerRadius::ZERO)
+                                .text(format!("{} KiB", header.prg_size / 1024)),
+                        )
+                    });
 
-                ui.set_clip_rect(ui.min_rect());
+                    ui.columns(2, |ui| {
+                        ui[0].label("WRAM size");
+                        ui[1].add(
+                            egui::ProgressBar::new((header.wram_size / 1024) as f32 / 32.0)
+                                .corner_radius(egui::CornerRadius::ZERO)
+                                .text(format!("{} KiB", header.wram_size / 1024)),
+                        )
+                    });
+
+                    ui.columns(2, |ui| {
+                        ui[0].label("CHR size");
+                        ui[1].add(
+                            egui::ProgressBar::new((header.chr_size / 1024) as f32 / 256.0)
+                                .corner_radius(egui::CornerRadius::ZERO)
+                                .text(format!("{} KiB", header.chr_size / 1024)),
+                        )
+                    });
+
+                    ui.columns(2, |ui| {
+                        ui[0].label("CHR RAM");
+                        ui[1].label(if header.has_chr_ram { "☑" } else { "☐" });
+                    });
+
+                    ui.columns(2, |ui| {
+                        ui[0].label("Battery");
+                        ui[1].label(if header.has_battery { "☑" } else { "☐" })
+                    });
+                })
             });
     }
 
     fn show_about_window(&mut self, ui: &mut egui::Ui) {
+        // TODO: do richtext shit
+
         egui::Window::new("ℹ About")
             .collapsible(true)
             .open(&mut self.state.about_open)
             .show(ui, |ui| {
                 ui.vertical_centered(|ui| {
-                    // TODO: do richtext shit
-                    ui.hyperlink_to("Nen Emulator", "https://github.com/Comba92/nen-emulator");
-                    ui.label("Developed by");
-                    ui.hyperlink_to("Comba92", "https://github.com/Comba92");
+                    ui.hyperlink_to("Nen Emulator ", "https://github.com/Comba92/nen-emulator");
+
+                    ui.columns(2, |ui| {
+                        ui[0].label("Developed by:");
+                        ui[1].hyperlink_to("Comba92 ", "https://github.com/Comba92");
+                    });
+
                     ui.hyperlink_to(
                         "Report bugs or issues",
                         "https://github.com/Comba92/nen-emulator/issues/new/choose",
                     );
-
-                    ui.set_clip_rect(ui.min_rect());
                 })
             });
     }
@@ -1447,14 +1504,43 @@ impl AppCtx {
         }
     }
 
+    fn handle_action(&mut self, act: EmulatorAction) {
+        match act {
+            EmulatorAction::Reset => self.reset_emulation(),
+            EmulatorAction::TogglePause => match self.state.emulation {
+                EmulationState::Paused => self.resume_emulation(),
+                EmulationState::Running => self.pause_emulation(),
+                EmulationState::Stopped => {}
+            },
+
+            _ => {}
+        }
+    }
+
     fn handle_input_and_emulation(&mut self, ui: &mut egui::Ui) {
         let current_input = self.emu_lock().get_buttons();
 
         let keyboard_input = ui.input(|i| {
             let mut pressed = joypad::InputBtn::empty();
 
-            for (key, emu_btn) in &self.cfg.keymaps.keys {
-                pressed.set(*emu_btn, i.key_down(*key));
+            for (key, evt) in &self.cfg.keymaps.keys {
+                if i.key_down(*key) {
+                    match &self.cfg.keymaps.evt[evt] {
+                        PlayerEvent::Joypad(emu_btn) => pressed.insert(*emu_btn),
+                        _ => {}
+                    }
+                }
+
+                // events can only be done once per frame
+                if i.key_pressed(*key) {
+                    match &self.cfg.keymaps.evt[evt] {
+                        PlayerEvent::Action(act) => {
+                            self.handle_action(*act);
+                            break;
+                        }
+                        _ => {}
+                    }
+                }
             }
 
             pressed
@@ -1466,7 +1552,72 @@ impl AppCtx {
                 && matches!(self.state.mouse_pos.1, 0..240)
         });
 
-        let gamepad_input = self.gamepads.poll(current_input, &self.cfg.keymaps);
+        let mut gamepad_input = current_input;
+        while let Some(gilrs::Event { id, event, .. }) =
+            self.gamepads.api.as_mut().and_then(|api| api.next_event())
+        {
+            if event == gilrs::EventType::Connected {
+                self.gamepads.active = Some(id);
+            }
+
+            if let Some(active) = self.gamepads.active {
+                if active != id {
+                    continue;
+                }
+
+                match event {
+                    gilrs::EventType::Disconnected => {
+                        if self.gamepads.active.filter(|x| *x == id).is_some() {
+                            self.gamepads.active = None;
+                        }
+                    }
+
+                    gilrs::EventType::ButtonReleased(btn, _) => {
+                        if let Some(emu_btn) = self.cfg.keymaps.get_from_gamepad(&btn) {
+                            match emu_btn {
+                                PlayerEvent::Joypad(emu_btn) => gamepad_input.remove(*emu_btn),
+                                PlayerEvent::Action(act) => self.handle_action(*act),
+                            }
+                        }
+                    }
+
+                    gilrs::EventType::ButtonPressed(btn, _) => {
+                        if let Some(emu_btn) = self.cfg.keymaps.get_from_gamepad(&btn) {
+                            match emu_btn {
+                                PlayerEvent::Joypad(emu_btn) => gamepad_input.insert(*emu_btn),
+                                PlayerEvent::Action(act) => self.handle_action(*act),
+                            }
+                        }
+                    }
+
+                    gilrs::EventType::AxisChanged(axis, amt, _) => match axis {
+                        gilrs::Axis::LeftStickX => {
+                            if amt >= 0.1 {
+                                gamepad_input.insert(joypad::InputBtn::Right);
+                            } else if amt <= -0.1 {
+                                gamepad_input.insert(joypad::InputBtn::Left);
+                            } else {
+                                gamepad_input.remove(joypad::InputBtn::Right);
+                                gamepad_input.remove(joypad::InputBtn::Left);
+                            }
+                        }
+                        gilrs::Axis::LeftStickY => {
+                            if amt >= 0.1 {
+                                gamepad_input.insert(joypad::InputBtn::Up);
+                            } else if amt <= -0.1 {
+                                gamepad_input.insert(joypad::InputBtn::Down);
+                            } else {
+                                gamepad_input.remove(joypad::InputBtn::Up);
+                                gamepad_input.remove(joypad::InputBtn::Down);
+                            }
+                        }
+                        _ => {}
+                    },
+
+                    _ => {}
+                }
+            }
+        }
 
         if self.state.emulation == EmulationState::Running {
             {
@@ -1510,7 +1661,7 @@ impl AppCtx {
 
                     Err(e) => {
                         drop(emu);
-                        self.state.emulation = EmulationState::Stopped;
+                        self.stop_emulation();
                         self.add_message(e.into());
                     }
                 }
@@ -1624,11 +1775,11 @@ impl eframe::App for AppCtx {
 
         *self.audio.volume.lock().unwrap() = self.cfg.volume;
 
-        const FPS: f32 = 1.0 / 144.0;
+        const FPS: f32 = 1.0 / 288.0;
         ui.request_repaint_after_secs(FPS);
         // ui.request_repaint_after_secs(self.state.fps);
 
-        if self.cfg.show_exit_dialog {
+        if !self.cfg.hide_exit_dialog {
             if ui.input(|i| i.viewport().close_requested()) {
                 if !self.state.should_close {
                     ui.send_viewport_cmd(egui::ViewportCommand::CancelClose);
@@ -1639,24 +1790,29 @@ impl eframe::App for AppCtx {
     }
 }
 
-#[cfg(feature = "savestates")]
 impl AppCtx {
-    fn get_states_dir(&self) -> PathBuf {
+    fn get_user_dir(&self) -> PathBuf {
+        // todo: this fails on mobile lol
         let mut dir = eframe::storage_dir(APP_NAME).unwrap();
         dir.push("states");
         dir
     }
 
     fn get_rom_states_dir(&self) -> PathBuf {
-        let mut dir = self.get_states_dir();
+        let mut dir = self.get_user_dir();
+        // todo: too many unwraps... scary
         let current_rom = self.state.current_rom_path.as_ref().unwrap();
         dir.push(current_rom.file_stem().unwrap());
         dir
     }
+}
 
+#[cfg(feature = "savestates")]
+impl AppCtx {
     fn save_state(&mut self, name: &str) {
-        let mut dir = self.get_states_dir();
+        let mut dir = self.get_user_dir();
 
+        // todo: too many unwraps... scary
         let current_rom = self.state.current_rom_path.as_ref().unwrap();
         dir.push(current_rom.file_stem().unwrap());
 

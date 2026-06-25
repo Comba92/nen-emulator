@@ -40,6 +40,7 @@ pub struct RomData {
     pub title: String,
     pub format: HeaderFormat,
     pub mapper: u16,
+    pub mapper_name: String,
     pub submapper: u8,
     pub region: Region,
 
@@ -60,9 +61,10 @@ pub struct RomData {
 impl Default for RomData {
     fn default() -> Self {
         Self {
-            title: String::new(),
+            title: "[Title unavailable]".to_string(),
             format: HeaderFormat::Headerless,
             mapper: 0,
+            mapper_name: "NROM".to_string(),
             submapper: 0,
             region: Region::NTSC,
 
@@ -250,8 +252,18 @@ impl RomData {
             header.chr_size
         };
 
+        header.mapper_name = get_mapper_name(header.mapper).to_string();
+
         Ok(header)
     }
+}
+
+pub fn get_mapper_name(id: u16) -> &'static str {
+    MAPPERS_NAMES
+        .iter()
+        .find(|m| m.0 == id)
+        .map(|m| m.1)
+        .unwrap_or("Unknown")
 }
 
 const SUPPORTED_EXPANSIONS: &[u8] = &[
@@ -489,3 +501,66 @@ impl Disk {
         })
     }
 }
+
+const MAPPERS_NAMES: &[(u16, &str)] = &[
+    (0, "NROM"),
+    (1, "MMC1"),
+    (2, "UxROM"),
+    (94, "UxROM"),
+    (180, "UxROM"),
+    (3, "CNROM"),
+    (185, "CNROM"),
+    (4, "MMC3"),
+    (5, "MMC5"),
+    (7, "AxROM"),
+    (9, "MMC2"),
+    (10, "MMC4"),
+    (11, "ColorDreams"),
+    (13, "CPROM"),
+    (16, "BandaiFCG"),
+    (153, "BandaiFCG"),
+    (157, "BandaiFCG"),
+    (159, "BandaiFCG"),
+    (19, "Namco129_163"),
+    (210, "Namco129_163"),
+    (20, "FamiconDiskSystem"),
+    (21, "VRC2_4"),
+    (22, "VRC2"),
+    (23, "VRC2_4"),
+    (25, "VRC2_4"),
+    (24, "VRC6"),
+    (26, "VRC6"),
+    (29, "Homebrews29"),
+    (31, "NSF"),
+    (34, "NINA00x_BNROM"),
+    (177, "NINA00x_BNROM"),
+    (241, "NINA00x_BNROM"),
+    (32, "IremG101"),
+    (40, "NTDEC2722"),
+    (65, "IremH3001"),
+    (66, "GxROM"),
+    (67, "Sunsoft3"),
+    (68, "Sunsoft4"),
+    (69, "SunsoftFME7"),
+    (70, "Bandai74"),
+    (152, "Bandai74"),
+    (71, "Codemasters"),
+    (232, "Codemasters"),
+    (73, "VRC3"),
+    (75, "VRC1"),
+    (77, "NapoleonSenki"),
+    (78, "Irem74HCx"),
+    (79, "NINA003_006"),
+    (85, "VRC7"),
+    (87, "J87"),
+    (101, "J87"),
+    (89, "Sunsoft89"),
+    (93, "Sunsoft93"),
+    (97, "IremTAMS1"),
+    (184, "Sunsoft1"),
+    (76, "DxROM"),
+    (88, "DxROM"),
+    (95, "DxROM"),
+    (154, "DxROM"),
+    (206, "DxROM"),
+];

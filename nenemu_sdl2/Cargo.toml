@@ -3,6 +3,7 @@ name = "nenemu_sdl2"
 version = "0.1.0"
 edition = "2024"
 # build = "build.rs"
+default-run = "audio_sync"
 
 [features]
 savestates = ["nenemu_core/savestates"]
