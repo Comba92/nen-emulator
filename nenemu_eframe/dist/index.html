@@ -15,8 +15,8 @@
         <!-- config for our rust wasm binary. go to https://trunkrs.dev/assets/#rust for more customization -->
         
 <script type="module">
-import init, * as bindings from '/nenemu_eframe-2fea64210488292a.js';
-const wasm = await init({ module_or_path: '/nenemu_eframe-2fea64210488292a_bg.wasm' });
+import init, * as bindings from '/nenemu_eframe-c943c7a7659bb37c.js';
+const wasm = await init({ module_or_path: '/nenemu_eframe-c943c7a7659bb37c_bg.wasm' });
 
 
 window.wasmBindings = bindings;
@@ -135,7 +135,7 @@ dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
                 }
             }
         </style>
-    <link rel="modulepreload" href="/nenemu_eframe-2fea64210488292a.js" crossorigin="anonymous" integrity="sha384-6/3rFdg4ZlW/O2rVb45KL3YPA2ozsPrcSdkOwwIw6CsSJw6IEEfs26Bab5VH0Ca1"><link rel="preload" href="/nenemu_eframe-2fea64210488292a_bg.wasm" crossorigin="anonymous" integrity="sha384-cSt9f5ufR4IAs8Dcoqh5abzBGjnxXU/q7YkvLJk5aS4IkzF83pfSHxRALJEJlRVC" as="fetch" type="application/wasm"></head>
+    <link rel="modulepreload" href="/nenemu_eframe-c943c7a7659bb37c.js" crossorigin="anonymous" integrity="sha384-R+rkI4WaOiVxEIiL44BxD0FSoOsb1YO01t5VatXeVA/DQTNjE8BhaRAAdQOU6cWq"><link rel="preload" href="/nenemu_eframe-c943c7a7659bb37c_bg.wasm" crossorigin="anonymous" integrity="sha384-wlIco/U/pJRyrjFoE+SVusBwNt3XhEr0DQavgqRrrmWu3SeQ43DSFMuVLjk8o/nu" as="fetch" type="application/wasm"></head>
 
     <body>
         <!-- The WASM code will resize the canvas dynamically -->

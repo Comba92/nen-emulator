@@ -4,7 +4,12 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use eframe::egui;
 
-use nenemu_core::{NesPalette, emu::NesEmulator, joypad, rom};
+use nenemu_core::{
+    NesPalette,
+    emu::NesEmulator,
+    joypad,
+    rom::{self, is_valid_bios},
+};
 use std::{
     collections::{HashMap, VecDeque},
     fs,
@@ -676,7 +681,8 @@ struct AppState {
     gamepad_input: joypad::InputBtn,
     mouse_pos: (isize, isize),
 
-    current_rom_path: Option<PathBuf>,
+    bios: Option<Box<[u8]>>,
+    current_rom: Option<(Box<[u8]>, PathBuf)>,
     current_rom_header: rom::RomData,
 
     monitor_refresh_rate: usize,
@@ -714,8 +720,8 @@ enum FileOpenKind {
     Bios,
 }
 struct FileDialogHandler {
-    send: mpsc::Sender<(PathBuf, FileOpenKind)>,
-    recv: mpsc::Receiver<(PathBuf, FileOpenKind)>,
+    send: mpsc::Sender<(Vec<u8>, PathBuf, FileOpenKind)>,
+    recv: mpsc::Receiver<(Vec<u8>, PathBuf, FileOpenKind)>,
 }
 impl FileDialogHandler {
     pub fn new() -> Self {
@@ -739,7 +745,13 @@ impl FileDialogHandler {
         let send = self.send.clone();
         let future = async move {
             if let Some(file) = dialog.await {
-                send.send((file.path().into(), kind)).unwrap();
+                let bytes = file.read().await;
+
+                #[cfg(target_arch = "wasm32")]
+                send.send((bytes, file.file_name().into(), kind)).unwrap();
+
+                #[cfg(not(target_arch = "wasm32"))]
+                send.send((bytes, file.path().into(), kind)).unwrap();
             }
         };
 
@@ -748,7 +760,7 @@ impl FileDialogHandler {
         thread::spawn(move || futures::executor::block_on(future));
 
         #[cfg(target_arch = "wasm32")]
-        wasm
+        wasm_bindgen_futures::spawn_local(future);
     }
 }
 
@@ -764,7 +776,7 @@ struct AppCtx {
 
     audio: AudioHandler,
     gamepads: GamepadHandler,
-    files: FileDialogHandler,
+    file_dialog: FileDialogHandler,
 
     state: AppState,
     cfg: AppCfg,
@@ -847,7 +859,7 @@ impl AppCtx {
             tex,
             audio,
             gamepads: GamepadHandler::new(),
-            files: FileDialogHandler::new(),
+            file_dialog: FileDialogHandler::new(),
 
             cfg,
             state: Default::default(),
@@ -918,20 +930,35 @@ impl AppCtx {
         res
     }
 
-    fn load_palette<P: AsRef<Path>>(&mut self, path: P) {
-        let res = fs::read(path)
-            .map(|bytes| {
-                NesPalette::from_pal_file(&bytes)
-                    .ok_or("not a valid NES palette file")
-                    .map(|pal| ring_push_front(&mut self.cfg.palettes, pal, 20))
-                    .map(|_| self.add_message("palette loaded".into()))
-            })
-            .map_err(|e| self.add_message(e.into()));
+    fn load_palette_from_file<P: AsRef<Path>>(&mut self, path: P) {
+        // let res = fs::read(path)
+        //     .map(|bytes| {
+        //         NesPalette::from_pal_file(&bytes)
+        //             .ok_or("not a valid NES palette file")
+        //             .map(|pal| ring_push_front(&mut self.cfg.palettes, pal, 20))
+        //             .map(|_| self.add_message("palette loaded".into()))
+        //     })
+        //     .map_err(|e| self.add_message(e.into()));
 
-        if res.is_ok() {
-            if let Some(pal) = self.cfg.palettes.front() {
-                self.emu_lock().palette = pal.clone();
-            }
+        // if res.is_ok() {
+        //     if let Some(pal) = self.cfg.palettes.front() {
+        //         self.emu_lock().palette = pal.clone();
+        //     }
+        // }
+        _ = fs::read(path)
+            .and_then(|bytes| Ok(self.load_palette_from_bytes(&bytes)))
+            .map_err(|e| self.add_message(e.into()));
+    }
+
+    fn load_palette_from_bytes(&mut self, bytes: &[u8]) {
+        let res = NesPalette::from_pal_file(&bytes)
+            .ok_or("not a valid NES palette file")
+            .map(|pal| ring_push_front(&mut self.cfg.palettes, pal, 20))
+            .map(|_| self.add_message("palette loaded".into()));
+
+        match res {
+            Ok(_) => {}
+            Err(e) => self.add_message(e.into()),
         }
     }
 
@@ -940,8 +967,9 @@ impl AppCtx {
             return;
         }
 
+        #[cfg(not(target_arch = "wasm32"))]
         if self.cfg.battery_save_enabled {
-            if let Some(path) = &self.state.current_rom_path {
+            if let Some((_, path)) = &self.state.current_rom {
                 let res = self.emu_lock().save_battery_to_file(path);
 
                 if let Err(e) = res {
@@ -956,56 +984,73 @@ impl AppCtx {
         }
     }
 
-    fn load_rom<P: AsRef<Path>>(&mut self, rom_path: P, _force_reset: bool) {
-        let res = NesEmulator::load_rom_from_file(&rom_path, self.cfg.bios_path.as_ref());
-        match res {
-            Ok(mut new_emu) => {
-                self.close_and_save_rom_if_open();
-
-                if self.cfg.battery_save_enabled {
-                    if let Err(e) = new_emu.load_battery_from_file(&rom_path) {
-                        self.add_message(e);
-                    }
-                }
-
-                new_emu.update_settings(self.cfg.nes_settings.clone());
-                new_emu.set_audio_rate(self.audio.sample_rate() as f32);
-
-                if let Some(pal) = self.cfg.palettes.front() {
-                    new_emu.palette = pal.clone();
-                }
-
-                self.state.current_rom_header = {
-                    let mut emu = self.emu_lock();
-                    *emu = new_emu;
-                    emu.rom_info().clone()
-                };
-
-                let pathbuf = rom_path.as_ref().to_path_buf();
-                self.state.current_rom_path = Some(pathbuf.clone());
-                ring_push_front(&mut self.cfg.recent_roms, pathbuf, 12);
-
-                #[cfg(all(not(target_arch = "wasm32"), feature = "savestates"))]
-                if self.cfg.restore_session && !_force_reset {
-                    self.load_state("last");
-                }
-
-                self.update_video_sync_fps();
-                match self.state.emulation {
-                    EmulationState::Stopped | EmulationState::Running => self.resume_emulation(),
-                    EmulationState::Paused => self.pause_emulation(),
-                };
-            }
-
-            Err(e) => {
-                self.add_message(e);
-            }
+    fn load_rom_from_bytes<P: AsRef<Path>>(
+        &mut self,
+        rom_path: P,
+        rom_bytes: Box<[u8]>,
+        _force_reset: bool,
+    ) {
+        match NesEmulator::load_rom_from_bytes(&rom_bytes, self.state.bios.as_ref()) {
+            Ok(new_emu) => self.load_rom(rom_path, rom_bytes, new_emu, _force_reset),
+            Err(e) => self.add_message(e),
         }
     }
 
+    fn load_rom_from_file<P: AsRef<Path>>(&mut self, rom_path: P, _force_reset: bool) {
+        match buffered_read(&rom_path) {
+            Ok(rom) => self.load_rom_from_bytes(rom_path, rom.into_boxed_slice(), _force_reset),
+            Err(e) => self.add_message(e),
+        }
+    }
+
+    fn load_rom<P: AsRef<Path>>(
+        &mut self,
+        rom_path: P,
+        rom_bytes: Box<[u8]>,
+        mut new_emu: NesEmulator,
+        _force_reset: bool,
+    ) {
+        self.close_and_save_rom_if_open();
+
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.cfg.battery_save_enabled {
+            if let Err(e) = new_emu.load_battery_from_file(&rom_path) {
+                self.add_message(e);
+            }
+        }
+
+        new_emu.update_settings(self.cfg.nes_settings.clone());
+        new_emu.set_audio_rate(self.audio.sample_rate() as f32);
+
+        if let Some(pal) = self.cfg.palettes.front() {
+            new_emu.palette = pal.clone();
+        }
+
+        self.state.current_rom_header = {
+            let mut emu = self.emu_lock();
+            *emu = new_emu;
+            emu.rom_info().clone()
+        };
+
+        let pathbuf = rom_path.as_ref().to_path_buf();
+        self.state.current_rom = Some((rom_bytes, pathbuf.clone()));
+        ring_push_front(&mut self.cfg.recent_roms, pathbuf, 12);
+
+        #[cfg(all(not(target_arch = "wasm32"), feature = "savestates"))]
+        if self.cfg.restore_session && !_force_reset {
+            self.load_state("last");
+        }
+
+        self.update_video_sync_fps();
+        match self.state.emulation {
+            EmulationState::Stopped | EmulationState::Running => self.resume_emulation(),
+            EmulationState::Paused => self.pause_emulation(),
+        };
+    }
+
     fn reset_emulation(&mut self) {
-        if let Some(rom_path) = &self.state.current_rom_path {
-            self.load_rom(rom_path.clone(), true);
+        if let Some((rom, path)) = self.state.current_rom.take() {
+            self.load_rom_from_bytes(path, rom, true);
         }
     }
 
@@ -1020,7 +1065,7 @@ impl AppCtx {
                         //     &["nes", "fds", "zip", "rar"],
                         // )
                         // .map(|path| self.load_rom(path, false));
-                        self.files.open_dialog(
+                        self.file_dialog.open_dialog(
                             FileOpenKind::Rom,
                             "Select game ROM",
                             "NES ROM",
@@ -1028,6 +1073,7 @@ impl AppCtx {
                         );
                     }
 
+                    #[cfg(not(target_arch = "wasm32"))]
                     ui.menu_button("Recent ROMs", |ui| {
                         if self.cfg.recent_roms.is_empty() {
                             ui.label("No recent ROMs");
@@ -1037,7 +1083,7 @@ impl AppCtx {
                         for (i, entry) in self.cfg.recent_roms.iter().enumerate() {
                             if ui.button(entry.to_str().unwrap_or_default()).clicked() {
                                 let to_load = self.cfg.recent_roms.remove(i).unwrap();
-                                self.load_rom(to_load, false);
+                                self.load_rom_from_file(to_load, false);
                                 break;
                             }
                         }
@@ -1227,33 +1273,33 @@ impl AppCtx {
                     }
 
                     if ui.button("👢 Run FDS BIOS").clicked() {
-                        match &self.cfg.bios_path {
-                            Some(bios_path) => {
-                                let bios = buffered_read(bios_path);
+                        // match &self.cfg.bios_path {
+                        //     Some(bios_path) => {
+                        //         let bios = buffered_read(bios_path);
 
-                                match bios {
-                                    Ok(bios) => {
-                                        let new_emu = NesEmulator::load_bios_only(bios);
+                        //         match bios {
+                        //             Ok(bios) => {
+                        //                 let new_emu = NesEmulator::load_bios_only(bios);
 
-                                        match new_emu {
-                                            Ok(new_emu) => {
-                                                self.close_and_save_rom_if_open();
-                                                self.state.current_rom_header =
-                                                    new_emu.rom_info().clone();
-                                                *self.emu_lock() = new_emu;
+                        //                 match new_emu {
+                        //                     Ok(new_emu) => {
+                        //                         self.close_and_save_rom_if_open();
+                        //                         self.state.current_rom_header =
+                        //                             new_emu.rom_info().clone();
+                        //                         *self.emu_lock() = new_emu;
 
-                                                self.resume_emulation();
-                                            }
-                                            Err(e) => self.add_message(e),
-                                        }
-                                    }
+                        //                         self.resume_emulation();
+                        //                     }
+                        //                     Err(e) => self.add_message(e),
+                        //                 }
+                        //             }
 
-                                    Err(e) => self.add_message(e),
-                                }
-                            }
+                        //             Err(e) => self.add_message(e),
+                        //         }
+                        //     }
 
-                            None => self.add_message("no BIOS ROM provided".into()),
-                        }
+                        //     None => self.add_message("no BIOS ROM provided".into()),
+                        // }
                     }
                 });
 
@@ -1316,7 +1362,7 @@ impl AppCtx {
                 #[cfg(not(target_arch = "wasm32"))]
                 if ui.button("🎨 Load palette file...").clicked() {
                     // should_update_palette = self.open_dialog("Select a NES palette file", "NES PAL file", &["pal"]);
-                    self.files.open_dialog(FileOpenKind::Palette, "Select a NES palette file", "NES PAL file", &["pal"]);
+                    self.file_dialog.open_dialog(FileOpenKind::Palette, "Select a NES palette file", "NES PAL file", &["pal"]);
                 }
 
                 ui.separator();
@@ -1418,7 +1464,7 @@ impl AppCtx {
                     if ui.button("👢 Load FDS BIOS file...").clicked() {
                         // self.open_dialog("Select FDS BIOS file", "FDS BIOS", &["rom"])
                         //     .map(|path| self.cfg.bios_path = Some(path));
-                        self.files.open_dialog(FileOpenKind::Bios, "Select FDS BIOS file", "FDS BIOS", &["rom"]);
+                        self.file_dialog.open_dialog(FileOpenKind::Bios, "Select FDS BIOS file", "FDS BIOS", &["rom"]);
                     }
 
                     if let Some(path) = &self.cfg.bios_path {
@@ -1661,11 +1707,20 @@ impl AppCtx {
     }
 
     fn handle_file_dialog(&mut self) {
-        match self.files.recv.try_recv() {
-            Ok((path, kind)) => match kind {
-                FileOpenKind::Rom => self.load_rom(path, false),
-                FileOpenKind::Palette => self.load_palette(path),
-                FileOpenKind::Bios => self.cfg.bios_path = Some(path),
+        match self.file_dialog.recv.try_recv() {
+            Ok((bytes, path, kind)) => match kind {
+                FileOpenKind::Rom => {
+                    self.load_rom_from_bytes(path, bytes.into_boxed_slice(), false)
+                }
+                FileOpenKind::Palette => self.load_palette_from_bytes(&bytes),
+                FileOpenKind::Bios => {
+                    if is_valid_bios(&bytes) {
+                        self.state.bios = Some(bytes.into_boxed_slice());
+                        self.cfg.bios_path = Some(path);
+                    } else {
+                        self.add_message("not a valid FDS bios".into());
+                    }
+                }
             },
 
             _ => {}
@@ -1906,15 +1961,16 @@ impl eframe::App for AppCtx {
             });
         });
 
+        #[cfg(not(target_arch = "wasm32"))]
         ui.input(|i| {
             // check for dropped files
             let files = &i.raw.dropped_files;
             if let Some(Some(path)) = files.first().map(|f| &f.path) {
                 let pal_ext = std::ffi::OsStr::new("pal");
                 if path.extension() == Some(pal_ext) {
-                    self.load_palette(path);
+                    self.load_palette_from_file(path);
                 } else {
-                    self.load_rom(path, true);
+                    self.load_rom_from_file(path, true);
                 }
             }
         });
@@ -1950,6 +2006,7 @@ impl eframe::App for AppCtx {
         self.show_settings_window(ui);
         self.show_keybids_window(ui);
         self.show_about_window(ui);
+        #[cfg(not(target_arch = "wasm32"))]
         self.show_exit_dialog(ui);
         self.show_rom_info_window(ui);
         self.show_error_window(ui);
@@ -1978,6 +2035,7 @@ impl eframe::App for AppCtx {
         ui.request_repaint_after_secs(FPS);
         // ui.request_repaint_after_secs(self.state.fps);
 
+        #[cfg(not(target_arch = "wasm32"))]
         if !self.cfg.hide_exit_dialog {
             if ui.input(|i| i.viewport().close_requested()) {
                 if !self.state.should_close {
