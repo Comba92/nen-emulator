@@ -1422,7 +1422,7 @@ impl AppCtx {
 
                     ui.columns(2, |ui| {
                         ui[0].label("Header kind");
-                        ui[1].label(format!("{:?}", header.format));
+                        ui[1].label(header.format.to_string());
                     });
 
                     ui.columns(2, |ui| {
@@ -1862,7 +1862,8 @@ impl AppCtx {
     fn get_user_dir(&self) -> PathBuf {
         // todo: this fails on mobile lol
         let mut dir = eframe::storage_dir(APP_NAME).unwrap();
-        dir.pop();
+        #[cfg(target_os = "windows")]
+        dir.pop(); // on linux/mac this goes up to the root of the shared folder
         dir.push("states");
         dir
     }

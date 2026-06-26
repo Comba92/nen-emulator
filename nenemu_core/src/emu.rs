@@ -381,17 +381,17 @@ impl NesEmulator {
         self.output.frame_number
     }
 
-    pub fn get_video_rgba(&mut self) -> &[u8; FRAMEBUF_SIZE] {
-        if self.output.frame_ready {
-            self.output.frame_ready = false;
-        }
+    pub fn get_video_rgba(&self) -> &[u8; FRAMEBUF_SIZE] {
+        // if self.output.frame_ready {
+        //     self.output.frame_ready = false;
+        // }
         &self.output.videobuf_view.0
     }
 
-    pub fn put_video_rgba(&mut self, buf: &mut [u8]) {
-        if self.output.frame_ready {
-            self.output.frame_ready = false;
-        }
+    pub fn put_video_rgba(&self, buf: &mut [u8]) {
+        // if self.output.frame_ready {
+        //     self.output.frame_ready = false;
+        // }
 
         buf.copy_from_slice(self.get_video_rgba());
     }

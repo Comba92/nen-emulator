@@ -32,5 +32,5 @@ https://www.reddit.com/r/EmuDev/comments/xta12t/confused_about_cycles_and_emulat
 - optimize savestates
 - fastforwarding
 - better reset
-
+- add readmes to subprojects
 - WASM

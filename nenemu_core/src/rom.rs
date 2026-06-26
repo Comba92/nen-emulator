@@ -1,3 +1,5 @@
+use std::fmt;
+
 use crate::{
     emu::{Mirroring, Region},
     games_db::GAMES_DB,
@@ -31,6 +33,22 @@ pub enum HeaderFormat {
     INes,
     Nes2_0,
     Fds,
+    Qd,
+    Unif,
+}
+impl fmt::Display for HeaderFormat {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            Self::Headerless => "Headerless",
+            Self::INes => "iNES",
+            Self::Nes2_0 => "NES 2.0",
+            Self::Fds => "FDS (fwNES)",
+            Self::Qd => "QuickDisk",
+            Self::Unif => "UNIF (Universal NES Image Format)",
+        };
+
+        write!(f, "{s}")
+    }
 }
 
 // https://www.nesdev.org/wiki/INES
@@ -100,7 +118,7 @@ impl RomData {
 
     pub fn len(&self) -> usize {
         match self.format {
-            HeaderFormat::Headerless | HeaderFormat::Fds => 0,
+            HeaderFormat::Headerless | HeaderFormat::Fds | HeaderFormat::Qd => 0,
             HeaderFormat::INes | HeaderFormat::Nes2_0 => {
                 if self.has_trainer {
                     Self::INES_HEADER_SIZE + Self::TRAINER_SIZE
@@ -108,6 +126,7 @@ impl RomData {
                     Self::INES_HEADER_SIZE
                 }
             }
+            HeaderFormat::Unif => Self::UNIF_HEADER_SIZE,
         }
     }
 
