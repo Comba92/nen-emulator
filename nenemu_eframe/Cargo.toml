@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-savestates = ["nenemu_core/savestates"]
-persistence = ["savestates", "serde", "eframe/persistence", "gilrs/serde-serialize"]
+persistence = ["serde", "eframe/persistence", "gilrs/serde-serialize"]
+savestates = ["nenemu_core/savestates", "persistence"]
 opengl = ["eframe/glow"]
 
 [dependencies]
@@ -13,6 +13,17 @@ rfd = { version = "0.17.2" }
 eframe = { version = "0.34.3", features = ["persistence"] }
 nenemu_core = { path = "../nenemu_core" }
 # sdl2 = "0.38.0"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+futures = "0.3.32"
 cpal = { version = "0.18.1" }
 serde = { version = "1.0.228", optional = true }
 gilrs = { version = "0.11.2", default-features = false, features = ["xinput"]}
+
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen-futures = "0.4.50"
+web-sys = "0.3.70"              # to access the DOM (to hide the loading text)
+log = "0.4.27"
+cpal = { version = "0.18.1", features = ["wasm-bindgen"] }
+gilrs = { version = "0.11.2", features = ["wgi"]}

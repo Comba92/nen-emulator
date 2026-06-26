@@ -3,12 +3,13 @@
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use eframe::egui;
+
 use nenemu_core::{NesPalette, emu::NesEmulator, joypad, rom};
 use std::{
     collections::{HashMap, VecDeque},
     fs,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, MutexGuard},
+    sync::{Arc, Mutex, MutexGuard, mpsc},
     thread, time,
 };
 
@@ -25,9 +26,9 @@ enum EmulatorAction {
     Reset,
     TogglePause,
     ToggleMute,
-    #[cfg(feature = "persistence")]
+    #[cfg(all(not(target_arch = "wasm32"), feature = "persistence"))]
     Savestate,
-    #[cfg(feature = "persistence")]
+    #[cfg(all(not(target_arch = "wasm32"), feature = "persistence"))]
     Loadstate,
 }
 
@@ -52,9 +53,9 @@ enum ActionKind {
     Reset,
     TogglePause,
     ToggleMute,
-    #[cfg(feature = "persistence")]
+    #[cfg(all(not(target_arch = "wasm32"), feature = "persistence"))]
     Savestate,
-    #[cfg(feature = "persistence")]
+    #[cfg(all(not(target_arch = "wasm32"), feature = "persistence"))]
     Loadstate,
 }
 impl std::fmt::Display for ActionKind {
@@ -97,9 +98,9 @@ impl Default for KeyMap {
             (Key::P, ActionKind::TogglePause),
             (Key::M, ActionKind::ToggleMute),
             (Key::R, ActionKind::Reset),
-            #[cfg(feature = "persistence")]
+            #[cfg(all(not(target_arch = "wasm32"), feature = "persistence"))]
             (Key::Num0, ActionKind::Savestate),
-            #[cfg(feature = "persistence")]
+            #[cfg(all(not(target_arch = "wasm32"), feature = "persistence"))]
             (Key::Num9, ActionKind::Loadstate),
         ]);
 
@@ -134,12 +135,16 @@ impl Default for KeyMap {
                 ActionKind::TogglePause,
                 PlayerEvent::Action(EmulatorAction::TogglePause),
             ),
-            #[cfg(feature = "persistence")]
+            (
+                ActionKind::ToggleMute,
+                PlayerEvent::Action(EmulatorAction::ToggleMute),
+            ),
+            #[cfg(all(not(target_arch = "wasm32"), feature = "persistence"))]
             (
                 ActionKind::Savestate,
                 PlayerEvent::Action(EmulatorAction::Savestate),
             ),
-            #[cfg(feature = "persistence")]
+            #[cfg(all(not(target_arch = "wasm32"), feature = "persistence"))]
             (
                 ActionKind::Loadstate,
                 PlayerEvent::Action(EmulatorAction::Loadstate),
@@ -161,8 +166,8 @@ struct GamepadHandler {
     pub active: Option<gilrs::GamepadId>,
 }
 
-impl Default for GamepadHandler {
-    fn default() -> Self {
+impl GamepadHandler {
+    pub fn new() -> Self {
         let api = gilrs::Gilrs::new()
             .inspect_err(|err| eprintln!("{err}"))
             .ok();
@@ -288,7 +293,7 @@ impl AudioHandler {
                 // println!("HOSTS: {:?}", cpal::available_hosts());
                 // println!("HOST chosen: {:?}", host.id());
                 // println!("DEV chosen: {device:?} {:?}", device.id());
-                // println!("Default CFG: {:?}", device.default_output_config(););
+                // println!("Default CFG: {:?}", device.default_output_config();
 
                 let volume = Arc::new(Mutex::new(0.5));
                 let stream = cpal_query_cfgs(&device)
@@ -325,8 +330,12 @@ impl AudioHandler {
         self.stream.as_ref().map(|s| &s.device)
     }
 
+    pub fn is_supported(&self) -> bool {
+        self.stream.is_some()
+    }
+
     pub fn is_enabled(&self) -> bool {
-        self.stream.is_some() && self.enabled
+        self.is_supported() && self.enabled
     }
 
     pub fn sample_rate(&self) -> u32 {
@@ -559,13 +568,14 @@ enum EmulationState {
 const APP_NAME: &'static str = "NenEmu";
 type GenericError = Box<dyn std::error::Error>;
 
+#[cfg(not(target_arch = "wasm32"))]
 fn main() {
     let opts = eframe::NativeOptions {
         centered: true,
         persist_window: false,
         viewport: egui::ViewportBuilder::default()
             .with_drag_and_drop(true)
-            .with_inner_size((256.0 * 3.0, 240.0 * 2.5))
+            .with_inner_size((256.0 * 2.5, 240.0 * 2.5))
             .with_title(APP_NAME),
         vsync: true,
         hardware_acceleration: eframe::HardwareAcceleration::Preferred,
@@ -576,6 +586,48 @@ fn main() {
     };
 
     eframe::run_native(APP_NAME, opts, Box::new(|c| Ok(AppCtx::new(c)))).unwrap();
+}
+
+#[cfg(target_arch = "wasm32")]
+fn main() {
+    use eframe::wasm_bindgen::JsCast as _;
+
+    // Redirect `log` message to `console.log` and friends:
+    eframe::WebLogger::init(log::LevelFilter::Debug).ok();
+
+    let web_options = eframe::WebOptions::default();
+
+    wasm_bindgen_futures::spawn_local(async {
+        let document = web_sys::window()
+            .expect("No window")
+            .document()
+            .expect("No document");
+
+        let canvas = document
+            .get_element_by_id("the_canvas_id")
+            .expect("Failed to find the_canvas_id")
+            .dyn_into::<web_sys::HtmlCanvasElement>()
+            .expect("the_canvas_id was not a HtmlCanvasElement");
+
+        let start_result = eframe::WebRunner::new()
+            .start(canvas, web_options, Box::new(|c| Ok(AppCtx::new(c))))
+            .await;
+
+        // Remove the loading text and spinner:
+        if let Some(loading_text) = document.get_element_by_id("loading_text") {
+            match start_result {
+                Ok(_) => {
+                    loading_text.remove();
+                }
+                Err(e) => {
+                    loading_text.set_inner_html(
+                        "<p> The app has crashed. See the developer console for details. </p>",
+                    );
+                    panic!("Failed to start eframe: {e:?}");
+                }
+            }
+        }
+    });
 }
 
 #[derive(Default)]
@@ -591,7 +643,7 @@ struct AppCfg {
     battery_save_enabled: bool,
     hide_exit_dialog: bool,
 
-    #[cfg(feature = "persistence")]
+    #[cfg(all(not(target_arch = "wasm32"), feature = "persistence"))]
     restore_session: bool,
 
     nes_settings: nenemu_core::emu::NesSettings,
@@ -647,12 +699,57 @@ fn ring_push_front<T: PartialEq>(queue: &mut VecDeque<T>, val: T, limit: usize) 
     queue.truncate(limit);
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn file_dialog(prompt: &str, requires: &str, extensions: &[&str]) -> Option<PathBuf> {
     rfd::FileDialog::new()
         .set_can_create_directories(true)
         .set_title(prompt)
         .add_filter(requires, extensions)
         .pick_file()
+}
+
+enum FileOpenKind {
+    Rom,
+    Palette,
+    Bios,
+}
+struct FileDialogHandler {
+    send: mpsc::Sender<(PathBuf, FileOpenKind)>,
+    recv: mpsc::Receiver<(PathBuf, FileOpenKind)>,
+}
+impl FileDialogHandler {
+    pub fn new() -> Self {
+        let (send, recv) = mpsc::channel();
+        Self { send, recv }
+    }
+
+    pub fn open_dialog(
+        &self,
+        kind: FileOpenKind,
+        prompt: &str,
+        requires: &str,
+        extensions: &[&str],
+    ) {
+        let dialog = rfd::AsyncFileDialog::new()
+            .set_can_create_directories(true)
+            .set_title(prompt)
+            .add_filter(requires, extensions)
+            .pick_file();
+
+        let send = self.send.clone();
+        let future = async move {
+            if let Some(file) = dialog.await {
+                send.send((file.path().into(), kind)).unwrap();
+            }
+        };
+
+        // simply run a thread and detach it. it doesnt have to do much work anyway
+        #[cfg(not(target_arch = "wasm32"))]
+        thread::spawn(move || futures::executor::block_on(future));
+
+        #[cfg(target_arch = "wasm32")]
+        wasm
+    }
 }
 
 struct AppCtx {
@@ -667,6 +764,7 @@ struct AppCtx {
 
     audio: AudioHandler,
     gamepads: GamepadHandler,
+    files: FileDialogHandler,
 
     state: AppState,
     cfg: AppCfg,
@@ -674,18 +772,21 @@ struct AppCtx {
 
 impl AppCtx {
     pub fn new(c: &eframe::CreationContext) -> Box<Self> {
+        #[cfg(not(target_arch = "wasm32"))]
         let refresh_rate = c
             .winit_window()
             .and_then(|window| window.current_monitor())
             .and_then(|monitor| monitor.refresh_rate_millihertz())
             .and_then(|refresh_rate| Some(refresh_rate / 1000))
             .unwrap_or(60);
-        println!("Refresh rate: {refresh_rate}");
+
+        #[cfg(target_arch = "wasm32")]
+        let refresh_rate = 60;
 
         #[cfg(not(feature = "persistence"))]
         let cfg = AppCfg::new();
 
-        #[cfg(feature = "persistence")]
+        #[cfg(all(not(target_arch = "wasm32"), feature = "persistence"))]
         let cfg = if let Some(storage) = c.storage {
             eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default()
         } else {
@@ -706,6 +807,9 @@ impl AppCtx {
         emu.lock()
             .unwrap()
             .set_audio_rate(audio.buffer_size() as f32);
+
+        #[cfg(target_arch = "wasm32")]
+        log::info!("We've got a stream?: {}", audio.is_enabled());
 
         // let samples_needed = audio.buffer_size();
 
@@ -742,7 +846,8 @@ impl AppCtx {
             // video_chain,
             tex,
             audio,
-            gamepads: GamepadHandler::default(),
+            gamepads: GamepadHandler::new(),
+            files: FileDialogHandler::new(),
 
             cfg,
             state: Default::default(),
@@ -797,7 +902,8 @@ impl AppCtx {
         );
     }
 
-    fn open_dialog(
+    #[cfg(not(target_arch = "wasm32"))]
+    fn open_dialog_blocking(
         &mut self,
         prompt: &str,
         requires: &str,
@@ -844,7 +950,7 @@ impl AppCtx {
             }
         }
 
-        #[cfg(feature = "savestates")]
+        #[cfg(all(not(target_arch = "wasm32"), feature = "savestates"))]
         if self.cfg.restore_session {
             self.save_state("last");
         }
@@ -879,7 +985,7 @@ impl AppCtx {
                 self.state.current_rom_path = Some(pathbuf.clone());
                 ring_push_front(&mut self.cfg.recent_roms, pathbuf, 12);
 
-                #[cfg(feature = "savestates")]
+                #[cfg(all(not(target_arch = "wasm32"), feature = "savestates"))]
                 if self.cfg.restore_session && !_force_reset {
                     self.load_state("last");
                 }
@@ -908,12 +1014,18 @@ impl AppCtx {
             content.horizontal_wrapped(|ui| {
                 ui.menu_button("💾 File", |ui| {
                     if ui.button("📂 Open...").clicked() {
-                        self.open_dialog(
+                        // self.open_dialog(
+                        //     "Select game ROM",
+                        //     "NES ROM",
+                        //     &["nes", "fds", "zip", "rar"],
+                        // )
+                        // .map(|path| self.load_rom(path, false));
+                        self.files.open_dialog(
+                            FileOpenKind::Rom,
                             "Select game ROM",
                             "NES ROM",
                             &["nes", "fds", "zip", "rar"],
-                        )
-                        .map(|path| self.load_rom(path, false));
+                        );
                     }
 
                     ui.menu_button("Recent ROMs", |ui| {
@@ -935,7 +1047,7 @@ impl AppCtx {
                         }
                     });
 
-                    #[cfg(feature = "savestates")]
+                    #[cfg(all(not(target_arch = "wasm32"), feature = "savestates"))]
                     ui.add_enabled_ui(self.state.emulation != EmulationState::Stopped, |ui| {
                         ui.menu_button("Savestates", |ui| {
                             if ui.button("Quicksave").clicked() {
@@ -1014,8 +1126,6 @@ impl AppCtx {
 
                     if ui.button("📷 Screenshot").clicked() {
                         // TODO: dump texture to file
-                        let mut screenshots_dir = self.get_rom_states_dir();
-                        screenshots_dir.push("screenshots");
                         eprintln!("screenshots not yet implemented");
                     }
 
@@ -1193,7 +1303,8 @@ impl AppCtx {
     }
 
     fn show_settings_window(&mut self, ui: &mut egui::Ui) {
-        let mut should_update_palette = None;
+        // #[cfg(not(target_arch = "wasm32"))]
+        // let mut should_update_palette = None;
         let audio_disabled = self.cfg.disable_audio;
         let mut settings_open = self.state.settings_open;
 
@@ -1202,8 +1313,10 @@ impl AppCtx {
             .resizable([true, true])
             .open(&mut settings_open)
             .show(ui, |ui| egui::ScrollArea::vertical().show(ui, |ui| {
+                #[cfg(not(target_arch = "wasm32"))]
                 if ui.button("🎨 Load palette file...").clicked() {
-                    should_update_palette = self.open_dialog("Select a NES palette file", "NES PAL file", &["pal"]);
+                    // should_update_palette = self.open_dialog("Select a NES palette file", "NES PAL file", &["pal"]);
+                    self.files.open_dialog(FileOpenKind::Palette, "Select a NES palette file", "NES PAL file", &["pal"]);
                 }
 
                 ui.separator();
@@ -1214,7 +1327,7 @@ impl AppCtx {
                     ui.checkbox(&mut self.cfg.battery_save_enabled, "Enable battery saving")
                     .on_hover_text("This will dump work RAM in the same directory as the ROM's.");
 
-                    #[cfg(feature = "savestates")]
+                    #[cfg(all(not(target_arch = "wasm32"), feature = "savestates"))]
                     ui.checkbox(&mut self.cfg.restore_session, "Automatically restore last session when a game is reopened later");
 
                     ui.checkbox(&mut settings.random_ram, "Enable randomized RAM at startup")
@@ -1252,29 +1365,31 @@ impl AppCtx {
                     ui.checkbox(&mut self.cfg.disable_audio, "Disable audio and drive emulation by video")
                     .on_hover_text("By driving emulation with video, we get better good pacing and no skipped frames");
 
+
                     ui.add_enabled_ui(self.audio.is_enabled(), |ui| {
-                        ui.label("Audio device");
-                        ui.indent("Audio devices", |ui| {
-                            let curr_device = self.audio.current_device().unwrap(); // we are sure this is some here because of is_enabled()
-                            let mut selected_device = curr_device.clone();
+                        if let Some(curr_device) = self.audio.current_device().cloned() {
+                            ui.label("Audio device");
+                            ui.indent("Audio devices", |ui| {
+                                let mut selected_device = curr_device.clone();
 
-                            if let Some(default) = self.audio.host.default_output_device() {
-                                ui.radio_value(&mut selected_device, default, "Default audio device");
-                            }
-
-                            if let Ok(devices) = self.audio.host.output_devices() {
-                                for dev in devices.into_iter() {
-                                    let descr = dev.description().unwrap();
-                                    let name = descr.name();
-                                    ui.radio_value(&mut selected_device, dev, name);
+                                if let Some(default) = self.audio.host.default_output_device() {
+                                    ui.radio_value(&mut selected_device, default, "Default audio device");
                                 }
 
-                                if *curr_device != selected_device {
-                                    self.audio.set_ouput_device(selected_device, &self.emu);
-                                    self.emu_lock().set_audio_rate(self.audio.sample_rate() as f32);
+                                if let Ok(devices) = self.audio.host.output_devices() {
+                                    for dev in devices.into_iter() {
+                                        let descr = dev.description().unwrap();
+                                        let name = descr.name();
+                                        ui.radio_value(&mut selected_device, dev, name);
+                                    }
+
+                                    if curr_device != selected_device {
+                                        self.audio.set_ouput_device(selected_device, &self.emu);
+                                        self.emu_lock().set_audio_rate(self.audio.sample_rate() as f32);
+                                    }
                                 }
-                            }
-                        })
+                            });
+                        }
                     });
 
                     // ui.label("Audio sample rate:");
@@ -1298,10 +1413,12 @@ impl AppCtx {
 
                 ui.separator();
 
+                #[cfg(not(target_arch = "wasm32"))]
                 ui.collapsing("💿 Famicon Disk System (FDS)", |ui| {
                     if ui.button("👢 Load FDS BIOS file...").clicked() {
-                        self.open_dialog("Select FDS BIOS file", "FDS BIOS", &["rom"])
-                            .map(|path| self.cfg.bios_path = Some(path));
+                        // self.open_dialog("Select FDS BIOS file", "FDS BIOS", &["rom"])
+                        //     .map(|path| self.cfg.bios_path = Some(path));
+                        self.files.open_dialog(FileOpenKind::Bios, "Select FDS BIOS file", "FDS BIOS", &["rom"]);
                     }
 
                     if let Some(path) = &self.cfg.bios_path {
@@ -1326,9 +1443,10 @@ impl AppCtx {
             }
         }
 
-        if let Some(pal_path) = should_update_palette {
-            self.load_palette(pal_path);
-        }
+        // #[cfg(not(target_arch = "wasm32"))]
+        // if let Some(pal_path) = should_update_palette {
+        //     self.load_palette(pal_path);
+        // }
     }
 
     fn show_keybids_window(&mut self, ui: &mut egui::Ui) {
@@ -1501,7 +1619,7 @@ impl AppCtx {
 
         egui::Window::new("ℹ About")
             .collapsible(true)
-            .resizable(false)
+            .resizable(true)
             .open(&mut self.state.about_open)
             .show(ui, |ui| {
                 ui.vertical_centered(|ui| {
@@ -1542,6 +1660,18 @@ impl AppCtx {
         }
     }
 
+    fn handle_file_dialog(&mut self) {
+        match self.files.recv.try_recv() {
+            Ok((path, kind)) => match kind {
+                FileOpenKind::Rom => self.load_rom(path, false),
+                FileOpenKind::Palette => self.load_palette(path),
+                FileOpenKind::Bios => self.cfg.bios_path = Some(path),
+            },
+
+            _ => {}
+        }
+    }
+
     fn handle_action(&mut self, act: EmulatorAction) {
         match act {
             EmulatorAction::Reset => self.reset_emulation(),
@@ -1557,7 +1687,7 @@ impl AppCtx {
                 }
             }
 
-            #[cfg(feature = "persistence")]
+            #[cfg(all(not(target_arch = "wasm32"), feature = "persistence"))]
             _ => {}
         }
     }
@@ -1737,7 +1867,7 @@ impl AppCtx {
 }
 
 impl eframe::App for AppCtx {
-    #[cfg(feature = "persistence")]
+    #[cfg(all(not(target_arch = "wasm32"), feature = "persistence"))]
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, eframe::APP_KEY, &self.cfg);
     }
@@ -1824,6 +1954,7 @@ impl eframe::App for AppCtx {
         self.show_rom_info_window(ui);
         self.show_error_window(ui);
 
+        self.handle_file_dialog();
         self.handle_input_and_emulation(ui);
 
         // if self.state.emulation != current_state {
@@ -1858,6 +1989,7 @@ impl eframe::App for AppCtx {
     }
 }
 
+#[cfg(all(not(target_arch = "wasm32"), feature = "savestates"))]
 impl AppCtx {
     fn get_user_dir(&self) -> PathBuf {
         // todo: this fails on mobile lol
@@ -1875,10 +2007,7 @@ impl AppCtx {
         dir.push(current_rom.file_stem().unwrap());
         dir
     }
-}
 
-#[cfg(feature = "savestates")]
-impl AppCtx {
     fn save_state(&mut self, name: &str) {
         let mut dir = self.get_user_dir();
 

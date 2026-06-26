@@ -10,7 +10,7 @@ resolver = "3"
 [profile.release-opt]
 inherits = "release"
 strip = true
-opt-level = 3
+opt-level = 2
 lto = true
 codegen-units = 1
 panic = "abort"

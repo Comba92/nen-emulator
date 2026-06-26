@@ -7,8 +7,8 @@ const nesVideoCtx = nesScreen.getContext("2d");
 let nesAudioCtx = null;
 let audioNode = null;
 
-const SCREEN_WIDTH = 32 * 4;
-const SCREEN_HEIGHT = 30 * 4;
+const SCREEN_WIDTH = 32 * 8; // 256
+const SCREEN_HEIGHT = 30 * 8; // 240
 
 nesScreen.width = SCREEN_WIDTH;
 nesScreen.height = SCREEN_HEIGHT;
@@ -74,8 +74,6 @@ window.addEventListener("gamepadconnected", (e) => {
 import init, { NesEmulatorWasm as Nes, greet } from "./pkg/nenemu_wasm.js";
 const instance = await init();
 
-greet("it works!!");
-
 let emu = Nes.empty();
 let animationId = null;
 
@@ -89,16 +87,14 @@ romPicker.addEventListener("change", async (event) => {
     // nesAudioCtx = new AudioContext();
 
     // try {
-    //     nesAudioCtx = new AudioContext()
-    //     await nesAudioCtx
-    //     .audioWorklet
-    //     .addModule('audioWorker.js')
-    //     audioNode = new AudioWorkletNode(nesAudioCtx, 'NesAudioWorker')
-    //     audioNode.connect(nesAudioCtx.destination)
+    //   nesAudioCtx = new AudioContext();
+    //   await nesAudioCtx.audioWorklet.addModule("audioWorker.js");
+    //   audioNode = new AudioWorkletNode(nesAudioCtx, "NesAudioWorker");
+    //   audioNode.connect(nesAudioCtx.destination);
 
-    //     nesAudioCtx.resume()
+    //   nesAudioCtx.resume();
     // } catch (e) {
-    //     console.error("Couldn't start audio worker")
+    //   console.error("Couldn't start audio worker");
     // }
 
     animationId = renderLoop();
@@ -142,7 +138,7 @@ function renderLoop() {
 
     emu.step_until_frame_ready();
     renderVideo();
-    // renderAudio()
+    // renderAudio();
   }
 }
 
@@ -157,15 +153,16 @@ function renderVideo() {
 }
 
 // function renderAudio() {
-//   let samplesCount = emu.get_samples_count();
+//   let samplesCount = emu.get_audio_queued();
+//   let samplesRaw = emu.get_raw_samples_f32();
+
 //   let frame = new Float32Array(
 //     instance.memory.buffer,
-//     emu.get_raw_samples(),
+//     samplesRaw.right,
 //     samplesCount,
 //   );
 //   let buffer = nesAudioCtx.createBuffer(1, samplesCount, 44100);
 //   buffer.copyToChannel(frame, 0, 0);
-//   emu.consume_samples();
 
 //   let audioNode = nesAudioCtx.createBufferSource();
 //   audioNode.connect(nesAudioCtx.destination);
