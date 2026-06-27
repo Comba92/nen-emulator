@@ -865,6 +865,19 @@ impl AppCtx {
             state: Default::default(),
         };
 
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(bios_path) = &res.cfg.bios_path {
+            match buffered_read(bios_path) {
+                Ok(bios) => res.state.bios = Some(bios.into_boxed_slice()),
+
+                Err(_) => {
+                    // bios was not found, clear cfg
+                    res.cfg.bios_path = None;
+                    res.add_message("BIOS path provided but was not found");
+                }
+            }
+        }
+
         res.state.monitor_refresh_rate = refresh_rate as usize;
         res.update_video_sync_fps();
 
@@ -889,8 +902,8 @@ impl AppCtx {
         self.state.video_sync_ratio = ratio;
     }
 
-    fn add_message(&mut self, e: GenericError) {
-        self.state.message_open = Some((true, time::Instant::now(), e));
+    fn add_message<E: Into<GenericError>>(&mut self, e: E) {
+        self.state.message_open = Some((true, time::Instant::now(), e.into()));
     }
 
     fn resume_emulation(&mut self) {
@@ -947,18 +960,19 @@ impl AppCtx {
         // }
         _ = fs::read(path)
             .and_then(|bytes| Ok(self.load_palette_from_bytes(&bytes)))
-            .map_err(|e| self.add_message(e.into()));
+            .map_err(|e| self.add_message(e));
     }
 
     fn load_palette_from_bytes(&mut self, bytes: &[u8]) {
-        let res = NesPalette::from_pal_file(&bytes)
-            .ok_or("not a valid NES palette file")
-            .map(|pal| ring_push_front(&mut self.cfg.palettes, pal, 20))
-            .map(|_| self.add_message("palette loaded".into()));
+        let res = NesPalette::from_pal_file(&bytes).ok_or("not a valid NES palette file");
 
         match res {
-            Ok(_) => {}
-            Err(e) => self.add_message(e.into()),
+            Ok(pal) => {
+                self.emu_lock().palette = pal.clone();
+                ring_push_front(&mut self.cfg.palettes, pal, 20);
+                self.add_message("palette loaded");
+            }
+            Err(e) => self.add_message(e),
         }
     }
 
@@ -973,7 +987,7 @@ impl AppCtx {
                 let res = self.emu_lock().save_battery_to_file(path);
 
                 if let Err(e) = res {
-                    self.add_message(e.into());
+                    self.add_message(e);
                 }
             }
         }
@@ -1300,6 +1314,23 @@ impl AppCtx {
 
                         //     None => self.add_message("no BIOS ROM provided".into()),
                         // }
+                        match &self.state.bios {
+                            Some(bios) => {
+                                let new_emu = NesEmulator::load_bios_only(bios);
+                                // this shouldnt fail but you never know
+                                match new_emu {
+                                    Ok(new_emu) => {
+                                        self.close_and_save_rom_if_open();
+                                        self.state.current_rom_header = new_emu.rom_info().clone();
+                                        *self.emu_lock() = new_emu;
+
+                                        self.resume_emulation();
+                                    }
+                                    Err(e) => self.add_message(e),
+                                }
+                            }
+                            None => self.add_message("no BIOS ROM provided"),
+                        }
                     }
                 });
 
@@ -1718,7 +1749,8 @@ impl AppCtx {
                         self.state.bios = Some(bytes.into_boxed_slice());
                         self.cfg.bios_path = Some(path);
                     } else {
-                        self.add_message("not a valid FDS bios".into());
+                        self.cfg.bios_path = None;
+                        self.add_message("not a valid FDS bios");
                     }
                 }
             },
@@ -1892,7 +1924,7 @@ impl AppCtx {
                     Err(e) => {
                         drop(emu);
                         self.stop_emulation();
-                        self.add_message(e.into());
+                        self.add_message(e);
                     }
                 }
             }
