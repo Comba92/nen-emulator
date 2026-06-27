@@ -14,7 +14,6 @@ struct EmulatorSamples {
 }
 
 // TODO: use log.error to print errors
-// TODO: load zip files too (core can expose a function for this)
 
 #[wasm_bindgen]
 impl NesEmulatorWasm {
@@ -35,7 +34,7 @@ impl NesEmulatorWasm {
     }
 
     pub fn reset(&mut self) {
-        self.emu = NesEmulator::load_rom_from_bytes(&self.rom, None::<&[u8]>).unwrap();
+        self.emu = NesEmulator::load_rom_from_unzipped_bytes(&self.rom, None::<&[u8]>).unwrap();
     }
 
     pub fn step(&mut self) {

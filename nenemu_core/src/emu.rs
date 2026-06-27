@@ -1,4 +1,5 @@
 use std::{
+    io::{self, Read},
     ops::Not,
     path::{Path, PathBuf},
 };
@@ -11,7 +12,7 @@ use crate::{
     joypad::Joypad,
     mapper::{self, Mapper},
     ppu::Ppu2C02,
-    rom::{Cart, Disk, RomData},
+    rom::{Cart, Disk, RomData, is_valid_bios, is_valid_fds, is_valid_ines},
     utils::{AvgResampler, RingBuffer},
 };
 
@@ -141,7 +142,6 @@ pub const SCREEN_HEIGHT: isize = 240;
 pub const FRAMEBUF_SIZE: usize = SCREEN_WIDTH as usize * SCREEN_HEIGHT as usize * 4;
 pub const AUDIO_FRAMES_BUFFERED: usize = 8;
 
-pub const BIOS_CRC32: u32 = 1583381967;
 pub const BATTERY_SAVE_EXTENSION: &str = "srm";
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, bitcode::Encode, bitcode::Decode)]
@@ -178,9 +178,9 @@ impl Game {
     pub fn from<B: AsRef<[u8]>>(bytes: B) -> Result<Self, LoadError> {
         let bytes = bytes.as_ref();
 
-        if RomData::is_valid_ines(bytes) {
+        if is_valid_ines(bytes) {
             Ok(Game::Cart(Cart::from(bytes)?))
-        } else if Disk::is_valid_fds(bytes) {
+        } else if is_valid_fds(bytes) {
             Ok(Game::Disk(Disk::from(bytes)?))
         } else {
             // might be headless rom
@@ -241,7 +241,7 @@ impl NesEmulator {
                 let bios = bios.ok_or("no BIOS ROM provided")?;
                 let bios = bios.as_ref();
 
-                if crc32fast::hash(bios) != BIOS_CRC32 {
+                if !is_valid_bios(bios) {
                     return Err("not a valid BIOS rom".into());
                 }
                 Bus::with_disk(disk, bios)
@@ -279,7 +279,7 @@ impl NesEmulator {
         Self::new_with_settings(game, bios, NesSettings::default())
     }
 
-    pub fn load_rom_from_bytes<R: AsRef<[u8]>, B: AsRef<[u8]>>(
+    pub fn load_rom_from_unzipped_bytes<R: AsRef<[u8]>, B: AsRef<[u8]>>(
         rom: R,
         bios: Option<B>,
     ) -> Result<Self, LoadError> {
@@ -476,6 +476,16 @@ impl NesEmulator {
         }
     }
 
+    pub fn load_rom_from_bytes<R: AsRef<[u8]>, B: AsRef<[u8]>>(
+        rom_bytes: R,
+        bios: Option<B>,
+    ) -> Result<Self, LoadError> {
+        match read_zip_file_from_bytes(rom_bytes.as_ref()) {
+            Ok(bytes) => Self::load_rom_from_unzipped_bytes(bytes, bios), // it is a zip file
+            Err(_) => Self::load_rom_from_unzipped_bytes(rom_bytes, bios), // not a zip file
+        }
+    }
+
     pub fn load_rom_from_file<R: AsRef<Path>, B: AsRef<Path>>(
         rom_path: R,
         bios: Option<B>,
@@ -485,16 +495,16 @@ impl NesEmulator {
             io::{Read, Seek},
         };
 
-        let mut file = fs::File::open(rom_path)?;
+        let rom_file = fs::File::open(rom_path)?;
         let mut bytes = Vec::new();
-        let mut reader = std::io::BufReader::new(&file);
+        let mut reader = std::io::BufReader::new(rom_file);
         reader.read_to_end(&mut bytes)?;
 
         let bios = bios
             .and_then(|bios_path| fs::File::open(bios_path).ok())
-            .and_then(|file| {
+            .and_then(|bios_file| {
                 let mut bytes = Vec::new();
-                let mut reader = std::io::BufReader::new(&file);
+                let mut reader = std::io::BufReader::new(bios_file);
                 if let Ok(_) = reader.read_to_end(&mut bytes) {
                     Some(bytes)
                 } else {
@@ -502,22 +512,18 @@ impl NesEmulator {
                 }
             });
 
-        // let mut bytes = Vec::new();
-        // let mut file = fs::File::open(rom_path)?;
-        // file.read_to_end(&mut bytes)?;
-
         let res = Game::from(&bytes);
         match res {
             Ok(game) => Self::new(game, bios),
             Err(e) => {
-                file.rewind()?;
+                reader.rewind()?;
                 bytes.clear();
 
-                if let Ok(mut archive) = zip::read::ZipArchive::new(&mut file) {
+                if let Ok(mut archive) = zip::read::ZipArchive::new(&mut reader) {
                     // it is a zip file
                     let mut zip = archive.by_index(0)?;
                     zip.read_to_end(&mut bytes)?;
-                    NesEmulator::load_rom_from_bytes(&bytes, bios)
+                    NesEmulator::load_rom_from_unzipped_bytes(&bytes, bios)
                 } else {
                     // not a zip file either
                     Err(e)
@@ -631,5 +637,25 @@ impl NesEmulator {
         *self = new_emu;
 
         Ok(())
+    }
+}
+
+pub fn read_zip_file_from_bytes<B: AsRef<[u8]>>(input: B) -> std::io::Result<Vec<u8>> {
+    let mut reader = std::io::BufReader::new(input.as_ref());
+    let unzipped = zip::read::read_zipfile_from_stream(&mut reader)?;
+
+    match unzipped {
+        Some(mut zipfile) => {
+            let mut buf = Vec::new();
+            zipfile.read_to_end(&mut buf)?;
+            io::Result::Ok(buf)
+        }
+        None => {
+            let err = io::Error::new(
+                io::ErrorKind::IsADirectory,
+                "file was not present at root of zip directory",
+            );
+            io::Result::Err(err)
+        }
     }
 }

@@ -820,9 +820,6 @@ impl AppCtx {
             .unwrap()
             .set_audio_rate(audio.buffer_size() as f32);
 
-        #[cfg(target_arch = "wasm32")]
-        log::info!("We've got a stream?: {}", audio.is_enabled());
-
         // let samples_needed = audio.buffer_size();
 
         // let emu_arc = Arc::clone(&emu);
@@ -903,7 +900,10 @@ impl AppCtx {
     }
 
     fn add_message<E: Into<GenericError>>(&mut self, e: E) {
-        self.state.message_open = Some((true, time::Instant::now(), e.into()));
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.state.message_open = Some((true, time::Instant::now(), e.into())); // wasm doesnt support time
+        }
     }
 
     fn resume_emulation(&mut self) {
@@ -1121,11 +1121,12 @@ impl AppCtx {
                             ui.separator();
 
                             ui.menu_button("Save Slots...", |ui| {
-                                if ui.button("To file...").clicked() {
-                                    // TODO: show file modal to save state
-                                }
+                                // TODO: this requires check if the current game is the same as the savestate
+                                // if ui.button("To file...").clicked() {
+                                //     // TODO: show file modal to save state
+                                // }
 
-                                ui.separator();
+                                // ui.separator();
                                 for i in 1..9 {
                                     if ui.button(format!("Slot {i}")).clicked() {
                                         self.save_state(&i.to_string());
@@ -1134,11 +1135,12 @@ impl AppCtx {
                             });
 
                             ui.menu_button("Load Slots...", |ui| {
-                                if ui.button("From file...").clicked() {
-                                    // TODO: show file modal to load state
-                                }
+                                // TODO: this requires check if the current game is the same as the savestate
+                                // if ui.button("From file...").clicked() {
+                                //     // TODO: show file modal to load state
+                                // }
 
-                                ui.separator();
+                                // ui.separator();
                                 for i in 1..9 {
                                     if ui.button(format!("Slot {i}")).clicked() {
                                         self.load_state(&i.to_string());
@@ -1154,7 +1156,8 @@ impl AppCtx {
                                     .arg(self.get_user_dir())
                                     .spawn()
                                 {
-                                    Err(e) => self.add_message(e.into()),
+                                    Err(e) => self
+                                        .add_message(format!("couldn't open file explorer: {e}")),
                                     _ => {}
                                 }
                             }
@@ -1184,11 +1187,12 @@ impl AppCtx {
                         })
                     });
 
-                    if ui.button("📷 Screenshot").clicked() {
-                        // TODO: dump texture to file
-                        eprintln!("screenshots not yet implemented");
-                    }
+                    // if ui.button("📷 Screenshot").clicked() {
+                    //     // TODO: dump texture to file
+                    //     eprintln!("screenshots not yet implemented");
+                    // }
 
+                    #[cfg(not(target_arch = "wasm32"))]
                     if ui.button("❌ Close").clicked() {
                         self.state.exit_modal_open = true;
                     }
@@ -1726,7 +1730,9 @@ impl AppCtx {
                     ui.heading(msg.to_string());
                 });
 
+            #[cfg(not(target_arch = "wasm32"))]
             const MSG_DELAY: time::Duration = time::Duration::from_secs(4);
+            #[cfg(not(target_arch = "wasm32"))]
             if appeared.elapsed() > MSG_DELAY {
                 *open = false;
             }
@@ -2093,8 +2099,8 @@ impl AppCtx {
     fn get_rom_states_dir(&self) -> PathBuf {
         let mut dir = self.get_user_dir();
         // todo: too many unwraps... scary
-        let current_rom = self.state.current_rom_path.as_ref().unwrap();
-        dir.push(current_rom.file_stem().unwrap());
+        let (_, current_rom_path) = self.state.current_rom.as_ref().unwrap();
+        dir.push(current_rom_path.file_stem().unwrap());
         dir
     }
 
@@ -2102,17 +2108,16 @@ impl AppCtx {
         let mut dir = self.get_user_dir();
 
         // todo: too many unwraps... scary
-        let current_rom = self.state.current_rom_path.as_ref().unwrap();
-        dir.push(current_rom.file_stem().unwrap());
+        let (_, current_rom_path) = self.state.current_rom.as_ref().unwrap();
+        dir.push(current_rom_path.file_stem().unwrap());
 
         _ = std::fs::create_dir_all(&dir);
 
         dir.push(name);
         dir.set_extension("state");
         let res = self.emu_lock().savestate(dir);
-        match res {
-            Err(e) => self.add_message(e),
-            _ => {}
+        if let Err(e) = res {
+            self.add_message(e);
         }
     }
 
@@ -2121,6 +2126,9 @@ impl AppCtx {
 
         dir.push(name);
         dir.set_extension("state");
-        _ = self.emu_lock().loadstate(dir);
+        let res = self.emu_lock().loadstate(dir);
+        if let Err(e) = res {
+            self.add_message(e);
+        }
     }
 }

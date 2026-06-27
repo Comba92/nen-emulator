@@ -108,14 +108,6 @@ impl RomData {
     const UNIF_HEADER_SIZE: usize = 32;
     const TRAINER_SIZE: usize = 512;
 
-    pub fn is_valid_ines(bytes: &[u8]) -> bool {
-        bytes.len() >= Self::INES_HEADER_SIZE && &bytes[0..4] == Self::INES_MAGIC
-    }
-
-    pub fn is_valid_unif(bytes: &[u8]) -> bool {
-        bytes.len() >= Self::UNIF_HEADER_SIZE && &bytes[0..4] == Self::UNIF_MAGIC
-    }
-
     pub fn len(&self) -> usize {
         match self.format {
             HeaderFormat::Headerless | HeaderFormat::Fds | HeaderFormat::Qd => 0,
@@ -164,11 +156,11 @@ impl RomData {
     }
 
     pub fn parse(bytes: &[u8]) -> Result<Self, &'static str> {
-        if Self::is_valid_unif(bytes) {
+        if is_valid_unif(bytes) {
             return Err("valid UNIF ROM, but not supported by this emulator");
         }
 
-        if !Self::is_valid_ines(bytes) {
+        if !is_valid_ines(bytes) {
             return Err("not a valid iNES/NES2.0 ROM");
         }
 
@@ -374,6 +366,7 @@ impl Disk {
     const FDS_NINTENDO_STR: &[u8] = "*NINTENDO-HVC*".as_bytes();
     const FDS_HEADER_SIZE: usize = 16;
     const SIDE_SIZE: usize = 65500;
+    const BIOS_CRC32: u32 = 1583381967;
 
     fn push_gaps_and_data(data: &mut Vec<u8>, block: &[u8]) {
         // Gap between blocks : At least 480 bits, 976 bits typical.
@@ -386,21 +379,6 @@ impl Disk {
         // fake CRC value
         data.push(0xde);
         data.push(0xad);
-    }
-
-    pub fn is_valid_fds(bytes: &[u8]) -> bool {
-        let (rom_start, sides_count) = if &bytes[..4] == Self::FDS_MAGIC {
-            (Self::FDS_HEADER_SIZE, bytes[4] as usize)
-        } else {
-            (0, bytes.len() / Self::SIDE_SIZE)
-        };
-
-        if sides_count == 0 {
-            return false;
-        }
-
-        // we only check for the first side nintendo bytes
-        bytes[rom_start] == 1 && &bytes[rom_start + 1..rom_start + 15] == Self::FDS_NINTENDO_STR
     }
 
     pub fn from(bytes: &[u8]) -> Result<Self, &'static str> {
@@ -519,6 +497,33 @@ impl Disk {
             sides_data,
         })
     }
+}
+
+pub fn is_valid_ines(bytes: &[u8]) -> bool {
+    bytes.len() >= RomData::INES_HEADER_SIZE && &bytes[0..4] == RomData::INES_MAGIC
+}
+
+pub fn is_valid_unif(bytes: &[u8]) -> bool {
+    bytes.len() >= RomData::UNIF_HEADER_SIZE && &bytes[0..4] == RomData::UNIF_MAGIC
+}
+
+pub fn is_valid_fds(bytes: &[u8]) -> bool {
+    let (rom_start, sides_count) = if &bytes[..4] == Disk::FDS_MAGIC {
+        (Disk::FDS_HEADER_SIZE, bytes[4] as usize)
+    } else {
+        (0, bytes.len() / Disk::SIDE_SIZE)
+    };
+
+    if sides_count == 0 {
+        return false;
+    }
+
+    // we only check for the first side nintendo bytes
+    bytes[rom_start] == 1 && &bytes[rom_start + 1..rom_start + 15] == Disk::FDS_NINTENDO_STR
+}
+
+pub fn is_valid_bios(bios: &[u8]) -> bool {
+    crc32fast::hash(bios) == Disk::BIOS_CRC32
 }
 
 const MAPPERS_NAMES: &[(u16, &str)] = &[
