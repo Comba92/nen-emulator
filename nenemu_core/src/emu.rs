@@ -16,93 +16,21 @@ use crate::{
     utils::{AvgResampler, RingBuffer},
 };
 
-#[derive(Default, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
-pub enum SampleRate {
-    Hz32000 = 32000,
-    Hz44100 = 44100,
-    #[default]
-    Hz48000 = 48000,
-    Hz96000 = 96000,
-}
-impl Into<f32> for SampleRate {
-    fn into(self) -> f32 {
-        self as u32 as f32
-    }
-}
+pub const NTSC_CLOCK_RATE: usize = 1789773;
+pub const PAL_CLOCK_RATE: usize = 1662607;
 
-#[derive(Clone, PartialEq)]
-#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
-pub struct NesSettings {
-    pub random_ram: bool,
-    pub disable_sprite_limit: bool,
-    pub enable_oam_read: bool,
+pub const NTSC_FRAME_RATE: f32 = 60.0988;
+pub const PAL_FRAME_RATE: f32 = 50.0070;
 
-    pub enable_background: bool,
-    pub enable_sprites: bool,
+pub const SCREEN_WIDTH: isize = 256;
+pub const SCREEN_HEIGHT: isize = 240;
 
-    // TODO: not implemented
-    pub pal_borders: bool,
+pub const FRAMEBUF_SIZE: usize = SCREEN_WIDTH as usize * SCREEN_HEIGHT as usize * 4;
+pub const AUDIO_FRAMES_BUFFERED: usize = 8;
 
-    pub enable_pulse0: bool,
-    pub enable_pulse1: bool,
-    pub enable_triangle: bool,
-    pub enable_noise: bool,
-    pub enable_dmc: bool,
-    pub enable_ext_audio: bool,
-}
-impl Default for NesSettings {
-    fn default() -> Self {
-        Self {
-            random_ram: true,
-            disable_sprite_limit: true,
-            enable_oam_read: false,
+pub const BATTERY_SAVE_EXTENSION: &str = "srm";
+pub(crate) type LoadError = Box<dyn std::error::Error>;
 
-            enable_background: true,
-            enable_sprites: true,
-
-            pal_borders: true,
-
-            enable_pulse0: true,
-            enable_pulse1: true,
-            enable_triangle: true,
-            enable_noise: true,
-            enable_dmc: true,
-            enable_ext_audio: true,
-        }
-    }
-}
-
-#[derive(Default)]
-pub struct NesOutput {
-    pub(crate) frame_ready: bool,
-    pub(crate) frame_number: usize,
-    pub(crate) videobuf_back: Box<Framebuf>,
-    pub(crate) videobuf_view: Box<Framebuf>,
-    pub audiobuf: RingBuffer<f32>,
-    pub resampler: AvgResampler,
-}
-impl NesOutput {
-    pub fn new(region: &Region) -> Self {
-        Self {
-            audiobuf: RingBuffer::new(
-                (AUDIO_FRAMES_BUFFERED as f32 * (region.clock_rate() as f32 / region.frame_rate()))
-                    as usize,
-            ),
-            resampler: AvgResampler::new(region.clock_rate(), SampleRate::default()),
-            ..Default::default()
-        }
-    }
-}
-
-pub(crate) struct Framebuf(pub [u8; FRAMEBUF_SIZE]);
-impl Default for Framebuf {
-    fn default() -> Self {
-        Self([255; _])
-    }
-}
-
-// TODO: not everything should serialized (especially in BUS)
 #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub struct NesEmulator {
     pub cpu: Cpu6502,
@@ -130,20 +58,6 @@ pub enum Mirroring {
     FourScreens,
 }
 
-pub const NTSC_CLOCK_RATE: usize = 1789773;
-pub const PAL_CLOCK_RATE: usize = 1662607;
-
-pub const NTSC_FRAME_RATE: f32 = 60.0988;
-pub const PAL_FRAME_RATE: f32 = 50.0070;
-
-pub const SCREEN_WIDTH: isize = 256;
-pub const SCREEN_HEIGHT: isize = 240;
-
-pub const FRAMEBUF_SIZE: usize = SCREEN_WIDTH as usize * SCREEN_HEIGHT as usize * 4;
-pub const AUDIO_FRAMES_BUFFERED: usize = 8;
-
-pub const BATTERY_SAVE_EXTENSION: &str = "srm";
-
 #[derive(Debug, Default, Clone, Copy, PartialEq, bitcode::Encode, bitcode::Decode)]
 #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub enum Region {
@@ -167,47 +81,9 @@ impl Region {
     }
 }
 
-pub(crate) type LoadError = Box<dyn std::error::Error>;
-
-enum Game {
-    Cart(Cart),
-    Disk(Disk),
-}
-
-impl Game {
-    pub fn from<B: AsRef<[u8]>>(bytes: B) -> Result<Self, LoadError> {
-        let bytes = bytes.as_ref();
-
-        if is_valid_ines(bytes) {
-            Ok(Game::Cart(Cart::from(bytes)?))
-        } else if is_valid_fds(bytes) {
-            Ok(Game::Disk(Disk::from(bytes)?))
-        } else {
-            // might be headless rom
-            Ok(Game::Cart(Cart::from(bytes)?))
-        }
-    }
-}
-
 impl NesEmulator {
     pub fn empty() -> Self {
-        // Self {
-        //     cpu: Cpu6502::new(),
-        //     ppu: Ppu2C02::default(),
-        //     apu: ApuRP2A::default(),
-        //     joypad: Joypad::default(),
-        //     mem: Bus::with_cart(Cart::default()),
-        //     mapper: Box::new(mapper::NROM),
-
-        //     videobuf: Box::new([255; _]),
-        //     audiobuf: RingBuffer::new(0),
-        //     palette: NesPalette::default(),
-
-        //     // frame_ready: false,
-        //     settings: Settings::default(),
-        // }
-
-        Self::new(Game::Cart(Cart::default()), None::<&[u8]>).unwrap()
+        Self::new(Game::default(), None, NesSettings::default()).unwrap()
     }
 
     pub fn debug() -> Self {
@@ -220,17 +96,13 @@ impl NesEmulator {
             mapper: Box::new(mapper::NROM),
 
             output: NesOutput::default(),
-            palette: NesPalette::default(),
 
+            palette: NesPalette::default(),
             settings: NesSettings::default(),
         }
     }
 
-    fn new_with_settings<B: AsRef<[u8]>>(
-        game: Game,
-        bios: Option<B>,
-        settings: NesSettings,
-    ) -> Result<Self, LoadError> {
+    fn new(game: Game, bios: Option<Vec<u8>>, settings: NesSettings) -> Result<Self, LoadError> {
         let (mem, mapper) = match game {
             Game::Cart(cart) => {
                 let mut mem = Bus::with_cart(cart);
@@ -238,17 +110,14 @@ impl NesEmulator {
                 (mem, mapper)
             }
             Game::Disk(disk) => {
-                let bios = bios.ok_or("no BIOS ROM provided")?;
-                let bios = bios.as_ref();
+                let bios = bios.ok_or("no FDS BIOS provided")?;
 
-                if !is_valid_bios(bios) {
-                    return Err("not a valid BIOS rom".into());
+                if !is_valid_bios(&bios) {
+                    return Err("not a valid FDS BIOS provided".into());
                 }
                 Bus::with_disk(disk, bios)
             }
         };
-
-        let palette = NesPalette::from_pal_file(include_bytes!("../utils/2C02G_wiki.pal")).unwrap();
 
         let mut emu = Self {
             output: NesOutput::new(&mem.header.region),
@@ -260,7 +129,7 @@ impl NesEmulator {
             mem,
             mapper,
 
-            palette,
+            palette: NesPalette::default(),
             settings,
         };
 
@@ -271,26 +140,20 @@ impl NesEmulator {
             getrandom::fill(&mut emu.mem.wram)?;
         }
 
+        // Start from RST interrupt handler
         emu.cpu.pc = emu.cpu_read16(cpu::InterruptVector::Rst as u16);
         Ok(emu)
     }
 
-    fn new<B: AsRef<[u8]>>(game: Game, bios: Option<B>) -> Result<Self, LoadError> {
-        Self::new_with_settings(game, bios, NesSettings::default())
+    pub fn bios_only<B: AsRef<[u8]>>(bios: B) -> Result<Self, LoadError> {
+        Self::builder()
+            .with_fds_bios(Some(&bios.as_ref()))
+            .boot_bios_only(true)
+            .build()
     }
 
-    pub fn load_rom_from_unzipped_bytes<R: AsRef<[u8]>, B: AsRef<[u8]>>(
-        rom: R,
-        bios: Option<B>,
-    ) -> Result<Self, LoadError> {
-        let game = Game::from(rom)?;
-        Self::new(game, bios)
-    }
-
-    pub fn load_bios_only<B: AsRef<[u8]>>(bios: B) -> Result<Self, LoadError> {
-        let empty_disk = Disk::default();
-        let game = Game::Disk(empty_disk);
-        Self::new(game, Some(bios))
+    pub fn builder<'a>() -> NesBuilder<'a> {
+        NesBuilder::default()
     }
 
     pub fn region(&self) -> Region {
@@ -309,7 +172,20 @@ impl NesEmulator {
         &self.mem.header
     }
 
-    pub fn update_settings(&mut self, settings: NesSettings) {
+    pub fn try_set_palette<B: AsRef<[u8]>>(&mut self, bytes: B) -> Result<(), &str> {
+        if let Some(pal) = NesPalette::from_pal_file_bytes(bytes.as_ref()) {
+            self.set_palette(pal);
+            Ok(())
+        } else {
+            Err("not a valid NES palette file")
+        }
+    }
+
+    pub fn set_palette(&mut self, pal: NesPalette) {
+        self.palette = pal;
+    }
+
+    pub fn set_settings(&mut self, settings: NesSettings) {
         self.settings = settings;
     }
 
@@ -396,6 +272,7 @@ impl NesEmulator {
         buf.copy_from_slice(self.get_video_rgba());
     }
 
+    // 256 * 240 * 4 * 4 texture needed
     pub fn get_nametables_rgba(&self, buf: &mut [u8]) {
         let pttrntbl = self.ppu.ctrl.bg_pttrntbl_addr;
 
@@ -476,63 +353,9 @@ impl NesEmulator {
         }
     }
 
-    pub fn load_rom_from_bytes<R: AsRef<[u8]>, B: AsRef<[u8]>>(
-        rom_bytes: R,
-        bios: Option<B>,
-    ) -> Result<Self, LoadError> {
-        match read_zip_file_from_bytes(rom_bytes.as_ref()) {
-            Ok(bytes) => Self::load_rom_from_unzipped_bytes(bytes, bios), // it is a zip file
-            Err(_) => Self::load_rom_from_unzipped_bytes(rom_bytes, bios), // not a zip file
-        }
-    }
-
-    pub fn load_rom_from_file<R: AsRef<Path>, B: AsRef<Path>>(
-        rom_path: R,
-        bios: Option<B>,
-    ) -> Result<Self, LoadError> {
-        use std::{
-            fs,
-            io::{Read, Seek},
-        };
-
-        let rom_file = fs::File::open(rom_path)?;
-        let mut bytes = Vec::new();
-        let mut reader = std::io::BufReader::new(rom_file);
-        reader.read_to_end(&mut bytes)?;
-
-        let bios = bios
-            .and_then(|bios_path| fs::File::open(bios_path).ok())
-            .and_then(|bios_file| {
-                let mut bytes = Vec::new();
-                let mut reader = std::io::BufReader::new(bios_file);
-                if let Ok(_) = reader.read_to_end(&mut bytes) {
-                    Some(bytes)
-                } else {
-                    None
-                }
-            });
-
-        let res = Game::from(&bytes);
-        match res {
-            Ok(game) => Self::new(game, bios),
-            Err(e) => {
-                reader.rewind()?;
-                bytes.clear();
-
-                if let Ok(mut archive) = zip::read::ZipArchive::new(&mut reader) {
-                    // it is a zip file
-                    let mut zip = archive.by_index(0)?;
-                    zip.read_to_end(&mut bytes)?;
-                    NesEmulator::load_rom_from_unzipped_bytes(&bytes, bios)
-                } else {
-                    // not a zip file either
-                    Err(e)
-                }
-            }
-        }
-    }
-
     pub fn save_battery(&self) -> Option<&[u8]> {
+        // TODO: FDS disk save
+
         if self.rom_info().has_battery {
             if self.rom_info().mapper == 1 && self.mem.wram.len() == 16 * 1024 {
                 // https://www.nesdev.org/wiki/MMC1#SxROM_board_types
@@ -553,6 +376,8 @@ impl NesEmulator {
     }
 
     pub fn load_battery(&mut self, bytes: &[u8]) -> Result<(), LoadError> {
+        // TODO: FDS disk load
+
         if !self.rom_info().has_battery {
             return Ok(());
         } else if bytes.len() != self.mem.wram.len() {
@@ -640,8 +465,147 @@ impl NesEmulator {
     }
 }
 
-pub fn read_zip_file_from_bytes<B: AsRef<[u8]>>(input: B) -> std::io::Result<Vec<u8>> {
-    let mut reader = std::io::BufReader::new(input.as_ref());
+#[derive(Default)]
+pub struct NesOutput {
+    pub(crate) frame_ready: bool,
+    pub(crate) frame_number: usize,
+    // These get reallocated every time an emulator is created, consider changing to Vector
+    pub(crate) videobuf_back: Box<Framebuf>,
+    pub(crate) videobuf_view: Box<Framebuf>,
+    pub audiobuf: RingBuffer<f32>,
+    pub resampler: AvgResampler,
+}
+impl NesOutput {
+    pub fn new(region: &Region) -> Self {
+        Self {
+            audiobuf: RingBuffer::new(
+                (AUDIO_FRAMES_BUFFERED as f32 * (region.clock_rate() as f32 / region.frame_rate()))
+                    as usize,
+            ),
+            resampler: AvgResampler::new(region.clock_rate(), SampleRate::default()),
+            ..Default::default()
+        }
+    }
+}
+
+pub(crate) struct Framebuf(pub [u8; FRAMEBUF_SIZE]);
+impl Default for Framebuf {
+    fn default() -> Self {
+        Self([255; _])
+    }
+}
+
+#[derive(Default, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
+pub enum SampleRate {
+    Hz32000 = 32000,
+    Hz44100 = 44100,
+    #[default]
+    Hz48000 = 48000,
+    Hz96000 = 96000,
+}
+impl Into<f32> for SampleRate {
+    fn into(self) -> f32 {
+        self as u32 as f32
+    }
+}
+
+#[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
+pub struct NesSettings {
+    pub random_ram: bool,
+    pub disable_sprite_limit: bool,
+    pub enable_accurate_ppu: bool,
+
+    pub enable_background: bool,
+    pub enable_sprites: bool,
+
+    // TODO: not implemented
+    pub pal_borders: bool,
+
+    pub enable_pulse0: bool,
+    pub enable_pulse1: bool,
+    pub enable_triangle: bool,
+    pub enable_noise: bool,
+    pub enable_dmc: bool,
+    pub enable_ext_audio: bool,
+}
+impl Default for NesSettings {
+    fn default() -> Self {
+        Self {
+            random_ram: true,
+            disable_sprite_limit: true,
+            enable_accurate_ppu: false,
+
+            enable_background: true,
+            enable_sprites: true,
+
+            pal_borders: true,
+
+            enable_pulse0: true,
+            enable_pulse1: true,
+            enable_triangle: true,
+            enable_noise: true,
+            enable_dmc: true,
+            enable_ext_audio: true,
+        }
+    }
+}
+
+enum Game {
+    Cart(Cart),
+    Disk(Disk),
+}
+
+impl Default for Game {
+    // default to empty cartrdige (all NOPs)
+    fn default() -> Self {
+        Self::Cart(Cart::default())
+    }
+}
+
+impl Game {
+    pub fn from_bytes<B: AsRef<[u8]>>(bytes: B) -> Result<Self, LoadError> {
+        let bytes = bytes.as_ref();
+
+        if is_valid_ines(bytes) {
+            Ok(Game::Cart(Cart::from_bytes(bytes)?))
+        } else if is_valid_fds(bytes) {
+            Ok(Game::Disk(Disk::from_bytes(bytes)?))
+        } else {
+            // might be headless rom
+            Ok(Game::Cart(Cart::from_bytes(bytes)?))
+        }
+    }
+}
+
+pub fn read_file_maybe_zipped<P: AsRef<Path>>(path: P) -> io::Result<Vec<u8>> {
+    let file = std::fs::File::open(path)?;
+    let mut reader = std::io::BufReader::new(file);
+    let mut bytes = Vec::new();
+
+    match zip::read::ZipArchive::new(&mut reader) {
+        Ok(mut archive) => {
+            // it is a zip file
+            let mut zip = archive.by_index(0)?;
+            zip.read_to_end(&mut bytes)?;
+            io::Result::Ok(bytes)
+        }
+
+        Err(_) => {
+            // not a zip file
+            use std::io::Seek;
+
+            reader.rewind()?;
+            bytes.clear();
+            reader.read_to_end(&mut bytes)?;
+            io::Result::Ok(bytes)
+        }
+    }
+}
+
+pub fn read_zip_file_from_bytes<B: AsRef<[u8]>>(input: B) -> io::Result<Vec<u8>> {
+    let mut reader = io::BufReader::new(input.as_ref());
     let unzipped = zip::read::read_zipfile_from_stream(&mut reader)?;
 
     match unzipped {
@@ -656,6 +620,134 @@ pub fn read_zip_file_from_bytes<B: AsRef<[u8]>>(input: B) -> std::io::Result<Vec
                 "file was not present at root of zip directory",
             );
             io::Result::Err(err)
+        }
+    }
+}
+
+pub fn read_bytes_maybe_zipped<B: AsRef<[u8]>>(input: B) -> Vec<u8> {
+    read_zip_file_from_bytes(&input).unwrap_or(input.as_ref().to_owned())
+}
+
+pub fn read_file_buffered<P: AsRef<Path>>(path: P) -> io::Result<Vec<u8>> {
+    let file = std::fs::File::open(path)?;
+    let mut reader = io::BufReader::new(file);
+    let mut bytes = Vec::new();
+    reader.read_to_end(&mut bytes)?;
+    Ok(bytes)
+}
+
+enum RomSource<'a> {
+    Bytes(&'a [u8]),
+    FilePath(&'a Path),
+}
+
+#[derive(Default)]
+pub struct NesBuilder<'a> {
+    rom: Option<RomSource<'a>>,
+    bios: Option<RomSource<'a>>,
+    boot_bios_only: bool,
+
+    palette: NesPalette,
+    settings: NesSettings,
+}
+
+impl<'a> NesBuilder<'a> {
+    pub fn with_rom<R: 'a + AsRef<[u8]>>(mut self, rom: &'a R) -> Self {
+        self.rom = Some(RomSource::Bytes(rom.as_ref()));
+        self
+    }
+
+    pub fn with_rom_file<P: 'a + AsRef<Path>>(mut self, rom_path: &'a P) -> Self {
+        self.rom = Some(RomSource::FilePath(rom_path.as_ref()));
+        self
+    }
+
+    pub fn with_fds_bios<B: 'a + AsRef<[u8]>>(mut self, bios: Option<&'a B>) -> Self {
+        self.bios = bios.map(|bios| RomSource::Bytes(bios.as_ref()));
+        self
+    }
+
+    pub fn with_fds_bios_file<P: 'a + AsRef<Path>>(mut self, bios_path: Option<&'a P>) -> Self {
+        self.bios = bios_path.map(|path| RomSource::FilePath(path.as_ref()));
+        self
+    }
+
+    pub fn boot_bios_only(mut self, cond: bool) -> Self {
+        self.boot_bios_only = cond;
+        self
+    }
+
+    pub fn with_settings(mut self, settings: NesSettings) -> Self {
+        self.settings = settings;
+        self
+    }
+
+    pub fn with_palette(mut self, palette: NesPalette) -> Self {
+        self.palette = palette;
+        self
+    }
+
+    pub fn build_empty(self) -> NesEmulator {
+        NesEmulator::empty()
+    }
+
+    pub fn build_with_rom<R: 'a + AsRef<[u8]>>(self, rom: R) -> Result<NesEmulator, LoadError> {
+        Self::default().with_rom(&rom).build()
+    }
+
+    pub fn build(self) -> Result<NesEmulator, LoadError> {
+        // games might be zipped!
+
+        if self.boot_bios_only {
+            return match self.bios {
+                Some(bios) => {
+                    let bios = match bios {
+                        RomSource::Bytes(bytes) => read_zip_file_from_bytes(bytes)
+                            .map_or_else(|_| bytes.to_owned(), |unzipped| unzipped),
+                        RomSource::FilePath(path) => read_file_maybe_zipped(path)?,
+                    };
+
+                    let empty_disk = Game::Disk(Disk::default());
+                    NesEmulator::new(empty_disk, Some(bios), self.settings)
+                }
+
+                None => Err("no FDS BIOS provided".into()),
+            };
+        }
+
+        let game = if let Some(rom) = self.rom {
+            match rom {
+                RomSource::Bytes(bytes) => read_zip_file_from_bytes(bytes).map_or_else(
+                    |_| Game::from_bytes(bytes),
+                    |unzipped| Game::from_bytes(&unzipped),
+                )?,
+                RomSource::FilePath(path) => read_file_maybe_zipped(path)
+                    .map_err(|e| e.into())
+                    .and_then(|res| Game::from_bytes(res))?,
+            }
+        } else {
+            eprintln!("Error reading rom file. Defaulting game struct");
+            Game::default()
+        };
+
+        match &game {
+            // ignore bios
+            Game::Cart(_) => NesEmulator::new(game, None, self.settings),
+
+            // bios needed
+            Game::Disk(_) => match self.bios {
+                Some(bios) => {
+                    let bios = match bios {
+                        RomSource::Bytes(bytes) => read_zip_file_from_bytes(bytes)
+                            .map_or_else(|_| bytes.to_owned(), |unzipped| unzipped),
+                        RomSource::FilePath(path) => read_file_maybe_zipped(path)?,
+                    };
+
+                    NesEmulator::new(game, Some(bios), self.settings)
+                }
+
+                None => Err("detected FDS game; BIOS required but not provided".into()),
+            },
         }
     }
 }

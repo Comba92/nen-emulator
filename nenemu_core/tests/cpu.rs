@@ -83,7 +83,7 @@ fn exec_test() {
     println!("{:?}", test[0]);
 
     while emu.cpu.cycles < test[0].cycles.len() {
-        emu.cpu_step();
+        emu.step();
     }
 
     let res = cpu_to_mock(&mut emu, &test[0].end);
@@ -96,7 +96,7 @@ use pretty_assertions::assert_eq;
 fn cpu_test(emu: &mut emu::NesEmulator, test: &CpuTest) -> bool {
     cpu_from_mock(emu, &test.start);
 
-    emu.cpu_step();
+    emu.step();
 
     let res = cpu_to_mock(emu, &test.end);
 

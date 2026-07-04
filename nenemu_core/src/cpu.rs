@@ -77,52 +77,6 @@ impl Cpu6502 {
 }
 
 impl NesEmulator {
-    pub fn cpu_reset(&mut self) {
-        self.cpu.pc = self.cpu_read16(InterruptVector::Rst as u16);
-        self.cpu.p |= Status::IrqDisable;
-        self.cpu.sp = self.cpu.sp.wrapping_sub(3);
-    }
-
-    fn cpu_read8(&mut self, addr: u16) -> u8 {
-        let res = self.cpu_dispatch_read(addr);
-        self.step_devices();
-        res
-    }
-
-    fn cpu_write8(&mut self, addr: u16, val: u8) {
-        self.cpu_dispatch_write(addr, val);
-        self.step_devices();
-    }
-
-    pub fn cpu_read16(&mut self, addr: u16) -> u16 {
-        let lo = self.cpu_read8(addr);
-        let hi = self.cpu_read8(addr.wrapping_add(1));
-        u16::from_le_bytes([lo, hi])
-    }
-
-    fn cpu_wrapping_read16(&mut self, addr: u16) -> u16 {
-        if addr & 0x00ff == 0x0ff {
-            let page = addr & 0xff00;
-            let lo = self.cpu_read8(page | 0xff);
-            let hi = self.cpu_read8(page | 0x00);
-            u16::from_le_bytes([lo, hi])
-        } else {
-            self.cpu_read16(addr)
-        }
-    }
-
-    fn pc_fetch8(&mut self) -> u8 {
-        let val = self.cpu_read8(self.cpu.pc);
-        self.cpu.pc = self.cpu.pc.wrapping_add(1);
-        val
-    }
-
-    fn pc_fetch16(&mut self) -> u16 {
-        let val = self.cpu_read16(self.cpu.pc);
-        self.cpu.pc = self.cpu.pc.wrapping_add(2);
-        val
-    }
-
     pub(crate) fn cpu_step(&mut self) {
         self.handle_dma();
 
@@ -203,6 +157,54 @@ impl NesEmulator {
         self.stack_push8(self.cpu.p.bits());
         self.cpu.p.insert(Status::IrqDisable);
         self.cpu.pc = self.cpu_read16(int_vector as u16);
+    }
+}
+
+impl NesEmulator {
+    pub fn cpu_reset(&mut self) {
+        self.cpu.pc = self.cpu_read16(InterruptVector::Rst as u16);
+        self.cpu.p |= Status::IrqDisable;
+        self.cpu.sp = self.cpu.sp.wrapping_sub(3);
+    }
+
+    fn cpu_read8(&mut self, addr: u16) -> u8 {
+        let res = self.cpu_dispatch_read(addr);
+        self.step_devices();
+        res
+    }
+
+    fn cpu_write8(&mut self, addr: u16, val: u8) {
+        self.cpu_dispatch_write(addr, val);
+        self.step_devices();
+    }
+
+    pub fn cpu_read16(&mut self, addr: u16) -> u16 {
+        let lo = self.cpu_read8(addr);
+        let hi = self.cpu_read8(addr.wrapping_add(1));
+        u16::from_le_bytes([lo, hi])
+    }
+
+    fn cpu_wrapping_read16(&mut self, addr: u16) -> u16 {
+        if addr & 0x00ff == 0x0ff {
+            let page = addr & 0xff00;
+            let lo = self.cpu_read8(page | 0xff);
+            let hi = self.cpu_read8(page | 0x00);
+            u16::from_le_bytes([lo, hi])
+        } else {
+            self.cpu_read16(addr)
+        }
+    }
+
+    fn pc_fetch8(&mut self) -> u8 {
+        let val = self.cpu_read8(self.cpu.pc);
+        self.cpu.pc = self.cpu.pc.wrapping_add(1);
+        val
+    }
+
+    fn pc_fetch16(&mut self) -> u16 {
+        let val = self.cpu_read16(self.cpu.pc);
+        self.cpu.pc = self.cpu.pc.wrapping_add(2);
+        val
     }
 
     fn fetch_zeropage_op(&mut self, offset: u8) {
@@ -329,7 +331,9 @@ impl NesEmulator {
         let hi = self.stack_pop8();
         u16::from_le_bytes([lo, hi])
     }
+}
 
+impl NesEmulator {
     fn lda(&mut self) {
         let res = self.get_op_val();
         self.set_zn(res);

@@ -3,6 +3,8 @@
 /db_tests
 *.nes
 *.fds
+*.gb
+*.gbc
 *.zip
 *.srm
 *.sram

@@ -40,7 +40,7 @@ enum EmulatorAction {
 #[cfg_attr(feature = "persistence", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 enum PlayerEvent {
-    Joypad(joypad::InputBtn),
+    Joypad(joypad::JoypadInput),
     Action(EmulatorAction),
 }
 
@@ -89,7 +89,7 @@ impl KeyMap {
 impl Default for KeyMap {
     fn default() -> Self {
         use egui::Key;
-        use joypad::InputBtn as Btn;
+        use joypad::JoypadInput as Btn;
 
         let keys = HashMap::from([
             (Key::ArrowUp, ActionKind::Up),
@@ -577,10 +577,10 @@ type GenericError = Box<dyn std::error::Error>;
 fn main() {
     let opts = eframe::NativeOptions {
         centered: true,
-        persist_window: false,
+        persist_window: true,
         viewport: egui::ViewportBuilder::default()
             .with_drag_and_drop(true)
-            .with_inner_size((256.0 * 2.5, 240.0 * 2.5))
+            .with_inner_size((640.0 * 2.0, 480.0 * 2.0))
             .with_title(APP_NAME),
         vsync: true,
         hardware_acceleration: eframe::HardwareAcceleration::Preferred,
@@ -677,8 +677,8 @@ struct AppState {
     about_open: bool,
     message_open: Option<(bool, time::Instant, GenericError)>,
 
-    keyboard_input: joypad::InputBtn,
-    gamepad_input: joypad::InputBtn,
+    keyboard_input: joypad::JoypadInput,
+    gamepad_input: joypad::JoypadInput,
     mouse_pos: (isize, isize),
 
     bios: Option<Box<[u8]>>,
@@ -964,11 +964,11 @@ impl AppCtx {
     }
 
     fn load_palette_from_bytes(&mut self, bytes: &[u8]) {
-        let res = NesPalette::from_pal_file(&bytes).ok_or("not a valid NES palette file");
+        let res = NesPalette::from_pal_file_bytes(&bytes).ok_or("not a valid NES palette file");
 
         match res {
             Ok(pal) => {
-                self.emu_lock().palette = pal.clone();
+                self.emu_lock().set_palette(pal.clone());
                 ring_push_front(&mut self.cfg.palettes, pal, 20);
                 self.add_message("palette loaded");
             }
@@ -1004,7 +1004,11 @@ impl AppCtx {
         rom_bytes: Box<[u8]>,
         _force_reset: bool,
     ) {
-        match NesEmulator::load_rom_from_bytes(&rom_bytes, self.state.bios.as_ref()) {
+        match NesEmulator::builder()
+            .with_rom(&rom_bytes)
+            .with_fds_bios(self.state.bios.as_ref())
+            .build()
+        {
             Ok(new_emu) => self.load_rom(rom_path, rom_bytes, new_emu, _force_reset),
             Err(e) => self.add_message(e),
         }
@@ -1033,7 +1037,7 @@ impl AppCtx {
             }
         }
 
-        new_emu.update_settings(self.cfg.nes_settings.clone());
+        new_emu.set_settings(self.cfg.nes_settings.clone());
         new_emu.set_audio_rate(self.audio.sample_rate() as f32);
 
         if let Some(pal) = self.cfg.palettes.front() {
@@ -1291,36 +1295,9 @@ impl AppCtx {
                     }
 
                     if ui.button("👢 Run FDS BIOS").clicked() {
-                        // match &self.cfg.bios_path {
-                        //     Some(bios_path) => {
-                        //         let bios = buffered_read(bios_path);
-
-                        //         match bios {
-                        //             Ok(bios) => {
-                        //                 let new_emu = NesEmulator::load_bios_only(bios);
-
-                        //                 match new_emu {
-                        //                     Ok(new_emu) => {
-                        //                         self.close_and_save_rom_if_open();
-                        //                         self.state.current_rom_header =
-                        //                             new_emu.rom_info().clone();
-                        //                         *self.emu_lock() = new_emu;
-
-                        //                         self.resume_emulation();
-                        //                     }
-                        //                     Err(e) => self.add_message(e),
-                        //                 }
-                        //             }
-
-                        //             Err(e) => self.add_message(e),
-                        //         }
-                        //     }
-
-                        //     None => self.add_message("no BIOS ROM provided".into()),
-                        // }
                         match &self.state.bios {
                             Some(bios) => {
-                                let new_emu = NesEmulator::load_bios_only(bios);
+                                let new_emu = NesEmulator::bios_only(bios);
                                 // this shouldnt fail but you never know
                                 match new_emu {
                                     Ok(new_emu) => {
@@ -1422,8 +1399,8 @@ impl AppCtx {
                 ui.collapsing("📺 Video", |ui| {
                     ui.checkbox(&mut settings.disable_sprite_limit, "Show more than 8 sprites per scaline")
                     .on_hover_text("Reduces flickering, but may show glitches in some games");
-                    ui.checkbox(&mut settings.enable_oam_read, "Enable fully emulated OAM read")
-                    .on_hover_text("Fully emulates OAM read with its quirks, might decrease performance");
+                    ui.checkbox(&mut settings.enable_accurate_ppu, "Enable fully emulated OAM read and VRAM read")
+                    .on_hover_text("Fully emulates OAM and VRAM read with its quirks, might decrease performance");
                     ui.checkbox(&mut settings.enable_background, "Enable background tiles");
                     ui.checkbox(&mut settings.enable_sprites, "Enable sprite tiles");
                     ui.checkbox(&mut settings.pal_borders, "Show side PAL black borders (unimplemented)");
@@ -1520,7 +1497,7 @@ impl AppCtx {
         {
             let mut emu = self.emu_lock();
             if self.cfg.nes_settings != emu.settings {
-                emu.update_settings(self.cfg.nes_settings.clone());
+                emu.set_settings(self.cfg.nes_settings.clone());
             }
         }
 
@@ -1789,7 +1766,7 @@ impl AppCtx {
         let current_input = self.emu_lock().get_buttons();
 
         let keyboard_input = ui.input(|i| {
-            let mut pressed = joypad::InputBtn::empty();
+            let mut pressed = joypad::JoypadInput::empty();
 
             for (key, evt) in &self.cfg.keymaps.keys {
                 if i.key_down(*key) {
@@ -1861,22 +1838,22 @@ impl AppCtx {
                     gilrs::EventType::AxisChanged(axis, amt, _) => match axis {
                         gilrs::Axis::LeftStickX => {
                             if amt >= 0.1 {
-                                gamepad_input.insert(joypad::InputBtn::Right);
+                                gamepad_input.insert(joypad::JoypadInput::Right);
                             } else if amt <= -0.1 {
-                                gamepad_input.insert(joypad::InputBtn::Left);
+                                gamepad_input.insert(joypad::JoypadInput::Left);
                             } else {
-                                gamepad_input.remove(joypad::InputBtn::Right);
-                                gamepad_input.remove(joypad::InputBtn::Left);
+                                gamepad_input.remove(joypad::JoypadInput::Right);
+                                gamepad_input.remove(joypad::JoypadInput::Left);
                             }
                         }
                         gilrs::Axis::LeftStickY => {
                             if amt >= 0.1 {
-                                gamepad_input.insert(joypad::InputBtn::Up);
+                                gamepad_input.insert(joypad::JoypadInput::Up);
                             } else if amt <= -0.1 {
-                                gamepad_input.insert(joypad::InputBtn::Down);
+                                gamepad_input.insert(joypad::JoypadInput::Down);
                             } else {
-                                gamepad_input.remove(joypad::InputBtn::Up);
-                                gamepad_input.remove(joypad::InputBtn::Down);
+                                gamepad_input.remove(joypad::JoypadInput::Up);
+                                gamepad_input.remove(joypad::JoypadInput::Down);
                             }
                         }
                         _ => {}

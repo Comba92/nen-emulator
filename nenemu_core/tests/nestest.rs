@@ -69,11 +69,12 @@ use pretty_assertions::assert_eq;
 
 #[test]
 fn nestest_no_graphics() {
-    let mut emu = NesEmulator::load_rom_from_unzipped_bytes(
-        include_bytes!("../../roms/nestest.nes"),
-        None::<&[u8]>,
-    )
-    .unwrap();
+    let mut emu = NesEmulator::builder()
+        .with_rom(include_bytes!("../../roms/nestest.nes"))
+        .with_fds_bios(None::<&&[u8]>)
+        .build()
+        .unwrap();
+
     emu.cpu.pc = 0xc000;
     emu.cpu.cycles = 7;
     emu.ppu.dot = 21;

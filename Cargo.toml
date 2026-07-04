@@ -1,5 +1,5 @@
 [workspace]
-members = ["nenemu_core", "nenemu_sdl2", "nenemu_sdl3", "nenemu_eframe", "nenemu_wasm"]
+members = ["nenemu_core", "nenemu_sdl2", "nenemu_sdl3", "nenemu_eframe", "nenemu_wasm", "tomboyemu_core"]
 default-members = ["nenemu_core", "nenemu_eframe"]
 
 resolver = "3"

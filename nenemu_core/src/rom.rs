@@ -25,6 +25,41 @@ impl Default for Cart {
     }
 }
 
+impl Cart {
+    pub fn from_bytes<B: AsRef<[u8]>>(bytes: B) -> Result<Self, &'static str> {
+        let bytes = bytes.as_ref();
+        let header = RomData::from_db(bytes)?;
+
+        // only iNes supported
+        let rom_start = header.len();
+        let mut prg = bytes[rom_start..rom_start + header.prg_size].to_vec();
+        let mut chr = if header.has_chr_ram {
+            vec![0; header.chr_size]
+        } else {
+            let chr_start = rom_start + header.prg_size;
+            bytes[chr_start..chr_start + header.chr_size].to_vec()
+        };
+
+        // fill with zeroes if rom is not large enough
+        if prg.len() < 16 * 1024 {
+            prg.resize(16 * 1024, 0);
+        }
+
+        if chr.len() < 8 * 1024 {
+            chr.resize(8 * 1024, 0);
+        }
+
+        if !SUPPORTED_EXPANSIONS.contains(&header.expansions) {
+            eprintln!(
+                "Rom uses unsupported expanion {}, emulator might not handle input correctly",
+                header.expansions
+            );
+        }
+
+        Ok(Self { header, prg, chr })
+    }
+}
+
 #[derive(Debug, Default, Clone, PartialEq)]
 #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub enum HeaderFormat {
@@ -74,6 +109,7 @@ pub struct RomData {
     pub has_battery: bool,
     pub has_chr_ram: bool,
     pub has_trainer: bool,
+    // TODO: add FDS disk info here
 }
 
 impl Default for RomData {
@@ -102,9 +138,9 @@ impl Default for RomData {
 }
 
 impl RomData {
-    const INES_MAGIC: &[u8] = &[0x4e, 0x45, 0x53, 0x1a];
+    const INES_MAGIC: [u8; 4] = [0x4e, 0x45, 0x53, 0x1a];
     const INES_HEADER_SIZE: usize = 16;
-    const UNIF_MAGIC: &[u8] = &[0x55, 0x4e, 0x49, 0x46];
+    const UNIF_MAGIC: [u8; 4] = [0x55, 0x4e, 0x49, 0x46];
     const UNIF_HEADER_SIZE: usize = 32;
     const TRAINER_SIZE: usize = 512;
 
@@ -130,7 +166,8 @@ impl RomData {
         self.mapper == 20
     }
 
-    pub fn from_db(bytes: &[u8]) -> Result<Self, &'static str> {
+    pub fn from_db<B: AsRef<[u8]>>(bytes: B) -> Result<Self, &'static str> {
+        let bytes = bytes.as_ref();
         let header = Self::parse(bytes);
 
         match header {
@@ -155,13 +192,23 @@ impl RomData {
         }
     }
 
-    pub fn parse(bytes: &[u8]) -> Result<Self, &'static str> {
+    pub fn parse<B: AsRef<[u8]>>(bytes: B) -> Result<Self, &'static str> {
+        let bytes = bytes.as_ref();
+
         if is_valid_unif(bytes) {
             return Err("valid UNIF ROM, but not supported by this emulator");
         }
 
         if !is_valid_ines(bytes) {
             return Err("not a valid iNES/NES2.0 ROM");
+        }
+
+        if bytes[7] & 0x3 == 1 {
+            return Err("VS System roms are not supported");
+        } else if bytes[7] & 0x3 == 2 {
+            return Err("Playchoice 10 roms are not supported");
+        } else if bytes[7] & 0x3 == 3 {
+            return Err("Extended console types are not supported");
         }
 
         let mut header = RomData::default();
@@ -182,14 +229,6 @@ impl RomData {
             0 => Mirroring::Horizontal,
             _ => Mirroring::Vertical,
         };
-
-        if bytes[7] & 0x3 == 1 {
-            return Err("VS System roms are not supported");
-        } else if bytes[7] & 0x3 == 2 {
-            return Err("Playchoice 10 roms are not supported");
-        } else if bytes[7] & 0x3 == 3 {
-            return Err("Extended console types are not supported");
-        }
 
         let version = bytes[7] & 0xc;
 
@@ -283,39 +322,7 @@ const SUPPORTED_EXPANSIONS: &[u8] = &[
     0x08, 0x07, 0x09, 0x49, // Zapper Lightgun
 ];
 
-impl Cart {
-    pub fn from(bytes: &[u8]) -> Result<Self, &'static str> {
-        let header = RomData::from_db(bytes)?;
-
-        // only iNes supported
-        let rom_start = header.len();
-        let mut prg = bytes[rom_start..rom_start + header.prg_size].to_vec();
-        let mut chr = if header.has_chr_ram {
-            vec![0; header.chr_size]
-        } else {
-            let chr_start = rom_start + header.prg_size;
-            bytes[chr_start..chr_start + header.chr_size].to_vec()
-        };
-
-        // fill with zeroes if rom is not large enough
-        if prg.len() < 16 * 1024 {
-            prg.resize(16 * 1024, 0);
-        }
-
-        if chr.len() < 8 * 1024 {
-            chr.resize(8 * 1024, 0);
-        }
-
-        if !SUPPORTED_EXPANSIONS.contains(&header.expansions) {
-            eprintln!(
-                "Rom uses unsupported expanion {}, emulator might not handle input correctly",
-                header.expansions
-            );
-        }
-
-        Ok(Self { header, prg, chr })
-    }
-}
+/* === DISK === */
 
 #[derive(Default)]
 pub struct Disk {
@@ -381,7 +388,13 @@ impl Disk {
         data.push(0xad);
     }
 
-    pub fn from(bytes: &[u8]) -> Result<Self, &'static str> {
+    pub fn from_bytes<B: AsRef<[u8]>>(bytes: B) -> Result<Self, &'static str> {
+        let bytes = bytes.as_ref();
+
+        if bytes.len() < Self::SIDE_SIZE {
+            return Err("not a valid FDS rom");
+        }
+
         let (rom_start, sides_count) = if &bytes[..4] == Self::FDS_MAGIC {
             (Self::FDS_HEADER_SIZE, bytes[4] as usize)
         } else {
@@ -500,14 +513,18 @@ impl Disk {
 }
 
 pub fn is_valid_ines(bytes: &[u8]) -> bool {
-    bytes.len() >= RomData::INES_HEADER_SIZE && &bytes[0..4] == RomData::INES_MAGIC
+    bytes.len() > RomData::INES_HEADER_SIZE && &bytes[0..4] == RomData::INES_MAGIC
 }
 
 pub fn is_valid_unif(bytes: &[u8]) -> bool {
-    bytes.len() >= RomData::UNIF_HEADER_SIZE && &bytes[0..4] == RomData::UNIF_MAGIC
+    bytes.len() > RomData::UNIF_HEADER_SIZE && &bytes[0..4] == RomData::UNIF_MAGIC
 }
 
 pub fn is_valid_fds(bytes: &[u8]) -> bool {
+    if bytes.len() < Disk::SIDE_SIZE {
+        return false;
+    }
+
     let (rom_start, sides_count) = if &bytes[..4] == Disk::FDS_MAGIC {
         (Disk::FDS_HEADER_SIZE, bytes[4] as usize)
     } else {

@@ -3981,6 +3981,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "tomboyemu_core"
+version = "0.1.0"
+dependencies = [
+ "bitfields",
+ "pretty_assertions",
+ "sdl2",
+ "serde",
+ "serde_json",
+ "zip",
+]
+
+[[package]]
 name = "toml_datetime"
 version = "1.1.1+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

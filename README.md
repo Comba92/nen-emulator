@@ -39,7 +39,7 @@ The emulator supports all the basic NES features you'd expect from a NES emulato
 - [x] PPU pixel rendering emulation. Emulates the [LoopyRegister behaviour](https://www.nesdev.org/wiki/PPU_scrolling#PPU_internal_registers) and the [pixel fethcer](https://www.nesdev.org/wiki/PPU_rendering).
 - [x] The [APU](https://www.nesdev.org/wiki/APU) channels are all fully emulated.
 - [x] Both NTSC and PAL games are supported.
-- [x] The [Famicon Disk System](https://www.nesdev.org/wiki/Family_Computer_Disk_System) is supported.
+- [x] The [Famicom Disk System](https://www.nesdev.org/wiki/Family_Computer_Disk_System) is supported.
 - [x] Custom color [palettes](https://www.nesdev.org/wiki/PPU_palettes) are supported
 - [x] Games with [tricky and obscure behaviour](https://www.nesdev.org/wiki/Tricky-to-emulate_games) run correctly, except for one or two exceptions.
 - [x] RAM random initializing for games which uses it to seed RNG
@@ -76,7 +76,7 @@ The emulator supports all the basic NES features you'd expect from a NES emulato
 - [ ] 16, [Bandai FCG](https://www.nesdev.org/wiki/INES_Mapper_016)
   - Note: Something is implemented but not usable, graphical glitches
 - [x] 19. [Namcot 129/163](https://www.nesdev.org/wiki/INES_Mapper_019)
-- [x] 20 [Famicon Disk System](https://www.nesdev.org/wiki/INES_Mapper_020) 
+- [x] 20 [Famicom Disk System](https://www.nesdev.org/wiki/INES_Mapper_020) 
 - [x] 21, 22, 23, 25. [VRC2 and VRC4](https://www.nesdev.org/wiki/VRC2_and_VRC4)
 - [x] 24. [VRC6a (only used for Akumajou Densetsu - Japanese version of Castlevania III with enhanced audio)](https://www.nesdev.org/wiki/VRC6)
 - [x] 26. [VRC6b (used for Madara and Esper Dream 2)](https://www.nesdev.org/wiki/VRC6)

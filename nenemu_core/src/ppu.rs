@@ -551,13 +551,7 @@ impl Ppu2C02 {
     }
 
     fn increase_vram_addr(&mut self) {
-        // if self.is_in_visible_scanline() && self.is_rendering_enabled() {
-        // https://www.nesdev.org/wiki/PPU_scrolling#$2007_(PPUDATA)_reads_and_writes
-        // self.inc_scroll_x();
-        // self.inc_scroll_y();
-        // } else {
         self.v.0 = (self.v.0 + self.ctrl.vram_addr_inc) & 0x3fff;
-        // }
     }
 
     fn spr_evaluation(&mut self) {
@@ -585,7 +579,7 @@ impl Ppu2C02 {
                 self.oam_tmp_count += 1;
             }
 
-            if self.oam_tmp_count >= 8 {
+            if self.oam_tmp_count > 8 {
                 // sprite overflow bug
                 // If the value is not in range, increment n and m (without carry). If n overflows to 0, go to 4; otherwise go to 3
                 // The m increment is a hardware bug - if only n was incremented, the overflow flag would be set whenever more than 8 sprites were present on the same scanline, as expected.
@@ -655,7 +649,7 @@ impl NesEmulator {
                 res | (ppu.open_bus & 0x1f)
             }
             // OamData
-            0x2004 => self.ppu.oam_read(self.settings.enable_oam_read),
+            0x2004 => self.ppu.oam_read(self.settings.enable_accurate_ppu),
             // PpuData
             0x2007 => {
                 // This read buffer is updated on every PPUDATA read, but only after the previous contents have been returned to the CPU, effectively delaying PPUDATA reads by one.
@@ -663,14 +657,25 @@ impl NesEmulator {
                 let res = if self.ppu.v.0 >= 0x3f00 {
                     // https://www.nesdev.org/wiki/PPU_registers#Reading_palette_RAM
                     // The value on the nametable at $2700 through $27FF should be put in the buffer when reading from palette RAM at $3F00 through $3FFF.
-                    self.ppu.ppu_data = self.ppu_dispatch_read(self.ppu.v.0 & 0x27ff);
+                    self.ppu.ppu_data = self.ppu_dispatch_read(self.ppu.v.0 & 0x2fff);
                     self.ppu.palettes_read(self.ppu.v.0) | self.ppu.open_bus & 0xc0
                 } else {
                     let val = self.ppu.ppu_data;
                     self.ppu.ppu_data = self.ppu_dispatch_read(self.ppu.v.0);
                     val
                 };
+
                 self.ppu.increase_vram_addr();
+
+                if self.settings.enable_accurate_ppu
+                    && self.ppu.is_in_visible_scanline()
+                    && self.ppu.is_rendering_enabled()
+                {
+                    // https://www.nesdev.org/wiki/PPU_scrolling#$2007_(PPUDATA)_reads_and_writes
+                    self.ppu.inc_scroll_x();
+                    self.ppu.inc_scroll_y();
+                }
+
                 res
             }
 

@@ -1,4 +1,4 @@
-use nenemu_core::{self, emu::NesEmulator, joypad};
+use nenemu_core::{self, emu::NesEmulator, joypad::JoypadInput};
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
@@ -18,7 +18,9 @@ struct EmulatorSamples {
 #[wasm_bindgen]
 impl NesEmulatorWasm {
     pub fn load_from_bytes(rom: &[u8]) -> Result<Self, String> {
-        NesEmulator::load_rom_from_bytes(rom, None::<&[u8]>)
+        NesEmulator::builder()
+            .with_rom(&rom)
+            .build()
             .map(|emu| Self {
                 emu,
                 rom: rom.to_vec(),
@@ -34,7 +36,7 @@ impl NesEmulatorWasm {
     }
 
     pub fn reset(&mut self) {
-        self.emu = NesEmulator::load_rom_from_unzipped_bytes(&self.rom, None::<&[u8]>).unwrap();
+        self.emu = NesEmulator::builder().with_rom(&self.rom).build().unwrap();
     }
 
     pub fn step(&mut self) {
@@ -71,12 +73,12 @@ impl NesEmulatorWasm {
 
     pub fn button_pressed(&mut self, button: u8) {
         self.emu
-            .set_button(joypad::InputBtn::from_bits_retain(button), true);
+            .set_button(JoypadInput::from_bits_retain(button), true);
     }
 
     pub fn button_released(&mut self, button: u8) {
         self.emu
-            .set_button(joypad::InputBtn::from_bits_retain(button), false);
+            .set_button(JoypadInput::from_bits_retain(button), false);
     }
 
     pub fn save_sram(&self) -> Option<Vec<u8>> {

@@ -321,7 +321,7 @@ mod fds {
 
             let sum = self.env.freq + self.modl.output;
             if !self.wave.halted && sum > 0 {
-                self.wave.overflow_acc += sum;
+                self.wave.overflow_acc = self.wave.overflow_acc.wrapping_add(sum);
                 if self.wave.overflow_acc < sum {
                     self.wave.pos = (self.wave.pos + 1) % 64;
                 }

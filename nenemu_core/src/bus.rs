@@ -117,9 +117,13 @@ impl<T: BankCfg + std::fmt::Debug> Banking<T> {
     }
 }
 
+pub const PRG_START: u16 = 0x8000;
+pub const WRAM_START: u16 = 0x6000;
+pub const VRAM_START: u16 = 0x2000;
+
 impl Banking<PrgBank> {
     pub fn new_prg(header: &RomData, pages_count: u16) -> Self {
-        let mut res = Self::new(0x8000, header.prg_size, 32 * 1024, pages_count);
+        let mut res = Self::new(PRG_START, header.prg_size, 32 * 1024, pages_count);
         res.fix_last_page();
         res
     }
@@ -137,13 +141,13 @@ impl Banking<ChrBank> {
 
 impl Banking<WramBank> {
     pub fn new_wram(header: &RomData, pages_count: u16) -> Self {
-        Self::new(0x6000, header.wram_size, 8 * 1024, pages_count)
+        Self::new(WRAM_START, header.wram_size, 8 * 1024, pages_count)
     }
 }
 
 impl Banking<VramBank> {
     pub fn new_vram(header: &RomData) -> Self {
-        let mut res = Self::new(0x2000, 2 * 1024, 4 * 1024, 4);
+        let mut res = Self::new(VRAM_START, 2 * 1024, 4 * 1024, 4);
         res.mirror(&header.mirroring);
         res
     }
@@ -413,7 +417,7 @@ impl Bus {
         }
     }
 
-    pub fn with_disk(disk: Disk, bios: &[u8]) -> (Self, BoxedMapper) {
+    pub fn with_disk(disk: Disk, bios: Vec<u8>) -> (Self, BoxedMapper) {
         let mut header = RomData::default();
         // only for debug porpuoses
         header.title = "FDS Disk Game".to_string();
@@ -424,13 +428,14 @@ impl Bus {
         header.prg_size = 8 * 1024;
         header.chr_size = 8 * 1024;
         header.wram_size = 32 * 1024;
+        header.has_battery = true;
 
         let mut banks = BanksHandler {
             // keep like this so we can just use the standard prg handler
             prg: Banking::new(0xe000, 8 * 1024, 8 * 1024, 1),
             chr: Banking::new(0x0000, 8 * 1024, 8 * 1024, 1),
-            vram: Banking::new(0x2000, 2 * 1024, 4 * 1024, 4),
-            wram: Banking::new(0x6000, 32 * 1024, 32 * 1024, 1),
+            vram: Banking::new(VRAM_START, 2 * 1024, 4 * 1024, 4),
+            wram: Banking::new(WRAM_START, 32 * 1024, 32 * 1024, 1),
         };
 
         banks.vram.mirror(&Mirroring::Horizontal);
@@ -451,7 +456,7 @@ impl Bus {
 
         let mut mem = Self {
             ram: vec![0; 2 * 1024].into_boxed_slice(),
-            prg: bios.to_vec().into_boxed_slice(),
+            prg: bios.into_boxed_slice(),
             wram: vec![0; 32 * 1024].into_boxed_slice(),
             chr: vec![0; 8 * 1024].into_boxed_slice(),
             vram: vec![0; 2 * 1024].into_boxed_slice(),
@@ -514,7 +519,7 @@ impl Bus {
     }
 
     pub fn set_4screen_mirroring(&mut self) {
-        self.banks.vram = Banking::new(0x2000, 4 * 1024, 4 * 1024, 4);
+        self.banks.vram = Banking::new(VRAM_START, 4 * 1024, 4 * 1024, 4);
         self.banks.vram.mirror(&Mirroring::FourScreens);
         self.vram = vec![0; 4 * 1024].into_boxed_slice();
         // self.vram.resize(4 * 1024, 0);

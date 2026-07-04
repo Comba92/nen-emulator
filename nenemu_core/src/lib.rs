@@ -1,6 +1,6 @@
 use crate::{
     emu::{NesEmulator, SCREEN_HEIGHT, SCREEN_WIDTH},
-    joypad::InputBtn,
+    joypad::JoypadInput,
 };
 
 mod apu;
@@ -15,14 +15,25 @@ pub mod rom;
 pub mod utils {
     use super::emu::*;
 
-    // pub fn bit_get(x: u8, bit: u8) -> bool { (x >> bit) & 1 == 1 }
-    // pub fn bit_set(x: u8, flags: u8) -> u8 { x | flags }
-    // pub fn bit_change(x: u8, flags: u8, cond: bool) -> u8 {
-    //   if cond { bit_set(x, flags) }
-    //   else    { bit_clear(x, flags) }
-    // }
-    // pub fn bit_clear(x: u8, flags: u8) -> u8 { x & !flags }
-    // pub fn bit_toggle(x: u8, flags: u8) -> u8 { x ^ flags }
+    pub fn bit_get(x: u8, bit: u8) -> bool {
+        (x >> bit) & 1 == 1
+    }
+    pub fn bit_set(x: u8, flags: u8) -> u8 {
+        x | flags
+    }
+    pub fn bit_change(x: u8, flags: u8, cond: bool) -> u8 {
+        if cond {
+            bit_set(x, flags)
+        } else {
+            bit_clear(x, flags)
+        }
+    }
+    pub fn bit_clear(x: u8, flags: u8) -> u8 {
+        x & !flags
+    }
+    pub fn bit_toggle(x: u8, flags: u8) -> u8 {
+        x ^ flags
+    }
 
     pub fn byte_set_lo(x: u16, lo: u8) -> u16 {
         (x & 0xff00) | lo as u16
@@ -213,7 +224,7 @@ pub struct NesPalette(
 );
 impl Default for NesPalette {
     fn default() -> Self {
-        Self([(0, 0, 0); 64])
+        Self::from_pal_file_bytes(include_bytes!("../utils/2C02G_wiki.pal")).unwrap()
     }
 }
 
@@ -221,7 +232,7 @@ impl NesPalette {
     pub const MAX_SIZE: usize = 1536;
 
     // https://www.nesdev.org/wiki/.pal
-    pub fn from_pal_file(bytes: &[u8]) -> Option<Self> {
+    pub fn from_pal_file_bytes(bytes: &[u8]) -> Option<Self> {
         if bytes.len() > Self::MAX_SIZE {
             return None;
         }
@@ -241,7 +252,7 @@ pub mod joypad {
     bitflags::bitflags! {
       #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
       #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
-      pub struct InputBtn: u8 {
+      pub struct JoypadInput: u8 {
         // Order for first 8 buttons is important as they will iterate during polling
         const A = 1 << 0;
         const B = 1 << 1;
@@ -258,9 +269,10 @@ pub mod joypad {
     pub struct Joypad {
         pub(crate) polling_controller: bool,
         pub(crate) current_btn_polled: u8,
-        pub(crate) player1: InputBtn,
-        pub(crate) player2: InputBtn,
+        pub(crate) player1: JoypadInput,
+        pub(crate) player2: JoypadInput,
         pub(crate) zapper_trigger: bool,
+        pub(crate) zapper_outside: bool,
         pub(crate) zapper_pos: (isize, isize),
     }
 
@@ -273,6 +285,7 @@ pub mod joypad {
                 player2: Default::default(),
                 zapper_pos: (-1, -1),
                 zapper_trigger: false,
+                zapper_outside: false,
             }
         }
     }
@@ -288,16 +301,7 @@ pub mod joypad {
 }
 
 impl NesEmulator {
-    pub fn load_palette(&mut self, bytes: &[u8]) -> Result<(), &str> {
-        if let Some(pal) = NesPalette::from_pal_file(bytes) {
-            self.palette = pal;
-            Ok(())
-        } else {
-            Err("not a valid palette file")
-        }
-    }
-
-    fn read(&mut self, player: InputBtn) -> u8 {
+    fn read(&mut self, player: JoypadInput) -> u8 {
         let joy = &mut self.joy;
         let controller_input = if joy.polling_controller {
             let controller_btn = (joy.player1.bits() >> joy.current_btn_polled) & 1;
@@ -305,14 +309,14 @@ impl NesEmulator {
 
             controller_btn as u8
         } else {
-            player.contains(InputBtn::A) as u8
+            player.contains(JoypadInput::A) as u8
         };
 
         if self.rom_info().supports_zapper() {
             let zap_trigger = self.joy.zapper_trigger as u8;
-            let zap_light = !self.is_zapper_light_sensed() as u8;
+            let zap_light = !self.is_zapper_light_sensed() || self.joy.zapper_outside;
 
-            (zap_trigger << 4) | (zap_light << 3) | controller_input
+            (zap_trigger << 4) | ((zap_light as u8) << 3) | controller_input
         } else {
             controller_input
         }
@@ -375,12 +379,21 @@ impl NesEmulator {
         return false;
     }
 
-    pub fn set_button(&mut self, btn: InputBtn, state: bool) {
+    pub fn set_button(&mut self, btn: JoypadInput, state: bool) {
         self.joy.player1.set(btn, state);
     }
 
-    pub fn get_buttons(&self) -> InputBtn {
+    pub fn get_buttons(&self) -> JoypadInput {
         self.joy.player1
+    }
+
+    pub fn set_buttons_all(&mut self, input: JoypadInput) {
+        self.joy.player1 = input;
+    }
+
+    pub fn clear_buttons_all(&mut self) {
+        self.joy.player1.clear();
+        self.joy.player2.clear();
     }
 
     pub fn set_zapper_trigger(&mut self, state: bool) {
@@ -391,16 +404,11 @@ impl NesEmulator {
         self.joy.zapper_trigger = state;
     }
 
+    pub fn set_zapper_outside(&mut self, state: bool) {
+        self.joy.zapper_outside = state;
+    }
+
     pub fn set_zapper_light(&mut self, x: isize, y: isize) {
         self.joy.zapper_pos = (x, y);
-    }
-
-    pub fn set_buttons_all(&mut self, input: InputBtn) {
-        self.joy.player1 = input;
-    }
-
-    pub fn clear_buttons(&mut self) {
-        self.joy.player1.clear();
-        self.joy.player2.clear();
     }
 }
