@@ -12,6 +12,7 @@ use crate::{
 #[derive(Default)]
 #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub struct FDS {
+    // TODO: disks is not in a good place here, extract them out...
     pub disks: Vec<Box<[u8]>>,
     pub disk_inserted: bool,
     disk_select: usize,
@@ -689,6 +690,6 @@ impl Mapper for FDS {
     }
 
     fn sample(&self) -> f32 {
-        self.audio.output as f32 * (apu::EXT_MIX / 2.5)
+        self.audio.output as f32 * (apu::EXT_MIX / 2.4)
     }
 }

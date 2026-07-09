@@ -511,5 +511,6 @@ impl Mapper for MMC5 {
     fn sample(&self) -> f32 {
         let res = ((self.p0.output + self.p1.output) as f32).neg();
         res * apu::EXT_MIX
+        // 95.88 / ((8128.0 / (self.p0.output + self.p1.output) as f32) + 100.0)
     }
 }

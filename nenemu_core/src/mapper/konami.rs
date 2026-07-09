@@ -178,8 +178,7 @@ mod vrc {
 #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub struct VRC2_4 {
     irq: vrc::Irq,
-    mapper: u16,
-    submapper: u8,
+    is_mapper22: bool,
     is_vrc2: bool,
 
     prg_swapped: u8,
@@ -230,7 +229,7 @@ impl VRC2_4 {
 
         let mut bank = *reg;
         // CAREFUL: ths shift should not be done on the register itself (or else you'll right shift it again eveyrtime)
-        if self.mapper == 22 {
+        if self.is_mapper22 {
             // On VRC2a (mapper 22), the low bit is ignored (right shift value by 1).
             bank >>= 1;
         }
@@ -282,8 +281,7 @@ impl Mapper for VRC2_4 {
         // TODO: might have 2kb wram mirrored, we cant do that with 8kb handlers..
 
         Box::new(Self {
-            mapper: mem.header.mapper,
-            submapper: mem.header.submapper,
+            is_mapper22: mapper == 22,
             is_vrc2,
             a0_shift: a0,
             a1_shift: a1,
@@ -697,7 +695,8 @@ impl Mapper for VRC6 {
     fn sample(&self) -> f32 {
         let res = (self.p0.output as f32 + self.p1.output as f32 + self.saw.output as f32).neg();
         // https://forums.nesdev.org/viewtopic.php?t=12449
-        res * apu::EXT_MIX
+        // amplify a little as it is quiet
+        res * apu::EXT_MIX * 1.25
     }
 }
 

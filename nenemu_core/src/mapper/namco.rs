@@ -1,5 +1,4 @@
 use crate::{
-    apu,
     bus::{Banking, Bus, IrqFlags, PpuHandler},
     emu::Mirroring,
     mapper::Mapper,
@@ -317,6 +316,7 @@ impl Mapper for Namcot {
     }
 
     fn sample(&self) -> f32 {
-        self.audio.output as f32 * (apu::EXT_MIX * 0.5)
+        // this is very loud, attenuate it a little
+        self.audio.output as f32 * (crate::apu::EXT_MIX * 0.5)
     }
 }
