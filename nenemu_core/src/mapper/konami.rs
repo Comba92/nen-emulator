@@ -186,25 +186,29 @@ pub struct VRC2_4 {
     prg_bank: u8,
     chr_regs: [u16; 8],
 
+    a0_shift: u8,
+    a1_shift: u8,
+
     latch: u8,
 }
 impl VRC2_4 {
     fn translate_address(&self, addr: u16) -> u16 {
         // The primary difference between them was having the mapper address lines connected in different ways. In particular, two lines chosen from A0-A7 will be used to select registers.
 
-        let take_bits = |a0: u8, a1: u8| ((addr >> a0) & 1, (addr >> a1) & 1);
+        // let take_bits = |a0: u8, a1: u8| ((addr >> a0) & 1, (addr >> a1) & 1);
+        // let (a0, a1) = match (self.mapper, self.submapper) {
+        //     (23, 1 | 3) => take_bits(0, 1),
+        //     (22, 0) | (25, 1 | 3) => take_bits(1, 0),
+        //     (21, 1) => take_bits(1, 2),
+        //     (21, 2) => take_bits(6, 7),
+        //     (25, 2) => take_bits(3, 2),
+        //     (23, 2) => take_bits(2, 3),
 
-        let (a0, a1) = match (self.mapper, self.submapper) {
-            (23, 1 | 3) => take_bits(0, 1),
-            (22, 0) | (25, 1 | 3) => take_bits(1, 0),
-            (21, 1) => take_bits(1, 2),
-            (21, 2) => take_bits(6, 7),
-            (25, 2) => take_bits(3, 2),
-            (23, 2) => take_bits(2, 3),
+        //     _ => unreachable!(),
+        // };
 
-            _ => unreachable!(),
-        };
-
+        let a0 = (addr >> self.a0_shift) & 1;
+        let a1 = (addr >> self.a1_shift) & 1;
         addr & 0xff00 | (a1 << 1) | a0
     }
 
@@ -216,28 +220,22 @@ impl VRC2_4 {
         let page = ((reg_pair) << 1) | low_or_high;
 
         let reg = &mut self.chr_regs[page as usize];
-
         if addr & 1 == 0 {
             // low
             *reg = (*reg & 0x1f0) | (val & 0xf);
         } else {
             // high
-            let val = if self.is_vrc2 {
-                // VRC2 only has 4 high bits of CHR select. $B003 bit 4 is ignored.
-                val & 0xf
-            } else {
-                val & 0x1f
-            };
-
             *reg = (*reg & 0xf) | (val << 4);
         }
 
+        let mut bank = *reg;
+        // CAREFUL: ths shift should not be done on the register itself (or else you'll right shift it again eveyrtime)
         if self.mapper == 22 {
             // On VRC2a (mapper 22), the low bit is ignored (right shift value by 1).
-            *reg >>= 1;
+            bank >>= 1;
         }
 
-        mem.banks.chr.set_page(page as u8, *reg);
+        mem.banks.chr.set_page(page as u8, bank);
     }
 }
 #[cfg_attr(feature = "savestates", typetag::serde)]
@@ -250,10 +248,32 @@ impl Mapper for VRC2_4 {
 
         mem.banks.chr = Banking::new_chr(&mem.header, 8);
 
-        let is_vrc2 = matches!(
-            (mem.header.mapper, mem.header.submapper),
-            (22, 0) | (23, 3) | (25, 3)
-        );
+        let mapper = mem.header.mapper;
+        let submapper = mem.header.submapper;
+        let is_vrc2 = matches!((mapper, submapper), (22, _) | (23, 3) | (25, 3));
+
+        let mut a0 = 0;
+        let mut a1 = 0;
+
+        if mapper == 23 && (submapper == 1 || submapper == 3) {
+            a0 = 0;
+            a1 = 1;
+        } else if mapper == 22 || (mapper == 25 && (submapper == 1 || submapper == 3)) {
+            a0 = 1;
+            a1 = 0;
+        } else if mapper == 21 && submapper == 1 {
+            a0 = 1;
+            a1 = 2;
+        } else if mapper == 21 && submapper == 2 {
+            a0 = 6;
+            a1 = 7;
+        } else if mapper == 25 && submapper == 2 {
+            a0 = 3;
+            a1 = 2;
+        } else if mapper == 23 && submapper == 2 {
+            a0 = 2;
+            a1 = 3;
+        }
 
         if is_vrc2 && mem.wram.is_empty() {
             mem.set_wram_handlers(CpuHandler::Mapper);
@@ -265,6 +285,8 @@ impl Mapper for VRC2_4 {
             mapper: mem.header.mapper,
             submapper: mem.header.submapper,
             is_vrc2,
+            a0_shift: a0,
+            a1_shift: a1,
             ..Default::default()
         })
     }
@@ -285,6 +307,7 @@ impl Mapper for VRC2_4 {
 
     fn prg_write(&mut self, mem: &mut Bus, addr: u16, val: u8) {
         let addr = self.translate_address(addr);
+
         match (addr & 0xf00f, self.is_vrc2) {
             (0x9002, false) => {
                 mem.wram_enable(val & 0x1 > 0);
@@ -312,6 +335,7 @@ impl Mapper for VRC2_4 {
                 mem.banks.prg.set_page(self.prg_swapped, val as u16)
             }
             (0xa000..=0xa003, _) => mem.banks.prg.set_page(1, val as u16),
+
             (0x9000..=0x9003, true) | (0x9000, false) => {
                 let val = if self.is_vrc2 { val & 0b01 } else { val & 0b11 };
 
@@ -324,7 +348,7 @@ impl Mapper for VRC2_4 {
                 mem.banks.vram.mirror(&mirroring);
             }
 
-            (0xb000..=0xe003, _) => self.update_chr_banks(mem, addr, val as u16),
+            (0xb000..=0xefff, _) => self.update_chr_banks(mem, addr, val as u16),
 
             (0xf000, false) => self.irq.latch = (self.irq.latch & 0xf0) | (val & 0xf),
             (0xf001, false) => self.irq.latch = (self.irq.latch & 0x0f) | ((val & 0xf) << 4),
