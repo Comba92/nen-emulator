@@ -13,6 +13,8 @@ mod ppu;
 pub mod rom;
 
 pub mod utils {
+    use std::f64;
+
     use super::emu::*;
 
     pub fn bit_get(x: u8, bit: u8) -> bool {
@@ -157,55 +159,149 @@ pub mod utils {
         }
     }
 
+    // https://github.com/nesdev-org/MesenCE/blob/ec5f14d95e9172565caf5bd3e5db8045ac900967/Utilities/Audio/OnePoleLowPassFilter.h#L7
+    // TODO: doesnt seems to work well
+    pub struct LowPassFilter {
+        a0: f64,
+        b1: f64,
+        prev_sample: f64,
+    }
+    impl Default for LowPassFilter {
+        fn default() -> Self {
+            Self {
+                a0: 1.0,
+                b1: 0.0,
+                prev_sample: 0.0,
+            }
+        }
+    }
+    impl LowPassFilter {
+        pub fn new(input_rate: f64, target_rate: f64) -> Self {
+            let mut res = Self::default();
+            res.set_cutoff(input_rate, target_rate);
+            res
+        }
+
+        pub fn set_cutoff(&mut self, input_rate: f64, target_rate: f64) {
+            self.b1 = (-2.0 * f64::consts::PI * (input_rate / target_rate)).exp();
+            self.a0 = 1.0 - self.b1;
+        }
+
+        pub fn process(&mut self, sample: f64) -> f64 {
+            self.prev_sample = sample * self.a0 + self.prev_sample * self.b1;
+            self.prev_sample
+        }
+    }
+
+    #[cfg(feature = "blip")]
+    pub struct BlipResampler {
+        pub blip: blip_buf::BlipBuf,
+        count: usize,
+        prev_sample: f32,
+    }
+
+    #[cfg(feature = "blip")]
+    impl Default for BlipResampler {
+        fn default() -> Self {
+            Self::new(NTSC_CLOCK_RATE as f64, 48000.0)
+        }
+    }
+
+    #[cfg(feature = "blip")]
+    impl BlipResampler {
+        const MAX_BUF_SIZE: usize = 48000 / 60 * 8;
+
+        pub fn new(input_rate: f64, target_rate: f64) -> Self {
+            let mut blip = blip_buf::BlipBuf::new(Self::MAX_BUF_SIZE as u32);
+            blip.set_rates(input_rate, target_rate);
+
+            Self {
+                blip,
+                count: 0,
+                prev_sample: 0.0,
+                // buffer: vec![0; Self::MAX_BUF_SIZE],
+            }
+        }
+
+        pub fn add_sample(&mut self, sample: f32) {
+            let delta = sample - self.prev_sample;
+            self.prev_sample = sample;
+            self.blip.add_delta(self.count as u32, delta as i32);
+            self.count += 1;
+        }
+
+        pub fn read_samples(&mut self, out: &mut [i16]) {
+            self.blip.end_frame(self.count as u32);
+            self.count = 0;
+
+            let available = out.len().min(self.blip.samples_avail() as usize);
+            self.blip.read_samples(&mut out[..available], false);
+        }
+
+        pub fn clear(&mut self) {
+            self.blip.clear();
+            self.count = 0;
+            self.prev_sample = 0.0;
+        }
+    }
+
     pub struct AvgResampler {
-        sample_avg: f32,
+        sample_avg: f64,
         sample_count: usize,
-        sample_timer: f32,
-        cycles_per_sample: f32,
+        sample_timer: f64,
+        cycles_per_sample: f64,
+
+        input_rate: f64,
+        target_rate: f64,
     }
     impl Default for AvgResampler {
         fn default() -> Self {
-            Self::new(NTSC_CLOCK_RATE, SampleRate::default())
+            Self::new(NTSC_CLOCK_RATE as f64, 48000.0)
         }
     }
 
     impl AvgResampler {
-        pub fn new(clock_rate: usize, frequency: SampleRate) -> Self {
-            let freq: f32 = frequency.into();
+        pub fn new(input_rate: f64, target_rate: f64) -> Self {
             Self {
                 sample_avg: 0.0,
                 sample_count: 0,
                 sample_timer: 0.0,
-                cycles_per_sample: clock_rate as f32 / freq,
+                input_rate,
+                target_rate,
+                cycles_per_sample: input_rate / target_rate,
             }
         }
 
-        pub fn clear(&self) -> Self {
+        pub fn clear(self) -> Self {
             Self {
                 sample_avg: 0.0,
                 sample_count: 0,
                 sample_timer: 0.0,
+                input_rate: self.input_rate,
+                target_rate: self.target_rate,
                 cycles_per_sample: self.cycles_per_sample,
             }
         }
 
-        pub fn set_rate(&mut self, clock_rate: usize, frequency: f32) {
-            self.cycles_per_sample = clock_rate as f32 / frequency
+        pub fn set_rate(&mut self, input_rate: f64, target_rate: f64) {
+            self.input_rate = input_rate;
+            self.target_rate = target_rate;
+            self.cycles_per_sample = input_rate / target_rate
         }
 
         pub fn add_sample(&mut self, sample: f32) -> Option<f32> {
-            self.sample_avg += sample;
+            self.sample_avg += sample as f64;
             self.sample_count += 1;
             self.sample_timer += 1.0;
 
             if self.sample_timer >= self.cycles_per_sample {
                 self.sample_timer -= self.cycles_per_sample;
-                let res = self.sample_avg / self.sample_count as f32;
+                let res = self.sample_avg / self.sample_count as f64;
 
                 self.sample_avg = 0.0;
                 self.sample_count = 0;
 
-                Some(res)
+                Some(res as f32)
             } else {
                 None
             }

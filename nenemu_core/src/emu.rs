@@ -13,7 +13,7 @@ use crate::{
     mapper::{self, Mapper},
     ppu::Ppu2C02,
     rom::{Cart, Disk, RomData, is_valid_bios, is_valid_fds, is_valid_ines},
-    utils::{AvgResampler, RingBuffer},
+    utils::{AvgResampler, LowPassFilter, RingBuffer},
 };
 
 pub const NTSC_CLOCK_RATE: usize = 1789773;
@@ -326,10 +326,10 @@ impl NesEmulator {
         self.output.audiobuf.queued()
     }
 
-    pub fn set_audio_rate(&mut self, rate: f32) {
+    pub fn set_audio_rate(&mut self, rate: f64) {
         self.output
             .resampler
-            .set_rate(self.region().clock_rate(), rate);
+            .set_rate(self.region().clock_rate() as f64, rate);
     }
 
     pub fn get_audio_f32(&mut self, amount: usize) -> (&[f32], Option<&[f32]>) {
@@ -474,6 +474,7 @@ pub struct NesOutput {
     pub(crate) videobuf_view: Box<Framebuf>,
     pub audiobuf: RingBuffer<f32>,
     pub resampler: AvgResampler,
+    // pub(crate) lpf: LowPassFilter,
 }
 impl NesOutput {
     pub fn new(region: &Region) -> Self {
@@ -482,7 +483,8 @@ impl NesOutput {
                 (AUDIO_FRAMES_BUFFERED as f32 * (region.clock_rate() as f32 / region.frame_rate()))
                     as usize,
             ),
-            resampler: AvgResampler::new(region.clock_rate(), SampleRate::default()),
+            resampler: AvgResampler::new(region.clock_rate() as f64, 48000.0),
+            // lpf: LowPassFilter::new(region.clock_rate() as f64, 48000.0),
             ..Default::default()
         }
     }
@@ -492,21 +494,6 @@ pub(crate) struct Framebuf(pub [u8; FRAMEBUF_SIZE]);
 impl Default for Framebuf {
     fn default() -> Self {
         Self([255; _])
-    }
-}
-
-#[derive(Default, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
-pub enum SampleRate {
-    Hz32000 = 32000,
-    Hz44100 = 44100,
-    #[default]
-    Hz48000 = 48000,
-    Hz96000 = 96000,
-}
-impl Into<f32> for SampleRate {
-    fn into(self) -> f32 {
-        self as u32 as f32
     }
 }
 

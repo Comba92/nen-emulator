@@ -294,18 +294,15 @@ impl Triangle {
     fn enable(&mut self, cond: bool) {
         self.len.enable(cond);
         self.linear_count = if cond { self.linear_count } else { 0 };
-        self.update_output();
     }
 
     fn update_output(&mut self) {
         // At the expense of accuracy, these can be eliminated in an emulator e.g. by halting the triangle channel when an ultrasonic frequency is set (a timer value less than 2).
         // Other games, e.g. Zombie Nation and Bullet-Proof Software's Tetris, "silence" the triangle channel by setting the timer to $7FF, which produces a deep rumble and quiet whine.
 
-        self.output = if 2 < self.div.period && self.div.period < 0x7ff {
-            Self::TABLE[self.sequence as usize]
-        } else {
-            0
-        };
+        if self.div.period >= 2 {
+            self.output = Self::TABLE[self.sequence as usize]
+        }
     }
 }
 
@@ -348,7 +345,7 @@ impl Noise {
             let feedback = (self.shift & 1) ^ ((self.shift >> bit) & 1);
             self.shift >>= 1;
             // Bit 14, the leftmost bit, is set to the feedback calculated earlier
-            self.shift = (self.shift & !0x4000) | (feedback << 14);
+            self.shift |= feedback << 14;
             self.update_output();
         }
     }
@@ -750,15 +747,15 @@ impl NesEmulator {
         let tri = apu.tri.output * (settings.enable_triangle as u8);
         let noise = apu.noise.output * (settings.enable_noise as u8);
         let dmc = apu.dmc.output * (settings.enable_dmc as u8);
-        let ext = self.mapper.sample() * (settings.enable_ext_audio as u8 as f32);
+        let ext = self.mapper.sample() as f64 * (settings.enable_ext_audio as u8 as f64);
 
-        let pulse = 95.88 / ((8128.0 / (p0 + p1) as f32) + 100.0);
-        let tnd_sum = (tri as f32 / 8227.0) + (noise as f32 / 12241.0) + (dmc as f32 / 22638.0);
+        let pulse = 95.88 / ((8128.0 / (p0 + p1) as f64) + 100.0);
+        let tnd_sum = (tri as f64 / 8227.0) + (noise as f64 / 12241.0) + (dmc as f64 / 22638.0);
         let tnd = 159.79 / ((1.0 / tnd_sum) + 100.0);
 
         let sample = pulse + tnd + ext;
 
-        sample
+        sample as f32
     }
 
     fn frame_count_step(&mut self) {
