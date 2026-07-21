@@ -816,9 +816,6 @@ impl AppCtx {
         // let video_chain = Arc::new(Mutex::new(RingBuffer::new(8)));
 
         let audio = AudioHandler::new(&emu, !cfg.disable_audio);
-        emu.lock()
-            .unwrap()
-            .set_audio_rate(audio.buffer_size() as f32);
 
         // let samples_needed = audio.buffer_size();
 
@@ -1038,7 +1035,7 @@ impl AppCtx {
         }
 
         new_emu.set_settings(self.cfg.nes_settings.clone());
-        new_emu.set_audio_rate(self.audio.sample_rate() as f32);
+        new_emu.set_audio_rate(self.audio.sample_rate() as f64);
 
         if let Some(pal) = self.cfg.palettes.front() {
             new_emu.palette = pal.clone();
@@ -1443,7 +1440,7 @@ impl AppCtx {
 
                                     if curr_device != selected_device {
                                         self.audio.set_ouput_device(selected_device, &self.emu);
-                                        self.emu_lock().set_audio_rate(self.audio.sample_rate() as f32);
+                                        self.emu_lock().set_audio_rate(self.audio.sample_rate() as f64);
                                     }
                                 }
                             });

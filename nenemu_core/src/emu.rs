@@ -26,7 +26,7 @@ pub const SCREEN_WIDTH: isize = 256;
 pub const SCREEN_HEIGHT: isize = 240;
 
 pub const FRAMEBUF_SIZE: usize = SCREEN_WIDTH as usize * SCREEN_HEIGHT as usize * 4;
-pub const AUDIO_FRAMES_BUFFERED: usize = 8;
+pub const AUDIO_FRAMES_BUFFERED: usize = 16;
 
 pub const BATTERY_SAVE_EXTENSION: &str = "srm";
 pub(crate) type LoadError = Box<dyn std::error::Error>;
@@ -349,7 +349,7 @@ impl NesEmulator {
         buf[..right.len()].copy_from_slice(right);
 
         if let Some(left) = left {
-            buf[right.len()..].copy_from_slice(left);
+            buf[right.len()..right.len() + left.len()].copy_from_slice(left);
         }
     }
 
