@@ -198,11 +198,15 @@ fn cpal_callback(
         emu_lock.step();
 
         // TODO: check how many cycles needed for a frame ready
-        if emu_lock.frame_number() != video_lock.frame_number {
-            video_lock.frame_number = emu_lock.frame_number();
-            let frame = video_lock.swap_chain.get_writable();
-            emu_lock.put_video_rgba(frame.as_raw_mut());
-        }
+        // if emu_lock.frame_number() != video_lock.frame_number {
+        //     video_lock.frame_number = emu_lock.frame_number();
+        //     // let frame = video_lock.swap_chain.get_writable();
+        //     // emu_lock.put_video_rgba(frame.as_raw_mut());
+        //     let frame =
+        //         egui::ColorImage::from_rgba_premultiplied([256, 240], emu_lock.get_video_rgba());
+        //     video_lock.swap_chain.push_back(frame);
+        //     println!("{}", video_lock.swap_chain.len());
+        // }
     }
 
     let volume = *volume.lock().unwrap();
@@ -230,16 +234,17 @@ fn cpal_callback(
 
 struct VideoHandler {
     frame_number: usize,
-    swap_chain: RingBuffer<egui::ColorImage>,
+    // swap_chain: VecDeque<egui::ColorImage>,
 }
 impl VideoHandler {
     pub fn new(swap_count: usize) -> Self {
         Self {
             frame_number: 0,
-            swap_chain: RingBuffer::new_with(
-                swap_count,
-                egui::ColorImage::filled([256, 240], egui::Color32::default()),
-            ),
+            // swap_chain: RingBuffer::new_with(
+            //     swap_count,
+            //     egui::ColorImage::filled([256, 240], egui::Color32::default()),
+            // ),
+            // swap_chain: VecDeque::new(),
         }
     }
 }
@@ -1328,7 +1333,10 @@ impl AppCtx {
                 ui.menu_button("🐞 Debug", |ui| {
                     let rom_info = egui::Button::new("💾 ROM information");
 
-                    if ui.add_enabled(running, rom_info).clicked() {
+                    if ui
+                        .add_enabled(self.state.current_rom.is_some(), rom_info)
+                        .clicked()
+                    {
                         self.state.rom_info_open = true;
                     }
 
@@ -1927,22 +1935,27 @@ impl AppCtx {
 
                     match emu.check_for_errrors() {
                         Ok(_) => {
-                            // if emu.frame_number() != self.state.frame_number {
-                            //     let framebuf = egui::ColorImage::from_rgba_unmultiplied(
-                            //         [256, 240],
-                            //         emu.get_video_rgba(),
-                            //     );
-                            //     // self.video_chain.lock().unwrap().push(framebuf);
-                            //     let frame_number = emu.frame_number();
+                            if emu.frame_number() != self.state.frame_number {
+                                let framebuf = egui::ColorImage::from_rgba_unmultiplied(
+                                    [256, 240],
+                                    emu.get_video_rgba(),
+                                );
+                                // self.video_chain.lock().unwrap().push(framebuf);
+                                let frame_number = emu.frame_number();
 
-                            //     drop(emu);
-                            //     self.state.frame_number = frame_number;
-                            //     // self.tex.lock().unwrap().set(framebuf, TEX_OPTS);
-                            //     self.tex.set(framebuf, TEX_OPTS);
-                            if let Some(frame) = self.video.lock().unwrap().swap_chain.pop() {
                                 drop(emu);
-                                self.tex.set(frame.clone(), TEX_OPTS);
+                                self.state.frame_number = frame_number;
+                                // self.tex.lock().unwrap().set(framebuf, TEX_OPTS);
+                                self.tex.set(framebuf, TEX_OPTS);
                             }
+                            // if let Some(frame) = self.video.lock().unwrap().swap_chain.pop() {
+                            // drop(emu);
+                            // self.tex.set(frame.clone(), TEX_OPTS);
+                            // }
+                            // if let Some(frame) = self.video.lock().unwrap().swap_chain.pop_front() {
+                            //     drop(emu);
+                            //     self.tex.set(frame.clone(), TEX_OPTS);
+                            // }
                         }
 
                         Err(e) => {

@@ -208,7 +208,7 @@ pub mod utils {
         }
     }
 
-    // #[cfg(feature = "blip")]
+    #[cfg(feature = "blip")]
     pub struct BlipResampler {
         pub blip: blip_buf::BlipBuf,
         count: usize,
@@ -216,14 +216,14 @@ pub mod utils {
         buffer: Vec<i16>,
     }
 
-    // #[cfg(feature = "blip")]
+    #[cfg(feature = "blip")]
     impl Default for BlipResampler {
         fn default() -> Self {
             Self::new(NTSC_CLOCK_RATE as f64, 48000.0)
         }
     }
 
-    // #[cfg(feature = "blip")]
+    #[cfg(feature = "blip")]
     impl BlipResampler {
         const MAX_BUF_SIZE: usize = 48000 / 60 * 8;
 
@@ -416,22 +416,13 @@ pub mod joypad {
 impl NesEmulator {
     fn read(&mut self, player: JoypadInput) -> u8 {
         let joy = &mut self.joy;
-        let controller_input = if joy.polling_controller {
+        if joy.polling_controller {
             let controller_btn = (joy.player1.bits() >> joy.current_btn_polled) & 1;
             joy.current_btn_polled = (joy.current_btn_polled + 1) % 8;
 
             controller_btn as u8
         } else {
             player.contains(JoypadInput::A) as u8
-        };
-
-        if self.rom_info().supports_zapper() {
-            let zap_trigger = self.joy.zapper_trigger as u8;
-            let zap_light = !(self.is_zapper_light_sensed() && !self.joy.zapper_outside);
-
-            (zap_trigger << 4) | ((zap_light as u8) << 3) | controller_input
-        } else {
-            controller_input
         }
     }
 
@@ -441,8 +432,17 @@ impl NesEmulator {
 
     pub fn read_joypad2(&mut self) -> u8 {
         // TODO: some games seems to not work with this
+        // TODO: this only reads zapper for now
         // self.read(self.joy.player2) | (self.mem.cpu_open_bus & 0xe0)
-        self.mem.cpu_open_bus
+
+        // if self.rom_info().supports_zapper() {
+        let zap_trigger = self.joy.zapper_trigger as u8;
+        let zap_light = !(self.is_zapper_light_sensed() && !self.joy.zapper_outside);
+
+        (zap_trigger << 4) | ((zap_light as u8) << 3)
+        // } else {
+        //     self.mem.cpu_open_bus & 0xe0
+        // }
     }
 
     fn is_zapper_light_sensed(&mut self) -> bool {
@@ -456,7 +456,7 @@ impl NesEmulator {
         let ppu_x = self.ppu.dot as isize - 1;
         let ppu_y = self.ppu.line as isize;
 
-        const LIGHT_RADIUS: isize = 3;
+        const LIGHT_RADIUS: isize = 4;
 
         for y in -LIGHT_RADIUS..=LIGHT_RADIUS {
             for x in -LIGHT_RADIUS..=LIGHT_RADIUS {
@@ -474,14 +474,14 @@ impl NesEmulator {
                 // same as (target_y * 256 + target_x) * 4
                 let pixel_idx = ((target_y << 8) | target_x) << 2;
                 // sum the rgb components
-                let pixel_brightness = self.output.videobuf_back.0[pixel_idx as usize + 0] as u16
-                    + self.output.videobuf_back.0[pixel_idx as usize + 1] as u16
-                    + self.output.videobuf_back.0[pixel_idx as usize + 2] as u16;
+                let pixel_brightness = self.output.videobuf_view.0[pixel_idx as usize + 0] as u16
+                    + self.output.videobuf_view.0[pixel_idx as usize + 1] as u16
+                    + self.output.videobuf_view.0[pixel_idx as usize + 2] as u16;
 
                 // light can only be detected in bright color, and can only detect if the position is earlier than ppu current rendering position
                 if pixel_brightness >= 100
                     && ppu_y >= target_y
-                    && ppu_y.abs_diff(target_y) <= 20 // Tests in the Zap Ruder test ROM show that the photodiode stays on for about 26 scanlines with pure white, 24 scanlines with light gray, or 19 lines with dark gray
+                    && ppu_y - target_y <= 20 // Tests in the Zap Ruder test ROM show that the photodiode stays on for about 26 scanlines with pure white, 24 scanlines with light gray, or 19 lines with dark gray
                     && (ppu_y != target_y || ppu_x >= target_x)
                 {
                     return true;
@@ -514,7 +514,9 @@ impl NesEmulator {
 
         // The large capacitor (10µF) inside the Zapper when combined with the 10kΩ pullup inside the console means that it will take approximately 100ms to change to "released" after the trigger has been half-pulled
         // This means a click too short (for example only when the click is just pressed) will not count as a trigger pull
-        self.joy.zapper_trigger = state;
+        if !self.joy.zapper_trigger {
+            self.joy.zapper_trigger = state;
+        }
     }
 
     pub fn set_zapper_light_outside(&mut self, state: bool) {

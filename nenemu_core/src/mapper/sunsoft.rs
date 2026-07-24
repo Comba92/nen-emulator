@@ -1,5 +1,4 @@
 use crate::{
-    apu,
     bus::{Banking, Bus, CpuHandler, IrqFlags},
     emu::Mirroring,
     mapper::Mapper,

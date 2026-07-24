@@ -307,6 +307,12 @@ struct JsonEntry {
 }
 
 #[test]
+fn build_db() {
+    db_xml_to_json();
+    compress_db();
+}
+
+#[test]
 fn db_xml_to_json() {
     let db_xml = include_str!("../utils/nes20db.xml");
     let names = db_xml

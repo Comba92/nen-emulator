@@ -170,7 +170,7 @@ impl RomData {
         let bytes = bytes.as_ref();
         let header = Self::parse(bytes);
 
-        match header {
+        let res = match header {
             Ok(mut header) => {
                 // query additional information about rom
                 let entry = GAMES_DB.query(&bytes[header.len()..]);
@@ -189,7 +189,9 @@ impl RomData {
 
             // headerless rom: query database
             Err(e) => GAMES_DB.query(bytes).ok_or(e).map(|x| x.into()),
-        }
+        };
+
+        res
     }
 
     pub fn parse<B: AsRef<[u8]>>(bytes: B) -> Result<Self, &'static str> {
@@ -303,7 +305,6 @@ impl RomData {
         };
 
         header.mapper_name = get_mapper_name(header.mapper).into();
-
         Ok(header)
     }
 }

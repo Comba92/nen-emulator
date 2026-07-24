@@ -17,6 +17,7 @@ Game ROMs can be loaded by dragging and dropping the files into the window, or b
 ### Controls
 > [!TIP]
 > Both keyboards and controllers are supported.
+
 > [!TIP]
 > Controls can be changed in the keybids menu.
 
@@ -30,8 +31,6 @@ Game ROMs can be loaded by dragging and dropping the files into the window, or b
 | <kbd>P</kbd> | Pause/unpause the emulator |
 | <kbd>R</kbd> | Reset current game |
 | <kbd>M</kbd> | Mute/unmute sound |
-| <kbd>0</kbd> | Save state |
-| <kbd>9</kbd> | Load state |
 
 ## Features
 The emulator supports all the basic NES features you'd expect from a NES emulator.
