@@ -2,7 +2,7 @@ use std::{
     fs,
     io::{Read, Write},
     path,
-    sync::{self, Arc, Mutex},
+    sync::{self, Arc, Mutex, mpsc},
     thread, time,
 };
 
@@ -11,7 +11,7 @@ use nenemu_core::{
     joypad::JoypadInput,
 };
 use sdl2::{
-    audio::AudioCallback,
+    audio::{AudioCallback, AudioSpecDesired},
     controller::{Axis, Button},
     event::{Event, WindowEvent},
     keyboard::Keycode,
@@ -23,6 +23,8 @@ const AXIS_DEAD_ZONE: i16 = 10_000;
 
 struct AudioHandler {
     emu: Arc<Mutex<NesEmulator>>,
+    frame_number: usize,
+    send: mpsc::Sender<[u8; emu::FRAMEBUF_SIZE]>,
 }
 impl AudioCallback for AudioHandler {
     type Channel = f32;
@@ -30,21 +32,17 @@ impl AudioCallback for AudioHandler {
     fn callback(&mut self, audio_out: &mut [Self::Channel]) {
         let mut emu_lock = self.emu.lock().unwrap();
 
-        // let AB = 1024.0;
-        // let Ab = emu_lock.audio_queued() as f64;
-        // let requested = AB - Ab;
+        while emu_lock.audio_queued() < audio_out.len() {
+            emu_lock.step();
+            if emu_lock.frame_number() != self.frame_number {
+                self.frame_number = emu_lock.frame_number();
+                self.send.send(emu_lock.get_video_rgba().clone()).unwrap();
+            }
+        }
 
-        // const DELTA: f64 = 0.0005;
-        // let dyn_rate = DELTA * (1.0 + (AB - 2.0 * Ab) / AB);
-        // println!(
-        //     "{} {} {requested} {dyn_rate} {}",
-        //     AB,
-        //     Ab,
-        //     48000.0 * (1.0 + dyn_rate)
-        // );
-
-        // emu_lock.get_audio_f32_interp(audio_out.len(), (48000.0 + (1.0 * dyn_rate)) as usize);
-        emu_lock.put_audio_f32(audio_out);
+        if emu_lock.audio_queued() >= audio_out.len() {
+            emu_lock.put_audio_f32(audio_out);
+        }
     }
 }
 
@@ -99,7 +97,12 @@ fn main() {
         .build()
         .unwrap();
 
-    let mut canvas = window.into_canvas().present_vsync().build().unwrap();
+    let mut canvas = window
+        .into_canvas()
+        .present_vsync() // yes
+        .build()
+        .unwrap();
+
     canvas.set_logical_size(256, 240).unwrap();
     let texture_creator = canvas.texture_creator();
     let mut tex = texture_creator
@@ -107,41 +110,34 @@ fn main() {
         .unwrap();
     tex.set_scale_mode(ScaleMode::Nearest);
 
-    let spec = sdl2::audio::AudioSpecDesired {
-        freq: Some(48000),
-        channels: Some(1),
-        samples: Some(512),
-    };
-    // let queue = audio.open_queue(None, &spec).unwrap();
-    // queue.resume();
-
     let mut bios_path = None;
     let mut rom_path = path::PathBuf::new();
 
-    // let emu = NesEmulator::load_bios_only(Some(bios)).unwrap();
-    // let emu = NesEmulator::load_rom_from_file(&rom_path, Some(bios)).unwrap();
     let emu = NesEmulator::empty();
 
-    let frame_rate = time::Duration::from_secs_f32(1.0 / emu.frame_rate());
     let emu = arc_mutex(emu);
+    let emu_shared_clone = Arc::clone(&emu);
 
-    let emu_clone = emu.clone();
+    // let mut videoq = std::collections::VecDeque::new();
+
+    let audiospec = AudioSpecDesired {
+        channels: Some(1),
+        freq: Some(48000),
+        samples: Some(1024),
+    };
+
+    let (send, recv) = mpsc::channel();
+
     let audiocb = audio
-        .open_playback(None, &spec, |_| AudioHandler { emu: emu_clone })
+        .open_playback(None, &audiospec, move |_| AudioHandler {
+            emu: emu_shared_clone,
+            frame_number: 0,
+            send,
+        })
         .unwrap();
     audiocb.resume();
 
-    let mut adj_period = 3;
-    let mut prev_y = 0.0;
-
-    let mut w_values = [-1; 60];
-    let mut w_index = 0;
-    let mut out_freq = 48000.0;
-
-    let mut rate_values = [0.0; 60];
-
-    let mut frames = 0.0;
-
+    let frame_rate = time::Duration::from_secs_f32(1.0 / 144.0);
     'running: loop {
         // let frame_start = timer.ticks64();
         let frame_start = time::Instant::now();
@@ -310,112 +306,19 @@ fn main() {
         canvas.set_draw_color(Color::GREY);
         canvas.clear();
 
-        {
-            let mut emu_lock = emu.lock().unwrap();
-
-            // let AB = emu_lock.get_audiobuf().capacity() as f64;
-            // let Ab = emu_lock.get_audiobuf().available() as f64;
-            // let requested = AB - Ab;
-
-            // const DELTA: f64 = 0.005;
-            // let dyn_rate = DELTA * (1.0 + (AB - 2.0 * Ab) / AB);
-            // println!(
-            //     "{} {} {requested} {dyn_rate} {}",
-            //     AB,
-            //     Ab,
-            //     48000.0 * (1.0 + dyn_rate)
-            // );
-
-            let slope = calc_slope(&w_values, w_index);
-            let a = 0.05;
-            let w = emu_lock.output.audiobuf.available() as f32;
-            let y = prev_y * (1.0 - a) + w * a;
-            prev_y = y;
-            let w = y as i32;
-
-            w_values[w_index] = w;
-            rate_values[w_index] = out_freq;
-            w_index = (w_index + 1) % w_values.len();
-
-            adj_period -= 1;
-            if adj_period == 0 {
-                adj_period = 3;
-                let diff = w - 5000;
-                let dir = (diff > 0) as i32 - (diff < 0) as i32;
-
-                let mut new_adj = 0.0;
-
-                if dir as f32 * slope < -1.0 {
-                    new_adj = slope.abs() / 4.0;
-                    if new_adj > 1.0 {
-                        new_adj = 1.0;
-                    }
-                } else if dir as f32 * slope > 0.0 || w == 0 {
-                    let skew = diff.abs() as f32 / 1600.0 * 10.0;
-                    new_adj = -((slope.abs() + skew) / 2.0);
-                    if new_adj < -2.0 {
-                        new_adj = -2.0;
-                    }
-                }
-
-                new_adj *= dir as f32;
-                out_freq += -new_adj;
-
-                out_freq = out_freq.clamp(48000.0 * 0.98, 48000.0 * 1.02);
-                emu_lock.set_audio_rate(out_freq as f64);
-            }
-
-            // emu_lock.set_audio_rate(48000.0 * dyn_rate);
-
-            if frames > 2.4 {
-                frames -= 2.4;
-                _ = emu_lock.step_until_frame_ready();
-                tex.with_lock(None, |pixels, _| {
-                    pixels.copy_from_slice(emu_lock.get_video_rgba());
-                })
-                .unwrap();
-            }
-            frames += 1.0;
-
-            // let ready = emu_lock.audio_queued();
-            // let mut buf = vec![0.0; 48000 / 60 * 8];
-            // emu_lock.put_audio_f32(&mut buf);
-            // queue.queue_audio(&buf[..ready]).unwrap();
-
-            // let audio = emu_lock.get_audio_f32_interp(799, (48000.0) as usize);
-            // dbg!(audio.len());
-            // queue.queue_audio(audio).unwrap();
+        if let Ok(framebuf) = recv.try_recv() {
+            tex.with_lock(None, |pixels, _| {
+                pixels.copy_from_slice(&framebuf);
+            })
+            .unwrap();
         }
 
         canvas.copy(&tex, None, None).unwrap();
         canvas.present();
 
+        // we are using vsync
         // sleep_until_fps(frame_start, frame_rate);
     }
-}
-
-fn calc_slope(w_values: &[i32; 60], w_value_index: usize) -> f32 {
-    let mut valid_values = 0;
-    let mut sx = 0;
-    let mut sy = 0;
-    let mut sxx = 0;
-    let mut sxy = 0;
-    let mut i = w_value_index;
-    for _ in 0..w_values.len() {
-        if w_values[i] != -1 {
-            let k = valid_values;
-            sx += k;
-            sy += w_values[i];
-            sxx += k * k;
-            sxy += k * w_values[i];
-            valid_values += 1;
-        }
-        i = (i + 1) % w_values.len();
-    }
-
-    let num = (valid_values * sxy - sx * sy) as f32;
-    let den = (valid_values * sxx - sx * sx) as f32;
-    if den == 0.0 { 0.0 } else { num / den }
 }
 
 fn sleep_until_fps(frame_start: time::Instant, frame_rate: time::Duration) {

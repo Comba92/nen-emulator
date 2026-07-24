@@ -86,20 +86,35 @@ pub mod utils {
 
         pub fn push(&mut self, val: T) {
             self.data[self.write_pos] = val;
+            self.write_advance();
+        }
+
+        fn write_advance(&mut self) {
             self.write_pos = (self.write_pos + 1) % self.data.len();
             self.queued = (self.queued + 1).min(self.data.len());
         }
 
-        pub fn pop(&mut self) -> &T {
-            self.pop_mut()
+        // get reference to first writable item
+        pub fn get_writable(&mut self) -> &mut T {
+            let idx = self.write_pos;
+            self.write_advance();
+            &mut self.data[idx]
         }
 
-        pub fn pop_mut(&mut self) -> &mut T {
+        pub fn pop(&mut self) -> Option<&T> {
+            self.pop_mut().map(|x| &*x)
+        }
+
+        pub fn pop_mut(&mut self) -> Option<&mut T> {
+            if self.queued() == 0 {
+                return None;
+            }
+
             let head = self.read_pos;
             self.read_pos = (self.read_pos + 1) % self.data.len();
             self.queued = self.queued.saturating_sub(1);
             let res = &mut self.data[head];
-            res
+            Some(res)
         }
 
         pub fn capacity(&self) -> usize {
@@ -112,14 +127,14 @@ pub mod utils {
         }
 
         pub fn queued(&self) -> usize {
-            if self.is_queued_all_contiguos() {
-                // tail is right of head, consecutive
-                self.write_pos - self.read_pos
-            } else {
-                // tail is left of head, not consecutive
-                self.write_pos + self.queued_contiguos()
-            }
-            // self.queued
+            // if self.is_queued_all_contiguos() {
+            //     // tail is right of head, consecutive
+            //     self.write_pos - self.read_pos
+            // } else {
+            //     // tail is left of head, not consecutive
+            //     self.write_pos + self.queued_contiguos()
+            // }
+            self.queued
         }
 
         pub fn queued_contiguos(&self) -> usize {
@@ -193,21 +208,22 @@ pub mod utils {
         }
     }
 
-    #[cfg(feature = "blip")]
+    // #[cfg(feature = "blip")]
     pub struct BlipResampler {
         pub blip: blip_buf::BlipBuf,
         count: usize,
         prev_sample: f32,
+        buffer: Vec<i16>,
     }
 
-    #[cfg(feature = "blip")]
+    // #[cfg(feature = "blip")]
     impl Default for BlipResampler {
         fn default() -> Self {
             Self::new(NTSC_CLOCK_RATE as f64, 48000.0)
         }
     }
 
-    #[cfg(feature = "blip")]
+    // #[cfg(feature = "blip")]
     impl BlipResampler {
         const MAX_BUF_SIZE: usize = 48000 / 60 * 8;
 
@@ -219,7 +235,7 @@ pub mod utils {
                 blip,
                 count: 0,
                 prev_sample: 0.0,
-                // buffer: vec![0; Self::MAX_BUF_SIZE],
+                buffer: vec![0; Self::MAX_BUF_SIZE],
             }
         }
 
@@ -230,12 +246,13 @@ pub mod utils {
             self.count += 1;
         }
 
-        pub fn read_samples(&mut self, out: &mut [i16]) {
+        pub fn read_samples(&mut self, count: usize) -> &[i16] {
             self.blip.end_frame(self.count as u32);
             self.count = 0;
 
-            let available = out.len().min(self.blip.samples_avail() as usize);
-            self.blip.read_samples(&mut out[..available], false);
+            let available = count.min(self.blip.samples_avail() as usize);
+            self.blip.read_samples(&mut self.buffer[..available], false);
+            &self.buffer[..available]
         }
 
         pub fn clear(&mut self) {
@@ -410,7 +427,7 @@ impl NesEmulator {
 
         if self.rom_info().supports_zapper() {
             let zap_trigger = self.joy.zapper_trigger as u8;
-            let zap_light = !self.is_zapper_light_sensed() || self.joy.zapper_outside;
+            let zap_light = !(self.is_zapper_light_sensed() && !self.joy.zapper_outside);
 
             (zap_trigger << 4) | ((zap_light as u8) << 3) | controller_input
         } else {
@@ -500,7 +517,7 @@ impl NesEmulator {
         self.joy.zapper_trigger = state;
     }
 
-    pub fn set_zapper_outside(&mut self, state: bool) {
+    pub fn set_zapper_light_outside(&mut self, state: bool) {
         self.joy.zapper_outside = state;
     }
 

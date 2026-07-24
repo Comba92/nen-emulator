@@ -13,7 +13,7 @@ use crate::{
     mapper::{self, Mapper},
     ppu::Ppu2C02,
     rom::{Cart, Disk, RomData, is_valid_bios, is_valid_fds, is_valid_ines},
-    utils::{AvgResampler, LowPassFilter, RingBuffer},
+    utils::{AvgResampler, RingBuffer},
 };
 
 pub const NTSC_CLOCK_RATE: usize = 1789773;
@@ -221,11 +221,11 @@ impl NesEmulator {
     }
 
     pub fn step_until_frame_ready(&mut self) -> Result<(), &'static str> {
-        while self.is_frame_ready() {
+        while self.output.frame_ready {
             self.cpu_step();
         }
 
-        while !self.is_frame_ready() {
+        while !self.output.frame_ready {
             self.cpu_step();
         }
 
@@ -247,10 +247,6 @@ impl NesEmulator {
 
         // TODO: should reload wram battery!
         // TODO: some mappers need to be reset too
-    }
-
-    pub fn is_frame_ready(&self) -> bool {
-        self.output.frame_ready
     }
 
     pub fn frame_number(&self) -> usize {
