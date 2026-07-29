@@ -99,7 +99,11 @@ fn main() {
         .build()
         .unwrap();
 
-    let mut canvas = window.into_canvas().present_vsync().build().unwrap();
+    let mut canvas = window
+        .into_canvas()
+        // .present_vsync()
+        .build()
+        .unwrap();
     canvas.set_logical_size(256, 240).unwrap();
     let texture_creator = canvas.texture_creator();
     let mut tex = texture_creator
@@ -122,7 +126,8 @@ fn main() {
     // let emu = NesEmulator::load_rom_from_file(&rom_path, Some(bios)).unwrap();
     let emu = NesEmulator::empty();
 
-    let frame_rate = time::Duration::from_secs_f32(1.0 / emu.frame_rate());
+    // let frame_rate = time::Duration::from_secs_f32(1.0 / emu.frame_rate());
+    let frame_rate = time::Duration::from_secs_f32(1.0 / 144.0);
     let emu = arc_mutex(emu);
 
     let emu_clone = emu.clone();
@@ -390,7 +395,7 @@ fn main() {
         canvas.copy(&tex, None, None).unwrap();
         canvas.present();
 
-        // sleep_until_fps(frame_start, frame_rate);
+        sleep_until_fps(frame_start, frame_rate);
     }
 }
 

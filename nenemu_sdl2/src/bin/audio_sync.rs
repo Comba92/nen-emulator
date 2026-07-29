@@ -134,7 +134,7 @@ fn main() {
     let audiospec = AudioSpecDesired {
         channels: Some(1),
         freq: Some(48000),
-        samples: Some(1024),
+        samples: Some(128),
     };
 
     let audiocb = audio

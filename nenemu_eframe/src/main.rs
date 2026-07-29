@@ -268,7 +268,7 @@ impl AudioStreamData {
         let video_arc = Arc::clone(video);
 
         let mut cfg = cfg.config();
-        cfg.buffer_size = cpal::BufferSize::Fixed(1024);
+        cfg.buffer_size = cpal::BufferSize::Fixed(128);
         println!("{cfg:?}");
 
         device
