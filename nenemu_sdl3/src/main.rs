@@ -125,9 +125,7 @@ fn main() {
     let mut rom_path = path::PathBuf::new();
 
     let emu = NesEmulator::empty();
-    // let emu = NesEmulator::load_rom_from_file(&rom_path, Some(bios)).unwrap();
-
-    // let mut video_chain = nenemu_core::utils::RingBuffer::new_with(8, [0; _]);
+    let mut frame_rate = time::Duration::from_secs_f32(1.0 / emu.frame_rate());
 
     let emu = arc_mutex(emu);
     let emu_shared_clone1 = Arc::clone(&emu);
@@ -148,8 +146,6 @@ fn main() {
         .unwrap();
     audiocb.resume().unwrap();
 
-    let frame_rate = time::Duration::from_secs_f32(1.0 / 120.0);
-    let mut frame_number = 0;
     'running: loop {
         // let frame_start = timer.ticks64();
         let frame_start = time::Instant::now();
@@ -186,6 +182,7 @@ fn main() {
                             rom_path = path::PathBuf::from(filename);
                             println!("{:?}", emu_lock.rom_info());
 
+                            frame_rate = time::Duration::from_secs_f32(1.0 / emu_lock.frame_rate());
                             load_battery(&rom_path, &mut emu_lock);
                         }
                         Err(e) => eprintln!("{e}"),
@@ -320,15 +317,12 @@ fn main() {
         canvas.clear();
 
         {
-            let emu_lock = emu.lock().unwrap();
-
-            if emu_lock.frame_number() != frame_number {
-                tex.with_lock(None, |pixels, _| {
-                    emu_lock.put_video_rgba(pixels);
-                })
-                .unwrap();
-                frame_number = emu_lock.frame_number();
-            }
+            let mut emu_lock = emu.lock().unwrap();
+            _ = emu_lock.step_until_frame_ready();
+            tex.with_lock(None, |pixels, _| {
+                emu_lock.put_video_rgba(pixels);
+            })
+            .unwrap();
         }
 
         canvas.copy(&tex, None, None).unwrap();

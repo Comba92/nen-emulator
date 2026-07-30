@@ -6,37 +6,19 @@ use std::{
     thread, time,
 };
 
-use nenemu_core::{emu::NesEmulator, joypad::JoypadInput};
-use sdl3::{
-    audio::{AudioCallback, AudioFormat, AudioSpec, AudioStream},
+use nenemu_core::{
+    emu::{self, NesEmulator},
+    joypad::JoypadInput,
+};
+use sdl2::{
+    audio::{self, AudioSpec, AudioSpecDesired},
+    controller::{Axis, Button},
     event::{Event, WindowEvent},
-    gamepad::{Axis, Button},
-    joystick::JoystickId,
     keyboard::Keycode,
-    pixels::{Color, PixelFormat},
+    pixels::{Color, PixelFormatEnum},
     render::ScaleMode,
-    sys::render::SDL_LOGICAL_PRESENTATION_INTEGER_SCALE,
 };
 const AXIS_DEAD_ZONE: i16 = 10_000;
-
-struct AudioHandler {
-    emu: Arc<Mutex<NesEmulator>>,
-}
-impl AudioCallback<i16> for AudioHandler {
-    fn callback(&mut self, stream: &mut AudioStream, requested: i32) {
-        let mut emu_lock = self.emu.lock().unwrap();
-
-        while emu_lock.audio_queued() < requested as usize {
-            emu_lock.step();
-        }
-
-        let (right, left) = emu_lock.get_audio_f32(requested as usize);
-        stream.put_data_f32(right).unwrap();
-        if let Some(left) = left {
-            stream.put_data_f32(left).unwrap();
-        }
-    }
-}
 
 fn arc_mutex<T>(inner: T) -> Arc<Mutex<T>> {
     Arc::new(Mutex::new(inner))
@@ -73,19 +55,12 @@ fn load_battery(rom_path: &path::PathBuf, emu_lock: &mut sync::MutexGuard<NesEmu
     }
 }
 
-fn sleep_until_fps(frame_start: time::Instant, frame_rate: time::Duration) {
-    let frame_duration = frame_start.elapsed();
-    if frame_duration < frame_rate {
-        thread::sleep(frame_rate - frame_duration);
-    }
-}
-
 fn main() {
-    let sdl = sdl3::init().unwrap();
+    let sdl = sdl2::init().unwrap();
     let video = sdl.video().unwrap();
     let audio = sdl.audio().unwrap();
     let mut events = sdl.event_pump().unwrap();
-    let controller = sdl.gamepad().unwrap();
+    let controller = sdl.game_controller().unwrap();
     let mut controllers = Vec::new();
     // let timer = sdl.timer().unwrap();
 
@@ -93,63 +68,42 @@ fn main() {
         .window("NesEmu", 256 * 3, 240 * 3)
         .position_centered()
         .resizable()
-        .opengl()
         .build()
         .unwrap();
 
-    let mut canvas = window.into_canvas();
-
-    canvas
-        .set_logical_size(256, 240, SDL_LOGICAL_PRESENTATION_INTEGER_SCALE)
+    let mut canvas = window
+        .into_canvas()
+        // .present_vsync()
+        .build()
         .unwrap();
+
+    canvas.set_logical_size(256, 240).unwrap();
     let texture_creator = canvas.texture_creator();
     let mut tex = texture_creator
-        .create_texture_streaming(PixelFormat::RGBA32, 256, 240)
+        .create_texture_streaming(PixelFormatEnum::RGBA32, 256, 240)
         .unwrap();
     tex.set_scale_mode(ScaleMode::Nearest);
 
-    // let debug_window = video
-    //     .window("Debug", 256 * 2 * 2, 240 * 2 * 2)
-    //     .resizable()
-    //     .build()
-    //     .unwrap();
-    // let mut debug_canvas = debug_window.into_canvas().build().unwrap();
-    // let debug_texture_creator = debug_canvas.texture_creator();
-    // let mut debug_tex = debug_texture_creator
-    //     .create_texture_streaming(PixelFormatEnum::RGBA32, 256 * 2, 240 * 2)
-    //     .unwrap();
-    // debug_tex.set_scale_mode(sdl2::render::ScaleMode::Nearest);
-
-    // let bios = include_bytes!("../../nenemu_core/utils/disksys.rom");
     let mut bios_path = None;
     let mut rom_path = path::PathBuf::new();
 
-    let emu = NesEmulator::empty();
+    // let emu = NesEmulator::load_bios_only(Some(bios)).unwrap();
     // let emu = NesEmulator::load_rom_from_file(&rom_path, Some(bios)).unwrap();
+    let emu = NesEmulator::empty();
 
-    // let mut video_chain = nenemu_core::utils::RingBuffer::new_with(8, [0; _]);
-
+    let frame_rate = time::Duration::from_secs_f32(1.0 / 144.0);
     let emu = arc_mutex(emu);
-    let emu_shared_clone1 = Arc::clone(&emu);
 
-    let audiospec = AudioSpec {
-        format: Some(AudioFormat::s16_sys()),
+    let spec = AudioSpecDesired {
         channels: Some(1),
         freq: Some(48000),
+        samples: Some(800),
     };
 
-    let audiocb = audio
-        .open_playback_stream(
-            &audiospec,
-            AudioHandler {
-                emu: emu_shared_clone1,
-            },
-        )
-        .unwrap();
-    audiocb.resume().unwrap();
+    let audio_queue = audio.open_queue(None, &spec).unwrap();
+    audio_queue.resume();
+    let mut frames = 0.0;
 
-    let frame_rate = time::Duration::from_secs_f32(1.0 / 120.0);
-    let mut frame_number = 0;
     'running: loop {
         // let frame_start = timer.ticks64();
         let frame_start = time::Instant::now();
@@ -158,7 +112,7 @@ fn main() {
             match event {
                 Event::Quit { .. } => break 'running,
                 Event::Window { win_event, .. } => match win_event {
-                    WindowEvent::CloseRequested => break 'running,
+                    WindowEvent::Close => break 'running,
                     _ => {}
                 },
                 Event::DropFile { filename, .. } => {
@@ -168,6 +122,7 @@ fn main() {
                         continue;
                     } else if filename.contains("disksys.rom") {
                         bios_path = Some(path::PathBuf::from(&filename));
+                        continue;
                     }
 
                     let new_emu = NesEmulator::builder()
@@ -203,11 +158,11 @@ fn main() {
                             Keycode::A => emu_lock.set_button(JoypadInput::B, true),
                             Keycode::W => emu_lock.set_button(JoypadInput::Start, true),
                             Keycode::E => emu_lock.set_button(JoypadInput::Select, true),
-                            Keycode::_0 => emu_lock.mapper.special_input(),
+                            Keycode::NUM_0 => emu_lock.mapper.special_input(),
                             #[cfg(feature = "savestates")]
-                            Keycode::_9 => emu_lock.savestate("./save.tmp").unwrap(),
+                            Keycode::NUM_9 => emu_lock.savestate("./save.tmp").unwrap(),
                             #[cfg(feature = "savestates")]
-                            Keycode::_8 => {
+                            Keycode::NUM_8 => {
                                 emu_lock.loadstate("./save.tmp").unwrap();
                             }
                             Keycode::R => {
@@ -245,8 +200,8 @@ fn main() {
                         Button::DPadLeft => emu_lock.set_button(JoypadInput::Left, true),
                         Button::DPadDown => emu_lock.set_button(JoypadInput::Down, true),
                         Button::DPadRight => emu_lock.set_button(JoypadInput::Right, true),
-                        Button::South => emu_lock.set_button(JoypadInput::A, true),
-                        Button::West => emu_lock.set_button(JoypadInput::B, true),
+                        Button::A => emu_lock.set_button(JoypadInput::A, true),
+                        Button::X => emu_lock.set_button(JoypadInput::B, true),
                         Button::Start => emu_lock.set_button(JoypadInput::Start, true),
                         Button::Back => emu_lock.set_button(JoypadInput::Select, true),
                         _ => {}
@@ -260,8 +215,8 @@ fn main() {
                         Button::DPadLeft => emu_lock.set_button(JoypadInput::Left, false),
                         Button::DPadDown => emu_lock.set_button(JoypadInput::Down, false),
                         Button::DPadRight => emu_lock.set_button(JoypadInput::Right, false),
-                        Button::South => emu_lock.set_button(JoypadInput::A, false),
-                        Button::West => emu_lock.set_button(JoypadInput::B, false),
+                        Button::A => emu_lock.set_button(JoypadInput::A, false),
+                        Button::X => emu_lock.set_button(JoypadInput::B, false),
                         Button::Start => emu_lock.set_button(JoypadInput::Start, false),
                         Button::Back => emu_lock.set_button(JoypadInput::Select, false),
                         _ => {}
@@ -301,11 +256,9 @@ fn main() {
                     }
                 }
 
-                Event::ControllerDeviceAdded { which, .. } => match controller
-                    .open(JoystickId::new(which))
-                {
+                Event::ControllerDeviceAdded { which, .. } => match controller.open(which) {
                     Ok(controller) => {
-                        println!("Found controller: {:?}\n", controller.name());
+                        println!("Found controller: {}\n", controller.name());
                         controllers.push(controller);
                     }
                     Err(e) => {
@@ -320,14 +273,25 @@ fn main() {
         canvas.clear();
 
         {
-            let emu_lock = emu.lock().unwrap();
+            let mut emu_lock = emu.lock().unwrap();
 
-            if emu_lock.frame_number() != frame_number {
+            if frames > 2.4 {
+                frames -= 2.4;
+                _ = emu_lock.step_until_frame_ready();
                 tex.with_lock(None, |pixels, _| {
-                    emu_lock.put_video_rgba(pixels);
+                    pixels.copy_from_slice(emu_lock.get_video_rgba());
                 })
                 .unwrap();
-                frame_number = emu_lock.frame_number();
+            }
+            frames += 1.0;
+
+            let queued = emu_lock.audio_queued();
+            println!("{queued}");
+
+            let (right, left) = emu_lock.get_audio_f32(512);
+            audio_queue.queue_audio(right).unwrap();
+            if let Some(left) = left {
+                audio_queue.queue_audio(left).unwrap();
             }
         }
 
@@ -335,5 +299,12 @@ fn main() {
         canvas.present();
 
         sleep_until_fps(frame_start, frame_rate);
+    }
+}
+
+fn sleep_until_fps(frame_start: time::Instant, frame_rate: time::Duration) {
+    let frame_duration = frame_start.elapsed();
+    if frame_duration < frame_rate {
+        thread::sleep(frame_rate - frame_duration);
     }
 }

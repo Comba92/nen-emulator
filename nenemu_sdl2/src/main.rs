@@ -6,12 +6,14 @@ use std::{
     thread, time,
 };
 
-use nenemu_core::{
-    emu::{self, NesEmulator},
-    joypad::JoypadInput,
-};
+use nenemu_core::{emu::NesEmulator, joypad::JoypadInput};
 use sdl2::{
-    audio::{AudioCallback, AudioSpecDesired}, controller::{Axis, Button}, event::{Event, WindowEvent}, keyboard::Keycode, pixels::{Color, PixelFormatEnum}, render::ScaleMode
+    audio::{AudioCallback, AudioSpecDesired},
+    controller::{Axis, Button},
+    event::{Event, WindowEvent},
+    keyboard::Keycode,
+    pixels::{Color, PixelFormatEnum},
+    render::ScaleMode,
 };
 const AXIS_DEAD_ZONE: i16 = 10_000;
 
@@ -26,8 +28,15 @@ impl AudioCallback for AudioHandler {
     type Channel = f32;
 
     fn callback(&mut self, audio_out: &mut [Self::Channel]) {
-        // println!("{}", self.emu.lock().unwrap().audio_queued());
-        self.emu.lock().unwrap().put_audio_f32(audio_out);
+        let mut emu_lock = self.emu.lock().unwrap();
+
+        // hybrid approach: we sync by video, however we might not have enough samples to provide the callback. we can still step until we have some ready.
+        // if we're lucky, we'll step more into the vblank period. if we don't go way further and reach another vblank, we won't have skipped frames
+        while emu_lock.audio_queued() < audio_out.len() {
+            emu_lock.step();
+        }
+
+        emu_lock.put_audio_f32(audio_out);
     }
 }
 
@@ -93,25 +102,20 @@ fn main() {
     let mut bios_path = None;
     let mut rom_path = path::PathBuf::new();
 
-    // let emu = NesEmulator::load_bios_only(Some(bios)).unwrap();
-    // let emu = NesEmulator::load_rom_from_file(&rom_path, Some(bios)).unwrap();
     let emu = NesEmulator::empty();
 
-    let frame_rate = time::Duration::from_secs_f32(1.0 / 144.0);
+    let mut frame_rate = time::Duration::from_secs_f32(1.0 / emu.frame_rate());
     let emu = arc_mutex(emu);
     let emu_arc = emu.clone();
 
-    const BUF_SIZE: usize = 1024;
     let audiospec = AudioSpecDesired {
         channels: Some(1),
         freq: Some(48000),
-        samples: Some(BUF_SIZE as u16),
+        samples: None,
     };
 
     let audiocb = audio
-        .open_playback(None, &audiospec, move |_| AudioHandler {
-            emu: emu_arc,
-        })
+        .open_playback(None, &audiospec, move |_| AudioHandler { emu: emu_arc })
         .unwrap();
     audiocb.resume();
 
@@ -152,6 +156,7 @@ fn main() {
                             rom_path = path::PathBuf::from(filename);
                             println!("{:?}", emu_lock.rom_info());
 
+                            frame_rate = time::Duration::from_secs_f32(1.0 / emu_lock.frame_rate());
                             load_battery(&rom_path, &mut emu_lock);
                         }
                         Err(e) => eprintln!("{e}"),
@@ -286,16 +291,11 @@ fn main() {
         {
             let mut emu_lock = emu.lock().unwrap();
 
-            // println!("{}", emu_lock.audio_available());
-            // println!("{}", emu_lock.audio_queued());
-
-            if emu_lock.audio_queued() < BUF_SIZE * 2 {
-                _ = emu_lock.step_until_frame_ready();
-                tex.with_lock(None, |pixels, _| {
-                    pixels.copy_from_slice(emu_lock.get_video_rgba());
-                })
-                .unwrap();
-            }
+            _ = emu_lock.step_until_frame_ready();
+            tex.with_lock(None, |pixels, _| {
+                pixels.copy_from_slice(emu_lock.get_video_rgba());
+            })
+            .unwrap();
         }
 
         canvas.copy(&tex, None, None).unwrap();

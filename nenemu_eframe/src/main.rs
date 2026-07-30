@@ -9,7 +9,6 @@ use nenemu_core::{
     emu::NesEmulator,
     joypad,
     rom::{self, is_valid_bios},
-    utils::RingBuffer,
 };
 use std::{
     collections::{HashMap, VecDeque},
@@ -185,28 +184,13 @@ impl GamepadHandler {
     }
 }
 
-fn cpal_callback(
-    emu: &Arc<Mutex<NesEmulator>>,
-    video: &Arc<Mutex<VideoHandler>>,
-    volume: &Arc<Mutex<f32>>,
-    audio_out: &mut [f32],
-) {
+fn cpal_callback(emu: &Arc<Mutex<NesEmulator>>, volume: &Arc<Mutex<f32>>, audio_out: &mut [f32]) {
     let mut emu_lock = emu.lock().unwrap();
-    let mut video_lock = video.lock().unwrap();
 
+    // hybrid approach: we sync by video, however we might not have enough samples to provide the callback. we can still step until we have some ready.
+    // in the very common case, we'll step more into the vblank period. if we don't go way further and reach another vblank (we definetely won't), we won't have skipped frames
     while emu_lock.audio_queued() < audio_out.len() {
         emu_lock.step();
-
-        // TODO: check how many cycles needed for a frame ready
-        // if emu_lock.frame_number() != video_lock.frame_number {
-        //     video_lock.frame_number = emu_lock.frame_number();
-        //     // let frame = video_lock.swap_chain.get_writable();
-        //     // emu_lock.put_video_rgba(frame.as_raw_mut());
-        //     let frame =
-        //         egui::ColorImage::from_rgba_premultiplied([256, 240], emu_lock.get_video_rgba());
-        //     video_lock.swap_chain.push_back(frame);
-        //     println!("{}", video_lock.swap_chain.len());
-        // }
     }
 
     let volume = *volume.lock().unwrap();
@@ -215,37 +199,6 @@ fn cpal_callback(
     for (i, sample) in samples.enumerate() {
         audio_out[2 * i] = sample * volume;
         audio_out[2 * i + 1] = sample * volume;
-    }
-
-    // let (right, left) = emu_lock.get_audio_f32(audio_out.len() / 2);
-    // for i in 0..right.len() {
-    //     audio_out[2 * i] = right[i] * volume;
-    //     audio_out[2 * i + 1] = right[i] * volume;
-    // }
-
-    // if let Some(left) = left {
-    //     let audio_out = &mut audio_out[2 * right.len()..];
-    //     for i in 0..left.len() {
-    //         audio_out[2 * i] = left[i] * volume;
-    //         audio_out[2 * i + 1] = left[i] * volume;
-    //     }
-    // }
-}
-
-struct VideoHandler {
-    frame_number: usize,
-    // swap_chain: VecDeque<egui::ColorImage>,
-}
-impl VideoHandler {
-    pub fn new(swap_count: usize) -> Self {
-        Self {
-            frame_number: 0,
-            // swap_chain: RingBuffer::new_with(
-            //     swap_count,
-            //     egui::ColorImage::filled([256, 240], egui::Color32::default()),
-            // ),
-            // swap_chain: VecDeque::new(),
-        }
     }
 }
 
@@ -262,11 +215,9 @@ impl AudioStreamData {
         cfg: cpal::SupportedStreamConfig,
         volume: &Arc<Mutex<f32>>,
         emu: &Arc<Mutex<NesEmulator>>,
-        video: &Arc<Mutex<VideoHandler>>,
     ) -> Option<Self> {
         let volume_arc = Arc::clone(volume);
         let emu_arc = Arc::clone(emu);
-        let video_arc = Arc::clone(video);
         let mut cfg = cfg.config();
         cfg.buffer_size = cpal::BufferSize::Fixed(buf_size as cpal::FrameCount);
         println!("{cfg:?}");
@@ -274,7 +225,7 @@ impl AudioStreamData {
         device
             .build_output_stream(
                 cfg,
-                move |audio_out, _| cpal_callback(&emu_arc, &video_arc, &volume_arc, audio_out),
+                move |audio_out, _| cpal_callback(&emu_arc, &volume_arc, audio_out),
                 |err| eprintln!("Cpal callback error: {err}"),
                 None,
             )
@@ -327,12 +278,7 @@ struct AudioHandler {
 }
 
 impl AudioHandler {
-    pub fn new(
-        emu: &Arc<Mutex<NesEmulator>>,
-        video: &Arc<Mutex<VideoHandler>>,
-        enabled: bool,
-        buf_size: usize,
-    ) -> Self {
+    pub fn new(emu: &Arc<Mutex<NesEmulator>>, enabled: bool, buf_size: usize) -> Self {
         let host = cpal::default_host();
 
         // take the default device for now
@@ -345,7 +291,7 @@ impl AudioHandler {
 
                 let volume = Arc::new(Mutex::new(0.5));
                 let stream = cpal_query_cfgs(&device)
-                    .and_then(|cfg| AudioStreamData::new(device, buf_size, cfg, &volume, emu, video));
+                    .and_then(|cfg| AudioStreamData::new(device, buf_size, cfg, &volume, emu));
 
                 let res = Self {
                     host,
@@ -417,14 +363,9 @@ impl AudioHandler {
         }
     }
 
-    fn set_ouput_device(
-        &mut self,
-        device: cpal::Device,
-        emu: &Arc<Mutex<NesEmulator>>,
-        video: &Arc<Mutex<VideoHandler>>,
-    ) {
+    fn set_ouput_device(&mut self, device: cpal::Device, emu: &Arc<Mutex<NesEmulator>>) {
         let new_stream = cpal_query_cfgs(&device)
-            .and_then(|cfg| AudioStreamData::new(device, self.buf_size, cfg, &self.volume, emu, video));
+            .and_then(|cfg| AudioStreamData::new(device, self.buf_size, cfg, &self.volume, emu));
 
         if new_stream.is_some() {
             self.stream = new_stream;
@@ -559,59 +500,6 @@ fn buffered_write<P: AsRef<Path>>(path: P, bytes: &[u8]) -> Result<(), GenericEr
     Ok(())
 }
 
-// fn emulation_thread_proc(
-//     emu: Arc<Mutex<NesEmulator>>,
-//     video_chain: Arc<Mutex<RingBuffer<egui::ColorImage>>>,
-//     samples_needed: usize,
-//     is_running: Arc<atomic::AtomicBool>,
-// ) {
-//     let frame_rate = time::Duration::from_secs_f32(1.0 / 288.0);
-//     loop {
-//         let frame_start = time::Instant::now();
-
-//         if is_running.load(atomic::Ordering::Relaxed) {
-//             let mut emu_lock = emu.lock().unwrap();
-//             while emu_lock.audio_queued() < samples_needed {
-//                 emu_lock
-//                     .step_until_samples_or_frame_ready(samples_needed)
-//                     .unwrap();
-
-//                 if emu_lock.is_frame_ready() {
-//                     let framebuf = egui::ColorImage::from_rgba_unmultiplied(
-//                         [256, 240],
-//                         emu_lock.get_video_rgba(),
-//                     );
-//                     video_chain.lock().unwrap().push(framebuf);
-//                 }
-//             }
-//         }
-
-//         sleep_until_fps(frame_start, frame_rate);
-//     }
-// }
-
-// fn emulation_thread_no_audio_proc(
-//     emu: Arc<Mutex<NesEmulator>>,
-//     video_chain: Arc<Mutex<RingBuffer<egui::ColorImage>>>,
-//     is_running: Arc<atomic::AtomicBool>,
-// ) {
-//     let frame_rate = time::Duration::from_secs_f32(1.0 / 61.0);
-//     loop {
-//         let frame_start = time::Instant::now();
-
-//         if is_running.load(atomic::Ordering::Relaxed) {
-//             let mut emu_lock = emu.lock().unwrap();
-//             emu_lock.step_until_frame_ready().unwrap();
-
-//             let framebuf =
-//                 egui::ColorImage::from_rgba_unmultiplied([256, 240], emu_lock.get_video_rgba());
-//             video_chain.lock().unwrap().push(framebuf);
-//         }
-
-//         sleep_until_fps(frame_start, frame_rate);
-//     }
-// }
-
 #[derive(Default, PartialEq, Clone, Copy, Debug)]
 enum EmulationState {
     #[default]
@@ -705,13 +593,11 @@ struct AppCfg {
 
     disable_audio: bool,
     volume: f32,
-    latency: f32,
 }
 impl AppCfg {
     fn new() -> Self {
         Self {
             volume: 0.5,
-            latency: 21.33,
             keep_aspect_ratio: true,
             ..Default::default()
         }
@@ -820,12 +706,6 @@ impl FileDialogHandler {
 struct AppCtx {
     // sdl: SdlCtx,
     emu: Arc<Mutex<NesEmulator>>,
-    // emu_thread: thread::JoinHandle<()>,
-    // is_running: Arc<atomic::AtomicBool>,
-    //
-    // video_chain: Arc<Mutex<RingBuffer<egui::ColorImage>>>,
-    // tex: Arc<Mutex<egui::TextureHandle>>,
-    video: Arc<Mutex<VideoHandler>>,
     tex: egui::TextureHandle,
     audio: AudioHandler,
     gamepads: GamepadHandler,
@@ -860,49 +740,15 @@ impl AppCtx {
 
         let img = egui::ColorImage::filled([256, 240], egui::Color32::TRANSPARENT);
         let tex = c.egui_ctx.load_texture("emu_present", img, TEX_OPTS);
-        // let tex = Arc::new(Mutex::new(tex));
 
         let emu = NesEmulator::empty();
         let emu = Arc::new(Mutex::new(emu));
         // let sdl = SdlCtx::new(44100, Arc::clone(&emu));
 
-        let video = Arc::new(Mutex::new(VideoHandler::new(4)));
-        let audio = AudioHandler::new(&emu, &video, !cfg.disable_audio, 1024);
-
-        // let samples_needed = audio.buffer_size();
-
-        // let emu_arc = Arc::clone(&emu);
-        // let chain_arc = Arc::clone(&video_chain);
-
-        // let is_running = Arc::new(atomic::AtomicBool::new(false));
-        // let is_running_arc = Arc::clone(&is_running);
-
-        // let emu_thread = if audio.is_supported() {
-        //     thread::Builder::new()
-        //         .name("emulation".into())
-        //         .spawn(move || {
-        //             emulation_thread_proc(
-        //                 emu_arc,
-        //                 chain_arc,
-        //                 samples_needed as usize,
-        //                 is_running_arc,
-        //             )
-        //         })
-        //         .unwrap()
-        // } else {
-        //     thread::Builder::new()
-        //         .name("emulation".into())
-        //         .spawn(move || emulation_thread_no_audio_proc(emu_arc, chain_arc, is_running_arc))
-        //         .unwrap()
-        // };
-
+        let audio = AudioHandler::new(&emu, !cfg.disable_audio, 1024);
         let mut res = Self {
-            // sdl,
             emu,
-            // emu_thread,
-            // is_running,
             tex,
-            video,
             audio,
             gamepads: GamepadHandler::new(),
             file_dialog: FileDialogHandler::new(),
@@ -1303,8 +1149,6 @@ impl AppCtx {
                     }
                 });
 
-                let running = self.state.emulation == EmulationState::Running;
-
                 ui.menu_button("⚙ Settings", |ui| {
                     if ui.button("🔧 Emulator").clicked() {
                         self.state.settings_open = true;
@@ -1413,10 +1257,7 @@ impl AppCtx {
     }
 
     fn show_settings_window(&mut self, ui: &mut egui::Ui) {
-        // #[cfg(not(target_arch = "wasm32"))]
-        // let mut should_update_palette = None;
         let audio_disabled = self.cfg.disable_audio;
-        let audio_latency = self.cfg.latency;
         let mut settings_open = self.state.settings_open;
 
         egui::Window::new("🔧 Settings")
@@ -1426,7 +1267,6 @@ impl AppCtx {
             .show(ui, |ui| egui::ScrollArea::vertical().show(ui, |ui| {
                 #[cfg(not(target_arch = "wasm32"))]
                 if ui.button("🎨 Load palette file...").clicked() {
-                    // should_update_palette = self.open_dialog("Select a NES palette file", "NES PAL file", &["pal"]);
                     self.file_dialog.open_dialog(FileOpenKind::NesPalette, "Select a NES palette file", "NES PAL file", &["pal"]);
                 }
 
@@ -1467,7 +1307,6 @@ impl AppCtx {
                     //     });
                     //     self.state.fps = self.cfg.refresh_rate.fps();
                     // }
-
                 });
 
                 ui.separator();
@@ -1495,7 +1334,7 @@ impl AppCtx {
                                     }
 
                                     if curr_device != selected_device {
-                                        self.audio.set_ouput_device(selected_device, &self.emu, &self.video);
+                                        self.audio.set_ouput_device(selected_device, &self.emu);
                                         self.emu_lock().set_audio_rate(self.audio.sample_rate() as f64);
                                     }
                                 }
@@ -1533,8 +1372,6 @@ impl AppCtx {
                 #[cfg(not(target_arch = "wasm32"))]
                 ui.collapsing("💿 Famicon Disk System (FDS)", |ui| {
                     if ui.button("👢 Load FDS BIOS file...").clicked() {
-                        // self.open_dialog("Select FDS BIOS file", "FDS BIOS", &["rom"])
-                        //     .map(|path| self.cfg.bios_path = Some(path));
                         self.file_dialog.open_dialog(FileOpenKind::FdsBios, "Select FDS BIOS file", "FDS BIOS", &["rom"]);
                     }
 
@@ -1548,18 +1385,10 @@ impl AppCtx {
         self.state.settings_open = settings_open;
 
         if audio_disabled != self.cfg.disable_audio {
-            // self.audio.set_enabled(!self.cfg.disable_audio);
+            self.audio.set_enabled(!self.cfg.disable_audio);
             self.emu_lock().get_audiobuf().clear();
-            self.audio = AudioHandler::new(&self.emu, &self.video, !self.cfg.disable_audio, self.audio.buf_size);
-            self.audio.resume();
             self.update_video_sync_fps();
         }
-
-        // if audio_latency != self.cfg.latency {
-        //     let buf_size = self.cfg.latency / 1000.0 * self.audio.sample_rate() as f32;
-        //     self.audio = AudioHandler::new(&self.emu, &self.video, self.audio.is_enabled(), buf_size as usize);
-        //     self.audio.resume();
-        // }
 
         {
             let mut emu = self.emu_lock();
@@ -1567,11 +1396,6 @@ impl AppCtx {
                 emu.set_settings(self.cfg.nes_settings.clone());
             }
         }
-
-        // #[cfg(not(target_arch = "wasm32"))]
-        // if let Some(pal_path) = should_update_palette {
-        //     self.load_palette(pal_path);
-        // }
     }
 
     fn show_keybids_window(&mut self, ui: &mut egui::Ui) {
@@ -1774,11 +1598,13 @@ impl AppCtx {
                     ui.heading(msg.to_string());
                 });
 
+            // TODO: time doesn't work on wasm32, should use browser API time
             #[cfg(not(target_arch = "wasm32"))]
-            const MSG_DELAY: time::Duration = time::Duration::from_secs(4);
-            #[cfg(not(target_arch = "wasm32"))]
-            if appeared.elapsed() > MSG_DELAY {
-                *open = false;
+            {
+                const MSG_DELAY: time::Duration = time::Duration::from_secs(4);
+                if appeared.elapsed() > MSG_DELAY {
+                    *open = false;
+                }
             }
 
             if let None = res {
@@ -1951,63 +1777,7 @@ impl AppCtx {
                 emu.set_zapper_light_outside(mouse_right);
                 emu.set_zapper_light(self.state.mouse_pos.0, self.state.mouse_pos.1);
 
-                if self.audio.is_enabled() {
-                    // audio sync
-
-                    match emu.check_for_errrors() {
-                        Ok(_) => {
-                            // if emu.audio_queued() < self.audio.buf_size * 2 {
-                                match emu.step_until_frame_ready() {
-                                    Ok(_) => {
-                                        let framebuf = egui::ColorImage::from_rgba_unmultiplied(
-                                            [256, 240],
-                                            emu.get_video_rgba(),
-                                        );
-                                        drop(emu);
-                                        self.tex.set(framebuf, TEX_OPTS);
-                                    }
-
-                                    Err(e) => {
-                                        drop(emu);
-                                        self.stop_emulation();
-                                        self.add_message(e);
-                                    }
-                                }
-                            // }
-
-                            // if emu.frame_number() != self.state.frame_number {
-                            //     let framebuf = egui::ColorImage::from_rgba_unmultiplied(
-                            //         [256, 240],
-                            //         emu.get_video_rgba(),
-                            //     );
-                            //     // self.video_chain.lock().unwrap().push(framebuf);
-                            //     let frame_number = emu.frame_number();
-
-                            //     drop(emu);
-                            //     self.state.frame_number = frame_number;
-                            //     // self.tex.lock().unwrap().set(framebuf, TEX_OPTS);
-                            //     self.tex.set(framebuf, TEX_OPTS);
-                            // }
-
-                            // if let Some(frame) = self.video.lock().unwrap().swap_chain.pop() {
-                            // drop(emu);
-                            // self.tex.set(frame.clone(), TEX_OPTS);
-                            // }
-                            // if let Some(frame) = self.video.lock().unwrap().swap_chain.pop_front() {
-                            //     drop(emu);
-                            //     self.tex.set(frame.clone(), TEX_OPTS);
-                            // }
-                        }
-
-                        Err(e) => {
-                            drop(emu);
-                            self.stop_emulation();
-                            self.add_message(e);
-                        }
-                    }
-                } else if !self.audio.is_enabled()
-                    && self.state.video_sync_frame >= self.state.video_sync_ratio
-                {
+                if self.state.video_sync_frame >= self.state.video_sync_ratio {
                     // video sync
                     match emu.step_until_frame_ready() {
                         Ok(_) => {
@@ -2028,13 +1798,10 @@ impl AppCtx {
                 }
             }
 
-            if !self.audio.is_enabled() {
-                if self.state.video_sync_frame >= self.state.video_sync_ratio {
-                    self.state.video_sync_frame -= self.state.video_sync_ratio;
-                }
-
-                self.state.video_sync_frame += 1.0;
+            if self.state.video_sync_frame >= self.state.video_sync_ratio {
+                self.state.video_sync_frame -= self.state.video_sync_ratio;
             }
+            self.state.video_sync_frame += 1.0;
 
             self.state.keyboard_input = keyboard_input;
             self.state.gamepad_input = gamepad_input;
@@ -2068,8 +1835,6 @@ impl eframe::App for AppCtx {
                 egui::Frame::new()
                     .fill(egui::Color32::BLACK.gamma_multiply(0.6))
                     .show(ui, |ui| {
-                        // let tex = self.tex.lock().unwrap();
-                        // let img = egui::Image::new(&*tex)
                         let img = egui::Image::new(&self.tex)
                             .maintain_aspect_ratio(self.cfg.keep_aspect_ratio)
                             .fit_to_exact_size(ui.max_rect().size());
@@ -2117,23 +1882,6 @@ impl eframe::App for AppCtx {
             ui.send_viewport_cmd(egui::ViewportCommand::Fullscreen(self.cfg.fullscreen));
         }
 
-        // {
-        //     let mut emu_lock = self.emu.lock().unwrap();
-        //     while emu_lock.audio_queued() < self.sdl.samplebuf_size {
-        //         emu_lock
-        //             .step_until_samples_or_frame_ready(self.sdl.samplebuf_size * 2)
-        //             .unwrap();
-
-        //         if emu_lock.is_frame_ready() {
-        //             let framebuf = egui::ColorImage::from_rgba_unmultiplied(
-        //                 [256, 240],
-        //                 emu_lock.get_video_rgba(),
-        //             );
-        //             self.video_chain.lock().unwrap().push(framebuf);
-        //         }
-        //     }
-        // }
-
         self.show_settings_window(ui);
         self.show_keybids_window(ui);
         self.show_about_window(ui);
@@ -2144,21 +1892,6 @@ impl eframe::App for AppCtx {
 
         self.handle_file_dialog();
         self.handle_input_and_emulation(ui);
-
-        // if self.state.emulation != current_state {
-        // self.is_running.store(
-        //     self.state.emulation == EmulationState::Running,
-        //     atomic::Ordering::Relaxed,
-        // );
-        // }
-
-        // {
-        //     let mut video_lock = self.video_chain.lock().unwrap();
-        //     if video_lock.queued() > 0 {
-        //         let framebuf = std::mem::take(video_lock.pop_mut());
-        //         self.tex.lock().unwrap().set(framebuf, TEX_OPTS);
-        //     }
-        // }
 
         *self.audio.volume.lock().unwrap() = self.cfg.volume;
 
