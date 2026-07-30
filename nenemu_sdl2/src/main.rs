@@ -3,7 +3,6 @@ use std::{
     io::{Read, Write},
     path,
     sync::{self, Arc, Mutex},
-    thread, time,
 };
 
 use nenemu_core::{emu::NesEmulator, joypad::JoypadInput};
@@ -11,6 +10,7 @@ use sdl2::{
     audio::{AudioCallback, AudioSpecDesired},
     controller::{Axis, Button},
     event::{Event, WindowEvent},
+    gfx::framerate::FPSManager,
     keyboard::Keycode,
     pixels::{Color, PixelFormatEnum},
     render::ScaleMode,
@@ -78,7 +78,6 @@ fn main() {
     let mut events = sdl.event_pump().unwrap();
     let controller = sdl.game_controller().unwrap();
     let mut controllers = Vec::new();
-    // let timer = sdl.timer().unwrap();
 
     let window = video
         .window("NesEmu", 256 * 3, 240 * 3)
@@ -87,11 +86,7 @@ fn main() {
         .build()
         .unwrap();
 
-    let mut canvas = window
-        .into_canvas()
-        // .present_vsync()
-        .build()
-        .unwrap();
+    let mut canvas = window.into_canvas().present_vsync().build().unwrap();
     canvas.set_logical_size(256, 240).unwrap();
     let texture_creator = canvas.texture_creator();
     let mut tex = texture_creator
@@ -104,7 +99,9 @@ fn main() {
 
     let emu = NesEmulator::empty();
 
-    let mut frame_rate = time::Duration::from_secs_f32(1.0 / emu.frame_rate());
+    let mut fps = FPSManager::new();
+    fps.set_framerate(60).unwrap();
+
     let emu = arc_mutex(emu);
     let emu_arc = emu.clone();
 
@@ -120,9 +117,6 @@ fn main() {
     audiocb.resume();
 
     'running: loop {
-        // let frame_start = timer.ticks64();
-        let frame_start = time::Instant::now();
-
         for event in events.poll_iter() {
             match event {
                 Event::Quit { .. } => break 'running,
@@ -156,7 +150,7 @@ fn main() {
                             rom_path = path::PathBuf::from(filename);
                             println!("{:?}", emu_lock.rom_info());
 
-                            frame_rate = time::Duration::from_secs_f32(1.0 / emu_lock.frame_rate());
+                            fps.set_framerate(emu_lock.frame_rate() as u32).unwrap();
                             load_battery(&rom_path, &mut emu_lock);
                         }
                         Err(e) => eprintln!("{e}"),
@@ -290,7 +284,6 @@ fn main() {
 
         {
             let mut emu_lock = emu.lock().unwrap();
-
             _ = emu_lock.step_until_frame_ready();
             tex.with_lock(None, |pixels, _| {
                 pixels.copy_from_slice(emu_lock.get_video_rgba());
@@ -301,13 +294,6 @@ fn main() {
         canvas.copy(&tex, None, None).unwrap();
         canvas.present();
 
-        sleep_until_fps(frame_start, frame_rate);
-    }
-}
-
-fn sleep_until_fps(frame_start: time::Instant, frame_rate: time::Duration) {
-    let frame_duration = frame_start.elapsed();
-    if frame_duration < frame_rate {
-        thread::sleep(frame_rate - frame_duration);
+        fps.delay();
     }
 }

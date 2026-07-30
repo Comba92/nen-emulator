@@ -10,5 +10,5 @@ savestates = ["nenemu_core/savestates"]
 static = ["sdl2/static-link"]
 
 [dependencies]
-sdl2 = "0.38.0"
+sdl2 = { version = "0.38.0", features = ["gfx"] }
 nenemu_core = { path = "../nenemu_core" }

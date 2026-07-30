@@ -15,7 +15,8 @@ use std::{
     fs,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard, mpsc},
-    thread, time,
+    thread,
+    time::{self, Duration, Instant},
 };
 
 const TEX_OPTS: egui::TextureOptions = egui::TextureOptions {
@@ -423,6 +424,47 @@ impl AudioHandler {
     }
 }
 
+// https://github.com/giroletm/SDL2_gfx/blob/master/SDL2_framerate.c
+struct FpsHandler {
+    clock: Instant,
+    frame_count: usize,
+    rate_ticks: f32,
+    base_ticks: u64,
+    last_ticks: u64,
+}
+impl FpsHandler {
+    pub fn new(fps: usize) -> Self {
+        let clock = Instant::now();
+        let ticks = clock.elapsed().as_millis();
+        Self {
+            clock,
+            frame_count: 0,
+            rate_ticks: 1000.0 / fps as f32,
+            base_ticks: ticks as u64,
+            last_ticks: ticks as u64,
+        }
+    }
+
+    pub fn set_framerate(&mut self, fps: usize) {
+        self.frame_count = 0;
+        self.rate_ticks = 1000.0 / fps as f32;
+    }
+
+    pub fn delay(&mut self) {
+        self.frame_count += 1;
+        let current_ticks = self.clock.elapsed().as_millis() as u64;
+        self.last_ticks = current_ticks;
+
+        let target_ticks = self.base_ticks + (self.frame_count as f32 * self.rate_ticks) as u64;
+        if current_ticks <= target_ticks {
+            thread::sleep(Duration::from_millis((target_ticks - current_ticks)));
+        } else {
+            self.frame_count = 0;
+            self.base_ticks = self.clock.elapsed().as_millis() as u64;
+        }
+    }
+}
+
 // struct AudioThread {
 //     emu: Arc<Mutex<NesEmulator>>,
 // }
@@ -520,8 +562,14 @@ fn main() {
             .with_drag_and_drop(true)
             .with_inner_size((640.0 * 2.0, 480.0 * 2.0))
             .with_title(APP_NAME),
-        vsync: true,
         hardware_acceleration: eframe::HardwareAcceleration::Preferred,
+
+        vsync: false,
+        wgpu_options: eframe::egui_wgpu::WgpuConfiguration {
+            present_mode: eframe::egui_wgpu::wgpu::PresentMode::AutoNoVsync,
+            ..Default::default()
+        },
+
         #[cfg(feature = "opengl")]
         renderer: eframe::Renderer::Glow,
 
@@ -623,14 +671,14 @@ struct AppState {
     current_rom: Option<(Box<[u8]>, PathBuf)>,
     current_rom_header: rom::RomData,
 
-    monitor_refresh_rate: usize,
+    // monitor_refresh_rate: usize,
     // fps: f32,
 
     // used only when audio is disabled
-    video_sync_frame: f32,
-    video_sync_ratio: f32,
-    frame_number: usize,
-
+    // video_sync_frame: f32,
+    // video_sync_ratio: f32,
+    // frame_number: usize,
+    //
     emulation: EmulationState,
 }
 
@@ -710,6 +758,7 @@ struct AppCtx {
     audio: AudioHandler,
     gamepads: GamepadHandler,
     file_dialog: FileDialogHandler,
+    fps: FpsHandler,
 
     state: AppState,
     cfg: AppCfg,
@@ -746,12 +795,15 @@ impl AppCtx {
         // let sdl = SdlCtx::new(44100, Arc::clone(&emu));
 
         let audio = AudioHandler::new(&emu, !cfg.disable_audio, 1024);
+        let fps = FpsHandler::new(60);
+
         let mut res = Self {
             emu,
             tex,
             audio,
             gamepads: GamepadHandler::new(),
             file_dialog: FileDialogHandler::new(),
+            fps,
 
             cfg,
             state: Default::default(),
@@ -770,8 +822,8 @@ impl AppCtx {
             }
         }
 
-        res.state.monitor_refresh_rate = refresh_rate as usize;
-        res.update_video_sync_fps();
+        // res.state.monitor_refresh_rate = refresh_rate as usize;
+        // res.update_video_sync_fps();
 
         Box::new(res)
     }
@@ -780,19 +832,19 @@ impl AppCtx {
         self.emu.lock().unwrap()
     }
 
-    fn update_video_sync_fps(&mut self) {
-        // if self.audio.is_enabled() {
-        //     self.state.fps = self.cfg.refresh_rate.fps();
-        //     println!("FPS updated to sync audio: {}", self.state.fps);
-        // } else {
-        //     let fps = 1.0 / self.emu_lock().region().frame_rate();
-        //     self.state.fps = fps;
-        //     println!("FPS updated to sync video: {fps}");
-        // }
+    // fn update_video_sync_fps(&mut self) {
+    //     // if self.audio.is_enabled() {
+    //     //     self.state.fps = self.cfg.refresh_rate.fps();
+    //     //     println!("FPS updated to sync audio: {}", self.state.fps);
+    //     // } else {
+    //     //     let fps = 1.0 / self.emu_lock().region().frame_rate();
+    //     //     self.state.fps = fps;
+    //     //     println!("FPS updated to sync video: {fps}");
+    //     // }
 
-        let ratio = self.state.monitor_refresh_rate as f32 / self.emu_lock().region().frame_rate();
-        self.state.video_sync_ratio = ratio;
-    }
+    //     let ratio = self.state.monitor_refresh_rate as f32 / self.emu_lock().region().frame_rate();
+    //     self.state.video_sync_ratio = ratio;
+    // }
 
     fn add_message<E: Into<GenericError>>(&mut self, e: E) {
         #[cfg(not(target_arch = "wasm32"))]
@@ -934,6 +986,7 @@ impl AppCtx {
 
         new_emu.set_settings(self.cfg.nes_settings.clone());
         new_emu.set_audio_rate(self.audio.sample_rate() as f64);
+        self.fps.set_framerate(new_emu.frame_rate() as usize);
 
         if let Some(pal) = self.cfg.palettes.front() {
             new_emu.palette = pal.clone();
@@ -954,7 +1007,7 @@ impl AppCtx {
             self.load_state("last");
         }
 
-        self.update_video_sync_fps();
+        // self.update_video_sync_fps();
         match self.state.emulation {
             EmulationState::Stopped | EmulationState::Running => self.resume_emulation(),
             EmulationState::Paused => self.pause_emulation(),
@@ -1387,7 +1440,7 @@ impl AppCtx {
         if audio_disabled != self.cfg.disable_audio {
             self.audio.set_enabled(!self.cfg.disable_audio);
             self.emu_lock().get_audiobuf().clear();
-            self.update_video_sync_fps();
+            // self.update_video_sync_fps();
         }
 
         {
@@ -1777,31 +1830,31 @@ impl AppCtx {
                 emu.set_zapper_light_outside(mouse_right);
                 emu.set_zapper_light(self.state.mouse_pos.0, self.state.mouse_pos.1);
 
-                if self.state.video_sync_frame >= self.state.video_sync_ratio {
-                    // video sync
-                    match emu.step_until_frame_ready() {
-                        Ok(_) => {
-                            let framebuf = egui::ColorImage::from_rgba_unmultiplied(
-                                [256, 240],
-                                emu.get_video_rgba(),
-                            );
-                            drop(emu);
-                            self.tex.set(framebuf, TEX_OPTS);
-                        }
+                // if self.state.video_sync_frame >= self.state.video_sync_ratio {
+                // video sync
+                match emu.step_until_frame_ready() {
+                    Ok(_) => {
+                        let framebuf = egui::ColorImage::from_rgba_unmultiplied(
+                            [256, 240],
+                            emu.get_video_rgba(),
+                        );
+                        drop(emu);
+                        self.tex.set(framebuf, TEX_OPTS);
+                    }
 
-                        Err(e) => {
-                            drop(emu);
-                            self.stop_emulation();
-                            self.add_message(e);
-                        }
+                    Err(e) => {
+                        drop(emu);
+                        self.stop_emulation();
+                        self.add_message(e);
                     }
                 }
+                // }
             }
 
-            if self.state.video_sync_frame >= self.state.video_sync_ratio {
-                self.state.video_sync_frame -= self.state.video_sync_ratio;
-            }
-            self.state.video_sync_frame += 1.0;
+            // if self.state.video_sync_frame >= self.state.video_sync_ratio {
+            //     self.state.video_sync_frame -= self.state.video_sync_ratio;
+            // }
+            // self.state.video_sync_frame += 1.0;
 
             self.state.keyboard_input = keyboard_input;
             self.state.gamepad_input = gamepad_input;
@@ -1895,8 +1948,11 @@ impl eframe::App for AppCtx {
 
         *self.audio.volume.lock().unwrap() = self.cfg.volume;
 
-        const FPS: f32 = 1.0 / 120.0;
-        ui.request_repaint_after_secs(FPS);
+        ui.request_repaint();
+        self.fps.delay();
+
+        // const FPS: f32 = 1.0 / 60.0;
+        // ui.request_repaint_after_secs(FPS);
         // ui.request_repaint_after_secs(self.state.fps);
 
         #[cfg(not(target_arch = "wasm32"))]

@@ -3,7 +3,6 @@ use std::{
     io::{Read, Write},
     path,
     sync::{self, Arc, Mutex},
-    thread, time,
 };
 
 use nenemu_core::{emu::NesEmulator, joypad::JoypadInput};
@@ -73,10 +72,41 @@ fn load_battery(rom_path: &path::PathBuf, emu_lock: &mut sync::MutexGuard<NesEmu
     }
 }
 
-fn sleep_until_fps(frame_start: time::Instant, frame_rate: time::Duration) {
-    let frame_duration = frame_start.elapsed();
-    if frame_duration < frame_rate {
-        thread::sleep(frame_rate - frame_duration);
+// https://github.com/giroletm/SDL2_gfx/blob/master/SDL2_framerate.c
+struct FpsHandler {
+    frame_count: usize,
+    rate_ticks: f32,
+    base_ticks: u64,
+    last_ticks: u64,
+}
+impl FpsHandler {
+    pub fn new(fps: usize) -> Self {
+        let ticks = sdl3::timer::ticks().max(1);
+        Self {
+            frame_count: 0,
+            rate_ticks: 1000.0 / fps as f32,
+            base_ticks: ticks,
+            last_ticks: ticks,
+        }
+    }
+
+    pub fn set_framerate(&mut self, fps: usize) {
+        self.frame_count = 0;
+        self.rate_ticks = 1000.0 / fps as f32;
+    }
+
+    pub fn delay(&mut self) {
+        self.frame_count += 1;
+        let current_ticks = sdl3::timer::ticks();
+        self.last_ticks = current_ticks;
+
+        let target_ticks = self.base_ticks + (self.frame_count as f32 * self.rate_ticks) as u64;
+        if current_ticks <= target_ticks {
+            sdl3::timer::delay((target_ticks - current_ticks) as u32);
+        } else {
+            self.frame_count = 0;
+            self.base_ticks = sdl3::timer::ticks();
+        }
     }
 }
 
@@ -87,7 +117,6 @@ fn main() {
     let mut events = sdl.event_pump().unwrap();
     let controller = sdl.gamepad().unwrap();
     let mut controllers = Vec::new();
-    // let timer = sdl.timer().unwrap();
 
     let window = video
         .window("NesEmu", 256 * 3, 240 * 3)
@@ -95,6 +124,12 @@ fn main() {
         .resizable()
         .opengl()
         .build()
+        .unwrap();
+
+    let ctx = window.gl_create_context().unwrap();
+    window.gl_make_current(&ctx).unwrap();
+    video
+        .gl_set_swap_interval(sdl3::video::SwapInterval::VSync)
         .unwrap();
 
     let mut canvas = window.into_canvas();
@@ -125,7 +160,7 @@ fn main() {
     let mut rom_path = path::PathBuf::new();
 
     let emu = NesEmulator::empty();
-    let mut frame_rate = time::Duration::from_secs_f32(1.0 / emu.frame_rate());
+    let mut fps = FpsHandler::new(60);
 
     let emu = arc_mutex(emu);
     let emu_shared_clone1 = Arc::clone(&emu);
@@ -147,9 +182,6 @@ fn main() {
     audiocb.resume().unwrap();
 
     'running: loop {
-        // let frame_start = timer.ticks64();
-        let frame_start = time::Instant::now();
-
         for event in events.poll_iter() {
             match event {
                 Event::Quit { .. } => break 'running,
@@ -182,7 +214,7 @@ fn main() {
                             rom_path = path::PathBuf::from(filename);
                             println!("{:?}", emu_lock.rom_info());
 
-                            frame_rate = time::Duration::from_secs_f32(1.0 / emu_lock.frame_rate());
+                            fps.set_framerate(emu_lock.frame_rate() as usize);
                             load_battery(&rom_path, &mut emu_lock);
                         }
                         Err(e) => eprintln!("{e}"),
@@ -328,6 +360,6 @@ fn main() {
         canvas.copy(&tex, None, None).unwrap();
         canvas.present();
 
-        sleep_until_fps(frame_start, frame_rate);
+        fps.delay();
     }
 }
