@@ -322,6 +322,10 @@ impl NesEmulator {
         self.output.audiobuf.queued()
     }
 
+    pub fn audio_available(&self) -> usize {
+        self.output.audiobuf.available()
+    }
+
     pub fn set_audio_rate(&mut self, rate: f64) {
         self.output
             .resampler
@@ -475,10 +479,11 @@ pub struct NesOutput {
 impl NesOutput {
     pub fn new(region: &Region) -> Self {
         Self {
-            audiobuf: RingBuffer::new(
-                (AUDIO_FRAMES_BUFFERED as f32 * (region.clock_rate() as f32 / region.frame_rate()))
-                    as usize,
-            ),
+            // audiobuf: RingBuffer::new(
+            //     (AUDIO_FRAMES_BUFFERED as f32 * (region.clock_rate() as f32 / region.frame_rate()))
+            //         as usize,
+            // ),
+            audiobuf: RingBuffer::new(48000),
             resampler: AvgResampler::new(region.clock_rate() as f64, 48000.0),
             // lpf: LowPassFilter::new(region.clock_rate() as f64, 48000.0),
             ..Default::default()

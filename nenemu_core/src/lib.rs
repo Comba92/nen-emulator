@@ -72,8 +72,8 @@ pub mod utils {
 
     impl<T> RingBuffer<T> {
         pub fn clear(&mut self) {
-            self.read_pos = 0;
-            self.write_pos = 0;
+            self.read_pos = self.write_pos;
+            self.queued = 0;
         }
 
         pub fn read_pos(&self) -> usize {

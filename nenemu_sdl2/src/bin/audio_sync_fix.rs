@@ -1,15 +1,8 @@
 use std::{
-    fs,
-    io::{Read, Write},
-    path,
-    sync::{self, Arc, Mutex, mpsc},
-    thread, time,
+    collections::VecDeque, fs, io::{Read, Write}, path, sync::{self, Arc, Mutex}, thread, time
 };
 
-use nenemu_core::{
-    emu::{self, NesEmulator},
-    joypad::JoypadInput,
-};
+use nenemu_core::{emu::{self, NesEmulator}, joypad::JoypadInput};
 use sdl2::{
     audio::{AudioCallback, AudioSpecDesired},
     controller::{Axis, Button},
@@ -24,7 +17,7 @@ const AXIS_DEAD_ZONE: i16 = 10_000;
 struct AudioHandler {
     emu: Arc<Mutex<NesEmulator>>,
     frame_number: usize,
-    send: mpsc::Sender<[u8; emu::FRAMEBUF_SIZE]>,
+    frames: VecDeque<[u8; emu::FRAMEBUF_SIZE]>
 }
 impl AudioCallback for AudioHandler {
     type Channel = f32;
@@ -32,17 +25,35 @@ impl AudioCallback for AudioHandler {
     fn callback(&mut self, audio_out: &mut [Self::Channel]) {
         let mut emu_lock = self.emu.lock().unwrap();
 
+        let mut count = 0;
         while emu_lock.audio_queued() < audio_out.len() {
             emu_lock.step();
             if emu_lock.frame_number() != self.frame_number {
+                count += 1;
                 self.frame_number = emu_lock.frame_number();
-                self.send.send(emu_lock.get_video_rgba().clone()).unwrap();
+                self.frames.push_back(emu_lock.get_video_rgba().clone())
             }
         }
 
         if emu_lock.audio_queued() >= audio_out.len() {
             emu_lock.put_audio_f32(audio_out);
         }
+
+        // run a little more so next time we might have samples ready early
+        // while emu_lock.audio_queued() < audio_out.len() * 2 {
+        //     emu_lock.step();
+        // }
+
+        while emu_lock.audio_queued() < audio_out.len() * 2 {
+            emu_lock.step();
+            if emu_lock.frame_number() != self.frame_number {
+                count += 1;
+                self.frame_number = emu_lock.frame_number();
+                self.frames.push_back(emu_lock.get_video_rgba().clone())
+            }
+        }
+
+        println!("Frames generated: {count}, pushed: {}", self.frames.len());
     }
 }
 
@@ -99,7 +110,7 @@ fn main() {
 
     let mut canvas = window
         .into_canvas()
-        .present_vsync() // yes
+        // .present_vsync() // yes
         .build()
         .unwrap();
 
@@ -110,9 +121,24 @@ fn main() {
         .unwrap();
     tex.set_scale_mode(ScaleMode::Nearest);
 
+    // let debug_window = video
+    //     .window("Debug", 256 * 2 * 2, 240 * 2 * 2)
+    //     .resizable()
+    //     .build()
+    //     .unwrap();
+    // let mut debug_canvas = debug_window.into_canvas().build().unwrap();
+    // let debug_texture_creator = debug_canvas.texture_creator();
+    // let mut debug_tex = debug_texture_creator
+    //     .create_texture_streaming(PixelFormatEnum::RGBA32, 256 * 2, 240 * 2)
+    //     .unwrap();
+    // debug_tex.set_scale_mode(sdl2::render::ScaleMode::Nearest);
+
+    // let bios = include_bytes!("../../../nenemu_core/utils/disksys.rom");
     let mut bios_path = None;
     let mut rom_path = path::PathBuf::new();
 
+    // let emu = NesEmulator::load_bios_only(Some(bios)).unwrap();
+    // let emu = NesEmulator::load_rom_from_file(&rom_path, Some(bios)).unwrap();
     let emu = NesEmulator::empty();
 
     let emu = arc_mutex(emu);
@@ -123,21 +149,20 @@ fn main() {
     let audiospec = AudioSpecDesired {
         channels: Some(1),
         freq: Some(48000),
-        samples: Some(128),
+        samples: Some(1024),
     };
 
-    let (send, recv) = mpsc::channel();
-
-    let audiocb = audio
+    let mut audiocb = audio
         .open_playback(None, &audiospec, move |_| AudioHandler {
             emu: emu_shared_clone,
             frame_number: 0,
-            send,
+            frames: VecDeque::new(),
         })
         .unwrap();
     audiocb.resume();
 
     let frame_rate = time::Duration::from_secs_f32(1.0 / 144.0);
+    let mut frame_counter = 0.0;
     'running: loop {
         // let frame_start = timer.ticks64();
         let frame_start = time::Instant::now();
@@ -176,6 +201,9 @@ fn main() {
                             println!("{:?}", emu_lock.rom_info());
 
                             load_battery(&rom_path, &mut emu_lock);
+
+                            audiocb.lock().frame_number = 0;
+                            audiocb.lock().frames.clear();
                         }
                         Err(e) => eprintln!("{e}"),
                     }
@@ -306,18 +334,88 @@ fn main() {
         canvas.set_draw_color(Color::GREY);
         canvas.clear();
 
-        if let Ok(framebuf) = recv.try_recv() {
-            tex.with_lock(None, |pixels, _| {
-                pixels.copy_from_slice(&framebuf);
-            })
-            .unwrap();
+        // if frame_counter >= 2.4 {
+        //     frame_counter -= 2.4;
+        {
+            let mut audiohandler = audiocb.lock();
+            if let Some(framebuf) = audiohandler.frames.pop_front() {
+                tex.with_lock(None, |pixels, _| {
+                    pixels.copy_from_slice(&framebuf);
+                })
+                .unwrap();
+            }
         }
+        // frame_counter += 1.0;
+
+        {
+            // let emu_lock = emu.lock().unwrap();
+
+            // while emu_lock.audio_queued() < audiocb.spec().samples as usize * 2 {
+            //     emu_lock.step();
+            // }
+
+            // if emu_lock.frame_number() != frame_number {
+            //     // videoq.push_back(emu_lock.get_video_rgba().clone());
+            //     tex.with_lock(None, |pixels, _| {
+            //         pixels.copy_from_slice(emu_lock.get_video_rgba());
+            //     })
+            //     .unwrap();
+            //     frame_number = emu_lock.frame_number();
+            // }
+
+            // videoq.push(emu_lock.get_video_rgba().clone());
+            // tex.with_lock(None, |pixels, _| {
+            //     pixels.copy_from_slice(emu_lock.get_video_rgba());
+            // })
+            // .unwrap();
+
+            // let queued = emu_lock.audio_queued();
+
+            // let dyn_rate = if queued < 1024 {
+            //     48000.0 * (1.0 + 0.05)
+            // } else if queued >= 1024 {
+            //     48000.0 * (1.0 - 0.05)
+            // } else {
+            //     48000.0
+            // };
+            // println!("{dyn_rate}");
+
+            // emu_lock.set_audio_rate(dyn_rate);
+
+            // }
+
+            // audioq
+            //     .queue_audio(emu_lock.get_audio_f32_all(48000))
+            //     .unwrap();
+
+            // debug_canvas.set_draw_color(Color::GREY);
+            // debug_canvas.clear();
+            // debug_tex
+            //     .with_lock(None, |pixels, _| {
+            //         emu_lock.get_nametables_rgba(pixels);
+            //     })
+            //     .unwrap();
+            // debug_canvas.copy(&debug_tex, None, None).unwrap();
+            // debug_canvas.present();
+        }
+
+        // if frame_counter >= rate_ratio {
+        //     frame_counter -= rate_ratio;
+
+        //     if let Some(frame) = videoq.pop_front() {
+        //         tex.with_lock(None, |pixels, _| {
+        //             pixels.copy_from_slice(&frame);
+        //         })
+        //         .unwrap();
+        //     }
+        // }
+        // frame_counter += 1.0;
 
         canvas.copy(&tex, None, None).unwrap();
         canvas.present();
 
         // we are using vsync
-        // sleep_until_fps(frame_start, frame_rate);
+        sleep_until_fps(frame_start, frame_rate);
     }
 }
 

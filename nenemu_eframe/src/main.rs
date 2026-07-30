@@ -258,6 +258,7 @@ struct AudioStreamData {
 impl AudioStreamData {
     fn new(
         device: cpal::Device,
+        buf_size: usize,
         cfg: cpal::SupportedStreamConfig,
         volume: &Arc<Mutex<f32>>,
         emu: &Arc<Mutex<NesEmulator>>,
@@ -266,9 +267,8 @@ impl AudioStreamData {
         let volume_arc = Arc::clone(volume);
         let emu_arc = Arc::clone(emu);
         let video_arc = Arc::clone(video);
-
         let mut cfg = cfg.config();
-        cfg.buffer_size = cpal::BufferSize::Fixed(128);
+        cfg.buffer_size = cpal::BufferSize::Fixed(buf_size as cpal::FrameCount);
         println!("{cfg:?}");
 
         device
@@ -319,6 +319,7 @@ fn cpal_query_cfgs(device: &cpal::Device) -> Option<cpal::SupportedStreamConfig>
 struct AudioHandler {
     host: cpal::Host,
     stream: Option<AudioStreamData>,
+    buf_size: usize,
     enabled: bool,
     muted: bool,
     playing: bool,
@@ -330,6 +331,7 @@ impl AudioHandler {
         emu: &Arc<Mutex<NesEmulator>>,
         video: &Arc<Mutex<VideoHandler>>,
         enabled: bool,
+        buf_size: usize,
     ) -> Self {
         let host = cpal::default_host();
 
@@ -343,11 +345,12 @@ impl AudioHandler {
 
                 let volume = Arc::new(Mutex::new(0.5));
                 let stream = cpal_query_cfgs(&device)
-                    .and_then(|cfg| AudioStreamData::new(device, cfg, &volume, emu, video));
+                    .and_then(|cfg| AudioStreamData::new(device, buf_size, cfg, &volume, emu, video));
 
                 let res = Self {
                     host,
                     stream,
+                    buf_size,
                     muted: false,
                     playing: false,
                     enabled,
@@ -360,6 +363,7 @@ impl AudioHandler {
             None => Self {
                 host,
                 stream: None,
+                buf_size,
                 muted: false,
                 playing: false,
                 enabled: false,
@@ -420,7 +424,7 @@ impl AudioHandler {
         video: &Arc<Mutex<VideoHandler>>,
     ) {
         let new_stream = cpal_query_cfgs(&device)
-            .and_then(|cfg| AudioStreamData::new(device, cfg, &self.volume, emu, video));
+            .and_then(|cfg| AudioStreamData::new(device, self.buf_size, cfg, &self.volume, emu, video));
 
         if new_stream.is_some() {
             self.stream = new_stream;
@@ -701,11 +705,13 @@ struct AppCfg {
 
     disable_audio: bool,
     volume: f32,
+    latency: f32,
 }
 impl AppCfg {
     fn new() -> Self {
         Self {
             volume: 0.5,
+            latency: 21.33,
             keep_aspect_ratio: true,
             ..Default::default()
         }
@@ -861,7 +867,7 @@ impl AppCtx {
         // let sdl = SdlCtx::new(44100, Arc::clone(&emu));
 
         let video = Arc::new(Mutex::new(VideoHandler::new(4)));
-        let audio = AudioHandler::new(&emu, &video, !cfg.disable_audio);
+        let audio = AudioHandler::new(&emu, &video, !cfg.disable_audio, 1024);
 
         // let samples_needed = audio.buffer_size();
 
@@ -1410,6 +1416,7 @@ impl AppCtx {
         // #[cfg(not(target_arch = "wasm32"))]
         // let mut should_update_palette = None;
         let audio_disabled = self.cfg.disable_audio;
+        let audio_latency = self.cfg.latency;
         let mut settings_open = self.state.settings_open;
 
         egui::Window::new("🔧 Settings")
@@ -1498,12 +1505,18 @@ impl AppCtx {
 
                     // ui.label("Audio sample rate:");
                     // ui.indent("Sample rates", |ui| {
-                    //     use nenemu_core::emu::SampleRate;
-                    //     ui.radio_value(&mut self.cfg.sample_rate, SampleRate::Hz32000, "32000hz");
-                    //     ui.radio_value(&mut self.cfg.sample_rate, SampleRate::Hz44100, "44100hz");
-                    //     ui.radio_value(&mut self.cfg.sample_rate, SampleRate::Hz48000, "48000hz");
-                    //     ui.radio_value(&mut self.cfg.sample_rate, SampleRate::Hz96000, "96000hz");
+                    //     ui.radio_value(&mut self.cfg.sample_rate, 32000, "32000hz");
+                    //     ui.radio_value(&mut self.cfg.sample_rate, 44100, "44100hz");
+                    //     ui.radio_value(&mut self.cfg.sample_rate, 48000, "48000hz");
+                    //     ui.radio_value(&mut self.cfg.sample_rate, 96000, "96000hz");
                     // });
+
+                    // ui.label("Audio latency in milliseconds");
+                    // let drag = egui::DragValue::new(&mut self.cfg.latency)
+                    //     .range(1..=100)
+                    //     .clamp_existing_to_range(true)
+                    //     .update_while_editing(false);
+                    // ui.add(drag);
 
                     let settings = &mut self.cfg.nes_settings;
 
@@ -1535,10 +1548,18 @@ impl AppCtx {
         self.state.settings_open = settings_open;
 
         if audio_disabled != self.cfg.disable_audio {
-            self.audio.set_enabled(!self.cfg.disable_audio);
+            // self.audio.set_enabled(!self.cfg.disable_audio);
             self.emu_lock().get_audiobuf().clear();
+            self.audio = AudioHandler::new(&self.emu, &self.video, !self.cfg.disable_audio, self.audio.buf_size);
+            self.audio.resume();
             self.update_video_sync_fps();
         }
+
+        // if audio_latency != self.cfg.latency {
+        //     let buf_size = self.cfg.latency / 1000.0 * self.audio.sample_rate() as f32;
+        //     self.audio = AudioHandler::new(&self.emu, &self.video, self.audio.is_enabled(), buf_size as usize);
+        //     self.audio.resume();
+        // }
 
         {
             let mut emu = self.emu_lock();
@@ -1935,19 +1956,39 @@ impl AppCtx {
 
                     match emu.check_for_errrors() {
                         Ok(_) => {
-                            if emu.frame_number() != self.state.frame_number {
-                                let framebuf = egui::ColorImage::from_rgba_unmultiplied(
-                                    [256, 240],
-                                    emu.get_video_rgba(),
-                                );
-                                // self.video_chain.lock().unwrap().push(framebuf);
-                                let frame_number = emu.frame_number();
+                            // if emu.audio_queued() < self.audio.buf_size * 2 {
+                                match emu.step_until_frame_ready() {
+                                    Ok(_) => {
+                                        let framebuf = egui::ColorImage::from_rgba_unmultiplied(
+                                            [256, 240],
+                                            emu.get_video_rgba(),
+                                        );
+                                        drop(emu);
+                                        self.tex.set(framebuf, TEX_OPTS);
+                                    }
 
-                                drop(emu);
-                                self.state.frame_number = frame_number;
-                                // self.tex.lock().unwrap().set(framebuf, TEX_OPTS);
-                                self.tex.set(framebuf, TEX_OPTS);
-                            }
+                                    Err(e) => {
+                                        drop(emu);
+                                        self.stop_emulation();
+                                        self.add_message(e);
+                                    }
+                                }
+                            // }
+
+                            // if emu.frame_number() != self.state.frame_number {
+                            //     let framebuf = egui::ColorImage::from_rgba_unmultiplied(
+                            //         [256, 240],
+                            //         emu.get_video_rgba(),
+                            //     );
+                            //     // self.video_chain.lock().unwrap().push(framebuf);
+                            //     let frame_number = emu.frame_number();
+
+                            //     drop(emu);
+                            //     self.state.frame_number = frame_number;
+                            //     // self.tex.lock().unwrap().set(framebuf, TEX_OPTS);
+                            //     self.tex.set(framebuf, TEX_OPTS);
+                            // }
+
                             // if let Some(frame) = self.video.lock().unwrap().swap_chain.pop() {
                             // drop(emu);
                             // self.tex.set(frame.clone(), TEX_OPTS);

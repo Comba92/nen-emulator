@@ -2,7 +2,7 @@ use std::{
     fs,
     io::{Read, Write},
     path,
-    sync::{self, Arc, Mutex, mpsc},
+    sync::{self, Arc, Mutex},
     thread, time,
 };
 
@@ -11,43 +11,24 @@ use nenemu_core::{
     joypad::JoypadInput,
 };
 use sdl2::{
-    audio::{AudioCallback, AudioSpecDesired},
-    controller::{Axis, Button},
-    event::{Event, WindowEvent},
-    keyboard::Keycode,
-    pixels::Color,
-    pixels::PixelFormatEnum,
-    render::ScaleMode,
+    audio::{AudioCallback, AudioSpecDesired}, controller::{Axis, Button}, event::{Event, WindowEvent}, keyboard::Keycode, pixels::{Color, PixelFormatEnum}, render::ScaleMode
 };
 const AXIS_DEAD_ZONE: i16 = 10_000;
 
+fn arc_mutex<T>(inner: T) -> Arc<Mutex<T>> {
+    Arc::new(Mutex::new(inner))
+}
+
 struct AudioHandler {
     emu: Arc<Mutex<NesEmulator>>,
-    frame_number: usize,
-    send: mpsc::Sender<[u8; emu::FRAMEBUF_SIZE]>,
 }
 impl AudioCallback for AudioHandler {
     type Channel = f32;
 
     fn callback(&mut self, audio_out: &mut [Self::Channel]) {
-        let mut emu_lock = self.emu.lock().unwrap();
-
-        while emu_lock.audio_queued() < audio_out.len() {
-            emu_lock.step();
-            if emu_lock.frame_number() != self.frame_number {
-                self.frame_number = emu_lock.frame_number();
-                self.send.send(emu_lock.get_video_rgba().clone()).unwrap();
-            }
-        }
-
-        if emu_lock.audio_queued() >= audio_out.len() {
-            emu_lock.put_audio_f32(audio_out);
-        }
+        // println!("{}", self.emu.lock().unwrap().audio_queued());
+        self.emu.lock().unwrap().put_audio_f32(audio_out);
     }
-}
-
-fn arc_mutex<T>(inner: T) -> Arc<Mutex<T>> {
-    Arc::new(Mutex::new(inner))
 }
 
 fn save_battery(rom_path: &path::PathBuf, emu_lock: &sync::MutexGuard<NesEmulator>) {
@@ -99,10 +80,9 @@ fn main() {
 
     let mut canvas = window
         .into_canvas()
-        .present_vsync() // yes
+        // .present_vsync()
         .build()
         .unwrap();
-
     canvas.set_logical_size(256, 240).unwrap();
     let texture_creator = canvas.texture_creator();
     let mut tex = texture_creator
@@ -113,31 +93,28 @@ fn main() {
     let mut bios_path = None;
     let mut rom_path = path::PathBuf::new();
 
+    // let emu = NesEmulator::load_bios_only(Some(bios)).unwrap();
+    // let emu = NesEmulator::load_rom_from_file(&rom_path, Some(bios)).unwrap();
     let emu = NesEmulator::empty();
 
+    let frame_rate = time::Duration::from_secs_f32(1.0 / 144.0);
     let emu = arc_mutex(emu);
-    let emu_shared_clone = Arc::clone(&emu);
+    let emu_arc = emu.clone();
 
-    // let mut videoq = std::collections::VecDeque::new();
-
+    const BUF_SIZE: usize = 1024;
     let audiospec = AudioSpecDesired {
         channels: Some(1),
         freq: Some(48000),
-        samples: Some(128),
+        samples: Some(BUF_SIZE as u16),
     };
-
-    let (send, recv) = mpsc::channel();
 
     let audiocb = audio
         .open_playback(None, &audiospec, move |_| AudioHandler {
-            emu: emu_shared_clone,
-            frame_number: 0,
-            send,
+            emu: emu_arc,
         })
         .unwrap();
     audiocb.resume();
 
-    let frame_rate = time::Duration::from_secs_f32(1.0 / 144.0);
     'running: loop {
         // let frame_start = timer.ticks64();
         let frame_start = time::Instant::now();
@@ -306,18 +283,25 @@ fn main() {
         canvas.set_draw_color(Color::GREY);
         canvas.clear();
 
-        if let Ok(framebuf) = recv.try_recv() {
-            tex.with_lock(None, |pixels, _| {
-                pixels.copy_from_slice(&framebuf);
-            })
-            .unwrap();
+        {
+            let mut emu_lock = emu.lock().unwrap();
+
+            // println!("{}", emu_lock.audio_available());
+            // println!("{}", emu_lock.audio_queued());
+
+            if emu_lock.audio_queued() < BUF_SIZE * 2 {
+                _ = emu_lock.step_until_frame_ready();
+                tex.with_lock(None, |pixels, _| {
+                    pixels.copy_from_slice(emu_lock.get_video_rgba());
+                })
+                .unwrap();
+            }
         }
 
         canvas.copy(&tex, None, None).unwrap();
         canvas.present();
 
-        // we are using vsync
-        // sleep_until_fps(frame_start, frame_rate);
+        sleep_until_fps(frame_start, frame_rate);
     }
 }
 
