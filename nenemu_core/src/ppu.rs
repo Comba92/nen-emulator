@@ -431,7 +431,7 @@ impl Ppu2C02 {
     }
 
     fn is_in_visible_scanline(&self) -> bool {
-        self.line < 240 || self.line == self.prerender_line
+        self.line < 240
     }
 
     fn toggle_rendering(&mut self) {
@@ -500,6 +500,10 @@ impl Ppu2C02 {
         self.shifter.shift_attr_hi <<= amount;
     }
 
+    fn increase_vram_addr(&mut self) {
+        self.v.0 = (self.v.0 + self.ctrl.vram_addr_inc) & 0x3fff;
+    }
+
     fn inc_scroll_x(&mut self) {
         // if self.ppu.rendering_enabled() {
         let v = &mut self.v;
@@ -548,10 +552,6 @@ impl Ppu2C02 {
         self.v.set_coarse_y(self.t.coarse_y());
         self.v.set_fine_y(self.t.fine_y());
         // }
-    }
-
-    fn increase_vram_addr(&mut self) {
-        self.v.0 = (self.v.0 + self.ctrl.vram_addr_inc) & 0x3fff;
     }
 
     fn spr_evaluation(&mut self) {
@@ -665,8 +665,6 @@ impl NesEmulator {
                     val
                 };
 
-                self.ppu.increase_vram_addr();
-
                 if self.settings.enable_accurate_ppu
                     && self.ppu.is_in_visible_scanline()
                     && self.ppu.is_rendering_enabled()
@@ -674,6 +672,10 @@ impl NesEmulator {
                     // https://www.nesdev.org/wiki/PPU_scrolling#$2007_(PPUDATA)_reads_and_writes
                     self.ppu.inc_scroll_x();
                     self.ppu.inc_scroll_y();
+                } else {
+                    self.ppu.increase_vram_addr();
+                    self.mem.ppu_open_bus = self.ppu.v.0;
+                    self.mapper.ppu_bus_callback(&mut self.mem, self.ppu.v.0);
                 }
 
                 res
@@ -753,6 +755,8 @@ impl NesEmulator {
                     true => {
                         ppu.t.0 = byte_set_lo(ppu.t.0, val);
                         ppu.v.0 = ppu.t.0;
+                        self.mem.ppu_open_bus = self.ppu.v.0;
+                        self.mapper.ppu_bus_callback(&mut self.mem, self.ppu.v.0);
                     }
                 }
                 self.ppu.w = !self.ppu.w;
@@ -760,7 +764,19 @@ impl NesEmulator {
             // PpuData
             0x2007 => {
                 self.ppu_dispatch_write(self.ppu.v.0, val);
-                self.ppu.increase_vram_addr();
+
+                if self.settings.enable_accurate_ppu
+                    && self.ppu.is_in_visible_scanline()
+                    && self.ppu.is_rendering_enabled()
+                {
+                    // https://www.nesdev.org/wiki/PPU_scrolling#$2007_(PPUDATA)_reads_and_writes
+                    self.ppu.inc_scroll_x();
+                    self.ppu.inc_scroll_y();
+                } else {
+                    self.ppu.increase_vram_addr();
+                    self.mem.ppu_open_bus = self.ppu.v.0;
+                    self.mapper.ppu_bus_callback(&mut self.mem, self.ppu.v.0);
+                }
             }
             _ => {}
         }

@@ -34,3 +34,13 @@ https://www.reddit.com/r/EmuDev/comments/xta12t/confused_about_cycles_and_emulat
 - better reset
 - add readmes to subprojects
 - WASM
+
+- 4:3 mode (right now only 8:7 is supported)
+- input macro (refactor input handling)
+- fix MMC3
+- palette picker?
+- game manual viewer
+- game viewer
+- portable -> bottone che porta a settings folder
+- query monitor refresh rate
+- configurable audio buffer size

@@ -227,7 +227,6 @@ pub enum CpuHandler {
     Prg,
     OpenBus,
     Mapper,
-    PpuMMC3,
     PpuMMC5,
     PrgCustom,
 }
@@ -535,11 +534,8 @@ impl NesEmulator {
             CpuHandler::Ram => mem.ram[addr as usize & 0x07ff],
             CpuHandler::Ppu | CpuHandler::PpuMMC5 => self.ppu_reg_read(addr),
             CpuHandler::IO => {
-                // if matches!(addr, 0x4000..=0x4013 | 0x4015 | 0x4017) {
                 if addr <= 0x4017 {
                     self.io_reg_read(addr)
-                // } else if addr == 0x4016 {
-                //     self.joy1.read() | (mem.cpu_open_bus & 0xe0)
                 } else {
                     self.mapper.io_read(mem, addr)
                 }
@@ -548,15 +544,6 @@ impl NesEmulator {
             CpuHandler::Wram | CpuHandler::WramReadOnly => mem.wram[mem.banks.wram.translate(addr)],
             CpuHandler::Prg => mem.prg[mem.banks.prg.translate(addr)],
             CpuHandler::OpenBus => mem.cpu_open_bus,
-
-            CpuHandler::PpuMMC3 => {
-                let res = self.ppu_reg_read(addr);
-                if addr & 0x2007 == 0x2007 {
-                    self.mapper
-                        .ppu_bus_callback(&mut self.mem, self.ppu.v.into());
-                }
-                res
-            }
 
             CpuHandler::PrgCustom => {
                 self.mapper.cpu_bus_callback(mem, addr, None);
@@ -576,13 +563,8 @@ impl NesEmulator {
             CpuHandler::Ram => mem.ram[addr as usize & 0x07ff] = val,
             CpuHandler::Ppu => self.ppu_reg_write(addr, val),
             CpuHandler::IO => {
-                // if matches!(addr, 0x4000..=0x4013 | 0x4015 | 0x4017) {
                 if addr <= 0x4017 {
                     self.io_reg_write(addr, val)
-                // } else if addr == 0x4014 {
-                // self.ppu.dma = Some((val as u16) << 8);
-                // } else if addr == 0x4016 {
-                // self.joy1.write(val)
                 } else {
                     self.mapper.io_write(mem, addr, val)
                 }
@@ -593,14 +575,6 @@ impl NesEmulator {
             CpuHandler::Prg => self.mapper.prg_write(mem, addr, val),
 
             CpuHandler::WramReadOnly | CpuHandler::OpenBus => {}
-
-            CpuHandler::PpuMMC3 => {
-                self.ppu_reg_write(addr, val);
-                if [0x2006, 0x2007].contains(&(addr & 0x2007)) {
-                    self.mapper
-                        .ppu_bus_callback(&mut self.mem, self.ppu.v.into());
-                }
-            }
             CpuHandler::PpuMMC5 => {
                 self.ppu_reg_write(addr, val);
                 self.mapper.cpu_bus_callback(&mut self.mem, addr, Some(val));

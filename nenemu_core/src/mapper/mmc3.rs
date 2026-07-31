@@ -27,6 +27,7 @@ pub struct MMC3 {
     irq_latch: u8,
     irq_reload: bool,
     irq_enabled: bool,
+    #[allow(unused)]
     irq_kind: IrqKind,
 
     ppu_addr: u16,
@@ -58,8 +59,6 @@ impl Mapper for MMC3 {
         if is_mmc6 {
             mem.banks.wram = Banking::new_wram(&mem.header, 8);
         }
-
-        mem.cpu_handlers_8kb[1] = CpuHandler::PpuMMC3;
 
         let chr_handler = if mem.header.has_chr_ram {
             PpuHandler::ChrRamMMC3
