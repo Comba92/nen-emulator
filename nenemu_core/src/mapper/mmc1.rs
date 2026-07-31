@@ -199,7 +199,7 @@ impl Mapper for MMC1 {
         }
     }
 
-    fn step(&mut self, _mem: &mut Bus, _cycles: usize) {
+    fn step(&mut self, _mem: &mut Bus, _: usize) {
         if self.write_delay > 0 {
             self.write_delay -= 1;
         }

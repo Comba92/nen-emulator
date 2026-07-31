@@ -33,7 +33,7 @@ pub trait Mapper: Send {
 
     fn step(&mut self, _mem: &mut Bus, _cycles: usize) {}
 
-    fn ppu_bus_callback(&mut self, _mem: &mut Bus, _addr: u16, _cycles: usize) {}
+    fn ppu_bus_callback(&mut self, _mem: &mut Bus, _addr: u16) {}
     fn cpu_bus_callback(&mut self, _mem: &mut Bus, _addr: u16, _val: Option<u8>) {}
 
     fn ppu_special_read(&mut self, _mem: &mut Bus, _addr: u16) -> u8 {
@@ -473,7 +473,7 @@ impl Mapper for BandaiFCG {
         }
     }
 
-    fn step(&mut self, mem: &mut Bus, _cycles: usize) {
+    fn step(&mut self, mem: &mut Bus, _: usize) {
         if self.irq_enabled {
             if self.irq_count == 0 {
                 if self.submapper == 5 {
@@ -582,7 +582,7 @@ impl Mapper for NTDEC272x {
         }
     }
 
-    fn step(&mut self, mem: &mut Bus, _cycles: usize) {
+    fn step(&mut self, mem: &mut Bus, _: usize) {
         if self.irq_enabled {
             self.irq_count = self.irq_count.wrapping_add(1);
             if self.irq_count == 0x1000 {
@@ -949,7 +949,7 @@ impl Mapper for Sunsoft3 {
         }
     }
 
-    fn step(&mut self, mem: &mut Bus, _cycles: usize) {
+    fn step(&mut self, mem: &mut Bus, _: usize) {
         if self.irq_enabled {
             if self.irq_count == 0 {
                 mem.irq.insert(IrqFlags::MAPPER);

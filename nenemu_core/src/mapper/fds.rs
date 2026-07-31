@@ -304,7 +304,7 @@ mod fds {
             self.modl.update(self.env.freq);
         }
 
-        pub fn step(&mut self, _cycles: usize) {
+        pub fn step(&mut self) {
             if !self.wave.halted && !self.env_halted {
                 self.env.step();
                 self.modl.env.step();
@@ -523,7 +523,7 @@ impl Mapper for FDS {
     fn prg_write(&mut self, _mem: &mut Bus, _addr: u16, _val: u8) {}
 
     // https://forums.nesdev.org/viewtopic.php?p=91528#p91528
-    fn step(&mut self, mem: &mut Bus, cycles: usize) {
+    fn step(&mut self, mem: &mut Bus, _: usize) {
         if self.timer_enabled {
             if self.timer_count > 0 {
                 self.timer_count -= 1;
@@ -535,7 +535,7 @@ impl Mapper for FDS {
         }
 
         if self.audio_enabled {
-            self.audio.step(cycles);
+            self.audio.step();
         }
 
         if self.eject_delay > 0 {

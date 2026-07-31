@@ -45,7 +45,7 @@ pub struct MMC5 {
     ppu_same_addr_count: u8,
     ppu_last_addr: Option<u16>,
     ppu_reading: bool,
-    ppu_idle_count: u16,
+    ppu_idle_count: usize,
 
     multiplicand: u8,
     multiplier: u8,
@@ -414,7 +414,7 @@ impl Mapper for MMC5 {
     }
 
     // https://www.nesdev.org/wiki/MMC5#Scanline_Detection_and_Scanline_IRQ
-    fn ppu_bus_callback(&mut self, mem: &mut Bus, addr: u16, _cycles: usize) {
+    fn ppu_bus_callback(&mut self, mem: &mut Bus, addr: u16) {
         if matches!(addr, 0x2000..0x3000) && addr & 0x3ff < 0x3c0 {
             self.nametbl_fetch_count += 1;
             if self.ppu_in_frame {

@@ -4,6 +4,14 @@ use crate::{
     mapper::Mapper,
 };
 
+#[derive(Default)]
+enum IrqKind {
+    #[default]
+    Sharp, // late MMC3, the most common used
+    MCACC,
+    NEC,
+}
+
 // https://www.nesdev.org/wiki/MMC3
 // https://www.nesdev.org/wiki/MMC6
 #[derive(Default)]
@@ -19,7 +27,10 @@ pub struct MMC3 {
     irq_latch: u8,
     irq_reload: bool,
     irq_enabled: bool,
+    irq_kind: IrqKind,
 
+    ppu_addr: u16,
+    a12_prev: bool,
     a12_low_count: usize,
 
     is_mmc6: bool,
@@ -57,8 +68,15 @@ impl Mapper for MMC3 {
         };
         mem.set_chr_handlers(chr_handler);
 
+        let irq_kind = match mem.header.submapper {
+            3 => IrqKind::MCACC,
+            4 => IrqKind::NEC,
+            _ => IrqKind::Sharp,
+        };
+
         Box::new(Self {
             is_mmc6,
+            irq_kind,
             ..Default::default()
         })
     }
@@ -163,29 +181,71 @@ impl Mapper for MMC3 {
         }
     }
 
-    fn ppu_bus_callback(&mut self, mem: &mut Bus, addr: u16, cycles: usize) {
-        let rising_edge = if addr & 0x1000 > 0 {
-            let res = self.a12_low_count > 0 && cycles - self.a12_low_count >= 3;
-            self.a12_low_count = 0;
-            res
-        } else if self.a12_low_count == 0 {
-            self.a12_low_count = cycles;
-            false
-        } else {
-            false
-        };
+    // fn ppu_bus_callback(&mut self, mem: &mut Bus, addr: u16, cycles: usize) {
+    //     let rising_edge = if addr & 0x1000 > 0 {
+    //         let res = self.a12_low_count > 0 && cycles - self.a12_low_count >= 3;
+    //         self.a12_low_count = 0;
+    //         res
+    //     } else if self.a12_low_count == 0 {
+    //         self.a12_low_count = cycles;
+    //         false
+    //     } else {
+    //         false
+    //     };
 
-        if rising_edge {
-            if self.irq_reload || self.irq_count == 0 {
+    //     if rising_edge {
+    //         if self.irq_reload || self.irq_count == 0 {
+    //             self.irq_count = self.irq_latch;
+    //             self.irq_reload = false;
+    //         } else {
+    //             self.irq_count -= 1;
+    //         }
+
+    //         if self.irq_enabled && self.irq_count == 0 {
+    //             mem.irq.insert(IrqFlags::MAPPER);
+    //         }
+    //     }
+    // }
+
+    fn ppu_bus_callback(&mut self, _mem: &mut Bus, addr: u16) {
+        self.ppu_addr = addr;
+    }
+
+    fn step(&mut self, mem: &mut Bus, _cycles: usize) {
+        let a12_curr = self.ppu_addr & 0x1000 > 0;
+
+        if !self.a12_prev && a12_curr && self.a12_low_count >= 3 {
+            // rising edge
+
+            // let count = self.irq_count;
+
+            if self.irq_count == 0 || self.irq_reload {
                 self.irq_count = self.irq_latch;
-                self.irq_reload = false;
             } else {
                 self.irq_count -= 1;
             }
 
+            // MMC3 made by NEC generates only a single IRQ when $C000 is $00. This version of the MMC3 generates IRQs when the scanline counter is decremented to 0. In addition, writing to $C001 with $C000 still at $00 will result in another single IRQ being generated.
+            // In the community, this has been known as the "alternate" or "old" behavior.
+            // if self.irq_enabled && (count == 1 || self.irq_reload) && self.irq_count == 0 {
+            //     mem.irq.insert(IrqFlags::MAPPER);
+            // }
+
+            // MMC3 made by Sharp generates an IRQ on each scanline while $C000 is $00. This version of the MMC3 generates IRQs when the scanline counter is equal to 0.
+            // In the community, this has been known as the "normal" or "new" behavior.
             if self.irq_enabled && self.irq_count == 0 {
                 mem.irq.insert(IrqFlags::MAPPER);
             }
+
+            self.irq_reload = false;
+        } else if !a12_curr {
+            self.a12_low_count += 1;
         }
+
+        if a12_curr {
+            self.a12_low_count = 0;
+        }
+
+        self.a12_prev = a12_curr;
     }
 }

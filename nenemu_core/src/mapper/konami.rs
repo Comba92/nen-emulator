@@ -98,7 +98,7 @@ impl Mapper for VRC3 {
         }
     }
 
-    fn step(&mut self, mem: &mut Bus, _cycles: usize) {
+    fn step(&mut self, mem: &mut Bus, _: usize) {
         if self.irq_enabled {
             if self.irq_8bit_mode {
                 let next = (self.irq_count & 0xff) + 1;
@@ -356,7 +356,7 @@ impl Mapper for VRC2_4 {
         }
     }
 
-    fn step(&mut self, mem: &mut Bus, _cycles: usize) {
+    fn step(&mut self, mem: &mut Bus, _: usize) {
         if !self.is_vrc2 {
             self.irq.step(mem);
         }
@@ -682,7 +682,7 @@ impl Mapper for VRC6 {
         }
     }
 
-    fn step(&mut self, mem: &mut Bus, _cycles: usize) {
+    fn step(&mut self, mem: &mut Bus, _: usize) {
         self.irq.step(mem);
 
         if !self.audio_halt {
@@ -759,7 +759,7 @@ impl Mapper for VRC7 {
         }
     }
 
-    fn step(&mut self, mem: &mut Bus, _cycles: usize) {
+    fn step(&mut self, mem: &mut Bus, _: usize) {
         self.irq.step(mem);
     }
 }
