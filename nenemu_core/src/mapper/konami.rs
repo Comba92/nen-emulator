@@ -585,7 +585,7 @@ impl VRC6 {
                     }
                 }
             }
-            _ => todo!("VRC6 modes 1, 2, 3"),
+            _ => eprintln!("VRC6 modes 1, 2, 3 not implemented"),
         }
     }
 

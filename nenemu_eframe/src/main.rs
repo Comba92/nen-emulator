@@ -1,8 +1,8 @@
 // this removes the windows console
-#![windows_subsystem = "windows"]
+// #![windows_subsystem = "windows"]
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use eframe::egui;
+use eframe::egui::{self, Key::P};
 
 use nenemu_core::{
     NesPalette,
@@ -11,7 +11,7 @@ use nenemu_core::{
     rom::{self, is_valid_bios},
 };
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     fs,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard, mpsc},
@@ -39,15 +39,8 @@ enum EmulatorAction {
 }
 
 #[cfg_attr(feature = "persistence", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone)]
-enum PlayerEvent {
-    Joypad(joypad::JoypadInput),
-    Action(EmulatorAction),
-}
-
-#[cfg_attr(feature = "persistence", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum ActionKind {
+#[derive(Debug, Clone, Copy)]
+enum EmulatorInput {
     Up,
     Down,
     Left,
@@ -56,120 +49,120 @@ enum ActionKind {
     B,
     Start,
     Select,
-    Reset,
-    TogglePause,
-    ToggleMute,
-    #[cfg(all(not(target_arch = "wasm32"), feature = "persistence"))]
-    Savestate,
-    #[cfg(all(not(target_arch = "wasm32"), feature = "persistence"))]
-    Loadstate,
 }
-impl std::fmt::Display for ActionKind {
+
+#[cfg_attr(feature = "persistence", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone)]
+enum PlayerInput {
+    Joypad(joypad::JoypadInput),
+    Action(EmulatorAction),
+}
+
+impl std::fmt::Display for PlayerInput {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        match self {
+            Self::Joypad(joy) => write!(f, "{:?}", joy),
+            Self::Action(act) => write!(f, "{:?}", act),
+        }
+    }
+}
+
+struct Binding {
+    name: String,
+    kind: PlayerInput,
+    keys: Vec<egui::Key>,
+    btns: Vec<gilrs::Button>,
+}
+impl Binding {
+    pub fn new(kind: PlayerInput, keys: Vec<egui::Key>, btns: Vec<gilrs::Button>) -> Self {
+        Self {
+            name: kind.to_string(),
+            kind,
+            keys,
+            btns,
+        }
     }
 }
 
 #[cfg_attr(feature = "persistence", derive(serde::Serialize, serde::Deserialize))]
-struct KeyMap {
-    evt: HashMap<ActionKind, PlayerEvent>, // to keep order
-    keys: HashMap<egui::Key, ActionKind>,
-    pads: HashMap<gilrs::Button, ActionKind>,
-    rebind_key: Option<(Option<egui::Key>, ActionKind)>,
-}
-impl KeyMap {
-    pub fn get_from_keyboard(&self, key: &egui::Key) -> Option<&PlayerEvent> {
-        self.keys.get(key).and_then(|id| self.evt.get(id))
-    }
-
-    pub fn get_from_gamepad(&self, btn: &gilrs::Button) -> Option<&PlayerEvent> {
-        self.pads.get(btn).and_then(|id| self.evt.get(id))
-    }
+struct InputHandler {
+    binds: Vec<Binding>,
+    rebind: Option<String>,
+    keys_taken: HashSet<egui::Key>,
+    btns_taken: HashSet<gilrs::Button>,
 }
 
-impl Default for KeyMap {
+impl Default for InputHandler {
     fn default() -> Self {
+        use EmulatorAction::*;
         use egui::Key;
-        use joypad::JoypadInput as Btn;
+        use gilrs::Button as Btn;
+        use joypad::JoypadInput as Joy;
 
-        let keys = HashMap::from([
-            (Key::ArrowUp, ActionKind::Up),
-            (Key::ArrowDown, ActionKind::Down),
-            (Key::ArrowLeft, ActionKind::Left),
-            (Key::ArrowRight, ActionKind::Right),
-            (Key::S, ActionKind::A),
-            (Key::A, ActionKind::B),
-            (Key::W, ActionKind::Start),
-            (Key::E, ActionKind::Select),
-            (Key::P, ActionKind::TogglePause),
-            (Key::M, ActionKind::ToggleMute),
-            (Key::R, ActionKind::Reset),
+        let binds = vec![
+            Binding::new(
+                PlayerInput::Joypad(Joy::Up),
+                vec![Key::ArrowUp],
+                vec![Btn::DPadUp],
+            ),
+            Binding::new(
+                PlayerInput::Joypad(Joy::Down),
+                vec![Key::ArrowDown],
+                vec![Btn::DPadDown],
+            ),
+            Binding::new(
+                PlayerInput::Joypad(Joy::Left),
+                vec![Key::ArrowLeft],
+                vec![Btn::DPadLeft],
+            ),
+            Binding::new(
+                PlayerInput::Joypad(Joy::Right),
+                vec![Key::ArrowRight],
+                vec![Btn::DPadRight],
+            ),
+            Binding::new(
+                PlayerInput::Joypad(Joy::A),
+                vec![Key::S],
+                vec![Btn::South, Btn::East],
+            ),
+            Binding::new(
+                PlayerInput::Joypad(Joy::B),
+                vec![Key::A],
+                vec![Btn::West, Btn::North],
+            ),
+            Binding::new(
+                PlayerInput::Joypad(Joy::Start),
+                vec![Key::W],
+                vec![Btn::Start],
+            ),
+            Binding::new(
+                PlayerInput::Joypad(Joy::Select),
+                vec![Key::E],
+                vec![Btn::Select],
+            ),
+            Binding::new(PlayerInput::Action(TogglePause), vec![Key::P], vec![]),
+            Binding::new(PlayerInput::Action(ToggleMute), vec![Key::M], vec![]),
+            Binding::new(PlayerInput::Action(Reset), vec![Key::R], vec![]),
             #[cfg(all(not(target_arch = "wasm32"), feature = "persistence"))]
-            (Key::Num0, ActionKind::Savestate),
+            Binding::new(PlayerInput::Action(Savestate), vec![Key::Num0], vec![]),
             #[cfg(all(not(target_arch = "wasm32"), feature = "persistence"))]
-            (Key::Num9, ActionKind::Loadstate),
-        ]);
+            Binding::new(PlayerInput::Action(Loadstate), vec![Key::Num9], vec![]),
+        ];
 
-        let pads = {
-            use gilrs::Button;
-            HashMap::from([
-                (Button::DPadUp, ActionKind::Up),
-                (Button::DPadDown, ActionKind::Down),
-                (Button::DPadLeft, ActionKind::Left),
-                (Button::DPadRight, ActionKind::Right),
-                (Button::South, ActionKind::A),
-                (Button::West, ActionKind::B),
-                (Button::Start, ActionKind::Start),
-                (Button::Select, ActionKind::Select),
-            ])
-        };
-
-        let evt = HashMap::from([
-            (ActionKind::Up, PlayerEvent::Joypad(Btn::Up)),
-            (ActionKind::Down, PlayerEvent::Joypad(Btn::Down)),
-            (ActionKind::Left, PlayerEvent::Joypad(Btn::Left)),
-            (ActionKind::Right, PlayerEvent::Joypad(Btn::Right)),
-            (ActionKind::A, PlayerEvent::Joypad(Btn::A)),
-            (ActionKind::B, PlayerEvent::Joypad(Btn::B)),
-            (ActionKind::Start, PlayerEvent::Joypad(Btn::Start)),
-            (ActionKind::Select, PlayerEvent::Joypad(Btn::Select)),
-            (
-                ActionKind::Reset,
-                PlayerEvent::Action(EmulatorAction::Reset),
-            ),
-            (
-                ActionKind::TogglePause,
-                PlayerEvent::Action(EmulatorAction::TogglePause),
-            ),
-            (
-                ActionKind::ToggleMute,
-                PlayerEvent::Action(EmulatorAction::ToggleMute),
-            ),
-            #[cfg(all(not(target_arch = "wasm32"), feature = "persistence"))]
-            (
-                ActionKind::Savestate,
-                PlayerEvent::Action(EmulatorAction::Savestate),
-            ),
-            #[cfg(all(not(target_arch = "wasm32"), feature = "persistence"))]
-            (
-                ActionKind::Loadstate,
-                PlayerEvent::Action(EmulatorAction::Loadstate),
-            ),
-        ]);
+        let keys_taken = HashSet::from_iter(binds.iter().flat_map(|b| b.keys.clone()));
+        let btns_taken = HashSet::from_iter(binds.iter().flat_map(|b| b.btns.clone()));
 
         Self {
-            keys,
-            pads,
-            evt,
-            rebind_key: None,
+            binds,
+            rebind: None,
+            keys_taken,
+            btns_taken,
         }
     }
 }
 
 struct GamepadHandler {
     pub api: Option<gilrs::Gilrs>,
-    // for now, we only handle the first active gamepad
-    pub active: Option<gilrs::GamepadId>,
 }
 
 impl GamepadHandler {
@@ -178,10 +171,7 @@ impl GamepadHandler {
             .inspect_err(|err| eprintln!("{err}"))
             .ok();
 
-        let active = api
-            .as_ref()
-            .and_then(|api| api.gamepads().next().map(|x| x.0));
-        Self { api, active }
+        Self { api }
     }
 }
 
@@ -377,28 +367,6 @@ impl AudioHandler {
         }
     }
 
-    // pub fn clear(&mut self, emu: Arc<Mutex<NesEmulator>>) {
-    //     if let Some(mut stream) = self.stream.take() {
-    //         let volume_arc = Arc::clone(&self.volume);
-    //         let cb = stream.device.build_output_stream(
-    //             stream.cfg,
-    //             move |buf, _| cpal_callback(&emu, &volume_arc, buf),
-    //             |err| eprintln!("Cpal callback error: {err}"),
-    //             None,
-    //         );
-
-    //         _ = stream.cb.pause();
-    //         if let Ok(cb) = cb {
-    //             stream.cb = cb;
-    //             self.stream = Some(stream);
-    //         } else {
-    //             self.stream = None;
-    //         }
-    //     } else {
-    //         // TODO: find another device
-    //     }
-    // }
-
     pub fn resume(&mut self) {
         if !self.enabled {
             return;
@@ -434,6 +402,7 @@ struct FpsHandler {
 }
 impl FpsHandler {
     pub fn new(fps: usize) -> Self {
+        // TODO: wasm doesn't have access to time
         let clock = Instant::now();
         let ticks = clock.elapsed().as_millis();
         Self {
@@ -462,64 +431,6 @@ impl FpsHandler {
             self.frame_count = 0;
             self.base_ticks = self.clock.elapsed().as_millis() as u64;
         }
-    }
-}
-
-// struct AudioThread {
-//     emu: Arc<Mutex<NesEmulator>>,
-// }
-// impl sdl2::audio::AudioCallback for AudioThread {
-//     type Channel = f32;
-
-//     fn callback(&mut self, audio_out: &mut [Self::Channel]) {
-//         let mut emu_lock = self.emu.lock().unwrap();
-
-//         let (right, left) = emu_lock.get_audio_f32(audio_out.len());
-//         let right_amt = right.len();
-//         audio_out[..right_amt].copy_from_slice(right);
-
-//         if let Some(left) = left {
-//             audio_out[right_amt..].copy_from_slice(left);
-//         }
-//     }
-// }
-
-// struct SdlCtx {
-//     sdl: sdl2::Sdl,
-//     audio: sdl2::AudioSubsystem,
-//     audiodev: sdl2::audio::AudioDevice<AudioThread>,
-//     samplebuf_size: usize,
-// }
-
-// impl SdlCtx {
-//     pub fn new(sample_rate: usize, emu: Arc<Mutex<NesEmulator>>) -> Self {
-//         let sdl = sdl2::init().unwrap();
-//         let audio = sdl.audio().unwrap();
-//         let audiospec = sdl2::audio::AudioSpecDesired {
-//             channels: Some(1),
-//             freq: Some(sample_rate as i32),
-//             samples: Some(1024),
-//         };
-
-//         let audiodev = audio
-//             .open_playback(None, &audiospec, |_| AudioThread { emu })
-//             .unwrap();
-//         // audiodev.resume();
-
-//         let samplebuf_size = audiodev.spec().samples as usize;
-//         Self {
-//             sdl,
-//             audio,
-//             audiodev,
-//             samplebuf_size,
-//         }
-//     }
-// }
-
-fn sleep_until_fps(frame_start: time::Instant, frame_rate: time::Duration) {
-    let frame_duration = frame_start.elapsed();
-    if frame_duration < frame_rate {
-        thread::sleep(frame_rate - frame_duration);
     }
 }
 
@@ -624,7 +535,7 @@ fn main() {
 #[derive(Default)]
 #[cfg_attr(feature = "persistence", derive(serde::Serialize, serde::Deserialize))]
 struct AppCfg {
-    keymaps: KeyMap,
+    input: InputHandler,
     recent_roms: VecDeque<PathBuf>,
     palettes: VecDeque<NesPalette>,
     bios_path: Option<PathBuf>,
@@ -671,14 +582,6 @@ struct AppState {
     current_rom: Option<(Box<[u8]>, PathBuf)>,
     current_rom_header: rom::RomData,
 
-    // monitor_refresh_rate: usize,
-    // fps: f32,
-
-    // used only when audio is disabled
-    // video_sync_frame: f32,
-    // video_sync_ratio: f32,
-    // frame_number: usize,
-    //
     emulation: EmulationState,
 }
 
@@ -766,17 +669,6 @@ struct AppCtx {
 
 impl AppCtx {
     pub fn new(c: &eframe::CreationContext) -> Box<Self> {
-        #[cfg(not(target_arch = "wasm32"))]
-        let refresh_rate = c
-            .winit_window()
-            .and_then(|window| window.current_monitor())
-            .and_then(|monitor| monitor.refresh_rate_millihertz())
-            .and_then(|refresh_rate| Some(refresh_rate / 1000))
-            .unwrap_or(60);
-
-        #[cfg(target_arch = "wasm32")]
-        let refresh_rate = 60;
-
         #[cfg(not(feature = "persistence"))]
         let cfg = AppCfg::new();
 
@@ -792,7 +684,6 @@ impl AppCtx {
 
         let emu = NesEmulator::empty();
         let emu = Arc::new(Mutex::new(emu));
-        // let sdl = SdlCtx::new(44100, Arc::clone(&emu));
 
         let audio = AudioHandler::new(&emu, !cfg.disable_audio, 1024);
         let fps = FpsHandler::new(60);
@@ -831,20 +722,6 @@ impl AppCtx {
     fn emu_lock(&self) -> MutexGuard<'_, NesEmulator> {
         self.emu.lock().unwrap()
     }
-
-    // fn update_video_sync_fps(&mut self) {
-    //     // if self.audio.is_enabled() {
-    //     //     self.state.fps = self.cfg.refresh_rate.fps();
-    //     //     println!("FPS updated to sync audio: {}", self.state.fps);
-    //     // } else {
-    //     //     let fps = 1.0 / self.emu_lock().region().frame_rate();
-    //     //     self.state.fps = fps;
-    //     //     println!("FPS updated to sync video: {fps}");
-    //     // }
-
-    //     let ratio = self.state.monitor_refresh_rate as f32 / self.emu_lock().region().frame_rate();
-    //     self.state.video_sync_ratio = ratio;
-    // }
 
     fn add_message<E: Into<GenericError>>(&mut self, e: E) {
         #[cfg(not(target_arch = "wasm32"))]
@@ -979,9 +856,7 @@ impl AppCtx {
 
         #[cfg(not(target_arch = "wasm32"))]
         if self.cfg.battery_save_enabled {
-            if let Err(e) = new_emu.load_battery_from_file(&rom_path) {
-                self.add_message(e);
-            }
+            _ = new_emu.load_battery_from_file(&rom_path);
         }
 
         new_emu.set_settings(self.cfg.nes_settings.clone());
@@ -1025,12 +900,6 @@ impl AppCtx {
             content.horizontal_wrapped(|ui| {
                 ui.menu_button("💾 File", |ui| {
                     if ui.button("📂 Open...").clicked() {
-                        // self.open_dialog(
-                        //     "Select game ROM",
-                        //     "NES ROM",
-                        //     &["nes", "fds", "zip", "rar"],
-                        // )
-                        // .map(|path| self.load_rom(path, false));
                         self.file_dialog.open_dialog(
                             FileOpenKind::NesRom,
                             "Select game ROM",
@@ -1440,7 +1309,6 @@ impl AppCtx {
         if audio_disabled != self.cfg.disable_audio {
             self.audio.set_enabled(!self.cfg.disable_audio);
             self.emu_lock().get_audiobuf().clear();
-            // self.update_video_sync_fps();
         }
 
         {
@@ -1457,74 +1325,143 @@ impl AppCtx {
             .resizable([false, false])
             .open(&mut self.state.keybinds_open)
             .show(ui, |ui| {
-                ui.heading("Keyboard bindings");
-                ui.separator();
+                ui.label("Left click to remove binding");
 
-                let keymaps = &mut self.cfg.keymaps;
+                // update bindings
+                ui.input(|i| {
+                    let binds = &mut self.cfg.input;
 
-                for (key, btn_name) in &keymaps.keys {
-                    ui.columns_const::<2, _>(|ui| {
-                        let col_src = ui[0].label(btn_name.to_string());
-                        let col_dst = ui[1].button(format!("{:?}", key));
-                        // let col_add = ui[2].button("Add");
+                    if i.pointer.secondary_clicked() {
+                        binds.rebind = None;
+                    }
 
-                        if col_dst.clicked() {
-                            keymaps.rebind_key = Some((Some(*key), *btn_name));
+                    if let Some(rebind_name) = &binds.rebind {
+                        let bind = binds
+                            .binds
+                            .iter_mut()
+                            .find(|x| x.name.eq(rebind_name))
+                            .unwrap();
+
+                        // take the first key pressed
+                        if let Some(new_key) = i.keys_down.iter().next() {
+                            if binds.keys_taken.contains(new_key) {
+                                return Some(&bind.name);
+                            }
+
+                            bind.keys.push(*new_key);
+                            binds.keys_taken.insert(*new_key);
+                            binds.rebind = None;
                         }
 
-                        // if col_add.clicked() {
-                        //     keymaps.rebind_key = Some((None, *btn_name));
-                        // }
+                        if let Some(api) = &mut self.gamepads.api {
+                            while let Some(evt) = api.next_event() {
+                                match evt.event {
+                                    gilrs::EventType::ButtonPressed(new_btn, _) => {
+                                        if binds.btns_taken.contains(&new_btn) {
+                                            return Some(&bind.name);
+                                        }
 
-                        if let Some((Some(rebind_key), _)) = &keymaps.rebind_key {
-                            if rebind_key == key {
-                                col_src.highlight();
-                                col_dst.highlight();
+                                        bind.btns.push(new_btn);
+                                        binds.btns_taken.insert(new_btn);
+                                        binds.rebind = None;
+                                        break;
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+
+                    return None;
+                });
+
+                let input = &mut self.cfg.input;
+
+                let mut to_add = None;
+                let mut to_remove = None;
+                enum BindKind {
+                    Key(usize),
+                    Btn(usize),
+                }
+
+                for bind in &input.binds {
+                    ui.separator();
+                    ui.columns_const::<2, _>(|ui| {
+                        let col_src = ui[0].vertical(|ui| {
+                            ui.label(&bind.name);
+                            if ui.button("Add bind").clicked() {
+                                to_add = Some(&bind.name)
+                            }
+                        });
+
+                        ui[1].vertical(|ui| {
+                            for (idx, key) in bind.keys.iter().enumerate() {
+                                let button = ui.button(format!("{:?}", key));
+                                if button.clicked() {
+                                    to_add = Some(&bind.name);
+                                } else if button.secondary_clicked() {
+                                    to_remove = Some((&bind.name, BindKind::Key(idx)))
+                                }
+                            }
+
+                            if bind.btns.len() > 0 {
+                                ui.separator();
+                            }
+
+                            for (idx, btn) in bind.btns.iter().enumerate() {
+                                let button = ui.button(format!("{:?}", btn));
+                                if button.clicked() {
+                                    to_add = Some(&bind.name);
+                                } else if button.secondary_clicked() {
+                                    to_remove = Some((&bind.name, BindKind::Btn(idx)))
+                                }
+                            }
+                        });
+
+                        if let Some(rebind_name) = &to_add {
+                            if bind.name.eq(*rebind_name) {
+                                col_src.response.highlight();
                             }
                         }
                     });
                 }
 
-                ui.vertical_centered(|ui| {
-                    if let Some(rebind_key) = &keymaps.rebind_key {
-                        if rebind_key.0.is_some() {
-                            ui.label(format!(
-                                "Rebinding {:?}... Press any button, close window to cancel",
-                                rebind_key.1
-                            ));
-                        } else {
-                            ui.label(format!(
-                                "Adding bind for {:?}... Press any button, close window to cancel",
-                                rebind_key.1
-                            ));
+                if let Some(selected) = to_add {
+                    input.rebind = Some(selected.clone());
+                }
+
+                if let Some((selected_name, id)) = to_remove {
+                    let bind_idx = input
+                        .binds
+                        .iter()
+                        .position(|x| x.name.eq(selected_name))
+                        .unwrap();
+
+                    match id {
+                        BindKind::Key(idx) => {
+                            let key = input.binds[bind_idx].keys.swap_remove(idx);
+                            input.keys_taken.remove(&key);
                         }
+                        BindKind::Btn(idx) => {
+                            let btn = input.binds[bind_idx].btns.swap_remove(idx);
+                            input.btns_taken.remove(&btn);
+                        }
+                    }
+                }
+
+                ui.vertical_centered(|ui| {
+                    if let Some(rebind_name) = &input.rebind {
+                        ui.label(format!(
+                            "Rebinding {:?}... Press any button, right click or close window to cancel",
+                            rebind_name
+                        ));
                     }
                 });
             })
             .or_else(|| {
-                self.cfg.keymaps.rebind_key = None;
+                self.cfg.input.rebind = None;
                 None
             });
-
-        // TODO: gamepad rebinds
-
-        ui.input(|i| {
-            let keymaps = &mut self.cfg.keymaps;
-            if let Some((old_key, evt_id)) = &keymaps.rebind_key {
-                // take the first key pressed
-                if let Some(new_key) = i.keys_down.iter().next() {
-                    if !keymaps.keys.contains_key(new_key) {
-                        // TODO: show error?
-                        keymaps.keys.insert(*new_key, *evt_id);
-
-                        if let Some(old_key) = old_key {
-                            keymaps.keys.remove(old_key);
-                        }
-                    }
-                    keymaps.rebind_key = None;
-                }
-            }
-        });
     }
 
     fn show_rom_info_window(&mut self, ui: &mut egui::Ui) {
@@ -1617,8 +1554,6 @@ impl AppCtx {
     }
 
     fn show_about_window(&mut self, ui: &mut egui::Ui) {
-        // TODO: do richtext shit
-
         egui::Window::new("ℹ About")
             .collapsible(true)
             .resizable(true)
@@ -1699,6 +1634,8 @@ impl AppCtx {
             EmulatorAction::ToggleMute => {
                 self.audio.muted = !self.audio.muted;
                 if self.audio.muted {
+                    *self.audio.volume.lock().unwrap() = 0.0;
+                } else {
                     *self.audio.volume.lock().unwrap() = self.cfg.volume;
                 }
             }
@@ -1709,33 +1646,73 @@ impl AppCtx {
     }
 
     fn handle_input_and_emulation(&mut self, ui: &mut egui::Ui) {
-        let current_input = self.emu_lock().get_buttons();
-
         let keyboard_input = ui.input(|i| {
             let mut pressed = joypad::JoypadInput::empty();
 
-            for (key, evt) in &self.cfg.keymaps.keys {
-                if i.key_down(*key) {
-                    match &self.cfg.keymaps.evt[evt] {
-                        PlayerEvent::Joypad(emu_btn) => pressed.insert(*emu_btn),
-                        _ => {}
-                    }
-                }
-
-                // events can only be done once per frame
-                if i.key_pressed(*key) {
-                    match &self.cfg.keymaps.evt[evt] {
-                        PlayerEvent::Action(act) => {
-                            self.handle_action(*act);
-                            break;
+            'poll_loop: for bind in &self.cfg.input.binds {
+                for key in &bind.keys {
+                    match &bind.kind {
+                        PlayerInput::Joypad(emu_btn) => {
+                            if i.key_down(*key) {
+                                pressed.insert(*emu_btn);
+                            }
                         }
-                        _ => {}
+                        PlayerInput::Action(act) => {
+                            if i.key_pressed(*key) {
+                                self.handle_action(*act);
+                                break 'poll_loop;
+                            }
+                        }
                     }
                 }
             }
 
             pressed
         });
+
+        let mut gamepad_input = joypad::JoypadInput::empty();
+        if let Some(api) = &mut self.gamepads.api {
+            // pump events
+            // CAUTION: next_event() is needed even if we dont want to handle any events, as it will cache them for is_pressed()
+            while let Some(_) = api.next_event() {}
+
+            'poll_loop: for (_, pad) in api.gamepads() {
+                let x = pad.value(gilrs::Axis::LeftStickX);
+                let y = pad.value(gilrs::Axis::LeftStickY);
+
+                if x >= 0.2 {
+                    gamepad_input.insert(joypad::JoypadInput::Right);
+                } else if x <= -0.2 {
+                    gamepad_input.insert(joypad::JoypadInput::Left);
+                }
+
+                if y >= 0.2 {
+                    gamepad_input.insert(joypad::JoypadInput::Up);
+                } else if y <= -0.2 {
+                    gamepad_input.insert(joypad::JoypadInput::Down);
+                }
+
+                for bind in &self.cfg.input.binds {
+                    for btn in &bind.btns {
+                        if let Some(state) = pad.button_data(*btn) {
+                            match bind.kind {
+                                PlayerInput::Joypad(joy) => {
+                                    if state.is_pressed() {
+                                        gamepad_input.insert(joy);
+                                    }
+                                }
+                                PlayerInput::Action(act) => {
+                                    if state.is_pressed() && !state.is_repeating() {
+                                        self.handle_action(act);
+                                        break 'poll_loop;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         let (mouse_left, mouse_right) = ui.input(|i| {
             if matches!(self.state.mouse_pos.0, 0..256) && matches!(self.state.mouse_pos.1, 0..240)
@@ -1748,73 +1725,6 @@ impl AppCtx {
                 (false, false)
             }
         });
-
-        let mut gamepad_input = current_input;
-        while let Some(gilrs::Event { id, event, .. }) =
-            self.gamepads.api.as_mut().and_then(|api| api.next_event())
-        {
-            if event == gilrs::EventType::Connected {
-                self.gamepads.active = Some(id);
-            }
-
-            if let Some(active) = self.gamepads.active {
-                if active != id {
-                    continue;
-                }
-
-                match event {
-                    gilrs::EventType::Disconnected => {
-                        if self.gamepads.active.filter(|x| *x == id).is_some() {
-                            self.gamepads.active = None;
-                        }
-                    }
-
-                    gilrs::EventType::ButtonReleased(btn, _) => {
-                        if let Some(emu_btn) = self.cfg.keymaps.get_from_gamepad(&btn) {
-                            match emu_btn {
-                                PlayerEvent::Joypad(emu_btn) => gamepad_input.remove(*emu_btn),
-                                PlayerEvent::Action(act) => self.handle_action(*act),
-                            }
-                        }
-                    }
-
-                    gilrs::EventType::ButtonPressed(btn, _) => {
-                        if let Some(emu_btn) = self.cfg.keymaps.get_from_gamepad(&btn) {
-                            match emu_btn {
-                                PlayerEvent::Joypad(emu_btn) => gamepad_input.insert(*emu_btn),
-                                PlayerEvent::Action(act) => self.handle_action(*act),
-                            }
-                        }
-                    }
-
-                    gilrs::EventType::AxisChanged(axis, amt, _) => match axis {
-                        gilrs::Axis::LeftStickX => {
-                            if amt >= 0.1 {
-                                gamepad_input.insert(joypad::JoypadInput::Right);
-                            } else if amt <= -0.1 {
-                                gamepad_input.insert(joypad::JoypadInput::Left);
-                            } else {
-                                gamepad_input.remove(joypad::JoypadInput::Right);
-                                gamepad_input.remove(joypad::JoypadInput::Left);
-                            }
-                        }
-                        gilrs::Axis::LeftStickY => {
-                            if amt >= 0.1 {
-                                gamepad_input.insert(joypad::JoypadInput::Up);
-                            } else if amt <= -0.1 {
-                                gamepad_input.insert(joypad::JoypadInput::Down);
-                            } else {
-                                gamepad_input.remove(joypad::JoypadInput::Up);
-                                gamepad_input.remove(joypad::JoypadInput::Down);
-                            }
-                        }
-                        _ => {}
-                    },
-
-                    _ => {}
-                }
-            }
-        }
 
         if self.state.emulation == EmulationState::Running {
             {
@@ -1830,8 +1740,6 @@ impl AppCtx {
                 emu.set_zapper_light_outside(mouse_right);
                 emu.set_zapper_light(self.state.mouse_pos.0, self.state.mouse_pos.1);
 
-                // if self.state.video_sync_frame >= self.state.video_sync_ratio {
-                // video sync
                 match emu.step_until_frame_ready() {
                     Ok(_) => {
                         let framebuf = egui::ColorImage::from_rgba_unmultiplied(
@@ -1848,13 +1756,7 @@ impl AppCtx {
                         self.add_message(e);
                     }
                 }
-                // }
             }
-
-            // if self.state.video_sync_frame >= self.state.video_sync_ratio {
-            //     self.state.video_sync_frame -= self.state.video_sync_ratio;
-            // }
-            // self.state.video_sync_frame += 1.0;
 
             self.state.keyboard_input = keyboard_input;
             self.state.gamepad_input = gamepad_input;
@@ -1946,14 +1848,12 @@ impl eframe::App for AppCtx {
         self.handle_file_dialog();
         self.handle_input_and_emulation(ui);
 
-        *self.audio.volume.lock().unwrap() = self.cfg.volume;
+        if !self.audio.muted {
+            *self.audio.volume.lock().unwrap() = self.cfg.volume;
+        }
 
         ui.request_repaint();
         self.fps.delay();
-
-        // const FPS: f32 = 1.0 / 60.0;
-        // ui.request_repaint_after_secs(FPS);
-        // ui.request_repaint_after_secs(self.state.fps);
 
         #[cfg(not(target_arch = "wasm32"))]
         if !self.cfg.hide_exit_dialog {
@@ -2008,9 +1908,6 @@ impl AppCtx {
 
         dir.push(name);
         dir.set_extension("state");
-        let res = self.emu_lock().loadstate(dir);
-        if let Err(e) = res {
-            self.add_message(e);
-        }
+        _ = self.emu_lock().loadstate(dir);
     }
 }

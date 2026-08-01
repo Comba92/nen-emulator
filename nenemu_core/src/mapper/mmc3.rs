@@ -5,6 +5,7 @@ use crate::{
 };
 
 #[derive(Default)]
+#[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 enum IrqKind {
     #[default]
     Sharp, // late MMC3, the most common used
