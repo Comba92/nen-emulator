@@ -2,7 +2,7 @@
 // #![windows_subsystem = "windows"]
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use eframe::egui::{self, Key::P};
+use eframe::egui;
 
 use nenemu_core::{
     NesPalette,
@@ -11,7 +11,7 @@ use nenemu_core::{
     rom::{self, is_valid_bios},
 };
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{HashSet, VecDeque},
     fs,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard, mpsc},
@@ -41,20 +41,20 @@ enum EmulatorAction {
 #[cfg_attr(feature = "persistence", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy)]
 enum EmulatorInput {
-    Up,
-    Down,
-    Left,
-    Right,
-    A,
-    B,
-    Start,
-    Select,
+    Up = 1 << 0,
+    Down = 1 << 1,
+    Left = 1 << 2,
+    Right = 1 << 3,
+    A = 1 << 4,
+    B = 1 << 5,
+    Start = 1 << 6,
+    Select = 1 << 7,
 }
 
 #[cfg_attr(feature = "persistence", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 enum PlayerInput {
-    Joypad(joypad::JoypadInput),
+    Joypad(EmulatorInput),
     Action(EmulatorAction),
 }
 
@@ -95,9 +95,9 @@ struct InputHandler {
 impl Default for InputHandler {
     fn default() -> Self {
         use EmulatorAction::*;
+        use EmulatorInput as Joy;
         use egui::Key;
         use gilrs::Button as Btn;
-        use joypad::JoypadInput as Joy;
 
         let binds = vec![
             Binding::new(
@@ -574,8 +574,8 @@ struct AppState {
     about_open: bool,
     message_open: Option<(bool, time::Instant, GenericError)>,
 
-    keyboard_input: joypad::JoypadInput,
-    gamepad_input: joypad::JoypadInput,
+    keyboard_input: Vec<EmulatorInput>,
+    gamepad_input: Vec<EmulatorInput>,
     mouse_pos: (isize, isize),
 
     bios: Option<Box<[u8]>>,
@@ -867,11 +867,8 @@ impl AppCtx {
             new_emu.palette = pal.clone();
         }
 
-        self.state.current_rom_header = {
-            let mut emu = self.emu_lock();
-            *emu = new_emu;
-            emu.rom_info().clone()
-        };
+        self.state.current_rom_header = new_emu.rom_info().clone();
+        *self.emu_lock() = new_emu;
 
         let pathbuf = rom_path.as_ref().to_path_buf();
         self.state.current_rom = Some((rom_bytes, pathbuf.clone()));
@@ -1322,10 +1319,15 @@ impl AppCtx {
     fn show_keybids_window(&mut self, ui: &mut egui::Ui) {
         egui::Window::new("🎮 Keybindings")
             .collapsible(true)
-            .resizable([false, false])
+            .resizable([true, true])
             .open(&mut self.state.keybinds_open)
             .show(ui, |ui| {
-                ui.label("Left click to remove binding");
+                ui.horizontal(|ui| {
+                    ui.label("Left click to remove a binding.");
+                    if ui.button("Restore to defaults").clicked() {
+                        self.cfg.input = InputHandler::default();
+                    }
+                });
 
                 // update bindings
                 ui.input(|i| {
@@ -1375,88 +1377,90 @@ impl AppCtx {
                     return None;
                 });
 
-                let input = &mut self.cfg.input;
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    let input = &mut self.cfg.input;
 
-                let mut to_add = None;
-                let mut to_remove = None;
-                enum BindKind {
-                    Key(usize),
-                    Btn(usize),
-                }
+                    let mut to_add = None;
+                    let mut to_remove = None;
+                    enum BindKind {
+                        Key(usize),
+                        Btn(usize),
+                    }
 
-                for bind in &input.binds {
-                    ui.separator();
-                    ui.columns_const::<2, _>(|ui| {
-                        let col_src = ui[0].vertical(|ui| {
-                            ui.label(&bind.name);
-                            if ui.button("Add bind").clicked() {
-                                to_add = Some(&bind.name)
-                            }
-                        });
+                    for bind in &input.binds {
+                        ui.separator();
+                        ui.columns_const::<2, _>(|ui| {
+                            let col_src = ui[0].vertical(|ui| {
+                                ui.label(&bind.name);
+                                if ui.button("Add bind").clicked() {
+                                    to_add = Some(&bind.name)
+                                }
+                            });
 
-                        ui[1].vertical(|ui| {
-                            for (idx, key) in bind.keys.iter().enumerate() {
-                                let button = ui.button(format!("{:?}", key));
-                                if button.clicked() {
-                                    to_add = Some(&bind.name);
-                                } else if button.secondary_clicked() {
-                                    to_remove = Some((&bind.name, BindKind::Key(idx)))
+                            ui[1].vertical(|ui| {
+                                for (idx, key) in bind.keys.iter().enumerate() {
+                                    let button = ui.button(format!("{:?}", key));
+                                    if button.clicked() {
+                                        to_add = Some(&bind.name);
+                                    } else if button.secondary_clicked() {
+                                        to_remove = Some((&bind.name, BindKind::Key(idx)))
+                                    }
+                                }
+
+                                if bind.btns.len() > 0 {
+                                    ui.separator();
+                                }
+
+                                for (idx, btn) in bind.btns.iter().enumerate() {
+                                    let button = ui.button(format!("{:?}", btn));
+                                    if button.clicked() {
+                                        to_add = Some(&bind.name);
+                                    } else if button.secondary_clicked() {
+                                        to_remove = Some((&bind.name, BindKind::Btn(idx)))
+                                    }
+                                }
+                            });
+
+                            if let Some(rebind_name) = &to_add {
+                                if bind.name.eq(*rebind_name) {
+                                    col_src.response.highlight();
                                 }
                             }
-
-                            if bind.btns.len() > 0 {
-                                ui.separator();
-                            }
-
-                            for (idx, btn) in bind.btns.iter().enumerate() {
-                                let button = ui.button(format!("{:?}", btn));
-                                if button.clicked() {
-                                    to_add = Some(&bind.name);
-                                } else if button.secondary_clicked() {
-                                    to_remove = Some((&bind.name, BindKind::Btn(idx)))
-                                }
-                            }
                         });
+                    }
 
-                        if let Some(rebind_name) = &to_add {
-                            if bind.name.eq(*rebind_name) {
-                                col_src.response.highlight();
+                    if let Some(selected) = to_add {
+                        input.rebind = Some(selected.clone());
+                    }
+
+                    if let Some((selected_name, id)) = to_remove {
+                        let bind_idx = input
+                            .binds
+                            .iter()
+                            .position(|x| x.name.eq(selected_name))
+                            .unwrap();
+
+                        match id {
+                            BindKind::Key(idx) => {
+                                let key = input.binds[bind_idx].keys.swap_remove(idx);
+                                input.keys_taken.remove(&key);
                             }
+                            BindKind::Btn(idx) => {
+                                let btn = input.binds[bind_idx].btns.swap_remove(idx);
+                                input.btns_taken.remove(&btn);
+                            }
+                        }
+                    }
+
+                    ui.vertical_centered(|ui| {
+                        if let Some(rebind_name) = &input.rebind {
+                            ui.label(format!(
+                                "Rebinding {:?}... Press any button, right click or close window to cancel",
+                                rebind_name
+                            ));
                         }
                     });
-                }
-
-                if let Some(selected) = to_add {
-                    input.rebind = Some(selected.clone());
-                }
-
-                if let Some((selected_name, id)) = to_remove {
-                    let bind_idx = input
-                        .binds
-                        .iter()
-                        .position(|x| x.name.eq(selected_name))
-                        .unwrap();
-
-                    match id {
-                        BindKind::Key(idx) => {
-                            let key = input.binds[bind_idx].keys.swap_remove(idx);
-                            input.keys_taken.remove(&key);
-                        }
-                        BindKind::Btn(idx) => {
-                            let btn = input.binds[bind_idx].btns.swap_remove(idx);
-                            input.btns_taken.remove(&btn);
-                        }
-                    }
-                }
-
-                ui.vertical_centered(|ui| {
-                    if let Some(rebind_name) = &input.rebind {
-                        ui.label(format!(
-                            "Rebinding {:?}... Press any button, right click or close window to cancel",
-                            rebind_name
-                        ));
-                    }
-                });
+                })
             })
             .or_else(|| {
                 self.cfg.input.rebind = None;
@@ -1646,15 +1650,16 @@ impl AppCtx {
     }
 
     fn handle_input_and_emulation(&mut self, ui: &mut egui::Ui) {
-        let keyboard_input = ui.input(|i| {
-            let mut pressed = joypad::JoypadInput::empty();
+        self.state.keyboard_input.clear();
+        self.state.gamepad_input.clear();
 
+        ui.input(|i| {
             'poll_loop: for bind in &self.cfg.input.binds {
                 for key in &bind.keys {
                     match &bind.kind {
                         PlayerInput::Joypad(emu_btn) => {
                             if i.key_down(*key) {
-                                pressed.insert(*emu_btn);
+                                self.state.keyboard_input.push(*emu_btn);
                             }
                         }
                         PlayerInput::Action(act) => {
@@ -1666,11 +1671,8 @@ impl AppCtx {
                     }
                 }
             }
-
-            pressed
         });
 
-        let mut gamepad_input = joypad::JoypadInput::empty();
         if let Some(api) = &mut self.gamepads.api {
             // pump events
             // CAUTION: next_event() is needed even if we dont want to handle any events, as it will cache them for is_pressed()
@@ -1681,24 +1683,24 @@ impl AppCtx {
                 let y = pad.value(gilrs::Axis::LeftStickY);
 
                 if x >= 0.2 {
-                    gamepad_input.insert(joypad::JoypadInput::Right);
+                    self.state.gamepad_input.push(EmulatorInput::Right)
                 } else if x <= -0.2 {
-                    gamepad_input.insert(joypad::JoypadInput::Left);
+                    self.state.gamepad_input.push(EmulatorInput::Left)
                 }
 
                 if y >= 0.2 {
-                    gamepad_input.insert(joypad::JoypadInput::Up);
+                    self.state.gamepad_input.push(EmulatorInput::Up)
                 } else if y <= -0.2 {
-                    gamepad_input.insert(joypad::JoypadInput::Down);
+                    self.state.gamepad_input.push(EmulatorInput::Down)
                 }
 
                 for bind in &self.cfg.input.binds {
                     for btn in &bind.btns {
                         if let Some(state) = pad.button_data(*btn) {
                             match bind.kind {
-                                PlayerInput::Joypad(joy) => {
+                                PlayerInput::Joypad(emu_btn) => {
                                     if state.is_pressed() {
-                                        gamepad_input.insert(joy);
+                                        self.state.gamepad_input.push(emu_btn)
                                     }
                                 }
                                 PlayerInput::Action(act) => {
@@ -1730,10 +1732,23 @@ impl AppCtx {
             {
                 let mut emu = self.emu_lock();
 
-                if keyboard_input != self.state.keyboard_input {
-                    emu.set_buttons_all(keyboard_input);
-                } else if gamepad_input != self.state.gamepad_input {
-                    emu.set_buttons_all(gamepad_input);
+                emu.clear_buttons_all();
+                for input in self
+                    .state
+                    .keyboard_input
+                    .iter()
+                    .chain(self.state.gamepad_input.iter())
+                {
+                    match input {
+                        EmulatorInput::Up => emu.set_button(joypad::JoypadInput::Up, true),
+                        EmulatorInput::Down => emu.set_button(joypad::JoypadInput::Down, true),
+                        EmulatorInput::Left => emu.set_button(joypad::JoypadInput::Left, true),
+                        EmulatorInput::Right => emu.set_button(joypad::JoypadInput::Right, true),
+                        EmulatorInput::A => emu.set_button(joypad::JoypadInput::A, true),
+                        EmulatorInput::B => emu.set_button(joypad::JoypadInput::B, true),
+                        EmulatorInput::Start => emu.set_button(joypad::JoypadInput::Start, true),
+                        EmulatorInput::Select => emu.set_button(joypad::JoypadInput::Select, true),
+                    }
                 }
 
                 emu.set_zapper_trigger(mouse_left);
@@ -1757,9 +1772,6 @@ impl AppCtx {
                     }
                 }
             }
-
-            self.state.keyboard_input = keyboard_input;
-            self.state.gamepad_input = gamepad_input;
         } else if self.state.emulation == EmulationState::Stopped {
             egui::Window::new("Start any ROM")
                 .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
