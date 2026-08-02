@@ -846,13 +846,12 @@ impl FileDialogHandler {
 struct AppCtx {
     // sdl: SdlCtx,
     emu: Arc<Mutex<EmulatorHandler>>,
-    emu_thread: thread::JoinHandle<()>,
-    emu_sender: mpsc::Sender<(EmulationState, u32)>,
-
+    // emu_thread: thread::JoinHandle<()>,
+    // emu_sender: mpsc::Sender<(EmulationState, u32)>,
     audio: AudioHandler,
     gamepads: GamepadHandler,
     file_dialog: FileDialogHandler,
-    // fps: FpsHandler,
+    fps: FpsHandler,
     state: AppState,
     cfg: AppCfg,
 }
@@ -874,51 +873,51 @@ impl AppCtx {
 
         let emu_clone = Arc::clone(&emu);
 
-        let (send, recv) = mpsc::channel();
+        // let (send, recv) = mpsc::channel();
 
-        let thread = std::thread::spawn(move || {
-            let mut fps = FpsHandler::new(60);
-            let mut state = EmulationState::Stopped;
+        // let thread = std::thread::spawn(move || {
+        //     let mut fps = FpsHandler::new(60);
+        //     let mut state = EmulationState::Stopped;
 
-            loop {
-                fps.delay();
+        //     loop {
+        //         fps.delay();
 
-                if let Ok((msg, new_fps)) = recv.try_recv() {
-                    state = msg;
-                    fps.set_framerate(new_fps);
-                }
+        //         if let Ok((msg, new_fps)) = recv.try_recv() {
+        //             state = msg;
+        //             fps.set_framerate(new_fps);
+        //         }
 
-                match state {
-                    EmulationState::Paused | EmulationState::Stopped => {}
-                    EmulationState::Running => {
-                        let mut emu = emu_clone.lock().unwrap();
-                        match emu.step_one_frame() {
-                            Ok(_) => emu.render_video(),
+        //         match state {
+        //             EmulationState::Paused | EmulationState::Stopped => {}
+        //             EmulationState::Running => {
+        //                 let mut emu = emu_clone.lock().unwrap();
+        //                 match emu.step_one_frame() {
+        //                     Ok(_) => emu.render_video(),
 
-                            Err(_) => {
-                                // TODO: handle errors here
-                                // might need a another channel
-                                drop(emu);
-                                // self.stop_emulation();
-                                // self.add_message(e);
-                            }
-                        }
-                    }
-                }
-            }
-        });
+        //                     Err(_) => {
+        //                         // TODO: handle errors here
+        //                         // might need a another channel
+        //                         drop(emu);
+        //                         // self.stop_emulation();
+        //                         // self.add_message(e);
+        //                     }
+        //                 }
+        //             }
+        //         }
+        //     }
+        // });
 
         let audio = AudioHandler::new(&emu, !cfg.disable_audio, 1024);
-        // let fps = FpsHandler::new(60);
+        let fps = FpsHandler::new(60);
 
         let mut res = Self {
             emu,
-            emu_thread: thread,
-            emu_sender: send,
+            // emu_thread: thread,
+            // emu_sender: send,
             audio,
             gamepads: GamepadHandler::new(),
             file_dialog: FileDialogHandler::new(),
-            // fps,
+            fps,
             cfg,
             state: Default::default(),
         };
@@ -940,28 +939,28 @@ impl AppCtx {
         }
     }
 
-    fn notify_emu_thread(&self) {
-        self.emu_sender
-            .send((self.state.emulation, self.emu_lock().frame_rate() as u32))
-            .unwrap();
-    }
+    // fn notify_emu_thread(&self) {
+    //     self.emu_sender
+    //         .send((self.state.emulation, self.emu_lock().frame_rate() as u32))
+    //         .unwrap();
+    // }
 
     fn resume_emulation(&mut self) {
         self.state.emulation = EmulationState::Running;
-        self.notify_emu_thread();
+        // self.notify_emu_thread();
         self.audio.resume();
     }
 
     fn pause_emulation(&mut self) {
         self.state.emulation = EmulationState::Paused;
-        self.notify_emu_thread();
+        // self.notify_emu_thread();
         self.audio.pause();
     }
 
     fn stop_emulation(&mut self) {
         self.state.emulation = EmulationState::Stopped;
         self.audio.pause();
-        self.notify_emu_thread();
+        // self.notify_emu_thread();
         self.emu_lock().clear_video();
     }
 
@@ -1999,45 +1998,15 @@ impl AppCtx {
                     ),
                 );
 
-                // emu.clear_buttons_all();
-                // for input in self
-                //     .state
-                //     .keyboard_input
-                //     .iter()
-                //     .chain(self.state.gamepad_input.iter())
-                // {
-                //     match input {
-                //         EmulatorInput::Up => emu.set_button(joypad::JoypadInput::Up, true),
-                //         EmulatorInput::Down => emu.set_button(joypad::JoypadInput::Down, true),
-                //         EmulatorInput::Left => emu.set_button(joypad::JoypadInput::Left, true),
-                //         EmulatorInput::Right => emu.set_button(joypad::JoypadInput::Right, true),
-                //         EmulatorInput::A => emu.set_button(joypad::JoypadInput::A, true),
-                //         EmulatorInput::B => emu.set_button(joypad::JoypadInput::B, true),
-                //         EmulatorInput::Start => emu.set_button(joypad::JoypadInput::Start, true),
-                //         EmulatorInput::Select => emu.set_button(joypad::JoypadInput::Select, true),
-                //     }
-                // }
+                match emu.step_one_frame() {
+                    Ok(_) => emu.render_video(),
 
-                // emu.set_zapper_trigger(mouse_left);
-                // emu.set_zapper_light_outside(mouse_right);
-                // emu.set_zapper_light(self.state.mouse_pos.0, self.state.mouse_pos.1);
-
-                // match emu.step_until_frame_ready() {
-                //     Ok(_) => {
-                //         let framebuf = egui::ColorImage::from_rgba_unmultiplied(
-                //             [256, 240],
-                //             emu.get_video_rgba(),
-                //         );
-                //         drop(emu);
-                //         self.tex.set(framebuf, TEX_OPTS);
-                //     }
-
-                //     Err(e) => {
-                //         drop(emu);
-                //         self.stop_emulation();
-                //         self.add_message(e);
-                //     }
-                // }
+                    Err(e) => {
+                        drop(emu);
+                        self.stop_emulation();
+                        self.add_message(e);
+                    }
+                }
             }
         } else if self.state.emulation == EmulationState::Stopped {
             egui::Window::new("Start any ROM")
@@ -2138,6 +2107,7 @@ impl eframe::App for AppCtx {
             *self.audio.volume.lock().unwrap() = self.cfg.volume;
         }
 
+        self.fps.delay();
         ui.request_repaint();
 
         #[cfg(not(target_arch = "wasm32"))]
