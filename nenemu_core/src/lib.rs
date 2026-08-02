@@ -1,21 +1,16 @@
-use crate::{
-    emu::{NesEmulator, SCREEN_HEIGHT, SCREEN_WIDTH},
-    joypad::JoypadInput,
-};
-
 mod apu;
 mod bus;
 pub mod cpu;
-pub mod emu;
+mod emu;
 pub mod games_db;
 mod mapper;
 mod ppu;
 pub mod rom;
 
+pub use emu::*;
+
 pub mod utils {
     use std::f64;
-
-    use super::emu::*;
 
     pub fn bit_get(x: u8, bit: u8) -> bool {
         (x >> bit) & 1 == 1
@@ -176,37 +171,37 @@ pub mod utils {
 
     // https://github.com/nesdev-org/MesenCE/blob/ec5f14d95e9172565caf5bd3e5db8045ac900967/Utilities/Audio/OnePoleLowPassFilter.h#L7
     // TODO: doesnt seems to work well
-    pub struct LowPassFilter {
-        a0: f64,
-        b1: f64,
-        prev_sample: f64,
-    }
-    impl Default for LowPassFilter {
-        fn default() -> Self {
-            Self {
-                a0: 1.0,
-                b1: 0.0,
-                prev_sample: 0.0,
-            }
-        }
-    }
-    impl LowPassFilter {
-        pub fn new(input_rate: f64, target_rate: f64) -> Self {
-            let mut res = Self::default();
-            res.set_cutoff(input_rate, target_rate);
-            res
-        }
+    // pub struct LowPassFilter {
+    //     a0: f64,
+    //     b1: f64,
+    //     prev_sample: f64,
+    // }
+    // impl Default for LowPassFilter {
+    //     fn default() -> Self {
+    //         Self {
+    //             a0: 1.0,
+    //             b1: 0.0,
+    //             prev_sample: 0.0,
+    //         }
+    //     }
+    // }
+    // impl LowPassFilter {
+    //     pub fn new(input_rate: f64, target_rate: f64) -> Self {
+    //         let mut res = Self::default();
+    //         res.set_cutoff(input_rate, target_rate);
+    //         res
+    //     }
 
-        pub fn set_cutoff(&mut self, input_rate: f64, target_rate: f64) {
-            self.b1 = (-2.0 * f64::consts::PI * (input_rate / target_rate)).exp();
-            self.a0 = 1.0 - self.b1;
-        }
+    //     pub fn set_cutoff(&mut self, input_rate: f64, target_rate: f64) {
+    //         self.b1 = (-2.0 * f64::consts::PI * (input_rate / target_rate)).exp();
+    //         self.a0 = 1.0 - self.b1;
+    //     }
 
-        pub fn process(&mut self, sample: f64) -> f64 {
-            self.prev_sample = sample * self.a0 + self.prev_sample * self.b1;
-            self.prev_sample
-        }
-    }
+    //     pub fn process(&mut self, sample: f64) -> f64 {
+    //         self.prev_sample = sample * self.a0 + self.prev_sample * self.b1;
+    //         self.prev_sample
+    //     }
+    // }
 
     #[cfg(feature = "blip")]
     pub struct BlipResampler {
@@ -273,7 +268,7 @@ pub mod utils {
     }
     impl Default for AvgResampler {
         fn default() -> Self {
-            Self::new(NTSC_CLOCK_RATE as f64, 48000.0)
+            Self::new(super::NTSC_CLOCK_RATE as f64, 48000.0)
         }
     }
 
@@ -413,6 +408,7 @@ pub mod joypad {
     }
 }
 
+use crate::joypad::JoypadInput;
 impl NesEmulator {
     fn read(&mut self, player: JoypadInput) -> u8 {
         let joy = &mut self.joy;

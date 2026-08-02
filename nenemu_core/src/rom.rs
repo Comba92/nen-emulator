@@ -10,7 +10,7 @@ use crate::{
 };
 
 pub struct Cart {
-    pub header: RomData,
+    pub header: NesRomData,
     pub prg: Vec<u8>,
     pub chr: Vec<u8>,
 }
@@ -18,7 +18,7 @@ impl Default for Cart {
     // empty cart with zeroed prg and chr
     fn default() -> Self {
         Self {
-            header: RomData {
+            header: NesRomData {
                 prg_size: 16 * 1024,
                 chr_size: 8 * 1024,
                 ..Default::default()
@@ -32,7 +32,7 @@ impl Default for Cart {
 impl Cart {
     pub fn from_bytes<B: AsRef<[u8]>>(bytes: B) -> Result<Self, NesError> {
         let bytes = bytes.as_ref();
-        let header = RomData::from_db(bytes)?;
+        let header = NesRomData::from_db(bytes)?;
 
         // only iNes supported
         let rom_start = header.len();
@@ -93,7 +93,7 @@ impl fmt::Display for HeaderFormat {
 // https://www.nesdev.org/wiki/INES
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
-pub struct RomData {
+pub struct NesRomData {
     pub title: String,
     pub format: HeaderFormat,
     pub mapper: u16,
@@ -116,7 +116,7 @@ pub struct RomData {
     // TODO: add FDS disk info here
 }
 
-impl Default for RomData {
+impl Default for NesRomData {
     fn default() -> Self {
         Self {
             title: "[Title unavailable]".to_string(),
@@ -141,7 +141,7 @@ impl Default for RomData {
     }
 }
 
-impl RomData {
+impl NesRomData {
     const INES_MAGIC: [u8; 4] = [0x4e, 0x45, 0x53, 0x1a];
     const INES_HEADER_SIZE: usize = 16;
     const UNIF_MAGIC: [u8; 4] = [0x55, 0x4e, 0x49, 0x46];
@@ -219,7 +219,7 @@ impl RomData {
             return Err(CartInvalid("Extended console types are not supported"));
         }
 
-        let mut header = RomData::default();
+        let mut header = NesRomData::default();
         header.format = HeaderFormat::INes;
 
         header.prg_size = bytes[4] as usize * 16 * 1024;
@@ -520,11 +520,11 @@ impl Disk {
 }
 
 pub fn is_valid_ines(bytes: &[u8]) -> bool {
-    bytes.len() > RomData::INES_HEADER_SIZE && &bytes[0..4] == RomData::INES_MAGIC
+    bytes.len() > NesRomData::INES_HEADER_SIZE && &bytes[0..4] == NesRomData::INES_MAGIC
 }
 
 pub fn is_valid_unif(bytes: &[u8]) -> bool {
-    bytes.len() > RomData::UNIF_HEADER_SIZE && &bytes[0..4] == RomData::UNIF_MAGIC
+    bytes.len() > NesRomData::UNIF_HEADER_SIZE && &bytes[0..4] == NesRomData::UNIF_MAGIC
 }
 
 pub fn is_valid_fds(bytes: &[u8]) -> bool {

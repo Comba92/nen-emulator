@@ -24,9 +24,9 @@ use std::{
     io::{self, Read},
 };
 
-use nenemu_core::{cpu::Status, emu};
+use nenemu_core::*;
 
-fn cpu_to_mock(emu: &mut emu::NesEmulator, mock: &CpuTestState) -> CpuTestState {
+fn cpu_to_mock(emu: &mut NesEmulator, mock: &CpuTestState) -> CpuTestState {
     let cpu = &emu.cpu;
 
     let mut test = CpuTestState {
@@ -47,7 +47,7 @@ fn cpu_to_mock(emu: &mut emu::NesEmulator, mock: &CpuTestState) -> CpuTestState 
     test
 }
 
-fn cpu_from_mock(emu: &mut emu::NesEmulator, mock: &CpuTestState) {
+fn cpu_from_mock(emu: &mut NesEmulator, mock: &CpuTestState) {
     let cpu = &mut emu.cpu;
 
     cpu.a = mock.a;
@@ -55,7 +55,7 @@ fn cpu_from_mock(emu: &mut emu::NesEmulator, mock: &CpuTestState) {
     cpu.y = mock.y;
     cpu.pc = mock.pc;
     cpu.sp = mock.s;
-    cpu.p = Status::from_bits_retain(mock.p);
+    cpu.p = cpu::Status::from_bits_retain(mock.p);
 
     for (addr, val) in &mock.ram {
         emu.cpu_dispatch_write(*addr as u16, *val as u8);
@@ -75,7 +75,7 @@ fn exec_test() {
     let test: Vec<CpuTest> =
         serde_json::from_str(include_str!("./SingleStepTests/a9.json")).unwrap();
 
-    let mut emu = emu::NesEmulator::debug();
+    let mut emu = NesEmulator::debug();
     println!("{:?}", emu.cpu);
 
     cpu_from_mock(&mut emu, &test[0].start);
@@ -93,7 +93,7 @@ fn exec_test() {
 
 use pretty_assertions::assert_eq;
 
-fn cpu_test(emu: &mut emu::NesEmulator, test: &CpuTest) -> bool {
+fn cpu_test(emu: &mut NesEmulator, test: &CpuTest) -> bool {
     cpu_from_mock(emu, &test.start);
 
     emu.step();
@@ -127,7 +127,7 @@ fn exec_all_tests() {
     let files = fs::read_dir("./tests/SingleStepTests").expect("tests folder missing");
     let mut file_str = String::new();
 
-    let mut emu = emu::NesEmulator::debug();
+    let mut emu = NesEmulator::debug();
 
     for file in files {
         let entry = file.unwrap();

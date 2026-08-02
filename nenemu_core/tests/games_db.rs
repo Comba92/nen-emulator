@@ -224,7 +224,7 @@ impl From<&str> for Mirroring {
         }
     }
 }
-impl From<Mirroring> for nenemu_core::emu::Mirroring {
+impl From<Mirroring> for nenemu_core::Mirroring {
     fn from(value: Mirroring) -> Self {
         match value {
             Mirroring::FourScreens => Self::FourScreens,
@@ -263,7 +263,7 @@ impl From<usize> for Region {
         }
     }
 }
-impl From<Region> for nenemu_core::emu::Region {
+impl From<Region> for nenemu_core::Region {
     fn from(value: Region) -> Self {
         match value {
             Region::NTSC | Region::Multiple => Self::NTSC,

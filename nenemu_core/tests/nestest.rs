@@ -1,4 +1,4 @@
-use nenemu_core::{cpu::Status, emu::NesEmulator};
+use nenemu_core::{NesEmulator, cpu::Status};
 
 #[derive(Debug, Default, PartialEq, Eq)]
 struct LogLine {

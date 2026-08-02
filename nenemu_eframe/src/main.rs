@@ -5,10 +5,8 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use eframe::egui;
 
 use nenemu_core::{
-    NesPalette,
-    emu::NesEmulator,
-    joypad,
-    rom::{self, is_valid_bios},
+    NesEmulator, NesPalette, NesSettings, joypad,
+    rom::{NesRomData, is_valid_bios},
 };
 use std::{
     collections::{HashSet, VecDeque},
@@ -25,6 +23,96 @@ const TEX_OPTS: egui::TextureOptions = egui::TextureOptions {
     wrap_mode: egui::TextureWrapMode::ClampToEdge,
     mipmap_mode: Some(egui::TextureFilter::Nearest),
 };
+
+const APP_NAME: &'static str = "NenEmu";
+type GenericError = Box<dyn std::error::Error>;
+
+#[cfg(not(target_arch = "wasm32"))]
+fn main() {
+    let opts = eframe::NativeOptions {
+        centered: true,
+        persist_window: true,
+        viewport: egui::ViewportBuilder::default()
+            .with_drag_and_drop(true)
+            .with_inner_size((640.0 * 2.0, 480.0 * 2.0))
+            .with_title(APP_NAME),
+        hardware_acceleration: eframe::HardwareAcceleration::Preferred,
+
+        // vsync: false,
+        // wgpu_options: eframe::egui_wgpu::WgpuConfiguration {
+        //     present_mode: eframe::egui_wgpu::wgpu::PresentMode::AutoNoVsync,
+        //     ..Default::default()
+        // },
+        #[cfg(feature = "opengl")]
+        renderer: eframe::Renderer::Glow,
+
+        ..Default::default()
+    };
+
+    eframe::run_native(APP_NAME, opts, Box::new(|c| Ok(AppCtx::new(c)))).unwrap();
+}
+
+#[cfg(target_arch = "wasm32")]
+fn main() {
+    use eframe::wasm_bindgen::JsCast as _;
+
+    // Redirect `log` message to `console.log` and friends:
+    eframe::WebLogger::init(log::LevelFilter::Debug).ok();
+
+    let web_options = eframe::WebOptions::default();
+
+    wasm_bindgen_futures::spawn_local(async {
+        let document = web_sys::window()
+            .expect("No window")
+            .document()
+            .expect("No document");
+
+        let canvas = document
+            .get_element_by_id("the_canvas_id")
+            .expect("Failed to find the_canvas_id")
+            .dyn_into::<web_sys::HtmlCanvasElement>()
+            .expect("the_canvas_id was not a HtmlCanvasElement");
+
+        let start_result = eframe::WebRunner::new()
+            .start(canvas, web_options, Box::new(|c| Ok(AppCtx::new(c))))
+            .await;
+
+        // Remove the loading text and spinner:
+        if let Some(loading_text) = document.get_element_by_id("loading_text") {
+            match start_result {
+                Ok(_) => {
+                    loading_text.remove();
+                }
+                Err(e) => {
+                    loading_text.set_inner_html(
+                        "<p> The app has crashed. See the developer console for details. </p>",
+                    );
+                    panic!("Failed to start eframe: {e:?}");
+                }
+            }
+        }
+    });
+}
+
+enum EmulatorHandler {
+    Nes { sys: NesEmulator, info: NesRomData },
+    Gb {},
+}
+impl EmulatorHandler {
+    pub fn is_nes(&self) -> bool {
+        match self {
+            Self::Nes { .. } => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_gb(&self) -> bool {
+        match self {
+            Self::Gb { .. } => true,
+            _ => false,
+        }
+    }
+}
 
 #[cfg_attr(feature = "persistence", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy)]
@@ -414,7 +502,7 @@ impl FpsHandler {
         }
     }
 
-    pub fn set_framerate(&mut self, fps: usize) {
+    pub fn set_framerate(&mut self, fps: u32) {
         self.frame_count = 0;
         self.rate_ticks = 1000.0 / fps as f32;
     }
@@ -461,77 +549,6 @@ enum EmulationState {
     Paused,
 }
 
-const APP_NAME: &'static str = "NenEmu";
-type GenericError = Box<dyn std::error::Error>;
-
-#[cfg(not(target_arch = "wasm32"))]
-fn main() {
-    let opts = eframe::NativeOptions {
-        centered: true,
-        persist_window: true,
-        viewport: egui::ViewportBuilder::default()
-            .with_drag_and_drop(true)
-            .with_inner_size((640.0 * 2.0, 480.0 * 2.0))
-            .with_title(APP_NAME),
-        hardware_acceleration: eframe::HardwareAcceleration::Preferred,
-
-        vsync: false,
-        wgpu_options: eframe::egui_wgpu::WgpuConfiguration {
-            present_mode: eframe::egui_wgpu::wgpu::PresentMode::AutoNoVsync,
-            ..Default::default()
-        },
-
-        #[cfg(feature = "opengl")]
-        renderer: eframe::Renderer::Glow,
-
-        ..Default::default()
-    };
-
-    eframe::run_native(APP_NAME, opts, Box::new(|c| Ok(AppCtx::new(c)))).unwrap();
-}
-
-#[cfg(target_arch = "wasm32")]
-fn main() {
-    use eframe::wasm_bindgen::JsCast as _;
-
-    // Redirect `log` message to `console.log` and friends:
-    eframe::WebLogger::init(log::LevelFilter::Debug).ok();
-
-    let web_options = eframe::WebOptions::default();
-
-    wasm_bindgen_futures::spawn_local(async {
-        let document = web_sys::window()
-            .expect("No window")
-            .document()
-            .expect("No document");
-
-        let canvas = document
-            .get_element_by_id("the_canvas_id")
-            .expect("Failed to find the_canvas_id")
-            .dyn_into::<web_sys::HtmlCanvasElement>()
-            .expect("the_canvas_id was not a HtmlCanvasElement");
-
-        let start_result = eframe::WebRunner::new()
-            .start(canvas, web_options, Box::new(|c| Ok(AppCtx::new(c))))
-            .await;
-
-        // Remove the loading text and spinner:
-        if let Some(loading_text) = document.get_element_by_id("loading_text") {
-            match start_result {
-                Ok(_) => {
-                    loading_text.remove();
-                }
-                Err(e) => {
-                    loading_text.set_inner_html(
-                        "<p> The app has crashed. See the developer console for details. </p>",
-                    );
-                    panic!("Failed to start eframe: {e:?}");
-                }
-            }
-        }
-    });
-}
-
 #[derive(Default)]
 #[cfg_attr(feature = "persistence", derive(serde::Serialize, serde::Deserialize))]
 struct AppCfg {
@@ -548,7 +565,7 @@ struct AppCfg {
     #[cfg(all(not(target_arch = "wasm32"), feature = "persistence"))]
     restore_session: bool,
 
-    nes_settings: nenemu_core::emu::NesSettings,
+    nes_settings: NesSettings,
 
     disable_audio: bool,
     volume: f32,
@@ -563,6 +580,14 @@ impl AppCfg {
     }
 }
 
+#[derive(Default, PartialEq)]
+enum SettingsTab {
+    #[default]
+    General,
+    Nes,
+    Gb,
+}
+
 #[derive(Default)]
 struct AppState {
     should_close: bool,
@@ -570,6 +595,7 @@ struct AppState {
 
     keybinds_open: bool,
     settings_open: bool,
+    settings_tab: SettingsTab,
     rom_info_open: bool,
     about_open: bool,
     message_open: Option<(bool, time::Instant, GenericError)>,
@@ -580,7 +606,7 @@ struct AppState {
 
     bios: Option<Box<[u8]>>,
     current_rom: Option<(Box<[u8]>, PathBuf)>,
-    current_rom_header: rom::RomData,
+    current_rom_header: NesRomData,
 
     emulation: EmulationState,
 }
@@ -657,12 +683,14 @@ impl FileDialogHandler {
 struct AppCtx {
     // sdl: SdlCtx,
     emu: Arc<Mutex<NesEmulator>>,
-    tex: egui::TextureHandle,
+    emu_thread: thread::JoinHandle<()>,
+    emu_sender: mpsc::Sender<(EmulationState, u32)>,
+
+    tex: Arc<Mutex<egui::TextureHandle>>,
     audio: AudioHandler,
     gamepads: GamepadHandler,
     file_dialog: FileDialogHandler,
-    fps: FpsHandler,
-
+    // fps: FpsHandler,
     state: AppState,
     cfg: AppCfg,
 }
@@ -681,21 +709,67 @@ impl AppCtx {
 
         let img = egui::ColorImage::filled([256, 240], egui::Color32::TRANSPARENT);
         let tex = c.egui_ctx.load_texture("emu_present", img, TEX_OPTS);
+        let tex = Arc::new(Mutex::new(tex));
 
         let emu = NesEmulator::empty();
         let emu = Arc::new(Mutex::new(emu));
 
+        let emu_clone = Arc::clone(&emu);
+        let tex_clone = Arc::clone(&tex);
+
+        let (send, recv) = mpsc::channel();
+
+        let thread = std::thread::spawn(move || {
+            let mut fps = FpsHandler::new(60);
+            let mut state = EmulationState::Stopped;
+
+            loop {
+                fps.delay();
+
+                if let Ok((msg, new_fps)) = recv.try_recv() {
+                    state = msg;
+                    fps.set_framerate(new_fps);
+                }
+
+                match state {
+                    EmulationState::Paused | EmulationState::Stopped => {}
+                    EmulationState::Running => {
+                        let mut emu = emu_clone.lock().unwrap();
+                        match emu.step_until_frame_ready() {
+                            Ok(_) => {
+                                let framebuf = egui::ColorImage::from_rgba_unmultiplied(
+                                    [256, 240],
+                                    emu.get_video_rgba(),
+                                );
+                                drop(emu);
+                                tex_clone.lock().unwrap().set(framebuf, TEX_OPTS);
+                            }
+
+                            Err(_) => {
+                                // TODO: handle errors here
+                                // might need a another channel
+                                drop(emu);
+                                // self.stop_emulation();
+                                // self.add_message(e);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
         let audio = AudioHandler::new(&emu, !cfg.disable_audio, 1024);
-        let fps = FpsHandler::new(60);
+        // let fps = FpsHandler::new(60);
 
         let mut res = Self {
             emu,
+            emu_thread: thread,
+            emu_sender: send,
             tex,
             audio,
             gamepads: GamepadHandler::new(),
             file_dialog: FileDialogHandler::new(),
-            fps,
-
+            // fps,
             cfg,
             state: Default::default(),
         };
@@ -732,20 +806,38 @@ impl AppCtx {
 
     fn resume_emulation(&mut self) {
         self.state.emulation = EmulationState::Running;
+        self.emu_sender
+            .send((
+                self.state.emulation,
+                self.state.current_rom_header.region.frame_rate() as u32,
+            ))
+            .unwrap();
         self.audio.resume();
     }
 
     fn pause_emulation(&mut self) {
         self.state.emulation = EmulationState::Paused;
+        self.emu_sender
+            .send((
+                self.state.emulation,
+                self.state.current_rom_header.region.frame_rate() as u32,
+            ))
+            .unwrap();
         self.audio.pause();
     }
 
     fn stop_emulation(&mut self) {
         self.state.emulation = EmulationState::Stopped;
         self.audio.pause();
+        self.emu_sender
+            .send((
+                self.state.emulation,
+                self.state.current_rom_header.region.frame_rate() as u32,
+            ))
+            .unwrap();
 
         // clear screen
-        self.tex.set(
+        self.tex.lock().unwrap().set(
             egui::ColorImage::filled([256, 240], egui::Color32::TRANSPARENT),
             TEX_OPTS,
         );
@@ -861,7 +953,7 @@ impl AppCtx {
 
         new_emu.set_settings(self.cfg.nes_settings.clone());
         new_emu.set_audio_rate(self.audio.sample_rate() as f64);
-        self.fps.set_framerate(new_emu.frame_rate() as usize);
+        // self.fps.set_framerate(new_emu.frame_rate() as u32);
 
         if let Some(pal) = self.cfg.palettes.front() {
             new_emu.palette = pal.clone();
@@ -1058,8 +1150,7 @@ impl AppCtx {
 
                     {
                         let mut emu = self.emu_lock();
-                        let header = emu.rom_info();
-                        if header.format == rom::HeaderFormat::Fds {
+                        if emu.rom_info().is_fds_disk() {
                             ui.separator();
                             if ui.button("💿 Insert next FDS disk/side").clicked() {
                                 emu.mapper.special_input();
@@ -1142,7 +1233,14 @@ impl AppCtx {
                     style.spacing.slider_width *= 0.7;
 
                     ui.separator();
-                    ui.label("🔊 Vol");
+                    let vol_str = if self.audio.muted {
+                        "🔈 Vol"
+                    } else {
+                        "🔊 Vol"
+                    };
+                    if ui.button(vol_str).clicked() {
+                        self.handle_action(EmulatorAction::ToggleMute);
+                    }
 
                     let volume_slider = egui::Slider::new(&mut self.cfg.volume, 0.0..=2.0);
                     ui.add(volume_slider);
@@ -1183,123 +1281,117 @@ impl AppCtx {
             .collapsible(true)
             .resizable([true, true])
             .open(&mut settings_open)
-            .show(ui, |ui| egui::ScrollArea::vertical().show(ui, |ui| {
-                #[cfg(not(target_arch = "wasm32"))]
-                if ui.button("🎨 Load palette file...").clicked() {
-                    self.file_dialog.open_dialog(FileOpenKind::NesPalette, "Select a NES palette file", "NES PAL file", &["pal"]);
-                }
-
-                ui.separator();
-
-                let settings = &mut self.cfg.nes_settings;
-
-                ui.collapsing(" Misc", |ui| {
-                    ui.checkbox(&mut self.cfg.battery_save_enabled, "Enable battery saving")
-                    .on_hover_text("This will dump work RAM in the same directory as the ROM's.");
-
-                    #[cfg(all(not(target_arch = "wasm32"), feature = "savestates"))]
-                    ui.checkbox(&mut self.cfg.restore_session, "Automatically restore last session when a game is reopened later");
-
-                    ui.checkbox(&mut settings.random_ram, "Enable randomized RAM at startup")
-                    .on_hover_text("Some games (such as Final Fantasy) use the random state of RAM at boot to seed their rngs");
-
-                    ui.checkbox(&mut self.cfg.hide_exit_dialog, "Show exit dialog");
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.selectable_value(&mut self.state.settings_tab, SettingsTab::General, "General");
+                    ui.selectable_value(&mut self.state.settings_tab, SettingsTab::Nes, "NES");
                 });
-
                 ui.separator();
 
-                ui.collapsing("📺 Video", |ui| {
-                    ui.checkbox(&mut settings.disable_sprite_limit, "Show more than 8 sprites per scaline")
-                    .on_hover_text("Reduces flickering, but may show glitches in some games");
-                    ui.checkbox(&mut settings.enable_accurate_ppu, "Enable fully emulated OAM read and VRAM read")
-                    .on_hover_text("Fully emulates OAM and VRAM read with its quirks, might decrease performance");
-                    ui.checkbox(&mut settings.enable_background, "Enable background tiles");
-                    ui.checkbox(&mut settings.enable_sprites, "Enable sprite tiles");
-                    ui.checkbox(&mut settings.pal_borders, "Show side PAL black borders (unimplemented)");
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    match self.state.settings_tab {
+                        SettingsTab::General => {
+                            #[cfg(all(not(target_arch = "wasm32"), feature = "savestates"))]
+                            ui.checkbox(&mut self.cfg.restore_session, "Automatically restore last session when a game is reopened later");
 
-                    // if self.audio.is_enabled() {
-                    //     ui.label("Video refresh rate:").on_hover_text("Higer video refresh rate might reduce input latency");
-                    //     ui.indent("Refresh rates", |ui| {
-                    //         ui.radio_value(&mut self.cfg.refresh_rate, RefreshRate::Fps60, "60fps");
-                    //         ui.radio_value(&mut self.cfg.refresh_rate, RefreshRate::Fps120, "120fps");
-                    //         ui.radio_value(&mut self.cfg.refresh_rate, RefreshRate::Fps144, "144fps");
-                    //     });
-                    //     self.state.fps = self.cfg.refresh_rate.fps();
-                    // }
-                });
+                            ui.checkbox(&mut self.cfg.hide_exit_dialog, "Show exit dialog");
 
-                ui.separator();
+                            ui.collapsing("🔊 Audio", |ui| {
+                                ui.checkbox(&mut self.cfg.disable_audio, "Disable audio");
 
-                ui.collapsing("🔊 Audio", |ui| {
-                    ui.checkbox(&mut self.cfg.disable_audio, "Disable audio and drive emulation by video")
-                    .on_hover_text("By driving emulation with video, we get better frame pacing and no skipped frames");
+                                ui.add_enabled_ui(self.audio.is_enabled(), |ui| {
+                                    if let Some(curr_device) = self.audio.current_device().cloned() {
+                                        ui.label("Audio device");
+                                        ui.indent("Audio devices", |ui| {
+                                            let mut selected_device = curr_device.clone();
 
+                                            if let Some(default) = self.audio.host.default_output_device() {
+                                                ui.radio_value(&mut selected_device, default, "Default audio device");
+                                            }
 
-                    ui.add_enabled_ui(self.audio.is_enabled(), |ui| {
-                        if let Some(curr_device) = self.audio.current_device().cloned() {
-                            ui.label("Audio device");
-                            ui.indent("Audio devices", |ui| {
-                                let mut selected_device = curr_device.clone();
+                                            if let Ok(devices) = self.audio.host.output_devices() {
+                                                for dev in devices.into_iter() {
+                                                    let descr = dev.description().unwrap();
+                                                    let name = descr.name();
+                                                    ui.radio_value(&mut selected_device, dev, name);
+                                                }
 
-                                if let Some(default) = self.audio.host.default_output_device() {
-                                    ui.radio_value(&mut selected_device, default, "Default audio device");
+                                                if curr_device != selected_device {
+                                                    self.audio.set_ouput_device(selected_device, &self.emu);
+                                                    self.emu_lock().set_audio_rate(self.audio.sample_rate() as f64);
+                                                }
+                                            }
+                                        });
+                                    }
+                                });
+                            });
+
+                            // ui.label("Audio sample rate:");
+                            // ui.indent("Sample rates", |ui| {
+                            //     ui.radio_value(&mut self.cfg.sample_rate, 32000, "32000hz");
+                            //     ui.radio_value(&mut self.cfg.sample_rate, 44100, "44100hz");
+                            //     ui.radio_value(&mut self.cfg.sample_rate, 48000, "48000hz");
+                            //     ui.radio_value(&mut self.cfg.sample_rate, 96000, "96000hz");
+                            // });
+
+                            // ui.label("Audio latency in milliseconds");
+                            // let drag = egui::DragValue::new(&mut self.cfg.latency)
+                            //     .range(1..=100)
+                            //     .clamp_existing_to_range(true)
+                            //     .update_while_editing(false);
+                            // ui.add(drag);
+                        }
+
+                        SettingsTab::Nes => {
+                            #[cfg(not(target_arch = "wasm32"))]
+                            if ui.button("🎨 Load palette file...").clicked() {
+                                self.file_dialog.open_dialog(FileOpenKind::NesPalette, "Select a NES palette file", "NES PAL file", &["pal"]);
+                            }
+
+                            ui.separator();
+
+                            let settings = &mut self.cfg.nes_settings;
+
+                            ui.collapsing("📺 Video", |ui| {
+                                ui.checkbox(&mut settings.disable_sprite_limit, "Show more than 8 sprites per scaline")
+                                .on_hover_text("Reduces flickering, but may show glitches in some games");
+                                ui.checkbox(&mut settings.enable_accurate_ppu, "Enable fully emulated OAM read and VRAM read")
+                                .on_hover_text("Fully emulates OAM and VRAM read with its quirks, might decrease performance");
+                                ui.checkbox(&mut settings.enable_background, "Enable background tiles");
+                                ui.checkbox(&mut settings.enable_sprites, "Enable sprite tiles");
+                                ui.checkbox(&mut settings.pal_borders, "Show side PAL black borders (unimplemented)");
+                            });
+
+                            ui.separator();
+
+                            ui.collapsing("🔊 Audio", |ui| {
+                                ui.checkbox(&mut settings.enable_pulse0, "Enable pulse 0 channel");
+                                ui.checkbox(&mut settings.enable_pulse1, "Enable pulse 1 channel");
+                                ui.checkbox(&mut settings.enable_triangle, "Enable triangle channel");
+                                ui.checkbox(&mut settings.enable_noise, "Enable noise channel");
+                                ui.checkbox(&mut settings.enable_dmc, "Enable dmc channel");
+                                ui.checkbox(&mut settings.enable_ext_audio, "Enable external sound chip");
+                            });
+
+                            ui.separator();
+
+                            #[cfg(not(target_arch = "wasm32"))]
+                            ui.collapsing("💿 Famicon Disk System (FDS)", |ui| {
+                                if ui.button("👢 Load FDS BIOS file...").clicked() {
+                                    self.file_dialog.open_dialog(FileOpenKind::FdsBios, "Select FDS BIOS file", "FDS BIOS", &["rom"]);
                                 }
 
-                                if let Ok(devices) = self.audio.host.output_devices() {
-                                    for dev in devices.into_iter() {
-                                        let descr = dev.description().unwrap();
-                                        let name = descr.name();
-                                        ui.radio_value(&mut selected_device, dev, name);
-                                    }
-
-                                    if curr_device != selected_device {
-                                        self.audio.set_ouput_device(selected_device, &self.emu);
-                                        self.emu_lock().set_audio_rate(self.audio.sample_rate() as f64);
-                                    }
+                                if let Some(path) = &self.cfg.bios_path {
+                                    ui.separator();
+                                    ui.label(format!("👢 BIOS selected at: {:?}", path));
                                 }
                             });
                         }
-                    });
 
-                    // ui.label("Audio sample rate:");
-                    // ui.indent("Sample rates", |ui| {
-                    //     ui.radio_value(&mut self.cfg.sample_rate, 32000, "32000hz");
-                    //     ui.radio_value(&mut self.cfg.sample_rate, 44100, "44100hz");
-                    //     ui.radio_value(&mut self.cfg.sample_rate, 48000, "48000hz");
-                    //     ui.radio_value(&mut self.cfg.sample_rate, 96000, "96000hz");
-                    // });
-
-                    // ui.label("Audio latency in milliseconds");
-                    // let drag = egui::DragValue::new(&mut self.cfg.latency)
-                    //     .range(1..=100)
-                    //     .clamp_existing_to_range(true)
-                    //     .update_while_editing(false);
-                    // ui.add(drag);
-
-                    let settings = &mut self.cfg.nes_settings;
-
-                    ui.checkbox(&mut settings.enable_pulse0, "Enable pulse 0 channel");
-                    ui.checkbox(&mut settings.enable_pulse1, "Enable pulse 1 channel");
-                    ui.checkbox(&mut settings.enable_triangle, "Enable triangle channel");
-                    ui.checkbox(&mut settings.enable_noise, "Enable noise channel");
-                    ui.checkbox(&mut settings.enable_dmc, "Enable dmc channel");
-                    ui.checkbox(&mut settings.enable_ext_audio, "Enable external sound chip");
+                        SettingsTab::Gb => todo!()
+                    }
                 });
-
-                ui.separator();
-
-                #[cfg(not(target_arch = "wasm32"))]
-                ui.collapsing("💿 Famicon Disk System (FDS)", |ui| {
-                    if ui.button("👢 Load FDS BIOS file...").clicked() {
-                        self.file_dialog.open_dialog(FileOpenKind::FdsBios, "Select FDS BIOS file", "FDS BIOS", &["rom"]);
-                    }
-
-                    if let Some(path) = &self.cfg.bios_path {
-                        ui.separator();
-                        ui.label(format!("👢 BIOS selected at: {:?}", path));
-                    }
-                })
-            }));
+            });
 
         self.state.settings_open = settings_open;
 
@@ -1755,22 +1847,22 @@ impl AppCtx {
                 emu.set_zapper_light_outside(mouse_right);
                 emu.set_zapper_light(self.state.mouse_pos.0, self.state.mouse_pos.1);
 
-                match emu.step_until_frame_ready() {
-                    Ok(_) => {
-                        let framebuf = egui::ColorImage::from_rgba_unmultiplied(
-                            [256, 240],
-                            emu.get_video_rgba(),
-                        );
-                        drop(emu);
-                        self.tex.set(framebuf, TEX_OPTS);
-                    }
+                // match emu.step_until_frame_ready() {
+                //     Ok(_) => {
+                //         let framebuf = egui::ColorImage::from_rgba_unmultiplied(
+                //             [256, 240],
+                //             emu.get_video_rgba(),
+                //         );
+                //         drop(emu);
+                //         self.tex.set(framebuf, TEX_OPTS);
+                //     }
 
-                    Err(e) => {
-                        drop(emu);
-                        self.stop_emulation();
-                        self.add_message(e);
-                    }
-                }
+                //     Err(e) => {
+                //         drop(emu);
+                //         self.stop_emulation();
+                //         self.add_message(e);
+                //     }
+                // }
             }
         } else if self.state.emulation == EmulationState::Stopped {
             egui::Window::new("Start any ROM")
@@ -1802,7 +1894,7 @@ impl eframe::App for AppCtx {
                 egui::Frame::new()
                     .fill(egui::Color32::BLACK.gamma_multiply(0.6))
                     .show(ui, |ui| {
-                        let img = egui::Image::new(&self.tex)
+                        let img = egui::Image::new(&*self.tex.lock().unwrap())
                             .maintain_aspect_ratio(self.cfg.keep_aspect_ratio)
                             .fit_to_exact_size(ui.max_rect().size());
 
@@ -1865,7 +1957,6 @@ impl eframe::App for AppCtx {
         }
 
         ui.request_repaint();
-        self.fps.delay();
 
         #[cfg(not(target_arch = "wasm32"))]
         if !self.cfg.hide_exit_dialog {

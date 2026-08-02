@@ -1,6 +1,6 @@
 use crate::{
     emu::{Mirroring, Region},
-    rom::{HeaderFormat, RomData, get_mapper_name},
+    rom::{HeaderFormat, NesRomData, get_mapper_name},
 };
 use std::{collections::HashMap, io::Read, sync::LazyLock};
 
@@ -41,7 +41,7 @@ pub struct GameDbEntry {
     pub console: u8,
     pub expansions: u8,
 }
-impl From<&GameDbEntry> for RomData {
+impl From<&GameDbEntry> for NesRomData {
     fn from(value: &GameDbEntry) -> Self {
         let chr_size = if value.chr_size > 0 {
             value.chr_size
@@ -113,7 +113,7 @@ impl GamesDb {
 
         let index = self.rom_map.get(&rom_hash).or_else(move || {
             // rom hash not found, try parsing the header and hash prg
-            let header = RomData::parse(rom);
+            let header = NesRomData::parse(rom);
             let prg_size = header.map_or(None, |x| Some(x.prg_size));
 
             match prg_size {

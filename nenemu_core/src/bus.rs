@@ -1,9 +1,9 @@
 use std::array;
 
 use crate::{
-    emu::{Mirroring, NesEmulator},
+    Mirroring, NesEmulator,
     mapper::{self, BoxedMapper, Mapper},
-    rom::{self, Cart, Disk, RomData},
+    rom::{self, Cart, Disk, NesRomData},
 };
 
 pub trait BankCfg {}
@@ -122,7 +122,7 @@ pub const WRAM_START: u16 = 0x6000;
 pub const VRAM_START: u16 = 0x2000;
 
 impl Banking<PrgBank> {
-    pub fn new_prg(header: &RomData, pages_count: u16) -> Self {
+    pub fn new_prg(header: &NesRomData, pages_count: u16) -> Self {
         let mut res = Self::new(PRG_START, header.prg_size, 32 * 1024, pages_count);
         res.fix_last_page();
         res
@@ -134,19 +134,19 @@ impl Banking<PrgBank> {
 }
 
 impl Banking<ChrBank> {
-    pub fn new_chr(header: &RomData, pages_count: u16) -> Self {
+    pub fn new_chr(header: &NesRomData, pages_count: u16) -> Self {
         Self::new(0, header.chr_size, 8 * 1024, pages_count)
     }
 }
 
 impl Banking<WramBank> {
-    pub fn new_wram(header: &RomData, pages_count: u16) -> Self {
+    pub fn new_wram(header: &NesRomData, pages_count: u16) -> Self {
         Self::new(WRAM_START, header.wram_size, 8 * 1024, pages_count)
     }
 }
 
 impl Banking<VramBank> {
-    pub fn new_vram(header: &RomData) -> Self {
+    pub fn new_vram(header: &NesRomData) -> Self {
         let mut res = Self::new(VRAM_START, 2 * 1024, 4 * 1024, 4);
         res.mirror(&header.mirroring);
         res
@@ -195,7 +195,7 @@ pub struct BanksHandler {
 }
 
 impl BanksHandler {
-    pub fn new(header: &RomData) -> Self {
+    pub fn new(header: &NesRomData) -> Self {
         Self {
             prg: Banking::new_prg(header, 2),
             chr: Banking::new_chr(header, 1),
@@ -302,7 +302,7 @@ pub struct Bus {
     pub nmi: bool,
     pub irq: IrqFlags,
 
-    pub header: RomData,
+    pub header: NesRomData,
     pub banks: BanksHandler,
 }
 
@@ -345,7 +345,7 @@ impl serde::Serialize for Bus {
 
 impl Bus {
     pub fn with_ram_64kb() -> Self {
-        let header = RomData {
+        let header = NesRomData {
             wram_size: 64 * 1024,
             ..Default::default()
         };
@@ -417,7 +417,7 @@ impl Bus {
     }
 
     pub fn with_disk(disk: Disk, bios: Vec<u8>) -> (Self, BoxedMapper) {
-        let mut header = RomData::default();
+        let mut header = NesRomData::default();
         // only for debug porpuoses
         header.title = "FDS Disk Game".to_string();
         header.format = rom::HeaderFormat::Fds;

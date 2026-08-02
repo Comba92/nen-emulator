@@ -12,7 +12,7 @@ use crate::{
     joypad::Joypad,
     mapper::{self, Mapper},
     ppu::Ppu2C02,
-    rom::{Cart, Disk, RomData, is_valid_bios, is_valid_fds, is_valid_ines},
+    rom::{Cart, Disk, NesRomData, is_valid_bios, is_valid_fds, is_valid_ines},
     utils::{AvgResampler, RingBuffer},
 };
 
@@ -186,7 +186,7 @@ impl NesEmulator {
         self.region().frame_rate()
     }
 
-    pub fn rom_info(&self) -> &RomData {
+    pub fn rom_info(&self) -> &NesRomData {
         &self.mem.header
     }
 
@@ -334,9 +334,6 @@ impl NesEmulator {
     }
 
     pub fn audio_queued(&self) -> usize {
-        // queued : CLOCKRATE = x : TargetRate
-        // (self.output.audiobuf.queued() as f64 * rate as f64 / self.clock_rate() as f64).round()
-        //     as usize
         self.output.audiobuf.queued()
     }
 
@@ -483,7 +480,7 @@ impl NesEmulator {
 pub struct NesOutput {
     pub(crate) frame_ready: bool,
     pub(crate) frame_number: usize,
-    // These get reallocated every time an emulator is created, consider changing to Vector
+    // TODO: These get reallocated every time an emulator is created, consider changing to Vector
     pub(crate) videobuf_back: Box<Framebuf>,
     pub(crate) videobuf_view: Box<Framebuf>,
     pub audiobuf: RingBuffer<f32>,
@@ -493,11 +490,7 @@ pub struct NesOutput {
 impl NesOutput {
     pub fn new(region: &Region) -> Self {
         Self {
-            // audiobuf: RingBuffer::new(
-            //     (AUDIO_FRAMES_BUFFERED as f32 * (region.clock_rate() as f32 / region.frame_rate()))
-            //         as usize,
-            // ),
-            audiobuf: RingBuffer::new(48000),
+            audiobuf: RingBuffer::new(48000 / 60 * AUDIO_FRAMES_BUFFERED),
             resampler: AvgResampler::new(region.clock_rate() as f64, 48000.0),
             // lpf: LowPassFilter::new(region.clock_rate() as f64, 48000.0),
             ..Default::default()

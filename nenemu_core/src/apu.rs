@@ -1,6 +1,6 @@
 use crate::{
+    NesEmulator, Region,
     bus::{self, IrqFlags},
-    emu::{NesEmulator, Region},
     utils::{byte_set_hi, byte_set_lo},
 };
 
