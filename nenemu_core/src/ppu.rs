@@ -616,7 +616,7 @@ impl Ppu2C02 {
 
 impl NesEmulator {
     // https://www.nesdev.org/wiki/PPU_registers
-    pub fn ppu_reg_read(&mut self, addr: u16) -> u8 {
+    pub(crate) fn ppu_reg_read(&mut self, addr: u16) -> u8 {
         let ppu = &mut self.ppu;
 
         let res = match addr & 0x2007 {
@@ -689,7 +689,7 @@ impl NesEmulator {
     }
 
     // https://www.nesdev.org/wiki/PPU_registers
-    pub fn ppu_reg_write(&mut self, addr: u16, val: u8) {
+    pub(crate) fn ppu_reg_write(&mut self, addr: u16, val: u8) {
         let ppu = &mut self.ppu;
 
         match addr & 0x2007 {
@@ -869,7 +869,7 @@ impl NesEmulator {
     // https://forums.nesdev.org/viewtopic.php?t=25833
 
     // https://www.nesdev.org/wiki/PPU_rendering
-    pub fn ppu_step(&mut self) {
+    pub(crate) fn ppu_step(&mut self) {
         self.ppu.handle_mask_write();
 
         match self.ppu.render_state {

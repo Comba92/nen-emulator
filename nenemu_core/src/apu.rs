@@ -544,7 +544,7 @@ const PULSE_STRENGTH: f32 = 95.88 / ((8128.0 / PULSE_MAX) + 100.0);
 pub const EXT_MIX: f32 = PULSE_STRENGTH / PULSE_MAX;
 
 impl NesEmulator {
-    pub fn io_reg_read(&mut self, addr: u16) -> u8 {
+    pub(crate) fn io_reg_read(&mut self, addr: u16) -> u8 {
         let apu = &mut self.apu;
         match addr {
             0x4015 => {
@@ -569,7 +569,7 @@ impl NesEmulator {
         }
     }
 
-    pub fn io_reg_write(&mut self, addr: u16, val: u8) {
+    pub(crate) fn io_reg_write(&mut self, addr: u16, val: u8) {
         let apu = &mut self.apu;
 
         match addr {
@@ -680,7 +680,7 @@ impl NesEmulator {
         }
     }
 
-    pub fn dmc_sample_read(&mut self, sample: u8) {
+    pub(crate) fn dmc_sample_read(&mut self, sample: u8) {
         let dmc = &mut self.apu.dmc;
 
         dmc.buffer = Some(sample);
@@ -702,7 +702,7 @@ impl NesEmulator {
         }
     }
 
-    pub fn apu_step(&mut self) {
+    pub(crate) fn apu_step(&mut self) {
         // should be clocked each second cpu cycle, but we have doubled the apu cycles steps
         self.frame_count_step();
 

@@ -1,6 +1,6 @@
 use crate::{
     bus::{Banking, Bus, CpuHandler, IrqFlags, PpuHandler},
-    emu::Mirroring,
+    emu::{Mirroring, NesError},
     utils::{byte_set_hi, byte_set_lo},
 };
 
@@ -49,7 +49,7 @@ pub trait Mapper: Send {
 
 pub type BoxedMapper = Box<dyn Mapper>;
 
-pub fn new(mem: &mut Bus) -> Result<BoxedMapper, String> {
+pub fn new(mem: &mut Bus) -> Result<BoxedMapper, NesError> {
     let mapper: BoxedMapper = match mem.header.mapper {
         0 => NROM::new(mem),
         1 => MMC1::new(mem),
@@ -91,7 +91,7 @@ pub fn new(mem: &mut Bus) -> Result<BoxedMapper, String> {
         97 => IremTAMS1::new(mem),
         184 => Sunsoft1::new(mem),
         206 | 154 | 95 | 88 | 76 => DxROM::new(mem),
-        _ => return Err(format!("mapper {} not implemented", mem.header.mapper)),
+        _ => return Err(NesError::MapperNotImplemented(mem.header.mapper)),
     };
 
     Ok(mapper)

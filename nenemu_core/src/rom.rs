@@ -1,7 +1,11 @@
 use std::fmt;
 
 use crate::{
-    emu::{Mirroring, Region},
+    emu::{
+        Mirroring,
+        NesError::{self, *},
+        Region,
+    },
     games_db::GAMES_DB,
 };
 
@@ -26,7 +30,7 @@ impl Default for Cart {
 }
 
 impl Cart {
-    pub fn from_bytes<B: AsRef<[u8]>>(bytes: B) -> Result<Self, &'static str> {
+    pub fn from_bytes<B: AsRef<[u8]>>(bytes: B) -> Result<Self, NesError> {
         let bytes = bytes.as_ref();
         let header = RomData::from_db(bytes)?;
 
@@ -163,10 +167,10 @@ impl RomData {
     }
 
     pub fn is_fds_disk(&self) -> bool {
-        self.mapper == 20
+        self.mapper == 20 || self.format == HeaderFormat::Fds
     }
 
-    pub fn from_db<B: AsRef<[u8]>>(bytes: B) -> Result<Self, &'static str> {
+    pub fn from_db<B: AsRef<[u8]>>(bytes: B) -> Result<Self, NesError> {
         let bytes = bytes.as_ref();
         let header = Self::parse(bytes);
 
@@ -194,23 +198,25 @@ impl RomData {
         res
     }
 
-    pub fn parse<B: AsRef<[u8]>>(bytes: B) -> Result<Self, &'static str> {
+    pub fn parse<B: AsRef<[u8]>>(bytes: B) -> Result<Self, NesError> {
         let bytes = bytes.as_ref();
 
         if is_valid_unif(bytes) {
-            return Err("valid UNIF ROM, but not supported by this emulator");
+            return Err(CartInvalid(
+                "valid UNIF ROM, but not supported by this emulator",
+            ));
         }
 
         if !is_valid_ines(bytes) {
-            return Err("not a valid iNES/NES2.0 ROM");
+            return Err(CartInvalid("not a valid iNES/NES2.0 ROM"));
         }
 
         if bytes[7] & 0x3 == 1 {
-            return Err("VS System roms are not supported");
+            return Err(CartInvalid("VS System roms are not supported"));
         } else if bytes[7] & 0x3 == 2 {
-            return Err("Playchoice 10 roms are not supported");
+            return Err(CartInvalid("Playchoice 10 roms are not supported"));
         } else if bytes[7] & 0x3 == 3 {
-            return Err("Extended console types are not supported");
+            return Err(CartInvalid("Extended console types are not supported"));
         }
 
         let mut header = RomData::default();
@@ -237,7 +243,7 @@ impl RomData {
         if version == 0x08 {
             // NES 2.0
             if bytes[9] & 0xf == 0x0f || bytes[9] & 0xf0 == 0xf0 {
-                return Err("exponent-multiplier notation not supported");
+                return Err(CartInvalid("exponent-multiplier notation not supported"));
             }
 
             header.format = HeaderFormat::Nes2_0;
@@ -389,11 +395,11 @@ impl Disk {
         data.push(0xad);
     }
 
-    pub fn from_bytes<B: AsRef<[u8]>>(bytes: B) -> Result<Self, &'static str> {
+    pub fn from_bytes<B: AsRef<[u8]>>(bytes: B) -> Result<Self, NesError> {
         let bytes = bytes.as_ref();
 
         if bytes.len() < Self::SIDE_SIZE {
-            return Err("not a valid FDS rom");
+            return Err(DiskInvalid("not a valid FDS rom"));
         }
 
         let (rom_start, sides_count) = if &bytes[..4] == Self::FDS_MAGIC {
@@ -403,7 +409,7 @@ impl Disk {
         };
 
         if sides_count == 0 {
-            return Err("not a valid FDS rom");
+            return Err(DiskInvalid("not a valid FDS rom"));
         }
 
         let mut sides_bytes = Vec::new();
@@ -419,10 +425,10 @@ impl Disk {
             side_bytes.push(0x80);
 
             if img[0] != 1 {
-                return Err("no valid side info block");
+                return Err(DiskInvalid("no valid side info block"));
             }
             if &img[1..15] != Self::FDS_NINTENDO_STR {
-                return Err("not a valid FDS rom");
+                return Err(DiskInvalid("not a valid FDS rom"));
             }
 
             let mut side_data = SideData::default();
@@ -440,7 +446,7 @@ impl Disk {
             side_bytes.push(0xad);
 
             if img[0x38] != 2 {
-                return Err("no valid file amount block");
+                return Err(DiskInvalid("no valid file amount block"));
             }
 
             let files_count = img[0x39];
@@ -488,7 +494,7 @@ impl Disk {
                 // TODO: handle case when we go over 65500 bytes
                 parsed_bytes += 0x10 + file_size + 1;
                 if parsed_bytes > Self::SIDE_SIZE {
-                    return Err("Side data is bigger than 65500 bytes");
+                    return Err(DiskInvalid("Side data is bigger than 65500 bytes"));
                 }
 
                 file = &file[0x10 + file_size + 1..];

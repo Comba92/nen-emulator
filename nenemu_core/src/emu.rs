@@ -28,8 +28,8 @@ pub const SCREEN_HEIGHT: isize = 240;
 pub const FRAMEBUF_SIZE: usize = SCREEN_WIDTH as usize * SCREEN_HEIGHT as usize * 4;
 pub const AUDIO_FRAMES_BUFFERED: usize = 16;
 
-pub const BATTERY_SAVE_EXTENSION: &str = "srm";
-pub(crate) type LoadError = Box<dyn std::error::Error>;
+pub const BATTERY_SAVE_EXTENSION: &str = "sram";
+type LoadError = Box<dyn std::error::Error>;
 
 #[cfg_attr(feature = "savestates", derive(serde::Serialize, serde::Deserialize))]
 pub struct NesEmulator {
@@ -81,6 +81,24 @@ impl Region {
     }
 }
 
+#[derive(Debug)]
+pub enum NesError {
+    BiosInvalid,
+    NoBios,
+    BatteryInvalid,
+    BatteryNotFound,
+    MapperNotImplemented(u16),
+    CartInvalid(&'static str),
+    DiskInvalid(&'static str),
+}
+
+impl std::fmt::Display for NesError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+impl std::error::Error for NesError {}
+
 impl NesEmulator {
     pub fn empty() -> Self {
         Self::new(Game::default(), None, NesSettings::default()).unwrap()
@@ -102,7 +120,7 @@ impl NesEmulator {
         }
     }
 
-    fn new(game: Game, bios: Option<Vec<u8>>, settings: NesSettings) -> Result<Self, LoadError> {
+    fn new(game: Game, bios: Option<Vec<u8>>, settings: NesSettings) -> Result<Self, NesError> {
         let (mem, mapper) = match game {
             Game::Cart(cart) => {
                 let mut mem = Bus::with_cart(cart);
@@ -110,10 +128,10 @@ impl NesEmulator {
                 (mem, mapper)
             }
             Game::Disk(disk) => {
-                let bios = bios.ok_or("no FDS BIOS provided")?;
+                let bios = bios.ok_or(NesError::NoBios)?;
 
                 if !is_valid_bios(&bios) {
-                    return Err("not a valid FDS BIOS provided".into());
+                    return Err(NesError::BiosInvalid.into());
                 }
                 Bus::with_disk(disk, bios)
             }
@@ -136,8 +154,8 @@ impl NesEmulator {
         if emu.settings.random_ram {
             // Final Fantasy, River City Ransom, Apple Town Story[5], Impossible Mission II[6] amongst others
             // Use the semi-random contents of RAM on powerup to seed their RNGs.
-            getrandom::fill(&mut emu.mem.ram)?;
-            getrandom::fill(&mut emu.mem.wram)?;
+            _ = getrandom::fill(&mut emu.mem.ram);
+            _ = getrandom::fill(&mut emu.mem.wram);
         }
 
         // Start from RST interrupt handler
@@ -361,9 +379,7 @@ impl NesEmulator {
                 // https://www.nesdev.org/wiki/MMC1#SxROM_board_types
                 // Even if the SOROM and SZROM boards utilizes a battery, it is connected to only one PRG-RAM chip. The first RAM chip will not retain its data, but the second one will.
                 return Some(&self.mem.wram[8 * 1024..]);
-            }
-
-            if self.rom_info().mapper == 5 && self.mem.wram.len() == 16 * 1024 {
+            } else if self.rom_info().mapper == 5 && self.mem.wram.len() == 16 * 1024 {
                 // https://www.nesdev.org/wiki/MMC5#Other_PRG-RAM_notes
                 // Games with 16K PRG-RAM only battery-save the first 8K.
                 return Some(&self.mem.wram[..8 * 1024]);
@@ -375,13 +391,13 @@ impl NesEmulator {
         }
     }
 
-    pub fn load_battery(&mut self, bytes: &[u8]) -> Result<(), LoadError> {
+    pub fn load_battery(&mut self, bytes: &[u8]) -> Result<(), NesError> {
         // TODO: FDS disk load
 
         if !self.rom_info().has_battery {
             return Ok(());
         } else if bytes.len() != self.mem.wram.len() {
-            return Err("invalid save ram dump provided, size don't match".into());
+            return Err(NesError::BatteryInvalid);
         } else {
             if self.rom_info().mapper == 1 && self.mem.wram.len() == 16 * 1024 {
                 // https://www.nesdev.org/wiki/MMC1#SxROM_board_types
@@ -416,7 +432,7 @@ impl NesEmulator {
         }
     }
 
-    pub fn load_battery_from_file<P: AsRef<Path>>(&mut self, path: P) -> Result<(), LoadError> {
+    pub fn load_battery_from_file<P: AsRef<Path>>(&mut self, path: P) -> io::Result<()> {
         if !self.rom_info().has_battery {
             return Ok(());
         }
@@ -425,19 +441,17 @@ impl NesEmulator {
         let mut load_path = PathBuf::from(path.as_ref());
         load_path.set_extension(BATTERY_SAVE_EXTENSION);
 
-        if let Ok(file) = fs::File::open(&load_path) {
-            let mut buf = Vec::new();
-            let mut reader = std::io::BufReader::new(file);
-            reader.read_to_end(&mut buf)?;
-            // file.read_to_end(&mut buf)?;
-            self.load_battery(&buf)
-        } else {
-            Err("no sram dump file found".into())
-        }
+        let file = fs::File::open(&load_path)?;
+        let mut buf = Vec::new();
+        let mut reader = std::io::BufReader::new(file);
+        reader.read_to_end(&mut buf)?;
+        // file.read_to_end(&mut buf)?;
+        self.load_battery(&buf)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))
     }
 
     #[cfg(feature = "savestates")]
-    pub fn savestate<P: AsRef<Path>>(&self, path: P) -> Result<(), LoadError> {
+    pub fn savestate<P: AsRef<Path>>(&self, path: P) -> io::Result<()> {
         let file = std::fs::File::create(path)?;
         // pot::to_writer(self, file).map_err(|e| e.into())
         let writer = std::io::BufWriter::new(file);
@@ -445,7 +459,7 @@ impl NesEmulator {
     }
 
     #[cfg(feature = "savestates")]
-    pub fn loadstate<P: AsRef<Path>>(&mut self, path: P) -> Result<(), LoadError> {
+    pub fn loadstate<P: AsRef<Path>>(&mut self, path: P) -> io::Result<()> {
         let file = std::fs::File::open(path)?;
         let reader = std::io::BufReader::new(file);
         let mut new_emu: NesEmulator = pot::from_reader(reader)?;
@@ -553,7 +567,7 @@ impl Default for Game {
 }
 
 impl Game {
-    pub fn from_bytes<B: AsRef<[u8]>>(bytes: B) -> Result<Self, LoadError> {
+    pub fn from_bytes<B: AsRef<[u8]>>(bytes: B) -> Result<Self, NesError> {
         let bytes = bytes.as_ref();
 
         if is_valid_ines(bytes) {
@@ -592,6 +606,10 @@ pub fn read_file_maybe_zipped<P: AsRef<Path>>(path: P) -> io::Result<Vec<u8>> {
     }
 }
 
+pub fn read_bytes_maybe_zipped<B: AsRef<[u8]>>(input: B) -> Vec<u8> {
+    read_zip_file_from_bytes(&input).unwrap_or(input.as_ref().to_owned())
+}
+
 pub fn read_zip_file_from_bytes<B: AsRef<[u8]>>(input: B) -> io::Result<Vec<u8>> {
     let mut reader = io::BufReader::new(input.as_ref());
     let unzipped = zip::read::read_zipfile_from_stream(&mut reader)?;
@@ -612,8 +630,12 @@ pub fn read_zip_file_from_bytes<B: AsRef<[u8]>>(input: B) -> io::Result<Vec<u8>>
     }
 }
 
-pub fn read_bytes_maybe_zipped<B: AsRef<[u8]>>(input: B) -> Vec<u8> {
-    read_zip_file_from_bytes(&input).unwrap_or(input.as_ref().to_owned())
+fn read_rom_maybe_zipped<B: AsRef<[u8]>>(bytes: B) -> Result<Game, LoadError> {
+    Game::from_bytes(&bytes).or_else(|_| {
+        read_zip_file_from_bytes(bytes) // may be zipped
+            .map_err(|e| e.into())
+            .and_then(|unzipped| Game::from_bytes(unzipped).map_err(|e| e.into()))
+    })
 }
 
 pub fn read_file_buffered<P: AsRef<Path>>(path: P) -> io::Result<Vec<u8>> {
@@ -675,10 +697,6 @@ impl<'a> NesBuilder<'a> {
         self
     }
 
-    pub fn build_empty(self) -> NesEmulator {
-        NesEmulator::empty()
-    }
-
     pub fn build_with_rom<R: 'a + AsRef<[u8]>>(self, rom: R) -> Result<NesEmulator, LoadError> {
         Self::default().with_rom(&rom).build()
     }
@@ -686,56 +704,43 @@ impl<'a> NesBuilder<'a> {
     pub fn build(self) -> Result<NesEmulator, LoadError> {
         // games might be zipped!
 
+        let bios = self
+            .bios
+            .ok_or(io::Error::new(io::ErrorKind::Other, ""))
+            .and_then(|bios| match bios {
+                RomSource::Bytes(bytes) => Ok(read_bytes_maybe_zipped(bytes)),
+                RomSource::FilePath(path) => read_file_maybe_zipped(path),
+            });
+
         if self.boot_bios_only {
-            return match self.bios {
-                Some(bios) => {
-                    let bios = match bios {
-                        RomSource::Bytes(bytes) => read_zip_file_from_bytes(bytes)
-                            .map_or_else(|_| bytes.to_owned(), |unzipped| unzipped),
-                        RomSource::FilePath(path) => read_file_maybe_zipped(path)?,
-                    };
-
-                    let empty_disk = Game::Disk(Disk::default());
-                    NesEmulator::new(empty_disk, Some(bios), self.settings)
-                }
-
-                None => Err("no FDS BIOS provided".into()),
-            };
+            let empty_disk = Game::Disk(Disk::default());
+            return NesEmulator::new(empty_disk, Some(bios?), self.settings).map_err(|e| e.into());
         }
 
-        let game = if let Some(rom) = self.rom {
-            match rom {
-                RomSource::Bytes(bytes) => read_zip_file_from_bytes(bytes).map_or_else(
-                    |_| Game::from_bytes(bytes),
-                    |unzipped| Game::from_bytes(&unzipped),
-                )?,
-                RomSource::FilePath(path) => read_file_maybe_zipped(path)
-                    .map_err(|e| e.into())
-                    .and_then(|res| Game::from_bytes(res))?,
+        let game = match self.rom {
+            Some(rom) => match rom {
+                RomSource::Bytes(bytes) => read_rom_maybe_zipped(bytes)?,
+                RomSource::FilePath(path) => {
+                    // read first whole file, then check if it is a valid ROM. If it is not, check if it is zipped
+                    read_file_buffered(path)
+                        .map_err(|e| e.into())
+                        .and_then(|bytes| read_rom_maybe_zipped(bytes))?
+                }
+            },
+            None => {
+                eprintln!("No ROM provided. Defaulting game struct");
+                Game::default()
             }
-        } else {
-            eprintln!("Error reading rom file. Defaulting game struct");
-            Game::default()
         };
 
-        match &game {
+        match game {
             // ignore bios
-            Game::Cart(_) => NesEmulator::new(game, None, self.settings),
+            Game::Cart(_) => NesEmulator::new(game, None, self.settings).map_err(|e| e.into()),
 
             // bios needed
-            Game::Disk(_) => match self.bios {
-                Some(bios) => {
-                    let bios = match bios {
-                        RomSource::Bytes(bytes) => read_zip_file_from_bytes(bytes)
-                            .map_or_else(|_| bytes.to_owned(), |unzipped| unzipped),
-                        RomSource::FilePath(path) => read_file_maybe_zipped(path)?,
-                    };
-
-                    NesEmulator::new(game, Some(bios), self.settings)
-                }
-
-                None => Err("detected FDS game; BIOS required but not provided".into()),
-            },
+            Game::Disk(_) => {
+                NesEmulator::new(game, Some(bios?), self.settings).map_err(|e| e.into())
+            }
         }
     }
 }

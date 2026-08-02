@@ -426,11 +426,11 @@ impl NesEmulator {
         }
     }
 
-    pub fn read_joypad1(&mut self) -> u8 {
+    pub(crate) fn read_joypad1(&mut self) -> u8 {
         self.read(self.joy.player1) | (self.mem.cpu_open_bus & 0xe0)
     }
 
-    pub fn read_joypad2(&mut self) -> u8 {
+    pub(crate) fn read_joypad2(&mut self) -> u8 {
         // TODO: some games seems to not work with this
         // TODO: this only reads zapper for now
         // self.read(self.joy.player2) | (self.mem.cpu_open_bus & 0xe0)
