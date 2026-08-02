@@ -41,7 +41,7 @@ pub struct NesEmulator {
     pub mapper: Box<dyn Mapper>,
 
     #[cfg_attr(feature = "savestates", serde(skip))]
-    pub output: NesOutput,
+    pub(crate) output: NesOutput,
 
     pub palette: NesPalette,
     pub settings: NesSettings,

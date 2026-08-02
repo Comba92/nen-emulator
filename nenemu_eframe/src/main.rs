@@ -2,7 +2,7 @@
 // #![windows_subsystem = "windows"]
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use eframe::egui;
+use eframe::egui::{self, TextureHandle};
 
 use nenemu_core::{
     NesEmulator, NesPalette, NesSettings, joypad,
@@ -94,11 +94,28 @@ fn main() {
     });
 }
 
+type DynError = Box<dyn std::error::Error>;
+
 enum EmulatorHandler {
-    Nes { sys: NesEmulator, info: NesRomData },
-    Gb {},
+    Nes(Box<NesEmulator>, TextureHandle),
+    Gb(),
 }
 impl EmulatorHandler {
+    pub fn empty(c: &eframe::CreationContext) -> Self {
+        let img = egui::ColorImage::filled([256, 240], egui::Color32::TRANSPARENT);
+        let tex = c.egui_ctx.load_texture("emu_present", img, TEX_OPTS);
+
+        let emu = NesEmulator::empty();
+        Self::Nes(Box::new(emu), tex)
+    }
+
+    pub fn new_nes(emu: NesEmulator, c: &egui::Context) -> Self {
+        let img = egui::ColorImage::filled([256, 240], egui::Color32::TRANSPARENT);
+        let tex = c.load_texture("emu_present", img, TEX_OPTS);
+
+        Self::Nes(Box::new(emu), tex)
+    }
+
     pub fn is_nes(&self) -> bool {
         match self {
             Self::Nes { .. } => true,
@@ -110,6 +127,138 @@ impl EmulatorHandler {
         match self {
             Self::Gb { .. } => true,
             _ => false,
+        }
+    }
+
+    pub fn step_once(&mut self) {
+        match self {
+            Self::Nes(sys, _) => sys.step(),
+            _ => todo!(),
+        }
+    }
+
+    pub fn step_one_frame(&mut self) -> Result<(), DynError> {
+        match self {
+            Self::Nes(sys, _) => sys.step_until_frame_ready().map_err(|e| e.into()),
+            _ => todo!(),
+        }
+    }
+
+    pub fn frame_rate(&self) -> usize {
+        match self {
+            Self::Nes(sys, _) => sys.frame_rate() as usize,
+            _ => todo!(),
+        }
+    }
+
+    pub fn get_video(&self) -> &TextureHandle {
+        match self {
+            Self::Nes(_, tex) => tex,
+            _ => todo!(),
+        }
+    }
+
+    pub fn render_video(&mut self) {
+        match self {
+            Self::Nes(sys, tex) => {
+                let framebuf =
+                    egui::ColorImage::from_rgba_unmultiplied([256, 240], sys.get_video_rgba());
+                tex.set(framebuf, TEX_OPTS);
+            }
+            _ => todo!(),
+        }
+    }
+
+    pub fn clear_video(&mut self) {
+        match self {
+            Self::Nes(_, tex) => {
+                let framebuf = egui::ColorImage::filled([256, 240], egui::Color32::GRAY);
+                tex.set(framebuf, TEX_OPTS);
+            }
+            _ => todo!(),
+        }
+    }
+
+    pub fn audio_queued(&self) -> usize {
+        match self {
+            Self::Nes(sys, _) => sys.audio_queued(),
+            _ => todo!(),
+        }
+    }
+
+    pub fn play_audio(&mut self, out: &mut [f32], volume: f32) {
+        match self {
+            Self::Nes(sys, _) => {
+                let samples = sys.get_audio_f32_iter(out.len() / 2);
+                for (i, sample) in samples.enumerate() {
+                    out[2 * i] = sample * volume;
+                    out[2 * i + 1] = sample * volume;
+                }
+            }
+            _ => todo!(),
+        }
+    }
+
+    pub fn set_audio_rate(&mut self, rate: f64) {
+        match self {
+            Self::Nes(sys, _) => sys.set_audio_rate(rate),
+            _ => todo!(),
+        }
+    }
+
+    pub fn clear_audio(&mut self) {
+        match self {
+            Self::Nes(sys, _) => sys.get_audiobuf().clear(),
+            _ => todo!(),
+        }
+    }
+
+    pub fn save_battery_to_file<P: AsRef<Path>>(&self, path: P) -> Result<(), DynError> {
+        match self {
+            Self::Nes(sys, _) => sys
+                .save_battery_to_file(path)
+                .map(|_| ())
+                .map_err(|e| e.into()),
+            _ => todo!(),
+        }
+    }
+
+    pub fn load_battery_from_file<P: AsRef<Path>>(&mut self, rom_path: P) -> Result<(), DynError> {
+        match self {
+            Self::Nes(sys, _) => sys
+                .load_battery_from_file(rom_path)
+                .map(|_| ())
+                .map_err(|e| e.into()),
+            _ => todo!(),
+        }
+    }
+
+    pub fn handle_input<'a>(
+        &'a mut self,
+        input_iter: impl Iterator<Item = &'a EmulatorInput>,
+        mouse: (bool, bool, isize, isize),
+    ) {
+        match self {
+            Self::Nes(sys, _) => {
+                sys.clear_buttons_all();
+                for input in input_iter {
+                    match input {
+                        EmulatorInput::Up => sys.set_button(joypad::JoypadInput::Up, true),
+                        EmulatorInput::Down => sys.set_button(joypad::JoypadInput::Down, true),
+                        EmulatorInput::Left => sys.set_button(joypad::JoypadInput::Left, true),
+                        EmulatorInput::Right => sys.set_button(joypad::JoypadInput::Right, true),
+                        EmulatorInput::A => sys.set_button(joypad::JoypadInput::A, true),
+                        EmulatorInput::B => sys.set_button(joypad::JoypadInput::B, true),
+                        EmulatorInput::Start => sys.set_button(joypad::JoypadInput::Start, true),
+                        EmulatorInput::Select => sys.set_button(joypad::JoypadInput::Select, true),
+                    }
+                }
+
+                sys.set_zapper_trigger(mouse.0);
+                sys.set_zapper_light_outside(mouse.1);
+                sys.set_zapper_light(mouse.2, mouse.3);
+            }
+            _ => todo!(),
         }
     }
 }
@@ -263,22 +412,21 @@ impl GamepadHandler {
     }
 }
 
-fn cpal_callback(emu: &Arc<Mutex<NesEmulator>>, volume: &Arc<Mutex<f32>>, audio_out: &mut [f32]) {
+fn cpal_callback(
+    emu: &Arc<Mutex<EmulatorHandler>>,
+    volume: &Arc<Mutex<f32>>,
+    audio_out: &mut [f32],
+) {
     let mut emu_lock = emu.lock().unwrap();
 
     // hybrid approach: we sync by video, however we might not have enough samples to provide the callback. we can still step until we have some ready.
     // in the very common case, we'll step more into the vblank period. if we don't go way further and reach another vblank (we definetely won't), we won't have skipped frames
     while emu_lock.audio_queued() < audio_out.len() {
-        emu_lock.step();
+        emu_lock.step_once();
     }
 
     let volume = *volume.lock().unwrap();
-
-    let samples = emu_lock.get_audio_f32_iter(audio_out.len() / 2);
-    for (i, sample) in samples.enumerate() {
-        audio_out[2 * i] = sample * volume;
-        audio_out[2 * i + 1] = sample * volume;
-    }
+    emu_lock.play_audio(audio_out, volume);
 }
 
 struct AudioStreamData {
@@ -293,7 +441,7 @@ impl AudioStreamData {
         buf_size: usize,
         cfg: cpal::SupportedStreamConfig,
         volume: &Arc<Mutex<f32>>,
-        emu: &Arc<Mutex<NesEmulator>>,
+        emu: &Arc<Mutex<EmulatorHandler>>,
     ) -> Option<Self> {
         let volume_arc = Arc::clone(volume);
         let emu_arc = Arc::clone(emu);
@@ -357,7 +505,7 @@ struct AudioHandler {
 }
 
 impl AudioHandler {
-    pub fn new(emu: &Arc<Mutex<NesEmulator>>, enabled: bool, buf_size: usize) -> Self {
+    pub fn new(emu: &Arc<Mutex<EmulatorHandler>>, enabled: bool, buf_size: usize) -> Self {
         let host = cpal::default_host();
 
         // take the default device for now
@@ -442,7 +590,7 @@ impl AudioHandler {
         }
     }
 
-    fn set_ouput_device(&mut self, device: cpal::Device, emu: &Arc<Mutex<NesEmulator>>) {
+    fn set_ouput_device(&mut self, device: cpal::Device, emu: &Arc<Mutex<EmulatorHandler>>) {
         let new_stream = cpal_query_cfgs(&device)
             .and_then(|cfg| AudioStreamData::new(device, self.buf_size, cfg, &self.volume, emu));
 
@@ -552,10 +700,12 @@ enum EmulationState {
 #[derive(Default)]
 #[cfg_attr(feature = "persistence", derive(serde::Serialize, serde::Deserialize))]
 struct AppCfg {
-    input: InputHandler,
+    input_binds: InputHandler,
     recent_roms: VecDeque<PathBuf>,
-    palettes: VecDeque<NesPalette>,
-    bios_path: Option<PathBuf>,
+    nes_palettes: VecDeque<NesPalette>, // TODO
+    nes_bios_path: Option<PathBuf>,
+    gb_bios_path: Option<PathBuf>,
+    gbc_bios_path: Option<PathBuf>,
     keep_aspect_ratio: bool,
     fullscreen: bool,
     hide_cursor: bool,
@@ -588,8 +738,20 @@ enum SettingsTab {
     Gb,
 }
 
+enum RomData {
+    Nes(NesRomData),
+    Gb,
+}
+
+enum Palette {
+    Nes(NesPalette),
+    Gb,
+}
+
 #[derive(Default)]
 struct AppState {
+    egui_ctx: egui::Context,
+
     should_close: bool,
     exit_modal_open: bool,
 
@@ -604,10 +766,11 @@ struct AppState {
     gamepad_input: Vec<EmulatorInput>,
     mouse_pos: (isize, isize),
 
-    bios: Option<Box<[u8]>>,
-    current_rom: Option<(Box<[u8]>, PathBuf)>,
-    current_rom_header: NesRomData,
-
+    nes_bios: Option<Box<[u8]>>,
+    gb_bios: Option<Box<[u8]>>,
+    gbc_bios: Option<Box<[u8]>>,
+    current_rom: Option<(Box<[u8]>, PathBuf, RomData)>,
+    // current_nes_rom_header: NesRomData,
     emulation: EmulationState,
 }
 
@@ -631,7 +794,7 @@ fn file_dialog(prompt: &str, requires: &str, extensions: &[&str]) -> Option<Path
 }
 
 enum FileOpenKind {
-    NesRom,
+    Rom,
     NesPalette,
     FdsBios,
 }
@@ -682,11 +845,10 @@ impl FileDialogHandler {
 
 struct AppCtx {
     // sdl: SdlCtx,
-    emu: Arc<Mutex<NesEmulator>>,
+    emu: Arc<Mutex<EmulatorHandler>>,
     emu_thread: thread::JoinHandle<()>,
     emu_sender: mpsc::Sender<(EmulationState, u32)>,
 
-    tex: Arc<Mutex<egui::TextureHandle>>,
     audio: AudioHandler,
     gamepads: GamepadHandler,
     file_dialog: FileDialogHandler,
@@ -707,15 +869,10 @@ impl AppCtx {
             AppCfg::new()
         };
 
-        let img = egui::ColorImage::filled([256, 240], egui::Color32::TRANSPARENT);
-        let tex = c.egui_ctx.load_texture("emu_present", img, TEX_OPTS);
-        let tex = Arc::new(Mutex::new(tex));
-
-        let emu = NesEmulator::empty();
+        let emu = EmulatorHandler::empty(c);
         let emu = Arc::new(Mutex::new(emu));
 
         let emu_clone = Arc::clone(&emu);
-        let tex_clone = Arc::clone(&tex);
 
         let (send, recv) = mpsc::channel();
 
@@ -735,15 +892,8 @@ impl AppCtx {
                     EmulationState::Paused | EmulationState::Stopped => {}
                     EmulationState::Running => {
                         let mut emu = emu_clone.lock().unwrap();
-                        match emu.step_until_frame_ready() {
-                            Ok(_) => {
-                                let framebuf = egui::ColorImage::from_rgba_unmultiplied(
-                                    [256, 240],
-                                    emu.get_video_rgba(),
-                                );
-                                drop(emu);
-                                tex_clone.lock().unwrap().set(framebuf, TEX_OPTS);
-                            }
+                        match emu.step_one_frame() {
+                            Ok(_) => emu.render_video(),
 
                             Err(_) => {
                                 // TODO: handle errors here
@@ -765,7 +915,6 @@ impl AppCtx {
             emu,
             emu_thread: thread,
             emu_sender: send,
-            tex,
             audio,
             gamepads: GamepadHandler::new(),
             file_dialog: FileDialogHandler::new(),
@@ -774,26 +923,13 @@ impl AppCtx {
             state: Default::default(),
         };
 
-        #[cfg(not(target_arch = "wasm32"))]
-        if let Some(bios_path) = &res.cfg.bios_path {
-            match buffered_read(bios_path) {
-                Ok(bios) => res.state.bios = Some(bios.into_boxed_slice()),
-
-                Err(_) => {
-                    // bios was not found, clear cfg
-                    res.cfg.bios_path = None;
-                    res.add_message("BIOS path provided but was not found");
-                }
-            }
-        }
-
-        // res.state.monitor_refresh_rate = refresh_rate as usize;
-        // res.update_video_sync_fps();
+        res.state.egui_ctx = c.egui_ctx.clone();
+        res.load_all_bioses();
 
         Box::new(res)
     }
 
-    fn emu_lock(&self) -> MutexGuard<'_, NesEmulator> {
+    fn emu_lock(&self) -> MutexGuard<'_, EmulatorHandler> {
         self.emu.lock().unwrap()
     }
 
@@ -804,43 +940,29 @@ impl AppCtx {
         }
     }
 
+    fn notify_emu_thread(&self) {
+        self.emu_sender
+            .send((self.state.emulation, self.emu_lock().frame_rate() as u32))
+            .unwrap();
+    }
+
     fn resume_emulation(&mut self) {
         self.state.emulation = EmulationState::Running;
-        self.emu_sender
-            .send((
-                self.state.emulation,
-                self.state.current_rom_header.region.frame_rate() as u32,
-            ))
-            .unwrap();
+        self.notify_emu_thread();
         self.audio.resume();
     }
 
     fn pause_emulation(&mut self) {
         self.state.emulation = EmulationState::Paused;
-        self.emu_sender
-            .send((
-                self.state.emulation,
-                self.state.current_rom_header.region.frame_rate() as u32,
-            ))
-            .unwrap();
+        self.notify_emu_thread();
         self.audio.pause();
     }
 
     fn stop_emulation(&mut self) {
         self.state.emulation = EmulationState::Stopped;
         self.audio.pause();
-        self.emu_sender
-            .send((
-                self.state.emulation,
-                self.state.current_rom_header.region.frame_rate() as u32,
-            ))
-            .unwrap();
-
-        // clear screen
-        self.tex.lock().unwrap().set(
-            egui::ColorImage::filled([256, 240], egui::Color32::TRANSPARENT),
-            TEX_OPTS,
-        );
+        self.notify_emu_thread();
+        self.emu_lock().clear_video();
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -880,16 +1002,17 @@ impl AppCtx {
     }
 
     fn load_palette_from_bytes(&mut self, bytes: &[u8]) {
-        let res = NesPalette::from_pal_file_bytes(&bytes).ok_or("not a valid NES palette file");
+        // let res = NesPalette::from_pal_file_bytes(&bytes).ok_or("not a valid NES palette file");
 
-        match res {
-            Ok(pal) => {
-                self.emu_lock().set_palette(pal.clone());
-                ring_push_front(&mut self.cfg.palettes, pal, 20);
-                self.add_message("palette loaded");
-            }
-            Err(e) => self.add_message(e),
-        }
+        // match res {
+        //     Ok(pal) => {
+        //         self.emu_lock().set_palette(pal.clone());
+        //         ring_push_front(&mut self.cfg.nes_palettes, pal, 20);
+        //         self.add_message("palette loaded");
+        //     }
+        //     Err(e) => self.add_message(e),
+        // }
+        self.add_message("palettes not yet implemented");
     }
 
     fn close_and_save_rom_if_open(&mut self) {
@@ -899,7 +1022,7 @@ impl AppCtx {
 
         #[cfg(not(target_arch = "wasm32"))]
         if self.cfg.battery_save_enabled {
-            if let Some((_, path)) = &self.state.current_rom {
+            if let Some((_, path, _)) = &self.state.current_rom {
                 let res = self.emu_lock().save_battery_to_file(path);
 
                 if let Err(e) = res {
@@ -914,6 +1037,21 @@ impl AppCtx {
         }
     }
 
+    fn load_all_bioses(&mut self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(bios_path) = &self.cfg.nes_bios_path {
+            match buffered_read(bios_path) {
+                Ok(bios) => self.state.nes_bios = Some(bios.into_boxed_slice()),
+
+                Err(_) => {
+                    // bios was not found, clear cfg
+                    self.cfg.nes_bios_path = None;
+                    self.add_message("BIOS path provided but was not found");
+                }
+            }
+        }
+    }
+
     fn load_rom_from_bytes<P: AsRef<Path>>(
         &mut self,
         rom_path: P,
@@ -922,10 +1060,15 @@ impl AppCtx {
     ) {
         match NesEmulator::builder()
             .with_rom(&rom_bytes)
-            .with_fds_bios(self.state.bios.as_ref())
+            .with_fds_bios(self.state.nes_bios.as_ref())
             .build()
         {
-            Ok(new_emu) => self.load_rom(rom_path, rom_bytes, new_emu, _force_reset),
+            Ok(new_emu) => self.load_rom(
+                rom_path,
+                rom_bytes,
+                EmulatorHandler::new_nes(new_emu, &self.state.egui_ctx),
+                _force_reset,
+            ),
             Err(e) => self.add_message(e),
         }
     }
@@ -941,7 +1084,7 @@ impl AppCtx {
         &mut self,
         rom_path: P,
         rom_bytes: Box<[u8]>,
-        mut new_emu: NesEmulator,
+        mut new_emu: EmulatorHandler,
         _force_reset: bool,
     ) {
         self.close_and_save_rom_if_open();
@@ -951,27 +1094,31 @@ impl AppCtx {
             _ = new_emu.load_battery_from_file(&rom_path);
         }
 
-        new_emu.set_settings(self.cfg.nes_settings.clone());
-        new_emu.set_audio_rate(self.audio.sample_rate() as f64);
-        // self.fps.set_framerate(new_emu.frame_rate() as u32);
+        let pathbuf = rom_path.as_ref().to_path_buf();
+        ring_push_front(&mut self.cfg.recent_roms, pathbuf.clone(), 12);
 
-        if let Some(pal) = self.cfg.palettes.front() {
-            new_emu.palette = pal.clone();
+        match &mut new_emu {
+            EmulatorHandler::Nes(sys, _) => {
+                sys.set_settings(self.cfg.nes_settings.clone());
+                if let Some(pal) = self.cfg.nes_palettes.front() {
+                    sys.palette = pal.clone();
+                }
+
+                self.state.current_rom =
+                    Some((rom_bytes, pathbuf, RomData::Nes(sys.rom_info().clone())));
+            }
+            _ => todo!(),
         }
 
-        self.state.current_rom_header = new_emu.rom_info().clone();
-        *self.emu_lock() = new_emu;
+        new_emu.set_audio_rate(self.audio.sample_rate() as f64);
 
-        let pathbuf = rom_path.as_ref().to_path_buf();
-        self.state.current_rom = Some((rom_bytes, pathbuf.clone()));
-        ring_push_front(&mut self.cfg.recent_roms, pathbuf, 12);
+        *self.emu_lock() = new_emu;
 
         #[cfg(all(not(target_arch = "wasm32"), feature = "savestates"))]
         if self.cfg.restore_session && !_force_reset {
             self.load_state("last");
         }
 
-        // self.update_video_sync_fps();
         match self.state.emulation {
             EmulationState::Stopped | EmulationState::Running => self.resume_emulation(),
             EmulationState::Paused => self.pause_emulation(),
@@ -979,7 +1126,7 @@ impl AppCtx {
     }
 
     fn reset_emulation(&mut self) {
-        if let Some((rom, path)) = self.state.current_rom.take() {
+        if let Some((rom, path, _)) = self.state.current_rom.take() {
             self.load_rom_from_bytes(path, rom, true);
         }
     }
@@ -990,10 +1137,10 @@ impl AppCtx {
                 ui.menu_button("💾 File", |ui| {
                     if ui.button("📂 Open...").clicked() {
                         self.file_dialog.open_dialog(
-                            FileOpenKind::NesRom,
+                            FileOpenKind::Rom,
                             "Select game ROM",
-                            "NES ROM",
-                            &["nes", "fds", "zip", "rar"],
+                            "NES or GB/GBC ROM",
+                            &["nes", "fds", "zip", "rar", "gb", "gbc"],
                         );
                     }
 
@@ -1148,12 +1295,14 @@ impl AppCtx {
                         }
                     }
 
-                    {
-                        let mut emu = self.emu_lock();
-                        if emu.rom_info().is_fds_disk() {
+                    if let Some((_, _, RomData::Nes(info))) = &self.state.current_rom {
+                        if info.is_fds_disk() {
                             ui.separator();
                             if ui.button("💿 Insert next FDS disk/side").clicked() {
-                                emu.mapper.special_input();
+                                match &mut *self.emu_lock() {
+                                    EmulatorHandler::Nes(sys, _) => sys.mapper.special_input(),
+                                    _ => {}
+                                }
                             }
                         }
                     }
@@ -1201,15 +1350,14 @@ impl AppCtx {
                     }
 
                     if ui.button("👢 Run FDS BIOS").clicked() {
-                        match &self.state.bios {
+                        match &self.state.nes_bios {
                             Some(bios) => {
                                 let new_emu = NesEmulator::bios_only(bios);
                                 // this shouldnt fail but you never know
                                 match new_emu {
                                     Ok(new_emu) => {
                                         self.close_and_save_rom_if_open();
-                                        self.state.current_rom_header = new_emu.rom_info().clone();
-                                        *self.emu_lock() = new_emu;
+                                        *self.emu_lock() = EmulatorHandler::new_nes(new_emu, ui);
 
                                         self.resume_emulation();
                                     }
@@ -1381,7 +1529,7 @@ impl AppCtx {
                                     self.file_dialog.open_dialog(FileOpenKind::FdsBios, "Select FDS BIOS file", "FDS BIOS", &["rom"]);
                                 }
 
-                                if let Some(path) = &self.cfg.bios_path {
+                                if let Some(path) = &self.cfg.nes_bios_path {
                                     ui.separator();
                                     ui.label(format!("👢 BIOS selected at: {:?}", path));
                                 }
@@ -1397,13 +1545,19 @@ impl AppCtx {
 
         if audio_disabled != self.cfg.disable_audio {
             self.audio.set_enabled(!self.cfg.disable_audio);
-            self.emu_lock().get_audiobuf().clear();
+            self.emu_lock().clear_audio();
         }
 
         {
             let mut emu = self.emu_lock();
-            if self.cfg.nes_settings != emu.settings {
-                emu.set_settings(self.cfg.nes_settings.clone());
+            match &mut *emu {
+                EmulatorHandler::Nes(sys, _) => {
+                    if self.cfg.nes_settings != sys.settings {
+                        sys.set_settings(self.cfg.nes_settings.clone());
+                    }
+                }
+
+                _ => todo!(),
             }
         }
     }
@@ -1417,13 +1571,13 @@ impl AppCtx {
                 ui.horizontal(|ui| {
                     ui.label("Left click to remove a binding.");
                     if ui.button("Restore to defaults").clicked() {
-                        self.cfg.input = InputHandler::default();
+                        self.cfg.input_binds = InputHandler::default();
                     }
                 });
 
                 // update bindings
                 ui.input(|i| {
-                    let binds = &mut self.cfg.input;
+                    let binds = &mut self.cfg.input_binds;
 
                     if i.pointer.secondary_clicked() {
                         binds.rebind = None;
@@ -1470,7 +1624,7 @@ impl AppCtx {
                 });
 
                 egui::ScrollArea::vertical().show(ui, |ui| {
-                    let input = &mut self.cfg.input;
+                    let input = &mut self.cfg.input_binds;
 
                     let mut to_add = None;
                     let mut to_remove = None;
@@ -1555,98 +1709,103 @@ impl AppCtx {
                 })
             })
             .or_else(|| {
-                self.cfg.input.rebind = None;
+                self.cfg.input_binds.rebind = None;
                 None
             });
     }
 
     fn show_rom_info_window(&mut self, ui: &mut egui::Ui) {
-        let header = &self.state.current_rom_header;
+        match &self.state.current_rom {
+            Some((_, _, RomData::Nes(header))) => {
+                egui::Window::new("💾 ROM information")
+                    .collapsible(true)
+                    .open(&mut self.state.rom_info_open)
+                    .show(ui, |ui| {
+                        egui::ScrollArea::horizontal().show(ui, |ui| {
+                            ui.columns(2, |ui| {
+                                ui[0].label("Game Title");
+                                ui[1].label(&header.title);
+                            });
 
-        egui::Window::new("💾 ROM information")
-            .collapsible(true)
-            .open(&mut self.state.rom_info_open)
-            .show(ui, |ui| {
-                egui::ScrollArea::horizontal().show(ui, |ui| {
-                    ui.columns(2, |ui| {
-                        ui[0].label("Game Title");
-                        ui[1].label(&header.title);
-                    });
+                            ui.columns(2, |ui| {
+                                ui[0].label("Header kind");
+                                ui[1].label(header.format.to_string());
+                            });
 
-                    ui.columns(2, |ui| {
-                        ui[0].label("Header kind");
-                        ui[1].label(header.format.to_string());
-                    });
+                            ui.columns(2, |ui| {
+                                ui[0].label("Mapper ID");
+                                ui[1].hyperlink_to(
+                                    format!("{} ({})", header.mapper_name, header.mapper),
+                                    format!(
+                                        "https://www.nesdev.org/wiki/INES_Mapper_{:03}",
+                                        header.mapper
+                                    ),
+                                );
+                            });
 
-                    ui.columns(2, |ui| {
-                        ui[0].label("Mapper ID");
-                        ui[1].hyperlink_to(
-                            format!("{} ({})", header.mapper_name, header.mapper),
-                            format!(
-                                "https://www.nesdev.org/wiki/INES_Mapper_{:03}",
-                                header.mapper
-                            ),
-                        );
-                    });
+                            ui.columns(2, |ui| {
+                                ui[0].label("SubMapper ID");
+                                ui[1].label(header.submapper.to_string());
+                            });
 
-                    ui.columns(2, |ui| {
-                        ui[0].label("SubMapper ID");
-                        ui[1].label(header.submapper.to_string());
-                    });
+                            ui.columns(2, |ui| {
+                                ui[0].label("Region");
+                                ui[1].label(format!("{:?}", header.region));
+                            });
 
-                    ui.columns(2, |ui| {
-                        ui[0].label("Region");
-                        ui[1].label(format!("{:?}", header.region));
-                    });
+                            ui.columns(2, |ui| {
+                                ui[0].label("Mirroring");
+                                let mirroring = if header.alt_mirroring {
+                                    "Alternative"
+                                } else {
+                                    &format!("{:?}", header.mirroring)
+                                };
+                                ui[1].label(mirroring);
+                            });
 
-                    ui.columns(2, |ui| {
-                        ui[0].label("Mirroring");
-                        let mirroring = if header.alt_mirroring {
-                            "Alternative"
-                        } else {
-                            &format!("{:?}", header.mirroring)
-                        };
-                        ui[1].label(mirroring);
-                    });
+                            ui.columns(2, |ui| {
+                                ui[0].label("PRG size");
+                                ui[1].add(
+                                    egui::ProgressBar::new((header.prg_size / 1024) as f32 / 512.0)
+                                        .corner_radius(egui::CornerRadius::ZERO)
+                                        .text(format!("{} KiB", header.prg_size / 1024)),
+                                )
+                            });
 
-                    ui.columns(2, |ui| {
-                        ui[0].label("PRG size");
-                        ui[1].add(
-                            egui::ProgressBar::new((header.prg_size / 1024) as f32 / 512.0)
-                                .corner_radius(egui::CornerRadius::ZERO)
-                                .text(format!("{} KiB", header.prg_size / 1024)),
-                        )
-                    });
+                            ui.columns(2, |ui| {
+                                ui[0].label("WRAM size");
+                                ui[1].add(
+                                    egui::ProgressBar::new((header.wram_size / 1024) as f32 / 32.0)
+                                        .corner_radius(egui::CornerRadius::ZERO)
+                                        .text(format!("{} KiB", header.wram_size / 1024)),
+                                )
+                            });
 
-                    ui.columns(2, |ui| {
-                        ui[0].label("WRAM size");
-                        ui[1].add(
-                            egui::ProgressBar::new((header.wram_size / 1024) as f32 / 32.0)
-                                .corner_radius(egui::CornerRadius::ZERO)
-                                .text(format!("{} KiB", header.wram_size / 1024)),
-                        )
-                    });
+                            ui.columns(2, |ui| {
+                                ui[0].label("CHR size");
+                                ui[1].add(
+                                    egui::ProgressBar::new((header.chr_size / 1024) as f32 / 256.0)
+                                        .corner_radius(egui::CornerRadius::ZERO)
+                                        .text(format!("{} KiB", header.chr_size / 1024)),
+                                )
+                            });
 
-                    ui.columns(2, |ui| {
-                        ui[0].label("CHR size");
-                        ui[1].add(
-                            egui::ProgressBar::new((header.chr_size / 1024) as f32 / 256.0)
-                                .corner_radius(egui::CornerRadius::ZERO)
-                                .text(format!("{} KiB", header.chr_size / 1024)),
-                        )
-                    });
+                            ui.columns(2, |ui| {
+                                ui[0].label("CHR RAM");
+                                ui[1].label(if header.has_chr_ram { "☑" } else { "☐" });
+                            });
 
-                    ui.columns(2, |ui| {
-                        ui[0].label("CHR RAM");
-                        ui[1].label(if header.has_chr_ram { "☑" } else { "☐" });
+                            ui.columns(2, |ui| {
+                                ui[0].label("Battery");
+                                ui[1].label(if header.has_battery { "☑" } else { "☐" })
+                            });
+                        })
                     });
+            }
 
-                    ui.columns(2, |ui| {
-                        ui[0].label("Battery");
-                        ui[1].label(if header.has_battery { "☑" } else { "☐" })
-                    });
-                })
-            });
+            None => {}
+            _ => todo!(),
+        }
     }
 
     fn show_about_window(&mut self, ui: &mut egui::Ui) {
@@ -1700,16 +1859,17 @@ impl AppCtx {
     fn handle_file_dialog(&mut self) {
         match self.file_dialog.recv.try_recv() {
             Ok((bytes, path, kind)) => match kind {
-                FileOpenKind::NesRom => {
+                FileOpenKind::Rom => {
                     self.load_rom_from_bytes(path, bytes.into_boxed_slice(), false)
                 }
-                FileOpenKind::NesPalette => self.load_palette_from_bytes(&bytes),
+                // FileOpenKind::NesPalette => self.load_palette_from_bytes(&bytes),
+                FileOpenKind::NesPalette => self.add_message("palettes not yet implemented"),
                 FileOpenKind::FdsBios => {
-                    if is_valid_bios(&bytes) {
-                        self.state.bios = Some(bytes.into_boxed_slice());
-                        self.cfg.bios_path = Some(path);
+                    if nenemu_core::rom::is_valid_bios(&bytes) {
+                        self.state.nes_bios = Some(bytes.into_boxed_slice());
+                        self.cfg.nes_bios_path = Some(path);
                     } else {
-                        self.cfg.bios_path = None;
+                        self.cfg.nes_bios_path = None;
                         self.add_message("not a valid FDS bios");
                     }
                 }
@@ -1746,7 +1906,7 @@ impl AppCtx {
         self.state.gamepad_input.clear();
 
         ui.input(|i| {
-            'poll_loop: for bind in &self.cfg.input.binds {
+            'poll_loop: for bind in &self.cfg.input_binds.binds {
                 for key in &bind.keys {
                     match &bind.kind {
                         PlayerInput::Joypad(emu_btn) => {
@@ -1786,7 +1946,7 @@ impl AppCtx {
                     self.state.gamepad_input.push(EmulatorInput::Down)
                 }
 
-                for bind in &self.cfg.input.binds {
+                for bind in &self.cfg.input_binds.binds {
                     for btn in &bind.btns {
                         if let Some(state) = pad.button_data(*btn) {
                             match bind.kind {
@@ -1822,30 +1982,45 @@ impl AppCtx {
 
         if self.state.emulation == EmulationState::Running {
             {
-                let mut emu = self.emu_lock();
-
-                emu.clear_buttons_all();
-                for input in self
+                let input_iter = self
                     .state
                     .keyboard_input
                     .iter()
-                    .chain(self.state.gamepad_input.iter())
-                {
-                    match input {
-                        EmulatorInput::Up => emu.set_button(joypad::JoypadInput::Up, true),
-                        EmulatorInput::Down => emu.set_button(joypad::JoypadInput::Down, true),
-                        EmulatorInput::Left => emu.set_button(joypad::JoypadInput::Left, true),
-                        EmulatorInput::Right => emu.set_button(joypad::JoypadInput::Right, true),
-                        EmulatorInput::A => emu.set_button(joypad::JoypadInput::A, true),
-                        EmulatorInput::B => emu.set_button(joypad::JoypadInput::B, true),
-                        EmulatorInput::Start => emu.set_button(joypad::JoypadInput::Start, true),
-                        EmulatorInput::Select => emu.set_button(joypad::JoypadInput::Select, true),
-                    }
-                }
+                    .chain(self.state.gamepad_input.iter());
 
-                emu.set_zapper_trigger(mouse_left);
-                emu.set_zapper_light_outside(mouse_right);
-                emu.set_zapper_light(self.state.mouse_pos.0, self.state.mouse_pos.1);
+                let mut emu = self.emu_lock();
+                emu.handle_input(
+                    input_iter,
+                    (
+                        mouse_left,
+                        mouse_right,
+                        self.state.mouse_pos.0,
+                        self.state.mouse_pos.1,
+                    ),
+                );
+
+                // emu.clear_buttons_all();
+                // for input in self
+                //     .state
+                //     .keyboard_input
+                //     .iter()
+                //     .chain(self.state.gamepad_input.iter())
+                // {
+                //     match input {
+                //         EmulatorInput::Up => emu.set_button(joypad::JoypadInput::Up, true),
+                //         EmulatorInput::Down => emu.set_button(joypad::JoypadInput::Down, true),
+                //         EmulatorInput::Left => emu.set_button(joypad::JoypadInput::Left, true),
+                //         EmulatorInput::Right => emu.set_button(joypad::JoypadInput::Right, true),
+                //         EmulatorInput::A => emu.set_button(joypad::JoypadInput::A, true),
+                //         EmulatorInput::B => emu.set_button(joypad::JoypadInput::B, true),
+                //         EmulatorInput::Start => emu.set_button(joypad::JoypadInput::Start, true),
+                //         EmulatorInput::Select => emu.set_button(joypad::JoypadInput::Select, true),
+                //     }
+                // }
+
+                // emu.set_zapper_trigger(mouse_left);
+                // emu.set_zapper_light_outside(mouse_right);
+                // emu.set_zapper_light(self.state.mouse_pos.0, self.state.mouse_pos.1);
 
                 // match emu.step_until_frame_ready() {
                 //     Ok(_) => {
@@ -1894,7 +2069,7 @@ impl eframe::App for AppCtx {
                 egui::Frame::new()
                     .fill(egui::Color32::BLACK.gamma_multiply(0.6))
                     .show(ui, |ui| {
-                        let img = egui::Image::new(&*self.tex.lock().unwrap())
+                        let img = egui::Image::new(self.emu_lock().get_video())
                             .maintain_aspect_ratio(self.cfg.keep_aspect_ratio)
                             .fit_to_exact_size(ui.max_rect().size());
 
@@ -1917,7 +2092,7 @@ impl eframe::App for AppCtx {
         });
 
         #[cfg(not(target_arch = "wasm32"))]
-        ui.input(|i| {
+        let rom_file_to_load = ui.input(|i| {
             // check for dropped files
             let files = &i.raw.dropped_files;
             if let Some(Some(path)) = files.first().map(|f| &f.path) {
@@ -1925,10 +2100,17 @@ impl eframe::App for AppCtx {
                 if path.extension() == Some(pal_ext) {
                     self.load_palette_from_file(path);
                 } else {
-                    self.load_rom_from_file(path, true);
+                    return Some(path.clone());
                 }
             }
+
+            None
         });
+
+        // we have to do this because load_rom_from_file needs access to context
+        if let Some(path) = rom_file_to_load {
+            self.load_rom_from_file(path, true);
+        }
 
         if ui.input_mut(|i| {
             if i.consume_key(egui::Modifiers::ALT, egui::Key::Enter) {
