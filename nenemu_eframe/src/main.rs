@@ -1103,6 +1103,7 @@ impl AppCtx {
                     sys.palette = pal.clone();
                 }
 
+                self.fps.set_framerate(sys.frame_rate() as u32);
                 self.state.current_rom =
                     Some((rom_bytes, pathbuf, RomData::Nes(sys.rom_info().clone())));
             }
